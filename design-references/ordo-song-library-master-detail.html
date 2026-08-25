@@ -1,0 +1,449 @@
+<div id="ordo-song-library-master-detail">
+  <style>
+    #ordo-song-library-master-detail {
+      color-scheme: light dark;
+      overflow: hidden;
+      color: light-dark(#292723, #f3f0e9);
+      background: light-dark(#f2eee5, #1d1f1d);
+      border: 1px solid light-dark(#d5cdbf, #444741);
+      border-radius: 16px;
+      box-shadow: 0 18px 50px light-dark(#312b211f, #0000005c);
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Noto Sans", system-ui, sans-serif;
+    }
+    #ordo-song-library-master-detail * { box-sizing: border-box; }
+    #ordo-song-library-master-detail button,
+    #ordo-song-library-master-detail input,
+    #ordo-song-library-master-detail select { font: inherit; color: inherit; }
+    #ordo-song-library-master-detail button { cursor: pointer; }
+    #ordo-song-library-master-detail h2,
+    #ordo-song-library-master-detail h3,
+    #ordo-song-library-master-detail p { margin: 0; }
+    #ordo-song-library-master-detail small { color: light-dark(#70695e, #b8b8b1); }
+    #ordo-song-library-master-detail .osl-appbar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 15px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#fbf8f1, #282a27);
+    }
+    #ordo-song-library-master-detail .osl-brand { font-weight: 500; letter-spacing: .11em; }
+    #ordo-song-library-master-detail .osl-nav { display: flex; gap: 3px; }
+    #ordo-song-library-master-detail .osl-nav button,
+    #ordo-song-library-master-detail .osl-button,
+    #ordo-song-library-master-detail .osl-song,
+    #ordo-song-library-master-detail .osl-arrangement {
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+    }
+    #ordo-song-library-master-detail .osl-nav button { padding: 7px 9px; }
+    #ordo-song-library-master-detail .osl-nav button[aria-current="page"] {
+      background: light-dark(#e6dfd3, #3a3d38);
+      font-weight: 500;
+    }
+    #ordo-song-library-master-detail .osl-saved { margin-left: auto; white-space: nowrap; }
+    #ordo-song-library-master-detail .osl-shell {
+      display: grid;
+      grid-template-columns: minmax(250px, 31%) minmax(0, 1fr);
+      min-height: 625px;
+    }
+    #ordo-song-library-master-detail .osl-browser {
+      min-width: 0;
+      padding: 15px;
+      border-right: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#f7f3eb, #222421);
+    }
+    #ordo-song-library-master-detail .osl-browser-head,
+    #ordo-song-library-master-detail .osl-detail-head,
+    #ordo-song-library-master-detail .osl-section-head,
+    #ordo-song-library-master-detail .osl-arrangement-main,
+    #ordo-song-library-master-detail .osl-filter-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    #ordo-song-library-master-detail .osl-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-color: light-dark(#cec6b8, #4a4d48);
+      background: light-dark(#fffdf8, #30332f);
+      white-space: nowrap;
+    }
+    #ordo-song-library-master-detail .osl-button-primary {
+      border-color: light-dark(#355d4b, #91c0a7);
+      background: light-dark(#355d4b, #91c0a7);
+      color: light-dark(#ffffff, #14231c);
+      font-weight: 500;
+    }
+    #ordo-song-library-master-detail .osl-search-wrap { position: relative; margin-top: 13px; }
+    #ordo-song-library-master-detail .osl-search-wrap svg {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: light-dark(#70695e, #b8b8b1);
+    }
+    #ordo-song-library-master-detail .osl-search {
+      width: 100%;
+      padding: 9px 10px 9px 34px;
+      border: 1px solid light-dark(#ccc4b7, #4b4e49);
+      border-radius: 9px;
+      background: light-dark(#fffdf8, #2d302c);
+    }
+    #ordo-song-library-master-detail .osl-filters {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin: 8px 0 12px;
+    }
+    #ordo-song-library-master-detail .osl-filter {
+      min-width: 0;
+      padding: 7px 8px;
+      border: 1px solid light-dark(#cec6b8, #4a4d48);
+      border-radius: 8px;
+      background: light-dark(#fffdf8, #30332f);
+    }
+    #ordo-song-library-master-detail .osl-result-meta { margin-bottom: 8px; }
+    #ordo-song-library-master-detail .osl-results { display: grid; gap: 6px; }
+    #ordo-song-library-master-detail .osl-song {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 10px;
+      text-align: left;
+      border-color: light-dark(#ded7cb, #414440);
+      background: light-dark(#fbf8f1, #292b29);
+    }
+    #ordo-song-library-master-detail .osl-song:hover { border-color: light-dark(#8a9b8c, #6f8f7d); }
+    #ordo-song-library-master-detail .osl-song[aria-pressed="true"] {
+      border-color: light-dark(#486b59, #90c1a7);
+      background: light-dark(#e7eee8, #26332b);
+      box-shadow: inset 3px 0 light-dark(#355d4b, #91c0a7);
+    }
+    #ordo-song-library-master-detail .osl-song strong,
+    #ordo-song-library-master-detail .osl-song small { display: block; min-width: 0; }
+    #ordo-song-library-master-detail .osl-song small { margin-top: 2px; }
+    #ordo-song-library-master-detail .osl-count {
+      align-self: center;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: light-dark(#e9e3d8, #363933);
+      color: light-dark(#5f594f, #d0d0c9);
+      white-space: nowrap;
+    }
+    #ordo-song-library-master-detail .osl-empty {
+      padding: 24px 8px;
+      text-align: center;
+      color: light-dark(#70695e, #b8b8b1);
+    }
+    #ordo-song-library-master-detail .osl-detail { min-width: 0; padding: 19px; }
+    #ordo-song-library-master-detail .osl-detail-head {
+      align-items: flex-start;
+      padding-bottom: 15px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+    }
+    #ordo-song-library-master-detail .osl-title-block { min-width: 0; }
+    #ordo-song-library-master-detail .osl-title-block p { margin-top: 5px; color: light-dark(#70695e, #b8b8b1); }
+    #ordo-song-library-master-detail .osl-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+    #ordo-song-library-master-detail .osl-facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin: 14px 0 20px;
+    }
+    #ordo-song-library-master-detail .osl-fact {
+      min-width: 0;
+      padding: 10px;
+      border-radius: 9px;
+      background: light-dark(#e9e3d8, #292c28);
+    }
+    #ordo-song-library-master-detail .osl-fact strong,
+    #ordo-song-library-master-detail .osl-fact small { display: block; }
+    #ordo-song-library-master-detail .osl-section-head { margin: 16px 0 8px; }
+    #ordo-song-library-master-detail .osl-arrangements { display: grid; gap: 7px; }
+    #ordo-song-library-master-detail .osl-arrangement {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(125px, .8fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      text-align: left;
+      border-color: light-dark(#d4ccbf, #454842);
+      background: light-dark(#fffdf8, #292b29);
+    }
+    #ordo-song-library-master-detail .osl-arrangement:hover { border-color: light-dark(#789381, #779f89); }
+    #ordo-song-library-master-detail .osl-arrangement strong,
+    #ordo-song-library-master-detail .osl-arrangement small { display: block; }
+    #ordo-song-library-master-detail .osl-open { color: light-dark(#355d4b, #9cc7b0); font-weight: 500; white-space: nowrap; }
+    #ordo-song-library-master-detail .osl-context {
+      margin-top: 18px;
+      padding: 11px;
+      border-left: 3px solid light-dark(#a8732f, #d5a35f);
+      background: light-dark(#fff7e6, #392f22);
+    }
+    #ordo-song-library-master-detail .osl-context small { display: block; margin-top: 3px; }
+    #ordo-song-library-master-detail .osl-editor {
+      display: none;
+      min-height: 625px;
+      background: light-dark(#f2eee5, #1d1f1d);
+    }
+    #ordo-song-library-master-detail[data-view="editor"] .osl-shell { display: none; }
+    #ordo-song-library-master-detail[data-view="editor"] .osl-editor { display: block; }
+    #ordo-song-library-master-detail .osl-editor-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 15px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#f7f3eb, #222421);
+    }
+    #ordo-song-library-master-detail .osl-editor-title { flex: 1; min-width: 0; }
+    #ordo-song-library-master-detail .osl-editor-title strong,
+    #ordo-song-library-master-detail .osl-editor-title small { display: block; }
+    #ordo-song-library-master-detail .osl-editor-preview {
+      display: grid;
+      grid-template-columns: minmax(210px, .75fr) minmax(0, 1.5fr) minmax(220px, .9fr);
+      min-height: 565px;
+    }
+    #ordo-song-library-master-detail .osl-editor-preview > * { min-width: 0; padding: 16px; }
+    #ordo-song-library-master-detail .osl-editor-preview > * + * { border-left: 1px solid light-dark(#d5cdbf, #444741); }
+    #ordo-song-library-master-detail .osl-placeholder-list { display: grid; gap: 7px; margin-top: 12px; }
+    #ordo-song-library-master-detail .osl-placeholder-row {
+      padding: 10px;
+      border-radius: 8px;
+      background: light-dark(#ebe6dc, #292c28);
+    }
+    #ordo-song-library-master-detail .osl-frame {
+      aspect-ratio: 16 / 9;
+      display: grid;
+      place-items: center;
+      margin-top: 12px;
+      padding: 9%;
+      border-radius: 8px;
+      background: #000;
+      color: #fff;
+      text-align: center;
+      box-shadow: 0 8px 25px #00000040;
+    }
+    @media (max-width: 720px) {
+      #ordo-song-library-master-detail .osl-appbar { gap: 10px; }
+      #ordo-song-library-master-detail .osl-nav button:not([aria-current="page"]) { display: none; }
+      #ordo-song-library-master-detail .osl-shell { grid-template-columns: minmax(225px, 34%) minmax(0, 1fr); }
+      #ordo-song-library-master-detail .osl-actions .osl-button:not(.osl-button-primary) { display: none; }
+      #ordo-song-library-master-detail .osl-facts { grid-template-columns: 1fr; }
+      #ordo-song-library-master-detail .osl-arrangement { grid-template-columns: minmax(0, 1fr) auto; }
+      #ordo-song-library-master-detail .osl-arrangement > span:nth-child(2) { grid-column: 1 / -1; }
+      #ordo-song-library-master-detail .osl-editor-preview { grid-template-columns: minmax(190px, .75fr) minmax(0, 1.25fr); }
+      #ordo-song-library-master-detail .osl-editor-preview > aside:last-child { grid-column: 1 / -1; border-left: 0; border-top: 1px solid light-dark(#d5cdbf, #444741); }
+    }
+    @media (max-width: 540px) {
+      #ordo-song-library-master-detail .osl-appbar { flex-wrap: wrap; }
+      #ordo-song-library-master-detail .osl-saved { margin-left: 0; }
+      #ordo-song-library-master-detail .osl-shell,
+      #ordo-song-library-master-detail .osl-editor-preview { display: block; }
+      #ordo-song-library-master-detail .osl-browser { border-right: 0; border-bottom: 1px solid light-dark(#d5cdbf, #444741); }
+      #ordo-song-library-master-detail .osl-detail-head { display: block; }
+      #ordo-song-library-master-detail .osl-actions { justify-content: flex-start; margin-top: 12px; }
+      #ordo-song-library-master-detail .osl-editor-preview > * + * { border-left: 0; border-top: 1px solid light-dark(#d5cdbf, #444741); }
+    }
+  </style>
+
+  <header class="osl-appbar">
+    <span class="osl-brand">ORDO</span>
+    <nav class="osl-nav" aria-label="Main navigation">
+      <button type="button">Masses</button>
+      <button type="button" aria-current="page">Songs</button>
+      <button type="button">Themes</button>
+      <button type="button">Transfer</button>
+      <button type="button">Settings</button>
+    </nav>
+    <small class="osl-saved">Saved locally</small>
+  </header>
+
+  <main class="osl-shell">
+    <aside class="osl-browser" aria-label="Song browser">
+      <div class="osl-browser-head">
+        <div><small>Parish library</small><h2>Songs</h2></div>
+        <button type="button" class="osl-button osl-button-primary"><i data-lucide="plus" aria-hidden="true"></i>New song</button>
+      </div>
+      <div class="osl-search-wrap">
+        <i data-lucide="search" aria-hidden="true"></i>
+        <input id="osl-search" class="osl-search" type="search" value="Kyrie" placeholder="Title, alias, composer…" aria-label="Search songs">
+      </div>
+      <div class="osl-filters">
+        <select id="osl-choir" class="osl-filter" aria-label="Filter by choir">
+          <option value="all">All choirs</option>
+          <option value="choir-a">Choir A</option>
+          <option value="choir-b">Choir B</option>
+          <option value="choir-c">Choir C</option>
+        </select>
+        <select id="osl-language" class="osl-filter" aria-label="Filter by language">
+          <option value="all">All languages</option>
+          <option value="cebuano">Cebuano</option>
+          <option value="english">English</option>
+        </select>
+      </div>
+      <div class="osl-filter-line osl-result-meta"><small id="osl-result-count">4 songs</small><small>Title A–Z</small></div>
+      <div id="osl-results" class="osl-results"></div>
+    </aside>
+
+    <section class="osl-detail" aria-live="polite">
+      <header class="osl-detail-head">
+        <div class="osl-title-block">
+          <small>Song work</small>
+          <h2 id="osl-title">Kyrie · 3rd Mass</h2>
+          <p id="osl-attribution">Traditional setting attributed to Msgr. Rudy Villanueva</p>
+        </div>
+        <div class="osl-actions">
+          <button type="button" class="osl-button">History</button>
+          <button type="button" class="osl-button">Edit details</button>
+          <button type="button" class="osl-button osl-button-primary"><i data-lucide="plus" aria-hidden="true"></i>Add arrangement</button>
+        </div>
+      </header>
+
+      <div class="osl-facts">
+        <div class="osl-fact"><small>Aliases</small><strong id="osl-alias">Ginoo, Kaloy-i Kami</strong></div>
+        <div class="osl-fact"><small>Usual moments</small><strong id="osl-moment">Penitential Act</strong></div>
+        <div class="osl-fact"><small>Arrangements</small><strong id="osl-total">2 reusable renditions</strong></div>
+      </div>
+
+      <div class="osl-section-head"><h3>Arrangements</h3><small id="osl-language-summary">Cebuano · English</small></div>
+      <div id="osl-arrangements" class="osl-arrangements"></div>
+
+      <div class="osl-context">
+        <strong id="osl-context-title">Shared parish repertoire</strong>
+        <small id="osl-context-copy">Choirs A and B share one Arrangement because their lyrics, Sequence, and generated slides are identical.</small>
+      </div>
+    </section>
+  </main>
+
+  <main class="osl-editor" aria-label="Arrangement editor preview">
+    <header class="osl-editor-bar">
+      <button type="button" id="osl-back" class="osl-button"><i data-lucide="chevron-left" aria-hidden="true"></i>Back to Songs</button>
+      <div class="osl-editor-title"><strong id="osl-editor-name">Choir A · Cebuano</strong><small id="osl-editor-crumb">Songs / Kyrie · 3rd Mass / Choir A · Cebuano</small></div>
+      <button type="button" class="osl-button">Arrangement details</button>
+    </header>
+    <div class="osl-editor-preview">
+      <aside><small>Available sections</small><h3>Sections</h3><div class="osl-placeholder-list"><div class="osl-placeholder-row">Verse 1 · 2 slides</div><div class="osl-placeholder-row">Chorus · Used 2×</div><div class="osl-placeholder-row">Verse 2 · 2 slides</div></div></aside>
+      <section><small>Performance sequence</small><h3>01 Verse 1 → 02 Chorus → 03 Verse 2</h3><div class="osl-placeholder-list"><div class="osl-placeholder-row">Selected occurrence · Verse 1</div><div class="osl-placeholder-row">Lyrics and Sequence workspace continues here</div></div></section>
+      <aside><small>Inspector</small><h3>Canonical preview</h3><div class="osl-frame">Ginoo, kaloy-i kami<br>Kristo, kaloy-i kami</div></aside>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-song-library-master-detail');
+      const songs = [
+        {
+          id: 'kyrie-3', title: 'Kyrie · 3rd Mass', attribution: 'Traditional setting attributed to Msgr. Rudy Villanueva', alias: 'Ginoo, Kaloy-i Kami', moment: 'Penitential Act', choirs: ['choir-a', 'choir-b'], languages: ['cebuano', 'english'],
+          contextTitle: 'Shared parish repertoire', contextCopy: 'Choirs A and B share one Arrangement because their lyrics, Sequence, and generated slides are identical.',
+          arrangements: [
+            { name: 'Choirs A, B · Cebuano', note: 'Original wording · updated 2 days ago', meta: '4 sections · 7 slides', language: 'Cebuano' },
+            { name: 'Choir B · English adaptation', note: 'Adapted by Walter M. · updated 3 months ago', meta: '4 sections · 8 slides', language: 'English' }
+          ]
+        },
+        {
+          id: 'kyrie-8', title: 'Kyrie · 8th Mass', attribution: 'Gregorian setting · parish edition', alias: 'Missa de Angelis', moment: 'Penitential Act', choirs: ['choir-a'], languages: ['cebuano'],
+          contextTitle: 'Seasonal use', contextCopy: 'Choir A commonly uses this Arrangement during Ordinary Time and parish feast celebrations.',
+          arrangements: [{ name: 'Choir A · Cebuano', note: 'Reviewed last month', meta: '3 sections · 5 slides', language: 'Cebuano' }]
+        },
+        {
+          id: 'kyrie-13', title: 'Kyrie · 13th Mass', attribution: 'Traditional parish setting', alias: 'Kyrie XIII', moment: 'Penitential Act', choirs: ['choir-c'], languages: ['cebuano'],
+          contextTitle: 'Choir-specific rendition', contextCopy: 'This exact wording and Sequence are currently associated with Choir C.',
+          arrangements: [{ name: 'Choir C · Cebuano', note: 'Slides need review', meta: '4 sections · 6 slides', language: 'Cebuano' }]
+        },
+        {
+          id: 'kyrie-eleison', title: 'Kyrie Eleison', attribution: 'Traditional chant', alias: 'Lord, have mercy', moment: 'Penitential Act', choirs: ['choir-b'], languages: ['english'],
+          contextTitle: 'Traditional chant', contextCopy: 'One simple English-language Arrangement is currently available.',
+          arrangements: [{ name: 'Choir B · English', note: 'Approved', meta: '2 sections · 2 slides', language: 'English' }]
+        },
+        {
+          id: 'gloria-8', title: 'Gloria · 8th Mass', attribution: 'Gregorian setting', alias: 'Glory to God', moment: 'Gloria', choirs: ['choir-a'], languages: ['cebuano'],
+          contextTitle: 'Not shown in current query', contextCopy: 'Search for Gloria to reveal this Song work.',
+          arrangements: [{ name: 'Choir A · Cebuano', note: 'Approved', meta: '5 sections · 9 slides', language: 'Cebuano' }]
+        }
+      ];
+      const search = root.querySelector('#osl-search');
+      const choir = root.querySelector('#osl-choir');
+      const language = root.querySelector('#osl-language');
+      const results = root.querySelector('#osl-results');
+      let selectedId = 'kyrie-3';
+
+      function safe(value) {
+        return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      }
+
+      function filteredSongs() {
+        const query = search.value.trim().toLocaleLowerCase();
+        return songs.filter(song => {
+          const matchesQuery = !query || [song.title, song.attribution, song.alias].join(' ').toLocaleLowerCase().includes(query);
+          const matchesChoir = choir.value === 'all' || song.choirs.includes(choir.value);
+          const matchesLanguage = language.value === 'all' || song.languages.includes(language.value);
+          return matchesQuery && matchesChoir && matchesLanguage;
+        });
+      }
+
+      function renderDetail(song) {
+        root.querySelector('#osl-title').textContent = song.title;
+        root.querySelector('#osl-attribution').textContent = song.attribution;
+        root.querySelector('#osl-alias').textContent = song.alias;
+        root.querySelector('#osl-moment').textContent = song.moment;
+        root.querySelector('#osl-total').textContent = `${song.arrangements.length} reusable rendition${song.arrangements.length === 1 ? '' : 's'}`;
+        root.querySelector('#osl-language-summary').textContent = [...new Set(song.arrangements.map(item => item.language))].join(' · ');
+        root.querySelector('#osl-context-title').textContent = song.contextTitle;
+        root.querySelector('#osl-context-copy').textContent = song.contextCopy;
+        root.querySelector('#osl-arrangements').innerHTML = song.arrangements.map((item, index) => `
+          <button type="button" class="osl-arrangement" data-arrangement="${index}">
+            <span><strong>${safe(item.name)}</strong><small>${safe(item.note)}</small></span>
+            <span><strong>${safe(item.meta)}</strong><small>${safe(item.language)}</small></span>
+            <span class="osl-open">Open <i data-lucide="arrow-right" aria-hidden="true"></i></span>
+          </button>
+        `).join('');
+        root.querySelectorAll('[data-arrangement]').forEach(button => button.addEventListener('click', () => openArrangement(song, song.arrangements[Number(button.dataset.arrangement)])));
+        if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+      }
+
+      function render() {
+        const visible = filteredSongs();
+        root.querySelector('#osl-result-count').textContent = `${visible.length} song${visible.length === 1 ? '' : 's'}`;
+        if (!visible.some(song => song.id === selectedId)) selectedId = visible[0]?.id ?? null;
+        results.innerHTML = visible.length ? visible.map(song => `
+          <button type="button" class="osl-song" data-song="${song.id}" aria-pressed="${song.id === selectedId}">
+            <span><strong>${safe(song.title)}</strong><small>${safe(song.attribution)}</small></span>
+            <span class="osl-count">${song.arrangements.length}</span>
+          </button>
+        `).join('') : '<div class="osl-empty">No songs match these filters.</div>';
+        root.querySelectorAll('[data-song]').forEach(button => button.addEventListener('click', () => {
+          selectedId = button.dataset.song;
+          render();
+        }));
+        const selected = songs.find(song => song.id === selectedId);
+        if (selected) renderDetail(selected);
+      }
+
+      function openArrangement(song, arrangement) {
+        root.dataset.view = 'editor';
+        root.querySelector('#osl-editor-name').textContent = arrangement.name;
+        root.querySelector('#osl-editor-crumb').textContent = `Songs / ${song.title} / ${arrangement.name}`;
+      }
+
+      search.addEventListener('input', render);
+      choir.addEventListener('change', render);
+      language.addEventListener('change', render);
+      root.querySelector('#osl-back').addEventListener('click', () => {
+        root.dataset.view = 'library';
+        render();
+      });
+      root.dataset.view = 'library';
+      render();
+    })();
+  </script>
+</div>

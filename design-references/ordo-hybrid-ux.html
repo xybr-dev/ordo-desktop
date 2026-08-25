@@ -1,0 +1,335 @@
+<div id="ordo-hybrid-demo">
+  <style>
+    #ordo-hybrid-demo {
+      --ordo-bg: light-dark(#eef1f5, #0f141c);
+      --ordo-window: light-dark(#ffffff, #171e28);
+      --ordo-panel: light-dark(#f7f8fa, #202936);
+      --ordo-panel-strong: light-dark(#e8edf4, #2a3646);
+      --ordo-text: light-dark(#172033, #edf2f8);
+      --ordo-muted: light-dark(#657086, #a8b3c4);
+      --ordo-border: light-dark(#d8dee8, #394659);
+      --ordo-accent: light-dark(#6b3dc5, #b493ff);
+      --ordo-accent-text: light-dark(#ffffff, #171020);
+      --ordo-live: light-dark(#166f4a, #55d69c);
+      --ordo-live-text: light-dark(#ffffff, #092619);
+      --ordo-black: #050608;
+      --ordo-white: #ffffff;
+      color-scheme: light dark;
+      color: var(--ordo-text);
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      width: 100%;
+    }
+
+    #ordo-hybrid-demo * { box-sizing: border-box; }
+
+    #ordo-hybrid-demo .ordo-window {
+      background: var(--ordo-window);
+      border: 1px solid var(--ordo-border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 14px 36px light-dark(rgb(25 34 50 / 14%), rgb(0 0 0 / 30%));
+    }
+
+    #ordo-hybrid-demo .ordo-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--ordo-border);
+      background: var(--ordo-window);
+    }
+
+    #ordo-hybrid-demo .ordo-brand,
+    #ordo-hybrid-demo .ordo-tabs,
+    #ordo-hybrid-demo .ordo-actions,
+    #ordo-hybrid-demo .ordo-sequence,
+    #ordo-hybrid-demo .ordo-slide-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #ordo-hybrid-demo .ordo-brand strong { font-weight: 500; }
+    #ordo-hybrid-demo .ordo-brand span,
+    #ordo-hybrid-demo .ordo-subtle { color: var(--ordo-muted); }
+
+    #ordo-hybrid-demo button {
+      appearance: none;
+      border: 1px solid var(--ordo-border);
+      border-radius: 7px;
+      background: var(--ordo-panel);
+      color: var(--ordo-text);
+      padding: 7px 10px;
+      font: inherit;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    #ordo-hybrid-demo button:hover { background: var(--ordo-panel-strong); }
+    #ordo-hybrid-demo button:focus-visible { outline: 2px solid var(--ordo-accent); outline-offset: 2px; }
+    #ordo-hybrid-demo button[aria-selected="true"] { background: var(--ordo-accent); color: var(--ordo-accent-text); border-color: var(--ordo-accent); }
+
+    #ordo-hybrid-demo .ordo-content { padding: 16px; background: var(--ordo-bg); }
+    #ordo-hybrid-demo .ordo-view[hidden] { display: none; }
+    #ordo-hybrid-demo h2,
+    #ordo-hybrid-demo h3,
+    #ordo-hybrid-demo p { margin-top: 0; }
+    #ordo-hybrid-demo h2 { margin-bottom: 4px; font-size: 1.05rem; font-weight: 500; }
+    #ordo-hybrid-demo h3 { margin-bottom: 10px; font-size: .9rem; font-weight: 500; }
+    #ordo-hybrid-demo p { margin-bottom: 12px; color: var(--ordo-muted); }
+
+    #ordo-hybrid-demo .ordo-editor-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+      gap: 14px;
+    }
+
+    #ordo-hybrid-demo .ordo-pane {
+      min-width: 0;
+      background: var(--ordo-window);
+      border: 1px solid var(--ordo-border);
+      border-radius: 9px;
+      padding: 14px;
+    }
+
+    #ordo-hybrid-demo .ordo-section-list { display: grid; gap: 8px; }
+    #ordo-hybrid-demo .ordo-section {
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: var(--ordo-panel);
+      border-radius: 7px;
+    }
+
+    #ordo-hybrid-demo .ordo-section-code,
+    #ordo-hybrid-demo .ordo-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      border-radius: 6px;
+      background: var(--ordo-panel-strong);
+      color: var(--ordo-text);
+      font-weight: 500;
+    }
+
+    #ordo-hybrid-demo .ordo-section-copy { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ordo-hybrid-demo .ordo-section button { padding: 5px 8px; }
+    #ordo-hybrid-demo .ordo-sequence { min-height: 46px; padding: 9px; background: var(--ordo-panel); border-radius: 7px; }
+    #ordo-hybrid-demo .ordo-chip { min-width: 38px; padding: 5px 9px; }
+    #ordo-hybrid-demo .ordo-chip.chorus { background: var(--ordo-accent); color: var(--ordo-accent-text); }
+
+    #ordo-hybrid-demo .ordo-compiled { margin-top: 14px; }
+    #ordo-hybrid-demo .ordo-slide-strip { align-items: stretch; }
+    #ordo-hybrid-demo .ordo-mini-slide {
+      width: 108px;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8px;
+      background: var(--ordo-black);
+      color: var(--ordo-white);
+      border: 2px solid transparent;
+      border-radius: 5px;
+      font-size: .72rem;
+    }
+
+    #ordo-hybrid-demo .ordo-live-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(250px, .75fr);
+      gap: 14px;
+    }
+
+    #ordo-hybrid-demo .ordo-output {
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8%;
+      background: var(--ordo-black);
+      color: var(--ordo-white);
+      text-align: center;
+      border-radius: 8px;
+    }
+
+    #ordo-hybrid-demo .ordo-output strong { font-size: clamp(1rem, 3.5vw, 2rem); font-weight: 500; }
+    #ordo-hybrid-demo .ordo-output span { margin-top: 12px; opacity: .7; }
+    #ordo-hybrid-demo .ordo-live-state { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    #ordo-hybrid-demo .ordo-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ordo-live); }
+    #ordo-hybrid-demo .ordo-live-state.frozen .ordo-dot { background: var(--ordo-accent); }
+
+    #ordo-hybrid-demo .ordo-queue { display: grid; gap: 8px; margin: 12px 0; }
+    #ordo-hybrid-demo .ordo-queue button { text-align: left; display: grid; grid-template-columns: 32px 1fr; gap: 8px; align-items: center; }
+    #ordo-hybrid-demo .ordo-queue button.is-selected { border-color: var(--ordo-accent); background: var(--ordo-panel-strong); }
+    #ordo-hybrid-demo .ordo-live-primary { background: var(--ordo-live); color: var(--ordo-live-text); border-color: var(--ordo-live); }
+    #ordo-hybrid-demo .ordo-live-primary:hover { filter: brightness(.95); }
+
+    @media (max-width: 640px) {
+      #ordo-hybrid-demo .ordo-topbar { align-items: flex-start; flex-direction: column; }
+      #ordo-hybrid-demo .ordo-editor-grid,
+      #ordo-hybrid-demo .ordo-live-grid { grid-template-columns: 1fr; }
+      #ordo-hybrid-demo .ordo-mini-slide { width: 92px; }
+    }
+  </style>
+
+  <div class="ordo-window">
+    <div class="ordo-topbar">
+      <div class="ordo-brand"><strong>Ordo</strong><span>My Life in You · Choir A arrangement</span></div>
+      <div class="ordo-tabs" role="tablist" aria-label="Ordo workflow view">
+        <button type="button" role="tab" aria-selected="true" aria-controls="ordo-editor-view" id="ordo-editor-tab">Song editor</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="ordo-live-view" id="ordo-live-tab">Live presenter</button>
+      </div>
+    </div>
+
+    <div class="ordo-content">
+      <section class="ordo-view" id="ordo-editor-view" role="tabpanel" aria-labelledby="ordo-editor-tab">
+        <div class="ordo-editor-grid">
+          <div class="ordo-pane">
+            <h2>Write each section once</h2>
+            <p>Lyrics remain reusable even when the chorus appears several times.</p>
+            <div class="ordo-section-list">
+              <div class="ordo-section"><span class="ordo-section-code">V1</span><span class="ordo-section-copy">You gave me hope…</span><button type="button" data-add="V1">Add</button></div>
+              <div class="ordo-section"><span class="ordo-section-code">C</span><span class="ordo-section-copy">My life in You…</span><button type="button" data-add="C">Add</button></div>
+              <div class="ordo-section"><span class="ordo-section-code">V2</span><span class="ordo-section-copy">You called my name…</span><button type="button" data-add="V2">Add</button></div>
+              <div class="ordo-section"><span class="ordo-section-code">B</span><span class="ordo-section-copy">Forever I will sing…</span><button type="button" data-add="B">Add</button></div>
+            </div>
+          </div>
+
+          <div class="ordo-pane">
+            <h2>Arrange it for this choir</h2>
+            <p>The arrangement expands into ordinary sequential slides before Mass.</p>
+            <div class="ordo-sequence" id="ordo-sequence" aria-live="polite"></div>
+            <div class="ordo-actions" style="margin-top:10px">
+              <button type="button" id="ordo-reset">Reset example</button>
+              <button type="button" id="ordo-clear">Clear order</button>
+            </div>
+            <div class="ordo-compiled">
+              <h3>Generated slide queue</h3>
+              <div class="ordo-slide-strip" id="ordo-slide-strip"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ordo-view" id="ordo-live-view" role="tabpanel" aria-labelledby="ordo-live-tab" hidden>
+        <div class="ordo-live-grid">
+          <div class="ordo-pane">
+            <div class="ordo-live-state" id="ordo-live-state"><span class="ordo-dot"></span><strong id="ordo-state-label">Projector live</strong></div>
+            <div class="ordo-output" aria-live="polite"><strong id="ordo-output-text">My life in You…</strong><span id="ordo-output-label">Chorus</span></div>
+          </div>
+          <div class="ordo-pane">
+            <h2>Preselect while output is frozen</h2>
+            <p>Choosing a queued slide does not change the projector until “Take selected.”</p>
+            <div class="ordo-actions">
+              <button type="button" id="ordo-freeze">Freeze output</button>
+              <button type="button" class="ordo-live-primary" id="ordo-take">Take selected</button>
+            </div>
+            <div class="ordo-queue" id="ordo-queue"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-hybrid-demo');
+      const sectionText = {
+        V1: ['Verse 1', 'You gave me hope…'],
+        C: ['Chorus', 'My life in You…'],
+        V2: ['Verse 2', 'You called my name…'],
+        B: ['Bridge', 'Forever I will sing…']
+      };
+      let order = ['V1', 'C', 'V2', 'C', 'B', 'C'];
+      let selectedIndex = 2;
+      let currentIndex = 1;
+      let frozen = false;
+
+      const editorTab = root.querySelector('#ordo-editor-tab');
+      const liveTab = root.querySelector('#ordo-live-tab');
+      const editorView = root.querySelector('#ordo-editor-view');
+      const liveView = root.querySelector('#ordo-live-view');
+      const sequence = root.querySelector('#ordo-sequence');
+      const strip = root.querySelector('#ordo-slide-strip');
+      const queue = root.querySelector('#ordo-queue');
+      const outputText = root.querySelector('#ordo-output-text');
+      const outputLabel = root.querySelector('#ordo-output-label');
+      const state = root.querySelector('#ordo-live-state');
+      const stateLabel = root.querySelector('#ordo-state-label');
+      const freezeButton = root.querySelector('#ordo-freeze');
+
+      function showView(name) {
+        const editor = name === 'editor';
+        editorTab.setAttribute('aria-selected', String(editor));
+        liveTab.setAttribute('aria-selected', String(!editor));
+        editorView.hidden = !editor;
+        liveView.hidden = editor;
+      }
+
+      function render() {
+        sequence.innerHTML = order.length ? order.map(code => `<span class="ordo-chip ${code === 'C' ? 'chorus' : ''}">${code}</span>`).join('') : '<span class="ordo-subtle">Add sections to build an arrangement.</span>';
+        strip.innerHTML = order.map(code => `<div class="ordo-mini-slide"><span>${sectionText[code][0]}<br>${sectionText[code][1]}</span></div>`).join('');
+        queue.innerHTML = order.map((code, index) => `<button type="button" class="${index === selectedIndex ? 'is-selected' : ''}" data-index="${index}"><span>${index + 1}</span><span>${sectionText[code][0]} · ${sectionText[code][1]}</span></button>`).join('');
+        if (order.length) {
+          currentIndex = Math.min(currentIndex, order.length - 1);
+          selectedIndex = Math.min(selectedIndex, order.length - 1);
+          const currentCode = order[currentIndex];
+          outputText.textContent = sectionText[currentCode][1];
+          outputLabel.textContent = sectionText[currentCode][0];
+        } else {
+          outputText.textContent = 'Projector cleared';
+          outputLabel.textContent = 'No queued slide';
+        }
+      }
+
+      editorTab.addEventListener('click', () => showView('editor'));
+      liveTab.addEventListener('click', () => showView('live'));
+      root.querySelectorAll('[data-add]').forEach(button => button.addEventListener('click', () => {
+        order.push(button.dataset.add);
+        selectedIndex = order.length - 1;
+        render();
+      }));
+      root.querySelector('#ordo-reset').addEventListener('click', () => {
+        order = ['V1', 'C', 'V2', 'C', 'B', 'C'];
+        selectedIndex = 2;
+        currentIndex = 1;
+        render();
+      });
+      root.querySelector('#ordo-clear').addEventListener('click', () => {
+        order = [];
+        selectedIndex = 0;
+        currentIndex = 0;
+        render();
+      });
+      queue.addEventListener('click', event => {
+        const button = event.target.closest('[data-index]');
+        if (!button) return;
+        selectedIndex = Number(button.dataset.index);
+        render();
+      });
+      freezeButton.addEventListener('click', () => {
+        frozen = !frozen;
+        state.classList.toggle('frozen', frozen);
+        stateLabel.textContent = frozen ? 'Projector frozen' : 'Projector live';
+        freezeButton.textContent = frozen ? 'Unfreeze output' : 'Freeze output';
+      });
+      root.querySelector('#ordo-take').addEventListener('click', () => {
+        if (!order.length) return;
+        currentIndex = selectedIndex;
+        frozen = false;
+        state.classList.remove('frozen');
+        stateLabel.textContent = 'Projector live';
+        freezeButton.textContent = 'Freeze output';
+        render();
+      });
+      render();
+    })();
+  </script>
+</div>

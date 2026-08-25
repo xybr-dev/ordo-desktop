@@ -1,0 +1,299 @@
+<div id="ordo-timeline-modes">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,600;0,800&family=Noto+Sans:wght@600;900&display=swap');
+    #ordo-timeline-modes {
+      --otm-projection-font: "Atkinson Hyperlegible Next", sans-serif;
+      --otm-projection-weight: 800;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: light-dark(#e9edf3, #e9edf3);
+      background: #0d1117;
+      border: 1px solid #303844;
+      border-radius: 12px;
+      overflow: hidden;
+      min-height: 640px;
+    }
+    #ordo-timeline-modes * { box-sizing: border-box; }
+    #ordo-timeline-modes button { font: inherit; }
+    #ordo-timeline-modes .otm-topbar {
+      height: 50px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #171d26;
+      border-bottom: 1px solid #303844;
+    }
+    #ordo-timeline-modes .otm-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    #ordo-timeline-modes .otm-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #152014;
+      background: #f2c45c;
+      font-weight: 850;
+    }
+    #ordo-timeline-modes .otm-title { font-weight: 750; white-space: nowrap; }
+    #ordo-timeline-modes .otm-mass { color: #9ca8b8; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ordo-timeline-modes .otm-live-state { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #cbd5e1; }
+    #ordo-timeline-modes .otm-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #55d187; box-shadow: 0 0 0 3px rgba(85,209,135,.12); }
+    #ordo-timeline-modes .otm-shell {
+      display: grid;
+      grid-template-columns: 176px minmax(300px, 1fr) minmax(250px, 31%);
+      min-height: 590px;
+    }
+    #ordo-timeline-modes .otm-pane { min-width: 0; background: #111720; }
+    #ordo-timeline-modes .otm-pane + .otm-pane { border-left: 1px solid #303844; }
+    #ordo-timeline-modes .otm-pane-head {
+      height: 51px;
+      padding: 9px 11px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid #303844;
+      background: #171d26;
+    }
+    #ordo-timeline-modes .otm-pane-head strong { display: block; font-size: 12px; letter-spacing: .02em; }
+    #ordo-timeline-modes .otm-pane-head span { display: block; color: #8996a8; font-size: 10px; margin-top: 1px; }
+    #ordo-timeline-modes .otm-icon-button,
+    #ordo-timeline-modes .otm-segment button,
+    #ordo-timeline-modes .otm-action {
+      border: 1px solid #394555;
+      color: #d8e0e9;
+      background: #202936;
+      cursor: pointer;
+    }
+    #ordo-timeline-modes .otm-icon-button { width: 27px; height: 27px; border-radius: 6px; }
+    #ordo-timeline-modes .otm-ordo-list { padding: 8px; display: grid; gap: 3px; }
+    #ordo-timeline-modes .otm-ordo-item {
+      width: 100%;
+      border: 0;
+      border-radius: 6px;
+      padding: 8px 8px;
+      color: #b6c0cd;
+      background: transparent;
+      text-align: left;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #ordo-timeline-modes .otm-ordo-item[aria-current="true"] { color: #fff3d6; background: #3b3120; box-shadow: inset 3px 0 0 #f2c45c; }
+    #ordo-timeline-modes .otm-segment { display: flex; border: 1px solid #394555; border-radius: 7px; overflow: hidden; }
+    #ordo-timeline-modes .otm-segment button { border: 0; border-radius: 0; padding: 5px 8px; font-size: 10px; }
+    #ordo-timeline-modes .otm-segment button[aria-pressed="true"] { background: #f2c45c; color: #211b0e; font-weight: 750; }
+    #ordo-timeline-modes .otm-timeline { height: 539px; overflow: auto; padding: 10px; scrollbar-color: #465367 #151b24; }
+    #ordo-timeline-modes .otm-group { margin-bottom: 14px; }
+    #ordo-timeline-modes .otm-group-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    #ordo-timeline-modes .otm-group-title strong { font-size: 11px; }
+    #ordo-timeline-modes .otm-group-title span { font-size: 9px; color: #8794a6; }
+    #ordo-timeline-modes .otm-priest-cue {
+      width: 100%;
+      margin-bottom: 7px;
+      padding: 7px 8px;
+      border: 1px solid #3a4655;
+      border-radius: 6px;
+      color: #ccd5df;
+      background: #1b2330;
+      display: grid;
+      grid-template-columns: 23px 1fr auto;
+      align-items: center;
+      gap: 7px;
+      text-align: left;
+      font-size: 10px;
+    }
+    #ordo-timeline-modes .otm-role { width: 21px; height: 21px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; background: #41506a; color: #ecf2f9; }
+    #ordo-timeline-modes .otm-cue-kind { color: #8492a5; font-size: 9px; }
+    #ordo-timeline-modes .otm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 7px; }
+    #ordo-timeline-modes .otm-slide-button { border: 2px solid transparent; border-radius: 6px; padding: 0; background: #0a0e13; cursor: pointer; overflow: hidden; position: relative; }
+    #ordo-timeline-modes .otm-slide-button[aria-selected="true"] { border-color: #f2c45c; box-shadow: 0 0 0 2px rgba(242,196,92,.15); }
+    #ordo-timeline-modes .otm-slide-number { position: absolute; top: 4px; left: 5px; z-index: 2; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 4px; display: grid; place-items: center; background: rgba(0,0,0,.62); color: #fff; font-size: 8px; }
+    #ordo-timeline-modes .otm-slide-frame { aspect-ratio: 16 / 9; background: linear-gradient(145deg, #17100b 0%, #362719 56%, #17100b 100%); color: #fff6dc; display: grid; place-items: center; text-align: center; overflow: hidden; position: relative; }
+    #ordo-timeline-modes .otm-slide-frame::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 72% 24%, rgba(243,185,87,.26), transparent 38%), linear-gradient(90deg, rgba(0,0,0,.42), rgba(0,0,0,.05)); }
+    #ordo-timeline-modes .otm-slide-frame span { position: relative; z-index: 1; width: 84%; font-family: Georgia, serif; font-weight: 700; font-size: clamp(7px, 1.05vw, 13px); line-height: 1.12; text-shadow: 0 1px 3px #000; white-space: pre-line; }
+    #ordo-timeline-modes .otm-slide-frame span { font-family: var(--otm-projection-font); font-weight: var(--otm-projection-weight); line-height: 1.08; text-shadow: none; }
+    #ordo-timeline-modes .otm-list { display: grid; gap: 4px; }
+    #ordo-timeline-modes .otm-list-row { width: 100%; min-height: 39px; border: 1px solid #344050; border-radius: 6px; padding: 5px 7px; color: #d7dee8; background: #1a222d; cursor: pointer; display: grid; grid-template-columns: 24px 28px minmax(0, 1fr); align-items: center; gap: 7px; text-align: left; }
+    #ordo-timeline-modes .otm-list-row[aria-selected="true"] { border-color: #f2c45c; background: #332b1d; box-shadow: inset 3px 0 0 #f2c45c; }
+    #ordo-timeline-modes .otm-list-index { color: #8290a2; font-size: 9px; text-align: center; }
+    #ordo-timeline-modes .otm-list-copy { min-width: 0; }
+    #ordo-timeline-modes .otm-list-copy strong { display: block; color: #f0f3f7; font-size: 10px; }
+    #ordo-timeline-modes .otm-list-copy span { display: block; margin-top: 1px; color: #9eabbc; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ordo-timeline-modes .otm-output-body { padding: 10px; display: grid; gap: 10px; }
+    #ordo-timeline-modes .otm-monitor-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-size: 10px; font-weight: 750; }
+    #ordo-timeline-modes .otm-monitor-label span { color: #55d187; font-size: 9px; font-weight: 600; }
+    #ordo-timeline-modes .otm-monitor { border: 1px solid #425064; background: #07090d; padding: 4px; }
+    #ordo-timeline-modes .otm-monitor .otm-slide-frame span { font-size: clamp(9px, 1.45vw, 17px); }
+    #ordo-timeline-modes .otm-operator-cue { border: 1px solid #384455; border-radius: 7px; background: #1a222d; padding: 8px; display: grid; grid-template-columns: 23px 1fr; gap: 7px; align-items: center; }
+    #ordo-timeline-modes .otm-operator-cue strong { display: block; font-size: 10px; }
+    #ordo-timeline-modes .otm-operator-cue span { display: block; color: #95a2b3; font-size: 9px; margin-top: 2px; }
+    #ordo-timeline-modes .otm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #ordo-timeline-modes .otm-action { border-radius: 6px; padding: 7px; font-size: 10px; }
+    #ordo-timeline-modes .otm-action:last-child { border-color: #6a3e45; background: #392229; color: #ffdce1; }
+    #ordo-timeline-modes .otm-hidden { display: none !important; }
+    #ordo-timeline-modes .otm-font-controls { display: flex; align-items: center; gap: 5px; }
+    #ordo-timeline-modes .otm-font-controls > span { color: #8996a8; font-size: 10px; }
+    #ordo-timeline-modes .otm-font-controls button { border: 1px solid #394555; border-radius: 5px; padding: 4px 7px; color: #d8e0e9; background: #202936; cursor: pointer; font-size: 9px; }
+    #ordo-timeline-modes .otm-font-controls button[aria-pressed="true"] { border-color: #f2c45c; color: #211b0e; background: #f2c45c; font-weight: 750; }
+    #ordo-timeline-modes.otm-rail-collapsed .otm-shell { grid-template-columns: 46px minmax(300px, 1fr) minmax(250px, 31%); }
+    #ordo-timeline-modes.otm-rail-collapsed .otm-pane:first-child .otm-pane-head > div,
+    #ordo-timeline-modes.otm-rail-collapsed .otm-ordo-item { display: none; }
+    #ordo-timeline-modes.otm-rail-collapsed .otm-pane:first-child .otm-pane-head { justify-content: center; padding-inline: 5px; }
+    @media (max-width: 780px) {
+      #ordo-timeline-modes .otm-shell { grid-template-columns: 46px minmax(250px, 1fr) 230px; }
+      #ordo-timeline-modes .otm-pane:first-child .otm-pane-head > div,
+      #ordo-timeline-modes .otm-ordo-item { display: none; }
+      #ordo-timeline-modes .otm-pane:first-child .otm-pane-head { justify-content: center; padding-inline: 5px; }
+      #ordo-timeline-modes .otm-grid { grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); }
+      #ordo-timeline-modes .otm-mass { display: none; }
+    }
+    @media (max-width: 540px) {
+      #ordo-timeline-modes .otm-topbar { height: auto; padding-block: 9px; flex-wrap: wrap; }
+      #ordo-timeline-modes .otm-font-controls { order: 3; width: 100%; flex-wrap: wrap; }
+      #ordo-timeline-modes .otm-shell { display: block; }
+      #ordo-timeline-modes .otm-pane + .otm-pane { border-left: 0; border-top: 1px solid #303844; }
+      #ordo-timeline-modes .otm-pane:first-child { display: none; }
+      #ordo-timeline-modes .otm-timeline { height: auto; max-height: 520px; }
+    }
+  </style>
+
+  <div class="otm-topbar">
+    <div class="otm-brand"><div class="otm-mark">O</div><div><div class="otm-title">Ordo Presenter</div><div class="otm-mass">23rd Sunday in Ordinary Time · Choir A</div></div></div>
+    <div class="otm-font-controls" role="group" aria-label="Projection font">
+      <span>Projection font</span>
+      <button type="button" data-font="atkinson" aria-pressed="true">Atkinson Next</button>
+      <button type="button" data-font="noto" aria-pressed="false">Noto Sans</button>
+      <button type="button" data-font="arial" aria-pressed="false" title="Uses the system-installed Arial Black font; otherwise the browser falls back to Arial">Arial Black*</button>
+    </div>
+    <div class="otm-live-state"><span class="otm-live-dot"></span><strong>LIVE · linked</strong></div>
+  </div>
+
+  <div class="otm-shell">
+    <section class="otm-pane">
+      <div class="otm-pane-head"><div><strong>1 · Ordo</strong><span>Mass titles</span></div><button class="otm-icon-button" id="otm-rail-toggle" type="button" title="Pin or collapse Ordo" aria-label="Pin or collapse Ordo">⇤</button></div>
+      <nav class="otm-ordo-list" aria-label="Mass order">
+        <button class="otm-ordo-item" type="button">Entrance · Daygon Ta</button>
+        <button class="otm-ordo-item" type="button" aria-current="true">Greeting and response</button>
+        <button class="otm-ordo-item" type="button">Penitential Rite</button>
+        <button class="otm-ordo-item" type="button">Gloria · Himaya</button>
+        <button class="otm-ordo-item" type="button">First Reading</button>
+        <button class="otm-ordo-item" type="button">Responsorial Psalm</button>
+        <button class="otm-ordo-item" type="button">Gospel Acclamation</button>
+        <button class="otm-ordo-item" type="button">Offertory · Dawata</button>
+        <button class="otm-ordo-item" type="button">Holy · Santos</button>
+        <button class="otm-ordo-item" type="button">Communion · Kalawat</button>
+      </nav>
+    </section>
+
+    <section class="otm-pane">
+      <div class="otm-pane-head">
+        <div><strong>2 · Cue timeline</strong><span id="otm-density-label">Exact slide grid · responsive density</span></div>
+        <div class="otm-segment" role="group" aria-label="Timeline mode">
+          <button id="otm-list-mode" type="button" aria-pressed="false">Cue list</button>
+          <button id="otm-grid-mode" type="button" aria-pressed="true">Slide grid</button>
+        </div>
+      </div>
+      <div class="otm-timeline">
+        <div class="otm-group">
+          <div class="otm-group-title"><strong>Greeting and response</strong><span>2 cues</span></div>
+          <div class="otm-priest-cue"><span class="otm-role">P</span><span>Ang Ginoo maanaa kaninyo.</span><span class="otm-cue-kind">operator cue</span></div>
+          <div class="otm-grid otm-slide-set" data-view="grid"></div>
+          <div class="otm-list otm-slide-set otm-hidden" data-view="list"></div>
+        </div>
+        <div class="otm-group">
+          <div class="otm-group-title"><strong>Penitential Rite · Form C</strong><span>3 responses</span></div>
+          <div class="otm-priest-cue"><span class="otm-role">P</span><span>Priest invocation</span><span class="otm-cue-kind">operator cue</span></div>
+          <div class="otm-grid otm-slide-set" data-view="grid"></div>
+          <div class="otm-list otm-slide-set otm-hidden" data-view="list"></div>
+        </div>
+        <div class="otm-group">
+          <div class="otm-group-title"><strong>Gloria · Choir A setting</strong><span>6 slides</span></div>
+          <div class="otm-grid otm-slide-set" data-view="grid"></div>
+          <div class="otm-list otm-slide-set otm-hidden" data-view="list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="otm-pane">
+      <div class="otm-pane-head"><div><strong>3 · Output</strong><span>Congregation and operator</span></div></div>
+      <div class="otm-output-body">
+        <div><div class="otm-monitor-label">PROGRAM <span>Congregation · live</span></div><div class="otm-monitor" id="otm-program"></div></div>
+        <div><div class="otm-monitor-label">PREVIEW <span>Selected cue</span></div><div class="otm-monitor" id="otm-preview"></div></div>
+        <div class="otm-operator-cue"><span class="otm-role">P</span><div><strong>Ang Ginoo maanaa kaninyo.</strong><span>Right → project the selected T response</span></div></div>
+        <div class="otm-actions"><button class="otm-action" type="button">Freeze · F</button><button class="otm-action" type="button">Blackout · B</button></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-timeline-modes');
+      const slides = [
+        { group: 0, role: 'T', section: 'Response', text: 'MAANAA USAB\nKANIMO' },
+        { group: 1, role: 'T', section: 'Response 1', text: 'GINOO,\nKALOY-I KAMI' },
+        { group: 1, role: 'T', section: 'Response 2', text: 'CRISTO,\nKALOY-I KAMI' },
+        { group: 1, role: 'T', section: 'Response 3', text: 'GINOO,\nKALOY-I KAMI' },
+        { group: 2, role: '♪', section: 'Verse 1', text: 'HIMAYA SA DIOS\nDIDTO SA LANGIT' },
+        { group: 2, role: '♪', section: 'Chorus', text: 'UG KALINAW SA MGA TAWO\nNGA IYANG GIHIGUGMA' },
+        { group: 2, role: '♪', section: 'Long lyric', text: 'Ginoong Hesukristo, Bugtong Anak,\nGinoong Dios, Kordero sa Dios,\nAnak sa Amahan' },
+        { group: 2, role: '♪', section: 'Chorus', text: 'GIDAYEG KA NAMO,\nGIPASALAMATAN KA NAMO' },
+        { group: 2, role: '♪', section: 'Verse 3', text: 'GINOONG HESUKRISTO,\nBUGTONG ANAK' },
+        { group: 2, role: '♪', section: 'Accents', text: 'Señor, kaloy-i kami\nSanctus · Glória · Amén' }
+      ];
+      let selected = 0;
+
+      const slideFrame = text => `<div class="otm-slide-frame"><span>${text}</span></div>`;
+      const grouped = [0, 1, 2].map(group => slides.map((slide, index) => ({ ...slide, index })).filter(slide => slide.group === group));
+
+      function select(index) {
+        selected = index;
+        root.querySelectorAll('[data-slide-index]').forEach(button => button.setAttribute('aria-selected', String(Number(button.dataset.slideIndex) === selected)));
+        const markup = slideFrame(slides[selected].text);
+        root.querySelector('#otm-program').innerHTML = markup;
+        root.querySelector('#otm-preview').innerHTML = markup;
+      }
+
+      root.querySelectorAll('.otm-slide-set').forEach((set, setIndex) => {
+        const group = Math.floor(setIndex / 2);
+        const view = set.dataset.view;
+        if (view === 'grid') {
+          set.innerHTML = grouped[group].map(slide => `<button class="otm-slide-button" type="button" data-slide-index="${slide.index}" aria-selected="${slide.index === selected}"><span class="otm-slide-number">${slide.index + 1}</span>${slideFrame(slide.text)}</button>`).join('');
+        } else {
+          set.innerHTML = grouped[group].map(slide => `<button class="otm-list-row" type="button" data-slide-index="${slide.index}" aria-selected="${slide.index === selected}"><span class="otm-list-index">${slide.index + 1}</span><span class="otm-role">${slide.role}</span><span class="otm-list-copy"><strong>${slide.section}</strong><span>${slide.text.replace('\n', ' · ')}</span></span></button>`).join('');
+        }
+      });
+
+      root.addEventListener('click', event => {
+        const slide = event.target.closest('[data-slide-index]');
+        if (slide) select(Number(slide.dataset.slideIndex));
+      });
+
+      function setMode(mode) {
+        root.querySelector('#otm-list-mode').setAttribute('aria-pressed', String(mode === 'list'));
+        root.querySelector('#otm-grid-mode').setAttribute('aria-pressed', String(mode === 'grid'));
+        root.querySelectorAll('.otm-slide-set').forEach(set => set.classList.toggle('otm-hidden', set.dataset.view !== mode));
+        root.querySelector('#otm-density-label').textContent = mode === 'grid' ? 'Exact slide grid · responsive density' : 'Numbered cue rows · dense navigation';
+      }
+
+      root.querySelector('#otm-list-mode').addEventListener('click', () => setMode('list'));
+      root.querySelector('#otm-grid-mode').addEventListener('click', () => setMode('grid'));
+      root.querySelector('#otm-rail-toggle').addEventListener('click', () => root.classList.toggle('otm-rail-collapsed'));
+      const fontSettings = {
+        atkinson: ['"Atkinson Hyperlegible Next", sans-serif', '800'],
+        noto: ['"Noto Sans", sans-serif', '900'],
+        arial: ['"Arial Black", Arial, sans-serif', '900']
+      };
+      root.querySelectorAll('[data-font]').forEach(button => button.addEventListener('click', () => {
+        const [family, weight] = fontSettings[button.dataset.font];
+        root.style.setProperty('--otm-projection-font', family);
+        root.style.setProperty('--otm-projection-weight', weight);
+        root.querySelectorAll('[data-font]').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+      }));
+      select(0);
+    })();
+  </script>
+</div>

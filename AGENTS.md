@@ -1,0 +1,39 @@
+# Ordo coding-agent guide
+
+Before changing source, read only the authoritative material relevant to the
+active task:
+
+1. Use `MILESTONES.md` to select exactly one active task and its acceptance
+   criterion.
+2. Use `CONTEXT.md` for domain terms and invariants.
+3. Use `DESIGN.md` and its approved reference for visible behavior.
+4. Use `MVP-PLAN.md` for strategic architecture and scope.
+5. Use `LEARNING-ROADMAP.md` when explaining unfamiliar Rust or GPUI code.
+
+`decision.md` is the detailed decision ledger. Consult it when the shorter
+documents do not resolve a behavior; do not reinterpret an adopted decision
+silently.
+
+## Source authority
+
+This repository is the clean-slate production implementation. Only its
+committed source, documentation, migrations, and instructions are
+authoritative.
+
+## Working rules
+
+- Keep changes within the active milestone task; do not import deferred scope.
+- Treat crates as dependency-enforcement seams, not folders for every feature.
+- Keep `domain` free of GPUI, SQLite, filesystem, network, and OS-window types.
+- Keep domain rules out of GPUI views and storage adapters.
+- Use the pinned GPUI revision's source/examples; do not guess pre-1.0 APIs.
+- Do not block the GPUI thread with storage, filesystem, rendering, hashing, or
+  export work.
+- Prefer borrowing over unexplained cloning. Every long-lived task must have a
+  named owner and shutdown behavior.
+- Test behavior through the owning Module Interface. Use temporary locations;
+  tests must never read or mutate real Parish data.
+- Do not add a runtime internet dependency, CDN, telemetry, or login.
+- Run `cargo xtask verify` before declaring a task complete.
+
+Detailed agent-skill policy lives in `docs/agent-development.md`.

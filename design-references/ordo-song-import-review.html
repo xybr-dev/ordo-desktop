@@ -1,0 +1,676 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500&display=swap');
+
+  #ordo-import-review {
+    --oi-shell: light-dark(#f5f0e7, #181817);
+    --oi-surface: light-dark(#fffdf8, #232321);
+    --oi-surface-soft: light-dark(#eee8dd, #2b2b28);
+    --oi-surface-active: light-dark(#e7dfd1, #35342f);
+    --oi-text: light-dark(#292823, #f3efe7);
+    --oi-muted: light-dark(#6f6a60, #aaa59a);
+    --oi-border: light-dark(#d6cfc3, #44423d);
+    --oi-border-strong: light-dark(#aaa295, #6a675f);
+    --oi-ink: light-dark(#252521, #f4f0e7);
+    --oi-ink-on: light-dark(#fffdf8, #181817);
+    --oi-good-bg: light-dark(#e1eee1, #243529);
+    --oi-good-text: light-dark(#315a38, #a8d6ad);
+    --oi-warn-bg: light-dark(#f5e8c9, #3b3120);
+    --oi-warn-text: light-dark(#765715, #e8c878);
+    --oi-bad-bg: light-dark(#f1dcda, #3b2727);
+    --oi-bad-text: light-dark(#813b36, #efaaa4);
+    --oi-info-bg: light-dark(#dfe9ef, #24323b);
+    --oi-info-text: light-dark(#345e73, #a9cfdf);
+    color: var(--oi-text);
+    background: var(--oi-shell);
+    border: 1px solid var(--oi-border);
+    border-radius: 14px;
+    overflow: hidden;
+    font-family: "Atkinson Hyperlegible Next", "Noto Sans", sans-serif;
+    font-weight: 400;
+    position: relative;
+  }
+
+  #ordo-import-review * { box-sizing: border-box; }
+  #ordo-import-review button,
+  #ordo-import-review select { font: inherit; color: inherit; }
+
+  #ordo-import-review .oi-appbar {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 18px;
+    background: var(--oi-surface);
+    border-bottom: 1px solid var(--oi-border);
+  }
+
+  #ordo-import-review .oi-brand { font-weight: 500; letter-spacing: .02em; }
+  #ordo-import-review .oi-crumbs { color: var(--oi-muted); display: flex; align-items: center; gap: 8px; }
+  #ordo-import-review .oi-app-spacer { flex: 1; }
+  #ordo-import-review .oi-icon-action {
+    border: 0;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  #ordo-import-review .oi-icon-action:hover { background: var(--oi-surface-soft); }
+
+  #ordo-import-review .oi-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 22px 22px 18px;
+  }
+  #ordo-import-review .oi-heading-copy { min-width: 0; }
+  #ordo-import-review h2,
+  #ordo-import-review h3,
+  #ordo-import-review p { margin: 0; }
+  #ordo-import-review h2 { font-size: 1.38rem; font-weight: 500; }
+  #ordo-import-review h3 { font-size: 1rem; font-weight: 500; }
+  #ordo-import-review .oi-subtitle { margin-top: 4px; color: var(--oi-muted); }
+  #ordo-import-review .oi-heading-meta { margin-left: auto; text-align: right; color: var(--oi-muted); white-space: nowrap; }
+
+  #ordo-import-review .oi-workspace {
+    display: grid;
+    grid-template-columns: minmax(250px, .82fr) minmax(390px, 1.35fr);
+    border-top: 1px solid var(--oi-border);
+    background: var(--oi-surface);
+  }
+
+  #ordo-import-review .oi-queue {
+    border-right: 1px solid var(--oi-border);
+    background: var(--oi-surface-soft);
+    padding: 14px 10px;
+  }
+  #ordo-import-review .oi-queue-label {
+    padding: 4px 10px 10px;
+    color: var(--oi-muted);
+    font-size: .86rem;
+  }
+  #ordo-import-review .oi-candidate {
+    width: 100%;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 5px 10px;
+    text-align: left;
+    padding: 10px;
+    margin-bottom: 4px;
+    cursor: pointer;
+  }
+  #ordo-import-review .oi-candidate:hover { background: color-mix(in srgb, var(--oi-surface) 68%, transparent); }
+  #ordo-import-review .oi-candidate[aria-selected="true"] {
+    background: var(--oi-surface);
+    box-shadow: inset 3px 0 0 var(--oi-ink);
+  }
+  #ordo-import-review .oi-candidate-title { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ordo-import-review .oi-candidate-file { color: var(--oi-muted); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #ordo-import-review .oi-status {
+    align-self: start;
+    border-radius: 999px;
+    padding: 3px 7px;
+    font-size: .76rem;
+    white-space: nowrap;
+  }
+  #ordo-import-review .oi-status.add { background: var(--oi-good-bg); color: var(--oi-good-text); }
+  #ordo-import-review .oi-status.attach { background: var(--oi-info-bg); color: var(--oi-info-text); }
+  #ordo-import-review .oi-status.skip { background: var(--oi-surface-active); color: var(--oi-muted); }
+  #ordo-import-review .oi-status.decide { background: var(--oi-warn-bg); color: var(--oi-warn-text); }
+  #ordo-import-review .oi-status.invalid { background: var(--oi-bad-bg); color: var(--oi-bad-text); }
+
+  #ordo-import-review .oi-review { min-width: 0; }
+  #ordo-import-review .oi-review-head {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--oi-border);
+  }
+  #ordo-import-review .oi-review-title { min-width: 0; }
+  #ordo-import-review .oi-review-title p { margin-top: 4px; color: var(--oi-muted); }
+  #ordo-import-review .oi-review-status { margin-left: auto; }
+  #ordo-import-review .oi-review-body { padding: 18px 20px 20px; }
+
+  #ordo-import-review .oi-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  #ordo-import-review .oi-compare-panel {
+    border: 1px solid var(--oi-border);
+    border-radius: 10px;
+    padding: 14px;
+    background: var(--oi-surface);
+    min-width: 0;
+  }
+  #ordo-import-review .oi-panel-kicker { color: var(--oi-muted); font-size: .8rem; margin-bottom: 8px; }
+  #ordo-import-review .oi-panel-title { font-weight: 500; margin-bottom: 8px; }
+  #ordo-import-review .oi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 5px 10px; font-size: .88rem; }
+  #ordo-import-review .oi-facts dt { color: var(--oi-muted); }
+  #ordo-import-review .oi-facts dd { margin: 0; min-width: 0; }
+  #ordo-import-review .oi-excerpt { margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--oi-border-strong); color: var(--oi-muted); font-size: .88rem; }
+  #ordo-import-review .oi-panel-action { margin-top: 12px; }
+
+  #ordo-import-review .oi-evidence {
+    margin-top: 14px;
+    border-top: 1px solid var(--oi-border);
+    padding-top: 14px;
+  }
+  #ordo-import-review .oi-evidence-row {
+    display: grid;
+    grid-template-columns: 20px minmax(130px, .7fr) 1fr;
+    gap: 8px;
+    align-items: start;
+    padding: 7px 0;
+  }
+  #ordo-import-review .oi-evidence-row svg { margin-top: 2px; }
+  #ordo-import-review .oi-evidence-detail { color: var(--oi-muted); }
+  #ordo-import-review .oi-evidence-row.good svg { color: var(--oi-good-text); }
+  #ordo-import-review .oi-evidence-row.warn svg { color: var(--oi-warn-text); }
+  #ordo-import-review .oi-evidence-row.bad svg { color: var(--oi-bad-text); }
+
+  #ordo-import-review .oi-decision {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 10px;
+    background: var(--oi-surface-soft);
+  }
+  #ordo-import-review .oi-decision-top { display: flex; align-items: center; gap: 12px; }
+  #ordo-import-review .oi-decision-copy { min-width: 0; }
+  #ordo-import-review .oi-decision-copy p { margin-top: 3px; color: var(--oi-muted); font-size: .88rem; }
+  #ordo-import-review .oi-decision-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  #ordo-import-review .oi-select {
+    border: 1px solid var(--oi-border-strong);
+    background: var(--oi-surface);
+    border-radius: 7px;
+    padding: 7px 28px 7px 9px;
+  }
+  #ordo-import-review .oi-button {
+    border: 1px solid var(--oi-border-strong);
+    background: var(--oi-surface);
+    border-radius: 7px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  #ordo-import-review .oi-button:hover { background: var(--oi-surface-active); }
+  #ordo-import-review .oi-button.primary { background: var(--oi-ink); color: var(--oi-ink-on); border-color: var(--oi-ink); }
+  #ordo-import-review .oi-button:disabled { opacity: .46; cursor: not-allowed; }
+  #ordo-import-review .oi-button svg { vertical-align: -3px; margin-right: 6px; }
+
+  #ordo-import-review .oi-error-list { margin: 10px 0 0; padding-left: 20px; color: var(--oi-bad-text); }
+  #ordo-import-review .oi-error-list li + li { margin-top: 5px; }
+
+  #ordo-import-review .oi-commit {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--oi-border);
+    background: var(--oi-surface);
+  }
+  #ordo-import-review .oi-atomic { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  #ordo-import-review .oi-atomic div { min-width: 0; }
+  #ordo-import-review .oi-atomic p { color: var(--oi-muted); font-size: .84rem; margin-top: 2px; }
+  #ordo-import-review .oi-commit-summary { margin-left: auto; color: var(--oi-muted); white-space: nowrap; }
+  #ordo-import-review .oi-feedback { margin-top: 8px; color: var(--oi-good-text); font-size: .88rem; }
+
+  #ordo-import-review .oi-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: stretch;
+    justify-content: flex-end;
+    background: color-mix(in srgb, var(--oi-text) 22%, transparent);
+    padding: 12px;
+  }
+  #ordo-import-review .oi-overlay.open { display: flex; }
+  #ordo-import-review .oi-slideover {
+    width: min(88%, 850px);
+    min-height: 100%;
+    background: var(--oi-surface);
+    border: 1px solid var(--oi-border-strong);
+    border-radius: 12px;
+    box-shadow: -12px 0 34px color-mix(in srgb, var(--oi-text) 14%, transparent);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #ordo-import-review .oi-slide-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--oi-border);
+  }
+  #ordo-import-review .oi-slide-back {
+    border: 0;
+    background: transparent;
+    border-radius: 7px;
+    padding: 7px;
+    display: inline-flex;
+    cursor: pointer;
+  }
+  #ordo-import-review .oi-slide-back:hover { background: var(--oi-surface-soft); }
+  #ordo-import-review .oi-slide-title p { margin-top: 2px; color: var(--oi-muted); font-size: .82rem; }
+  #ordo-import-review .oi-slide-head .oi-select { margin-left: auto; max-width: 245px; }
+  #ordo-import-review .oi-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 14px 0;
+    border-bottom: 1px solid var(--oi-border);
+  }
+  #ordo-import-review .oi-tab {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    padding: 8px 10px 9px;
+    cursor: pointer;
+    color: var(--oi-muted);
+  }
+  #ordo-import-review .oi-tab[aria-selected="true"] { color: var(--oi-text); border-bottom-color: var(--oi-ink); }
+  #ordo-import-review .oi-preview-body { padding: 16px; }
+  #ordo-import-review .oi-preview-headings,
+  #ordo-import-review .oi-preview-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  #ordo-import-review .oi-preview-headings { margin-bottom: 8px; }
+  #ordo-import-review .oi-preview-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+  #ordo-import-review .oi-preview-heading span { color: var(--oi-muted); font-size: .8rem; }
+  #ordo-import-review .oi-preview-pane {
+    border: 1px solid var(--oi-border);
+    border-radius: 9px;
+    background: var(--oi-shell);
+    padding: 12px;
+    min-width: 0;
+  }
+  #ordo-import-review .oi-lyric-section + .oi-lyric-section { margin-top: 14px; }
+  #ordo-import-review .oi-lyric-label { color: var(--oi-muted); font-size: .8rem; margin-bottom: 5px; }
+  #ordo-import-review .oi-lyric-lines { white-space: pre-line; }
+  #ordo-import-review mark { color: inherit; background: var(--oi-warn-bg); border-radius: 3px; padding: 0 2px; }
+  #ordo-import-review .oi-sequence { display: flex; flex-wrap: wrap; gap: 7px; }
+  #ordo-import-review .oi-step { border: 1px solid var(--oi-border); border-radius: 6px; padding: 5px 7px; background: var(--oi-surface); }
+  #ordo-import-review .oi-slide-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #ordo-import-review .oi-slide-thumb {
+    aspect-ratio: 16 / 9;
+    background: light-dark(#191918, #0f0f0e);
+    color: light-dark(#f8f5ed, #f8f5ed);
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 8px;
+    border-radius: 5px;
+    font-size: .78rem;
+  }
+  #ordo-import-review .oi-empty-match { min-height: 190px; display: grid; place-items: center; text-align: center; color: var(--oi-muted); }
+  #ordo-import-review .oi-preview-note {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--oi-muted);
+    font-size: .84rem;
+  }
+
+  @media (max-width: 760px) {
+    #ordo-import-review .oi-heading { padding: 18px 14px 14px; }
+    #ordo-import-review .oi-heading-meta { display: none; }
+    #ordo-import-review .oi-workspace { grid-template-columns: 1fr; }
+    #ordo-import-review .oi-queue { border-right: 0; border-bottom: 1px solid var(--oi-border); }
+    #ordo-import-review .oi-compare { grid-template-columns: 1fr; }
+    #ordo-import-review .oi-decision-top,
+    #ordo-import-review .oi-commit { align-items: stretch; flex-direction: column; }
+    #ordo-import-review .oi-decision-controls { margin-left: 0; justify-content: flex-start; }
+    #ordo-import-review .oi-commit-summary { margin-left: 0; white-space: normal; }
+    #ordo-import-review .oi-slideover { width: 100%; }
+    #ordo-import-review .oi-slide-head { align-items: flex-start; flex-wrap: wrap; }
+    #ordo-import-review .oi-slide-head .oi-select { margin-left: 42px; max-width: calc(100% - 42px); }
+  }
+  @media (max-width: 520px) {
+    #ordo-import-review .oi-preview-headings { display: none; }
+    #ordo-import-review .oi-preview-columns { grid-template-columns: 1fr; }
+    #ordo-import-review .oi-preview-pane::before {
+      content: attr(data-pane-label);
+      display: block;
+      color: var(--oi-muted);
+      font-size: .8rem;
+      margin-bottom: 9px;
+    }
+  }
+</style>
+
+<section id="ordo-import-review" aria-label="Ordo Song import review mockup">
+  <header class="oi-appbar">
+    <div class="oi-brand">ORDO</div>
+    <div class="oi-crumbs"><span>Songs</span><i data-lucide="chevron-right" aria-hidden="true"></i><span>Import review</span></div>
+    <div class="oi-app-spacer"></div>
+    <button class="oi-icon-action" type="button"><i data-lucide="circle-help" aria-hidden="true"></i><span>Import contract</span></button>
+  </header>
+
+  <div class="oi-heading">
+    <div class="oi-heading-copy">
+      <h2>Review Song import</h2>
+      <p class="oi-subtitle">Suggested actions are staged. Nothing has changed in the library yet.</p>
+    </div>
+    <div class="oi-heading-meta"><strong id="oi-ready-count">4 ready</strong><br><span>1 decision · 1 invalid</span></div>
+  </div>
+
+  <div class="oi-workspace">
+    <aside class="oi-queue" aria-label="Imported documents">
+      <div class="oi-queue-label">6 documents</div>
+      <div id="oi-candidates"></div>
+    </aside>
+
+    <main class="oi-review" aria-live="polite">
+      <div class="oi-review-head">
+        <div class="oi-review-title">
+          <h3 id="oi-review-name"></h3>
+          <p id="oi-review-file"></p>
+        </div>
+        <span id="oi-review-status" class="oi-status oi-review-status"></span>
+      </div>
+      <div class="oi-review-body" id="oi-review-body"></div>
+    </main>
+  </div>
+
+  <footer class="oi-commit">
+    <div class="oi-atomic">
+      <i data-lucide="shield-check" aria-hidden="true"></i>
+      <div><strong>One atomic library update</strong><p>If an approved action fails, none of the approved changes are saved.</p></div>
+    </div>
+    <div class="oi-commit-summary" id="oi-commit-summary">2 new · 1 attach · 1 skipped</div>
+    <button class="oi-button primary" id="oi-import-button" type="button" disabled><i data-lucide="download" aria-hidden="true"></i>Import approved</button>
+  </footer>
+
+  <div class="oi-overlay" id="oi-preview-overlay" aria-hidden="true">
+    <section class="oi-slideover" role="dialog" aria-modal="true" aria-labelledby="oi-preview-title">
+      <header class="oi-slide-head">
+        <button type="button" class="oi-slide-back" id="oi-close-preview" aria-label="Return to import review"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+        <div class="oi-slide-title"><h3 id="oi-preview-title">Compare contents</h3><p id="oi-preview-subtitle"></p></div>
+        <select class="oi-select" id="oi-match-select" aria-label="Nearest library match"></select>
+      </header>
+      <nav class="oi-tabs" aria-label="Preview content">
+        <button type="button" class="oi-tab" data-preview-tab="overview">Overview</button>
+        <button type="button" class="oi-tab" data-preview-tab="lyrics">Lyrics</button>
+        <button type="button" class="oi-tab" data-preview-tab="sequence">Sequence</button>
+        <button type="button" class="oi-tab" data-preview-tab="slides">Slides</button>
+      </nav>
+      <div class="oi-preview-body" id="oi-preview-body"></div>
+    </section>
+  </div>
+</section>
+
+<script>
+(() => {
+  const root = document.getElementById('ordo-import-review');
+  const items = [
+    {
+      id: 'new', name: 'Kyrie — 13th Mass', file: 'kyrie-13th-mass.json', status: 'add', label: 'Add new',
+      imported: { title: 'Kyrie — 13th Mass', composer: 'Traditional setting', arrangements: '1 · Cebuano · Choir C', excerpt: 'Ginoo, kaloy-i kami…' },
+      existing: null,
+      evidence: [
+        ['good', 'Contract valid', 'Song work, Arrangement, sections, Sequence, and slide boundaries validated.'],
+        ['good', 'No identity match', 'No title, alias, or composer combination is close enough to suggest an existing Song.'],
+        ['good', 'Suggested action', 'Create one Song work with its first Arrangement.']
+      ],
+      detail: 'Creates a new Song work and one Cebuano Arrangement.'
+    },
+    {
+      id: 'attach', name: 'Amahan Namo — Walter', file: 'amahan-namo-walter-choir-b.json', status: 'attach', label: 'Attach Arrangement',
+      imported: { title: 'Amahan Namo', composer: 'Walter L.', arrangements: '1 · Cebuano · Choir B', excerpt: 'Amahan namo, nga anaa sa mga langit…' },
+      existing: { title: 'Amahan Namo — Walter', composer: 'Walter L.', arrangements: '2 · Choir A, Choir C', excerpt: 'Same composition; existing renditions differ by Choir.' },
+      evidence: [
+        ['good', 'Song identity match', 'Normalized title, composer, and opening phrase agree with the existing Song work.'],
+        ['good', 'Arrangement is new', 'Choir B rendition has a distinct lyric and Sequence fingerprint.'],
+        ['good', 'Suggested action', 'Attach only the imported Arrangement; keep existing Arrangements unchanged.']
+      ],
+      detail: 'Adds Choir B as a new reusable Arrangement under the matched Song work.'
+    },
+    {
+      id: 'skip', name: 'Kordero sa Dios', file: 'kordero-sa-dios-choir-a.json', status: 'skip', label: 'Skip unchanged',
+      imported: { title: 'Kordero sa Dios', composer: 'R. Villanueva', arrangements: '1 · Cebuano · Choir A', excerpt: 'Kordero sa Dios, nga nagawagtang…' },
+      existing: { title: 'Kordero sa Dios', composer: 'R. Villanueva', arrangements: 'Choir A · last revised Aug 18', excerpt: 'Lyrics, section order, pagination, and metadata are identical.' },
+      evidence: [
+        ['good', 'Exact normalized identity', 'Song title and composer match the existing Song work.'],
+        ['good', 'Exact content fingerprint', 'Arrangement metadata, lyrics, Sequence, and approved slide boundaries are unchanged.'],
+        ['good', 'Suggested action', 'Skip this document; no revision is created.']
+      ],
+      detail: 'No library change. The document is retained only in this review session.'
+    },
+    {
+      id: 'decision', name: 'Gloria — 8th Mass', file: 'gloria-8th-mass-choir-d.json', status: 'decide', label: 'Needs decision',
+      imported: { title: 'Gloria — 8th Mass', composer: 'Unknown', arrangements: '1 · Cebuano · Choir D', excerpt: 'Himaya sa Dios sa kahitas-an…' },
+      existing: { title: 'Gloria — 8th Mass', composer: 'Traditional', arrangements: '3 · Choir A, B, C', excerpt: 'Title strongly matches, but authorship is incomplete and several lines differ.' },
+      evidence: [
+        ['warn', 'Probable Song match', 'The normalized title matches, but composer metadata cannot confirm the Song-work identity.'],
+        ['warn', 'Meaningful lyric differences', 'Four lines and the ending differ from the nearest Arrangement.'],
+        ['warn', 'Operator decision required', 'Attach if it is the same musical setting; otherwise create a separate Song work.']
+      ],
+      detail: 'Choose whether this is another Arrangement of the existing work or a separate musical setting.'
+    },
+    {
+      id: 'new2', name: 'Pagdayeg sa Pagsulod', file: 'pagdayeg-sa-pagsulod.json', status: 'add', label: 'Add new',
+      imported: { title: 'Pagdayeg sa Pagsulod', composer: 'M. Dela Cruz', arrangements: '2 · Cebuano · Choir A, B', excerpt: 'Magmaya kita sa balay sa Ginoo…' },
+      existing: null,
+      evidence: [
+        ['good', 'Contract valid', 'Both Arrangements and their referenced sections validate.'],
+        ['good', 'No identity match', 'No existing work provides sufficient title, alias, composer, or lyric evidence.'],
+        ['good', 'Suggested action', 'Create one Song work with two Arrangements.']
+      ],
+      detail: 'Creates a new Song work with two separately reusable Arrangements.'
+    },
+    {
+      id: 'invalid', name: 'Sanctus — Choir E', file: 'sanctus-choir-e.json', status: 'invalid', label: 'Invalid',
+      imported: { title: 'Sanctus', composer: '—', arrangements: '1 · Cebuano · Choir E', excerpt: 'Santos, Santos, Santos…' },
+      existing: null,
+      errors: [
+        'schemaVersion must be a supported value; received “0.7-draft”.',
+        'arrangements[0].languages must contain at least one valid language code.',
+        'sequence[3] references missing section “chorus-final”.'
+      ],
+      evidence: [
+        ['bad', 'Contract rejected', 'The document cannot produce a coherent staged Song and Arrangement.'],
+        ['good', 'Library protected', 'This document is excluded before the atomic commit begins.']
+      ],
+      detail: 'Fix the JSON contract errors and select the corrected document in a later import.'
+    }
+  ];
+
+  let selected = 'attach';
+  let decisionResolved = false;
+  let previewOpen = false;
+  let previewTab = 'lyrics';
+
+  const candidates = root.querySelector('#oi-candidates');
+  const reviewName = root.querySelector('#oi-review-name');
+  const reviewFile = root.querySelector('#oi-review-file');
+  const reviewStatus = root.querySelector('#oi-review-status');
+  const reviewBody = root.querySelector('#oi-review-body');
+  const importButton = root.querySelector('#oi-import-button');
+  const readyCount = root.querySelector('#oi-ready-count');
+  const commitSummary = root.querySelector('#oi-commit-summary');
+  const previewOverlay = root.querySelector('#oi-preview-overlay');
+  const previewSubtitle = root.querySelector('#oi-preview-subtitle');
+  const previewBody = root.querySelector('#oi-preview-body');
+  const matchSelect = root.querySelector('#oi-match-select');
+
+  const iconFor = kind => kind === 'good' ? 'check-circle-2' : kind === 'bad' ? 'circle-x' : 'triangle-alert';
+  const facts = data => `
+    <dl class="oi-facts">
+      <dt>Title</dt><dd>${data.title}</dd>
+      <dt>Composer</dt><dd>${data.composer}</dd>
+      <dt>Arrangements</dt><dd>${data.arrangements}</dd>
+    </dl>
+    <div class="oi-excerpt">${data.excerpt}</div>`;
+
+  function renderQueue() {
+    candidates.innerHTML = items.map(item => `
+      <button type="button" class="oi-candidate" data-id="${item.id}" aria-selected="${selected === item.id}">
+        <span class="oi-candidate-title">${item.name}</span>
+        <span class="oi-status ${item.status}">${item.label}</span>
+        <span class="oi-candidate-file">${item.file}</span>
+      </button>`).join('');
+    candidates.querySelectorAll('.oi-candidate').forEach(button => {
+      button.addEventListener('click', () => { selected = button.dataset.id; render(); });
+    });
+  }
+
+  function renderReview() {
+    const item = items.find(candidate => candidate.id === selected);
+    const effectiveStatus = item.id === 'decision' && decisionResolved ? 'attach' : item.status;
+    const effectiveLabel = item.id === 'decision' && decisionResolved ? 'Attach Arrangement' : item.label;
+    reviewName.textContent = item.name;
+    reviewFile.textContent = item.file;
+    reviewStatus.className = `oi-status oi-review-status ${effectiveStatus}`;
+    reviewStatus.textContent = effectiveLabel;
+
+    const existingPanel = item.existing
+      ? `<section class="oi-compare-panel"><div class="oi-panel-kicker">Nearest library match</div><div class="oi-panel-title">${item.existing.title}</div>${facts(item.existing)}<button type="button" class="oi-button oi-panel-action" data-open-preview="match"><i data-lucide="panels-top-left" aria-hidden="true"></i>Compare contents</button></section>`
+      : `<section class="oi-compare-panel"><div class="oi-panel-kicker">Nearest library match</div><div class="oi-panel-title">No credible match</div><p class="oi-subtitle">The closest normalized candidates do not identify the same musical work.</p></section>`;
+
+    const evidence = item.evidence.map(row => `
+      <div class="oi-evidence-row ${row[0]}">
+        <i data-lucide="${iconFor(row[0])}" aria-hidden="true"></i>
+        <strong>${row[1]}</strong>
+        <span class="oi-evidence-detail">${row[2]}</span>
+      </div>`).join('');
+
+    let controls = '';
+    if (item.id === 'decision' && !decisionResolved) {
+      controls = `<select class="oi-select" id="oi-decision-select" aria-label="Import action">
+        <option value="">Choose action…</option>
+        <option value="attach">Attach to existing Song</option>
+        <option value="add">Create separate Song</option>
+        <option value="skip">Skip this document</option>
+      </select><button class="oi-button primary" id="oi-apply-decision" type="button" disabled>Apply</button>`;
+    } else if (item.status !== 'invalid') {
+      controls = `<select class="oi-select" id="oi-change-action" aria-label="Staged import action">
+        <option ${effectiveStatus === 'add' ? 'selected' : ''}>Add new Song</option>
+        <option ${effectiveStatus === 'attach' ? 'selected' : ''}>Attach Arrangement</option>
+        <option ${effectiveStatus === 'skip' ? 'selected' : ''}>Skip document</option>
+      </select>`;
+    }
+
+    const errors = item.errors ? `<ul class="oi-error-list">${item.errors.map(error => `<li>${error}</li>`).join('')}</ul>` : '';
+    const decisionTitle = item.status === 'invalid' ? 'Excluded from import' : item.id === 'decision' && !decisionResolved ? 'Your decision' : 'Staged action';
+
+    reviewBody.innerHTML = `
+      <div class="oi-compare">
+        <section class="oi-compare-panel"><div class="oi-panel-kicker">Imported document</div><div class="oi-panel-title">${item.imported.title}</div>${facts(item.imported)}<button type="button" class="oi-button oi-panel-action" data-open-preview="document"><i data-lucide="scan-search" aria-hidden="true"></i>Preview document</button></section>
+        ${existingPanel}
+      </div>
+      <section class="oi-evidence"><h3>Match evidence</h3>${evidence}${errors}</section>
+      <section class="oi-decision">
+        <div class="oi-decision-top">
+          <div class="oi-decision-copy"><h3>${decisionTitle}</h3><p>${item.detail}</p></div>
+          <div class="oi-decision-controls">${controls}</div>
+        </div>
+        ${item.id === 'decision' && decisionResolved ? '<div class="oi-feedback">Decision staged. You can still change it before import.</div>' : ''}
+      </section>`;
+
+    const decisionSelect = reviewBody.querySelector('#oi-decision-select');
+    const applyDecision = reviewBody.querySelector('#oi-apply-decision');
+    if (decisionSelect && applyDecision) {
+      decisionSelect.addEventListener('change', () => { applyDecision.disabled = !decisionSelect.value; });
+      applyDecision.addEventListener('click', () => { decisionResolved = true; render(); });
+    }
+    reviewBody.querySelectorAll('[data-open-preview]').forEach(button => {
+      button.addEventListener('click', () => { previewOpen = true; previewTab = button.dataset.openPreview === 'match' ? 'overview' : 'lyrics'; renderPreview(); });
+    });
+    if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+  }
+
+  function previewContent(kind, item, hasMatch) {
+    if (!hasMatch && kind === 'library') return '<div class="oi-empty-match"><div><i data-lucide="library" aria-hidden="true"></i><p>No credible library match to compare.</p></div></div>';
+    const library = kind === 'library';
+    if (previewTab === 'overview') {
+      const data = library ? item.existing : item.imported;
+      return `<div class="oi-lyric-section"><div class="oi-lyric-label">Identity</div><strong>${data.title}</strong></div>
+        <div class="oi-lyric-section"><div class="oi-lyric-label">Composer</div>${data.composer}</div>
+        <div class="oi-lyric-section"><div class="oi-lyric-label">Arrangement scope</div>${data.arrangements}</div>
+        <div class="oi-lyric-section"><div class="oi-lyric-label">Import state</div>${library ? 'Existing reusable library content' : 'Read-only staged document'}</div>`;
+    }
+    if (previewTab === 'sequence') {
+      const steps = library ? ['Verse 1', 'Chorus', 'Verse 2', 'Chorus', 'Ending'] : ['Verse 1', 'Chorus', 'Verse 2', 'Chorus', 'Verse 3', 'Ending'];
+      return `<div class="oi-lyric-label">Performance order · ${steps.length} occurrences</div><div class="oi-sequence">${steps.map((step, index) => `<span class="oi-step">${String(index + 1).padStart(2, '0')} ${step}</span>`).join('')}</div>`;
+    }
+    if (previewTab === 'slides') {
+      const slides = library
+        ? ['Amahan namo, nga anaa sa mga langit', 'Pagdaygon ang imong ngalan', 'Umari kanamo ang imong gingharian', 'Matuman ang imong pagbuot']
+        : ['Amahan namo, nga anaa sa mga langit', 'Pagdaygon ang imong ngalan', 'Moabot kanamo ang imong gingharian', 'Matuman ang imong kabubut-on'];
+      return `<div class="oi-slide-grid">${slides.map((slide, index) => `<div><div class="oi-lyric-label">Slide ${index + 1}</div><div class="oi-slide-thumb">${slide}</div></div>`).join('')}</div>`;
+    }
+    return library
+      ? `<div class="oi-lyric-section"><div class="oi-lyric-label">Verse 1 · Slide 1</div><div class="oi-lyric-lines">Amahan namo, nga anaa sa mga langit<br>Pagdaygon ang imong ngalan</div></div>
+         <div class="oi-lyric-section"><div class="oi-lyric-label">Chorus · Slide 1</div><div class="oi-lyric-lines"><mark>Umari kanamo</mark> ang imong gingharian<br>Matuman ang imong <mark>pagbuot</mark></div></div>`
+      : `<div class="oi-lyric-section"><div class="oi-lyric-label">Verse 1 · Slide 1</div><div class="oi-lyric-lines">Amahan namo, nga anaa sa mga langit<br>Pagdaygon ang imong ngalan</div></div>
+         <div class="oi-lyric-section"><div class="oi-lyric-label">Chorus · Slide 1</div><div class="oi-lyric-lines"><mark>Moabot kanamo</mark> ang imong gingharian<br>Matuman ang imong <mark>kabubut-on</mark></div></div>`;
+  }
+
+  function renderPreview() {
+    const item = items.find(candidate => candidate.id === selected);
+    previewOverlay.classList.toggle('open', previewOpen);
+    previewOverlay.setAttribute('aria-hidden', String(!previewOpen));
+    if (!previewOpen) return;
+    previewSubtitle.textContent = item.file;
+    const matchCount = item.id === 'decision' ? 3 : item.existing ? 1 : 0;
+    matchSelect.hidden = matchCount === 0;
+    matchSelect.innerHTML = matchCount === 0 ? '' : item.id === 'decision'
+      ? '<option>1. Gloria — 8th Mass · Traditional</option><option>2. Himaya sa Dios · Choir E</option><option>3. Gloria VIII · Latin</option>'
+      : `<option>1. ${item.existing.title}</option>`;
+    root.querySelectorAll('.oi-tab').forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.previewTab === previewTab)));
+    previewBody.innerHTML = `
+      <div class="oi-preview-headings">
+        <div class="oi-preview-heading"><strong>Imported document</strong><span>Read-only</span></div>
+        <div class="oi-preview-heading"><strong>Library match</strong><span>${matchCount ? `Nearest of ${matchCount}` : 'None'}</span></div>
+      </div>
+      <div class="oi-preview-columns">
+        <section class="oi-preview-pane" data-pane-label="Imported document">${previewContent('imported', item, true)}</section>
+        <section class="oi-preview-pane" data-pane-label="Library match">${previewContent('library', item, Boolean(item.existing))}</section>
+      </div>
+      <div class="oi-preview-note"><i data-lucide="lock-keyhole" aria-hidden="true"></i>Preview is read-only. Return to the review to change the staged import action.</div>`;
+    if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+  }
+
+  function renderCommit() {
+    importButton.disabled = !decisionResolved;
+    readyCount.textContent = decisionResolved ? '5 ready' : '4 ready';
+    commitSummary.textContent = decisionResolved ? '2 new · 2 attach · 1 skipped · 1 invalid excluded' : '2 new · 1 attach · 1 skipped · 1 decision remaining';
+    importButton.innerHTML = decisionResolved
+      ? '<i data-lucide="download" aria-hidden="true"></i>Import 4 changes'
+      : '<i data-lucide="download" aria-hidden="true"></i>Import approved';
+  }
+
+  function render() {
+    renderQueue();
+    renderReview();
+    renderCommit();
+    renderPreview();
+    if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+  }
+
+  importButton.addEventListener('click', () => {
+    importButton.textContent = 'Imported atomically';
+    importButton.disabled = true;
+  });
+  root.querySelector('#oi-close-preview').addEventListener('click', () => { previewOpen = false; renderPreview(); });
+  previewOverlay.addEventListener('click', event => { if (event.target === previewOverlay) { previewOpen = false; renderPreview(); } });
+  root.querySelectorAll('.oi-tab').forEach(tab => tab.addEventListener('click', () => { previewTab = tab.dataset.previewTab; renderPreview(); }));
+  render();
+})();
+</script>

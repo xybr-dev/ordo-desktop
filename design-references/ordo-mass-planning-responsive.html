@@ -1,0 +1,687 @@
+<div id="ordo-mass-responsive" data-resolution="1366" aria-label="Responsive Mass Planning comparison">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500&display=swap');
+
+    #ordo-mass-responsive {
+      width: 100%;
+      color: light-dark(#26231f, #f2efe9);
+      font-family: "Atkinson Hyperlegible Next", "Noto Sans", system-ui, sans-serif;
+    }
+
+    #ordo-mass-responsive * { box-sizing: border-box; }
+
+    #ordo-mass-responsive .omr-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    #ordo-mass-responsive .omr-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px;
+      border: 1px solid light-dark(#d5cfc4, #454945);
+      border-radius: 7px;
+      background: light-dark(#ebe6dc, #252925);
+    }
+
+    #ordo-mass-responsive .omr-toggle button {
+      min-height: 34px;
+      border: 0;
+      border-radius: 5px;
+      padding: 6px 11px;
+      background: transparent;
+      color: light-dark(#6f695f, #bbb6ac);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    #ordo-mass-responsive .omr-toggle button[aria-pressed="true"] {
+      background: light-dark(#292722, #ece8df);
+      color: light-dark(#fffdf8, #1d1f21);
+    }
+
+    #ordo-mass-responsive .omr-context {
+      color: light-dark(#756f65, #aaa59b);
+    }
+
+    #ordo-mass-responsive .omr-window {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      min-height: 470px;
+      overflow: hidden;
+      border: 1px solid light-dark(#cec7bc, #454945);
+      border-radius: 8px;
+      background: light-dark(#f4f1ea, #17191b);
+      color: light-dark(#26231f, #f2efe9);
+      box-shadow: 0 18px 52px light-dark(rgb(46 39 30 / 20%), rgb(0 0 0 / 46%));
+    }
+
+    #ordo-mass-responsive .omr-app {
+      display: none;
+      height: 100%;
+      min-height: 470px;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    #ordo-mass-responsive[data-resolution="1366"] .omr-app-1366,
+    #ordo-mass-responsive[data-resolution="1920"] .omr-app-1920 { display: grid; }
+
+    #ordo-mass-responsive .omr-topbar {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 12px;
+      border-bottom: 1px solid light-dark(#d8d2c8, #393d3a);
+      background: light-dark(#fffdf8, #222528);
+    }
+
+    #ordo-mass-responsive .omr-brand {
+      font-weight: 500;
+      letter-spacing: .13em;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-crumbs {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      color: light-dark(#756f65, #aaa59b);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-saved,
+    #ordo-mass-responsive .omr-resolution-label {
+      color: light-dark(#756f65, #aaa59b);
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-topbar button,
+    #ordo-mass-responsive .omr-planbar button,
+    #ordo-mass-responsive .omr-pane-head button,
+    #ordo-mass-responsive .omr-editor button,
+    #ordo-mass-responsive .omr-inspector button {
+      min-height: 30px;
+      border: 1px solid light-dark(#cbc4b8, #4a4f4b);
+      border-radius: 5px;
+      background: light-dark(#fffdf8, #292d30);
+      color: light-dark(#2c2924, #f2efe9);
+      padding: 5px 9px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    #ordo-mass-responsive .omr-topbar .omr-present {
+      border-color: light-dark(#292722, #ece8df);
+      background: light-dark(#292722, #ece8df);
+      color: light-dark(#fffdf8, #1d1f21);
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-planbar {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 12px;
+      border-bottom: 1px solid light-dark(#d8d2c8, #393d3a);
+      background: light-dark(#f8f5ee, #1c1f21);
+    }
+
+    #ordo-mass-responsive .omr-plan-identity {
+      min-width: 0;
+      flex: 1;
+    }
+
+    #ordo-mass-responsive .omr-plan-title {
+      overflow: hidden;
+      font-weight: 500;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-plan-meta {
+      overflow: hidden;
+      margin-top: 2px;
+      color: light-dark(#756f65, #aaa59b);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-warning-button {
+      color: light-dark(#8e5510, #f0b35e) !important;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-theme-button { white-space: nowrap; }
+
+    #ordo-mass-responsive .omr-workspace {
+      min-height: 0;
+      display: grid;
+    }
+
+    #ordo-mass-responsive .omr-app-1366 .omr-workspace {
+      grid-template-columns: minmax(170px, 23%) minmax(290px, 44%) minmax(220px, 33%);
+    }
+
+    #ordo-mass-responsive .omr-app-1920 .omr-workspace {
+      grid-template-columns: minmax(190px, 20%) minmax(340px, 48%) minmax(250px, 32%);
+    }
+
+    #ordo-mass-responsive .omr-pane {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border-right: 1px solid light-dark(#d8d2c8, #393d3a);
+      background: light-dark(#fffdf8, #222528);
+    }
+
+    #ordo-mass-responsive .omr-pane:last-child { border-right: 0; }
+
+    #ordo-mass-responsive .omr-pane-head {
+      min-height: 39px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      border-bottom: 1px solid light-dark(#ded8ce, #393d3a);
+      color: light-dark(#6f695f, #b8b2a8);
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-pane-head h2 {
+      margin: 0;
+      overflow: hidden;
+      font: inherit;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-add {
+      min-width: 30px;
+      padding-inline: 7px !important;
+    }
+
+    #ordo-mass-responsive .omr-outline-scroll,
+    #ordo-mass-responsive .omr-editor-scroll,
+    #ordo-mass-responsive .omr-inspector-scroll {
+      height: calc(100% - 39px);
+      overflow: hidden;
+    }
+
+    #ordo-mass-responsive .omr-outline-scroll { padding: 5px 7px 18px; }
+
+    #ordo-mass-responsive .omr-section-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      margin-top: 4px;
+      padding: 6px 5px;
+      color: light-dark(#756f65, #aaa59b);
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-section-title span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-outline-item {
+      width: 100%;
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 1px 0;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: light-dark(#5f5a52, #c8c3ba);
+      padding: 5px 7px 5px 19px;
+      text-align: left;
+      font: inherit;
+    }
+
+    #ordo-mass-responsive .omr-outline-item span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-outline-item[aria-selected="true"] {
+      background: light-dark(#e8e2d8, #343936);
+      color: light-dark(#292722, #f4f1eb);
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-outline-item .omr-dot {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: light-dark(#7a746b, #a9a49b);
+    }
+
+    #ordo-mass-responsive .omr-outline-item .omr-warn-dot {
+      background: light-dark(#a45e0b, #f0b35e);
+    }
+
+    #ordo-mass-responsive .omr-editor-scroll { padding: 11px 13px 22px; }
+
+    #ordo-mass-responsive .omr-item-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid light-dark(#ded8ce, #393d3a);
+    }
+
+    #ordo-mass-responsive .omr-item-heading h3 {
+      margin: 0;
+      font-size: 1.08em;
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-item-heading p {
+      margin: 3px 0 0;
+      color: light-dark(#756f65, #aaa59b);
+    }
+
+    #ordo-mass-responsive .omr-kind {
+      color: light-dark(#756f65, #aaa59b);
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-link-state {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 10px 0 0;
+      padding: 8px 0;
+      border-bottom: 1px solid light-dark(#ded8ce, #393d3a);
+    }
+
+    #ordo-mass-responsive .omr-link-state strong { font-weight: 500; }
+
+    #ordo-mass-responsive .omr-link-state p {
+      margin: 2px 0 0;
+      color: light-dark(#756f65, #aaa59b);
+    }
+
+    #ordo-mass-responsive .omr-link-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: end;
+    }
+
+    #ordo-mass-responsive .omr-subhead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 11px 0 7px;
+    }
+
+    #ordo-mass-responsive .omr-subhead h4 {
+      margin: 0;
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-subhead span { color: light-dark(#756f65, #aaa59b); }
+
+    #ordo-mass-responsive .omr-sequence {
+      border-top: 1px solid light-dark(#ded8ce, #393d3a);
+    }
+
+    #ordo-mass-responsive .omr-sequence-row {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 31px;
+      padding: 5px 3px;
+      border-bottom: 1px solid light-dark(#e4ded5, #363a37);
+    }
+
+    #ordo-mass-responsive .omr-sequence-row span:nth-child(2) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-sequence-row span:last-child { color: light-dark(#756f65, #aaa59b); }
+
+    #ordo-mass-responsive .omr-cue-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    #ordo-mass-responsive .omr-app-1920 .omr-cue-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    #ordo-mass-responsive .omr-cue-thumb {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid light-dark(#cfc8bc, #484d49);
+      border-radius: 5px;
+      background: light-dark(#f8f5ef, #1c1f21);
+      color: light-dark(#292722, #f2efe9);
+      padding: 0;
+      text-align: left;
+      font: inherit;
+    }
+
+    #ordo-mass-responsive .omr-cue-thumb[aria-selected="true"] {
+      border-color: light-dark(#37664d, #7abd92);
+      box-shadow: inset 0 0 0 1px light-dark(#37664d, #7abd92);
+    }
+
+    #ordo-mass-responsive .omr-mini-frame,
+    #ordo-mass-responsive .omr-canonical-frame {
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #050505;
+      color: #ffffff;
+      text-align: center;
+      font-family: "Atkinson Hyperlegible Next", "Noto Sans", sans-serif;
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-mini-frame { padding: 7%; }
+
+    #ordo-mass-responsive .omr-cue-caption {
+      overflow: hidden;
+      padding: 5px 7px;
+      color: light-dark(#6f695f, #b8b2a8);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-inspector-scroll { padding: 10px 11px 18px; }
+
+    #ordo-mass-responsive .omr-cue-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    #ordo-mass-responsive .omr-cue-nav span {
+      color: light-dark(#756f65, #aaa59b);
+      white-space: nowrap;
+    }
+
+    #ordo-mass-responsive .omr-cue-nav div { display: flex; gap: 5px; }
+
+    #ordo-mass-responsive .omr-canonical-frame {
+      width: 100%;
+      border-radius: 6px;
+      padding: 7%;
+      box-shadow: 0 7px 22px rgb(0 0 0 / 24%);
+    }
+
+    #ordo-mass-responsive .omr-canonical-frame p {
+      max-width: 17ch;
+      margin: 0;
+      font-size: 1.4em;
+      line-height: 1.16;
+    }
+
+    #ordo-mass-responsive .omr-cue-title {
+      margin: 9px 0 2px;
+      font-weight: 500;
+    }
+
+    #ordo-mass-responsive .omr-cue-detail {
+      margin: 0;
+      color: light-dark(#756f65, #aaa59b);
+    }
+
+    #ordo-mass-responsive .omr-info-list {
+      margin-top: 10px;
+      border-top: 1px solid light-dark(#ded8ce, #393d3a);
+    }
+
+    #ordo-mass-responsive .omr-info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 0;
+      border-bottom: 1px solid light-dark(#e4ded5, #363a37);
+    }
+
+    #ordo-mass-responsive .omr-info-row span:first-child { color: light-dark(#756f65, #aaa59b); }
+
+    #ordo-mass-responsive .omr-app-1366 .omr-wide-only { display: none; }
+
+    #ordo-mass-responsive .omr-app-1366 {
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    #ordo-mass-responsive .omr-app-1920 {
+      font-size: 11px;
+      line-height: 1.28;
+    }
+
+    #ordo-mass-responsive .omr-app-1920 .omr-topbar { min-height: 45px; padding-inline: 14px; }
+    #ordo-mass-responsive .omr-app-1920 .omr-planbar { min-height: 56px; padding-inline: 14px; }
+    #ordo-mass-responsive .omr-app-1920 .omr-editor-scroll { padding: 12px 16px 24px; }
+    #ordo-mass-responsive .omr-app-1920 .omr-inspector-scroll { padding: 12px 14px 20px; }
+
+    @media (max-width: 600px) {
+      #ordo-mass-responsive .omr-context { width: 100%; }
+      #ordo-mass-responsive .omr-window { min-height: 610px; aspect-ratio: auto; }
+      #ordo-mass-responsive .omr-app { min-height: 610px; }
+      #ordo-mass-responsive .omr-saved,
+      #ordo-mass-responsive .omr-resolution-label,
+      #ordo-mass-responsive .omr-theme-button { display: none; }
+      #ordo-mass-responsive .omr-app-1366 .omr-workspace,
+      #ordo-mass-responsive .omr-app-1920 .omr-workspace { grid-template-columns: minmax(135px, 38%) minmax(0, 62%); }
+      #ordo-mass-responsive .omr-inspector { display: none; }
+      #ordo-mass-responsive .omr-link-state { align-items: flex-start; flex-direction: column; }
+      #ordo-mass-responsive .omr-link-actions { justify-content: start; }
+      #ordo-mass-responsive .omr-app-1920 .omr-cue-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+
+  <div class="omr-controls">
+    <div class="omr-toggle" role="group" aria-label="Viewport comparison">
+      <button type="button" data-size="1366" aria-pressed="true">1366 × 768</button>
+      <button type="button" data-size="1920" aria-pressed="false">1920 × 1080</button>
+    </div>
+    <div class="omr-context">Same Mass · same selected Song · Interface scale 100%</div>
+  </div>
+
+  <div class="omr-window">
+    <section class="omr-app omr-app-1366" aria-label="Mass Planning at 1366 by 768">
+      <header class="omr-topbar">
+        <div class="omr-brand">ORDO</div>
+        <div class="omr-crumbs">Masses / 21st Sunday in Ordinary Time</div>
+        <div class="omr-resolution-label">1366 × 768</div>
+        <div class="omr-saved">Saved</div>
+        <button class="omr-present" type="button">Present</button>
+      </header>
+      <div class="omr-planbar">
+        <div class="omr-plan-identity">
+          <div class="omr-plan-title">Sunday Mass · 8:30 AM</div>
+          <div class="omr-plan-meta">Cebuano · Choir B · Parish Church · Rev. Fr. Mateo Reyes</div>
+        </div>
+        <button class="omr-warning-button" type="button">2 warnings</button>
+        <button class="omr-theme-button" type="button">Theme: Parish dark</button>
+      </div>
+      <div class="omr-workspace">
+        <aside class="omr-pane" aria-label="Mass outline">
+          <div class="omr-pane-head"><h2>Mass outline</h2><button class="omr-add" type="button" aria-label="Add Mass item">＋</button></div>
+          <div class="omr-outline-scroll">
+            <div class="omr-section-title">⌄ <span>Before Mass</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Welcome announcement</span></button>
+            <div class="omr-section-title">⌄ <span>Introductory Rites</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Entrance Song</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Greeting</span></button>
+            <button class="omr-outline-item" type="button" aria-selected="true"><span class="omr-dot"></span><span>Kyrie — Third Mass</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Gloria</span></button>
+            <div class="omr-section-title">⌄ <span>Liturgy of the Word</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>First Reading</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot omr-warn-dot"></span><span>Responsorial Psalm — The Lord is my shepherd</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Second Reading</span></button>
+            <div class="omr-section-title">› <span>Liturgy of the Eucharist</span></div>
+          </div>
+        </aside>
+        <main class="omr-pane omr-editor" aria-label="Selected Mass item editor">
+          <div class="omr-pane-head"><h2>Selected Mass item</h2><span>Song</span></div>
+          <div class="omr-editor-scroll">
+            <div class="omr-item-heading">
+              <div><h3>Kyrie — Third Mass</h3><p>Penitential act · after Greeting</p></div>
+              <span class="omr-kind">Song item</span>
+            </div>
+            <div class="omr-link-state">
+              <div><strong>Using Choir B arrangement</strong><p>Cebuano · linked to Song Library</p></div>
+              <div class="omr-link-actions"><button type="button">Change</button><button type="button">Customize for this Mass</button></div>
+            </div>
+            <div class="omr-subhead"><h4>Sequence</h4><span>3 sections · 4 Cues</span></div>
+            <div class="omr-sequence">
+              <div class="omr-sequence-row"><span>1</span><span>Ginoo, kaloy-i kami</span><span>1 Cue</span></div>
+              <div class="omr-sequence-row"><span>2</span><span>Kristo, kaloy-i kami</span><span>1 Cue</span></div>
+              <div class="omr-sequence-row"><span>3</span><span>Ginoo, kaloy-i kami — reprise</span><span>2 Cues</span></div>
+            </div>
+            <div class="omr-subhead"><h4>Generated Cues</h4><span>Selected 1 of 4</span></div>
+            <div class="omr-cue-strip">
+              <button class="omr-cue-thumb" type="button" aria-selected="true"><span class="omr-mini-frame">Ginoo,<br>kaloy-i kami.</span><span class="omr-cue-caption">Ginoo, kaloy-i kami</span></button>
+              <button class="omr-cue-thumb" type="button"><span class="omr-mini-frame">Kristo,<br>kaloy-i kami.</span><span class="omr-cue-caption">Kristo, kaloy-i kami</span></button>
+            </div>
+          </div>
+        </main>
+        <aside class="omr-pane omr-inspector" aria-label="Inspector">
+          <div class="omr-pane-head"><h2>Inspector</h2><span>Cue 1 of 4</span></div>
+          <div class="omr-inspector-scroll">
+            <div class="omr-cue-nav"><span>Canonical slide</span><div><button type="button" aria-label="Previous Cue">←</button><button type="button" aria-label="Next Cue">→</button></div></div>
+            <div class="omr-canonical-frame"><p>Ginoo,<br>kaloy-i kami.</p></div>
+            <div class="omr-cue-title">Ginoo, kaloy-i kami</div>
+            <p class="omr-cue-detail">Projectable response · Choir B arrangement</p>
+            <div class="omr-info-list">
+              <div class="omr-info-row"><span>Theme</span><span>Parish dark</span></div>
+              <div class="omr-info-row"><span>Pagination</span><span>Fits safely</span></div>
+              <div class="omr-info-row"><span>Output</span><span>1920 × 1080</span></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="omr-app omr-app-1920" aria-label="Mass Planning at 1920 by 1080">
+      <header class="omr-topbar">
+        <div class="omr-brand">ORDO</div>
+        <div class="omr-crumbs">Masses / 21st Sunday in Ordinary Time / Sunday Mass · 8:30 AM</div>
+        <div class="omr-resolution-label">1920 × 1080</div>
+        <div class="omr-saved">Saved just now</div>
+        <button class="omr-present" type="button">Present</button>
+      </header>
+      <div class="omr-planbar">
+        <div class="omr-plan-identity">
+          <div class="omr-plan-title">Sunday Mass · 8:30 AM</div>
+          <div class="omr-plan-meta">Cebuano · Choir B · Parish Church · Rev. Fr. Mateo Reyes · Sunday, August 23, 2026</div>
+        </div>
+        <button class="omr-warning-button" type="button">2 warnings</button>
+        <button class="omr-theme-button" type="button">Theme: Parish dark</button>
+      </div>
+      <div class="omr-workspace">
+        <aside class="omr-pane" aria-label="Mass outline">
+          <div class="omr-pane-head"><h2>Mass outline</h2><button class="omr-add" type="button" aria-label="Add Mass item">＋ Add Mass item</button></div>
+          <div class="omr-outline-scroll">
+            <div class="omr-section-title">⌄ <span>Before Mass</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Welcome announcement</span></button>
+            <div class="omr-section-title">⌄ <span>Introductory Rites</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Entrance Song</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Greeting</span></button>
+            <button class="omr-outline-item" type="button" aria-selected="true"><span class="omr-dot"></span><span>Kyrie — Third Mass</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Gloria</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Collect</span></button>
+            <div class="omr-section-title">⌄ <span>Liturgy of the Word</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>First Reading</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot omr-warn-dot"></span><span>Responsorial Psalm — The Lord is my shepherd</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Second Reading</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Gospel Acclamation</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Gospel</span></button>
+            <div class="omr-section-title">⌄ <span>Liturgy of the Eucharist</span></div>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Offertory Song</span></button>
+            <button class="omr-outline-item" type="button"><span class="omr-dot"></span><span>Preface dialogue</span></button>
+          </div>
+        </aside>
+        <main class="omr-pane omr-editor" aria-label="Selected Mass item editor">
+          <div class="omr-pane-head"><h2>Selected Mass item</h2><span>Song</span></div>
+          <div class="omr-editor-scroll">
+            <div class="omr-item-heading">
+              <div><h3>Kyrie — Third Mass</h3><p>Penitential act · after Greeting · Introductory Rites</p></div>
+              <span class="omr-kind">Song item</span>
+            </div>
+            <div class="omr-link-state">
+              <div><strong>Using Choir B arrangement</strong><p>Cebuano · linked to Song Library · last reviewed August 17</p></div>
+              <div class="omr-link-actions"><button type="button">Change song or arrangement</button><button type="button">Customize for this Mass</button></div>
+            </div>
+            <div class="omr-subhead"><h4>Sequence</h4><span>3 sections · 4 generated Cues</span></div>
+            <div class="omr-sequence">
+              <div class="omr-sequence-row"><span>1</span><span>Ginoo, kaloy-i kami</span><span>1 Cue</span></div>
+              <div class="omr-sequence-row"><span>2</span><span>Kristo, kaloy-i kami</span><span>1 Cue</span></div>
+              <div class="omr-sequence-row"><span>3</span><span>Ginoo, kaloy-i kami — reprise</span><span>2 Cues</span></div>
+            </div>
+            <div class="omr-subhead"><h4>Generated Cues</h4><span>Selected 1 of 4 · click a Cue to inspect</span></div>
+            <div class="omr-cue-strip">
+              <button class="omr-cue-thumb" type="button" aria-selected="true"><span class="omr-mini-frame">Ginoo,<br>kaloy-i kami.</span><span class="omr-cue-caption">1 · Ginoo, kaloy-i kami</span></button>
+              <button class="omr-cue-thumb" type="button"><span class="omr-mini-frame">Kristo,<br>kaloy-i kami.</span><span class="omr-cue-caption">2 · Kristo, kaloy-i kami</span></button>
+              <button class="omr-cue-thumb" type="button"><span class="omr-mini-frame">Ginoo,<br>kaloy-i kami.</span><span class="omr-cue-caption">3 · Ginoo, kaloy-i kami</span></button>
+            </div>
+            <div class="omr-subhead wide-only"><h4>Mass-local state</h4><span>Following library arrangement</span></div>
+          </div>
+        </main>
+        <aside class="omr-pane omr-inspector" aria-label="Inspector">
+          <div class="omr-pane-head"><h2>Inspector</h2><span>Cue 1 of 4</span></div>
+          <div class="omr-inspector-scroll">
+            <div class="omr-cue-nav"><span>Canonical slide · 16:9</span><div><button type="button" aria-label="Previous Cue">←</button><button type="button" aria-label="Next Cue">→</button></div></div>
+            <div class="omr-canonical-frame"><p>Ginoo,<br>kaloy-i kami.</p></div>
+            <div class="omr-cue-title">Ginoo, kaloy-i kami</div>
+            <p class="omr-cue-detail">Projectable response · Choir B arrangement</p>
+            <div class="omr-info-list">
+              <div class="omr-info-row"><span>Theme</span><span>Parish dark</span></div>
+              <div class="omr-info-row"><span>Pagination</span><span>Fits safely</span></div>
+              <div class="omr-info-row"><span>Safe area</span><span>Within 5%</span></div>
+              <div class="omr-info-row"><span>Canonical output</span><span>1920 × 1080</span></div>
+              <div class="omr-info-row"><span>Source</span><span>Library arrangement</span></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-mass-responsive');
+      const buttons = root.querySelectorAll('[data-size]');
+      buttons.forEach((button) => {
+        button.addEventListener('click', () => {
+          root.dataset.resolution = button.dataset.size;
+          buttons.forEach((peer) => peer.setAttribute('aria-pressed', String(peer === button)));
+        });
+      });
+    })();
+  </script>
+</div>
