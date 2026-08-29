@@ -1,0 +1,313 @@
+<div id="ordo-arrangement-details-viz">
+  <style>
+    #ordo-arrangement-details-viz {
+      color-scheme: light dark;
+      position: relative;
+      min-height: 720px;
+      overflow: hidden;
+      border: 1px solid light-dark(#d5cdbf, #444741);
+      border-radius: 18px;
+      background: light-dark(#eee9df, #1c1e1c);
+      color: light-dark(#282621, #f1eee7);
+      box-shadow: 0 18px 50px light-dark(#312b211f, #0000005c);
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Noto Sans", system-ui, sans-serif;
+    }
+    #ordo-arrangement-details-viz * { box-sizing: border-box; }
+    #ordo-arrangement-details-viz button,
+    #ordo-arrangement-details-viz input,
+    #ordo-arrangement-details-viz textarea { font: inherit; color: inherit; }
+    #ordo-arrangement-details-viz button { cursor: pointer; }
+    #ordo-arrangement-details-viz .od-shell { min-height: 720px; transition: transform 180ms ease, opacity 180ms ease; }
+    #ordo-arrangement-details-viz .od-topbar {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 17px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#fbf8f1, #282a27);
+    }
+    #ordo-arrangement-details-viz .od-brand { letter-spacing: .11em; font-weight: 700; }
+    #ordo-arrangement-details-viz .od-crumb { flex: 1; min-width: 0; }
+    #ordo-arrangement-details-viz .od-crumb strong,
+    #ordo-arrangement-details-viz .od-crumb small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ordo-arrangement-details-viz small { color: light-dark(#70695e, #b8b8b1); }
+    #ordo-arrangement-details-viz .od-stage-switch {
+      display: flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid light-dark(#d0c8ba, #4a4d48);
+      border-radius: 10px;
+      background: light-dark(#eee9df, #20221f);
+    }
+    #ordo-arrangement-details-viz .od-stage-switch button,
+    #ordo-arrangement-details-viz .od-quiet,
+    #ordo-arrangement-details-viz .od-primary,
+    #ordo-arrangement-details-viz .od-chip,
+    #ordo-arrangement-details-viz .od-tab,
+    #ordo-arrangement-details-viz .od-section {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+    }
+    #ordo-arrangement-details-viz .od-stage-switch button { padding: 6px 9px; color: light-dark(#696258, #c4c4bd); }
+    #ordo-arrangement-details-viz .od-stage-switch button[aria-pressed="true"] {
+      background: light-dark(#fffdf8, #343733);
+      color: light-dark(#282621, #f1eee7);
+      box-shadow: 0 1px 5px #0000001a;
+    }
+    #ordo-arrangement-details-viz .od-subbar {
+      display: flex;
+      align-items: end;
+      gap: 16px;
+      padding: 12px 17px 0;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#f7f3eb, #222421);
+    }
+    #ordo-arrangement-details-viz .od-summary { min-width: 215px; padding-bottom: 11px; }
+    #ordo-arrangement-details-viz .od-summary strong,
+    #ordo-arrangement-details-viz .od-summary small { display: block; }
+    #ordo-arrangement-details-viz .od-tabs { display: flex; align-self: stretch; gap: 4px; }
+    #ordo-arrangement-details-viz .od-tab { padding: 9px 12px; border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent; }
+    #ordo-arrangement-details-viz .od-tab[aria-selected="true"] { border-bottom-color: light-dark(#355d4b, #91c0a7); background: light-dark(#ebe6dc, #2c2f2b); }
+    #ordo-arrangement-details-viz .od-main { display: grid; grid-template-columns: 210px minmax(300px, 1fr) minmax(230px, .72fr); min-height: 600px; }
+    #ordo-arrangement-details-viz .od-pane { min-width: 0; padding: 15px; border-right: 1px solid light-dark(#d5cdbf, #444741); }
+    #ordo-arrangement-details-viz .od-pane:last-child { border-right: 0; }
+    #ordo-arrangement-details-viz .od-panehead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+    #ordo-arrangement-details-viz h2,
+    #ordo-arrangement-details-viz h3,
+    #ordo-arrangement-details-viz p { margin: 0; }
+    #ordo-arrangement-details-viz .od-section { width: 100%; display: flex; justify-content: space-between; padding: 10px; margin-bottom: 7px; text-align: left; border-color: light-dark(#d5cdbf, #444741); background: light-dark(#faf7ef, #292b29); }
+    #ordo-arrangement-details-viz .od-section:first-of-type { border-color: light-dark(#486b59, #90c1a7); background: light-dark(#e7eee8, #26332b); }
+    #ordo-arrangement-details-viz .od-faux-editor { height: 205px; padding: 13px; border: 1px solid light-dark(#ccc4b7, #4b4e49); border-radius: 10px; background: light-dark(#fffdf8, #2d302c); line-height: 1.55; }
+    #ordo-arrangement-details-viz .od-slides { display: flex; gap: 8px; margin-top: 13px; }
+    #ordo-arrangement-details-viz .od-mini { width: 122px; }
+    #ordo-arrangement-details-viz .od-frame { aspect-ratio: 16/9; display: grid; place-items: center; padding: 10px; border-radius: 6px; background: #000; color: #fff; text-align: center; font-size: 10px; }
+    #ordo-arrangement-details-viz .od-preview { aspect-ratio: 16/9; display: grid; place-items: center; padding: 10%; border-radius: 8px; background: #000; color: #fff; text-align: center; box-shadow: 0 8px 25px #00000040; }
+    #ordo-arrangement-details-viz .od-dim { position: absolute; inset: 0; z-index: 3; background: light-dark(#27231d29, #00000042); backdrop-filter: blur(1px); }
+    #ordo-arrangement-details-viz .od-drawer {
+      position: absolute;
+      z-index: 4;
+      inset: 14px 14px 14px auto;
+      width: min(515px, calc(100% - 28px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid light-dark(#cbc2b4, #51554f);
+      border-radius: 17px;
+      background: light-dark(#fffdf8, #282a27);
+      box-shadow: 0 26px 75px #00000059;
+      animation: od-enter 190ms ease-out;
+    }
+    @keyframes od-enter { from { opacity: .45; transform: translateX(26px); } to { opacity: 1; transform: translateX(0); } }
+    #ordo-arrangement-details-viz .od-drawerhead { display: flex; align-items: flex-start; gap: 11px; padding: 14px; border-bottom: 1px solid light-dark(#d5cdbf, #444741); }
+    #ordo-arrangement-details-viz .od-back,
+    #ordo-arrangement-details-viz .od-quiet { padding: 8px 10px; border: 1px solid light-dark(#cec6b8, #4a4d48); border-radius: 9px; background: light-dark(#fffdf8, #30332f); }
+    #ordo-arrangement-details-viz .od-back { width: 36px; flex: 0 0 auto; }
+    #ordo-arrangement-details-viz .od-drawertitle { flex: 1; min-width: 0; }
+    #ordo-arrangement-details-viz .od-drawertitle strong,
+    #ordo-arrangement-details-viz .od-drawertitle small { display: block; }
+    #ordo-arrangement-details-viz .od-drawerbody { overflow: auto; padding: 14px; }
+    #ordo-arrangement-details-viz .od-note { padding: 10px 11px; margin-bottom: 14px; border-radius: 9px; background: light-dark(#e7eee8, #26332b); color: light-dark(#355d4b, #acd0bc); }
+    #ordo-arrangement-details-viz .od-note small { color: inherit; opacity: .86; }
+    #ordo-arrangement-details-viz .od-field { margin-bottom: 15px; }
+    #ordo-arrangement-details-viz .od-label { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; font-weight: 700; }
+    #ordo-arrangement-details-viz .od-label small { font-weight: 400; }
+    #ordo-arrangement-details-viz .od-input,
+    #ordo-arrangement-details-viz .od-textarea { width: 100%; border: 1px solid light-dark(#ccc4b7, #4b4e49); border-radius: 9px; background: light-dark(#fffdf8, #2d302c); padding: 9px 10px; }
+    #ordo-arrangement-details-viz .od-textarea { min-height: 76px; resize: vertical; }
+    #ordo-arrangement-details-viz .od-helper { display: block; margin-top: 5px; }
+    #ordo-arrangement-details-viz .od-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    #ordo-arrangement-details-viz .od-chip { padding: 6px 9px; border-color: light-dark(#cec6b8, #4a4d48); background: light-dark(#fffdf8, #30332f); }
+    #ordo-arrangement-details-viz .od-chip[aria-pressed="true"] { border-color: light-dark(#486b59, #90c1a7); background: light-dark(#e7eee8, #26332b); color: light-dark(#2d5945, #acd0bc); }
+    #ordo-arrangement-details-viz .od-required-error { display: none; margin-top: 6px; color: light-dark(#a33b2f, #ffaca0); }
+    #ordo-arrangement-details-viz .od-drawerfoot { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid light-dark(#d5cdbf, #444741); background: light-dark(#f8f4ec, #242623); }
+    #ordo-arrangement-details-viz .od-primary { margin-left: auto; padding: 9px 12px; border-color: light-dark(#355d4b, #91c0a7); background: light-dark(#355d4b, #91c0a7); color: light-dark(#fff, #14231c); font-weight: 700; }
+    #ordo-arrangement-details-viz .od-status { margin-left: auto; color: light-dark(#355d4b, #acd0bc); }
+    #ordo-arrangement-details-viz .od-hidden { display: none; }
+    @media (max-width: 760px) {
+      #ordo-arrangement-details-viz .od-stage-switch { display: none; }
+      #ordo-arrangement-details-viz .od-main { grid-template-columns: 180px 1fr; }
+      #ordo-arrangement-details-viz .od-main .od-pane:last-child { display: none; }
+    }
+    @media (max-width: 540px) {
+      #ordo-arrangement-details-viz { min-height: 760px; }
+      #ordo-arrangement-details-viz .od-drawer { inset: 8px; width: auto; }
+      #ordo-arrangement-details-viz .od-drawerhead { padding: 11px; }
+      #ordo-arrangement-details-viz .od-topbar { padding: 0 12px; }
+      #ordo-arrangement-details-viz .od-primary { margin-left: 0; }
+      #ordo-arrangement-details-viz .od-drawerfoot { flex-wrap: wrap; }
+    }
+  </style>
+
+  <div class="od-shell" inert aria-hidden="true">
+    <header class="od-topbar">
+      <span class="od-brand">ORDO</span>
+      <button type="button" class="od-quiet">‹ Kyrie · 3rd Mass</button>
+      <div class="od-crumb"><strong>Choir A · Cebuano</strong><small>Songs / Kyrie · 3rd Mass / Arrangement</small></div>
+    </header>
+    <div class="od-subbar">
+      <div class="od-summary"><strong>Choir A · Cebuano</strong><small>Choirs A and B · 4 sections</small></div>
+      <div class="od-tabs"><button type="button" class="od-tab" aria-selected="true">Lyrics</button><button type="button" class="od-tab" aria-selected="false">Sequence</button></div>
+    </div>
+    <main class="od-main">
+      <aside class="od-pane">
+        <div class="od-panehead"><h3>Sections</h3><small>+ Add</small></div>
+        <button type="button" class="od-section"><span>Verse 1</span><small>2 slides</small></button>
+        <button type="button" class="od-section"><span>Chorus</span><small>1 slide · ×2</small></button>
+        <button type="button" class="od-section"><span>Verse 2</span><small>2 slides</small></button>
+      </aside>
+      <section class="od-pane">
+        <div class="od-panehead"><div><small>Reusable section</small><h3>Verse 1</h3></div><small>Autosaved</small></div>
+        <div class="od-faux-editor">Ginoo, kaloy-i kami<br>Kristo, kaloy-i kami<br><br>Ginoo, kaloy-i kami<br>Ug dungga ang among pag-ampo</div>
+        <div class="od-slides">
+          <div class="od-mini"><div class="od-frame">Ginoo, kaloy-i kami<br>Kristo, kaloy-i kami</div><small>Slide 1</small></div>
+          <div class="od-mini"><div class="od-frame">Ginoo, kaloy-i kami<br>Ug dungga…</div><small>Slide 2</small></div>
+        </div>
+      </section>
+      <aside class="od-pane">
+        <div class="od-panehead"><h3>Inspector</h3><small>Slide 1</small></div>
+        <div class="od-preview">Ginoo, kaloy-i kami<br>Kristo, kaloy-i kami</div>
+        <small>Canonical 1920×1080</small>
+      </aside>
+    </main>
+  </div>
+
+  <div class="od-dim"></div>
+  <section class="od-drawer" role="dialog" aria-modal="true" aria-label="Arrangement details">
+    <header class="od-drawerhead">
+      <button type="button" class="od-back" aria-label="Return to Arrangement">‹</button>
+      <div class="od-drawertitle"><strong id="od-drawer-title">Arrangement details</strong><small id="od-drawer-subtitle">Kyrie · 3rd Mass / Choir A · Cebuano</small></div>
+      <div class="od-stage-switch" aria-label="Visualization state">
+        <button type="button" data-mode="edit" aria-pressed="true">Edit existing</button>
+        <button type="button" data-mode="create" aria-pressed="false">Create new</button>
+      </div>
+    </header>
+    <div class="od-drawerbody">
+      <div class="od-note" id="od-shared-note"><strong>Shared by Choir A and Choir B</strong><br><small>Saving updates this reusable Arrangement for both Choirs. Existing Mass references stay attached; published Presentation snapshots do not change.</small></div>
+
+      <div class="od-field">
+        <label class="od-label" for="od-title"><span>Display title</span><small>Optional</small></label>
+        <input class="od-input" id="od-title" placeholder="Generated from language and Choirs">
+        <small class="od-helper" id="od-generated-title">Shown as “Cebuano · Choir A +1” while left blank.</small>
+      </div>
+
+      <div class="od-field">
+        <div class="od-label"><span>Languages</span><small>At least one required</small></div>
+        <div class="od-chips" data-group="languages">
+          <button type="button" class="od-chip" aria-pressed="true">Cebuano</button>
+          <button type="button" class="od-chip" aria-pressed="false">English</button>
+          <button type="button" class="od-chip" aria-pressed="false">Tagalog</button>
+          <button type="button" class="od-chip" aria-pressed="false">Latin</button>
+          <button type="button" class="od-chip" aria-pressed="false">+ Language</button>
+        </div>
+        <small class="od-required-error" id="od-language-error">Keep at least one language selected.</small>
+      </div>
+
+      <div class="od-field">
+        <div class="od-label"><span>Choirs using this exact Arrangement</span><small>Optional · multiple</small></div>
+        <div class="od-chips" data-group="choirs">
+          <button type="button" class="od-chip" aria-pressed="true">Choir A</button>
+          <button type="button" class="od-chip" aria-pressed="true">Choir B</button>
+          <button type="button" class="od-chip" aria-pressed="false">Choir C</button>
+          <button type="button" class="od-chip" aria-pressed="false">+ Choir</button>
+        </div>
+      </div>
+
+      <div class="od-field">
+        <label class="od-label" for="od-translator"><span>Translator or adapter</span><small>Optional</small></label>
+        <input class="od-input" id="od-translator" placeholder="Person or parish attribution">
+        <small class="od-helper">Composer and original author stay on the Song.</small>
+      </div>
+
+      <div class="od-field">
+        <div class="od-label"><span>Occasion applicability</span><small>Optional · advisory</small></div>
+        <div class="od-chips" data-group="occasions">
+          <button type="button" class="od-chip" aria-pressed="true">Ordinary Time</button>
+          <button type="button" class="od-chip" aria-pressed="false">Advent</button>
+          <button type="button" class="od-chip" aria-pressed="true">Lent</button>
+          <button type="button" class="od-chip" aria-pressed="false">Easter</button>
+          <button type="button" class="od-chip" aria-pressed="false">Special</button>
+        </div>
+      </div>
+
+      <div class="od-field">
+        <label class="od-label" for="od-notes"><span>Source, rendition, or rights notes</span><small>Optional</small></label>
+        <textarea class="od-textarea" id="od-notes" placeholder="Source received from, adaptation history, permission or rights notes…"></textarea>
+      </div>
+    </div>
+    <footer class="od-drawerfoot">
+      <button type="button" class="od-quiet" id="od-duplicate">Duplicate Arrangement</button>
+      <span class="od-status od-hidden" id="od-status">Saved ✓</span>
+      <button type="button" class="od-quiet" id="od-cancel">Cancel</button>
+      <button type="button" class="od-primary" id="od-commit">Save details</button>
+    </footer>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-arrangement-details-viz');
+      const title = document.getElementById('od-drawer-title');
+      const subtitle = document.getElementById('od-drawer-subtitle');
+      const shared = document.getElementById('od-shared-note');
+      const duplicate = document.getElementById('od-duplicate');
+      const commit = document.getElementById('od-commit');
+      const titleInput = document.getElementById('od-title');
+      const translator = document.getElementById('od-translator');
+      const notes = document.getElementById('od-notes');
+      const status = document.getElementById('od-status');
+      const languageError = document.getElementById('od-language-error');
+
+      const presets = {
+        edit: {
+          title: 'Arrangement details', subtitle: 'Kyrie · 3rd Mass / Choir A · Cebuano',
+          titleValue: '', translator: 'Parish adaptation', notes: 'Received from the Choir A archive.', commit: 'Save details'
+        },
+        create: {
+          title: 'New Arrangement', subtitle: 'Kyrie · 3rd Mass',
+          titleValue: '', translator: '', notes: '', commit: 'Create Arrangement'
+        }
+      };
+
+      function setPressed(button, value) { button.setAttribute('aria-pressed', String(value)); }
+      function selected(group) { return [...root.querySelectorAll(`[data-group="${group}"] .od-chip`)].filter(button => button.getAttribute('aria-pressed') === 'true'); }
+
+      function setMode(mode) {
+        root.querySelectorAll('[data-mode]').forEach(button => setPressed(button, button.dataset.mode === mode));
+        const data = presets[mode];
+        title.textContent = data.title;
+        subtitle.textContent = data.subtitle;
+        titleInput.value = data.titleValue;
+        translator.value = data.translator;
+        notes.value = data.notes;
+        commit.textContent = data.commit;
+        shared.classList.toggle('od-hidden', mode === 'create');
+        duplicate.classList.toggle('od-hidden', mode === 'create');
+        status.classList.add('od-hidden');
+        root.querySelectorAll('[data-group="choirs"] .od-chip').forEach((button, index) => setPressed(button, mode === 'edit' && index < 2));
+        root.querySelectorAll('[data-group="occasions"] .od-chip').forEach((button, index) => setPressed(button, mode === 'edit' && (index === 0 || index === 2)));
+      }
+
+      root.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+      root.querySelectorAll('.od-chip').forEach(button => button.addEventListener('click', () => {
+        if (button.textContent.trim().startsWith('+')) return;
+        const group = button.closest('[data-group]').dataset.group;
+        const wasPressed = button.getAttribute('aria-pressed') === 'true';
+        if (group === 'languages' && wasPressed && selected('languages').length === 1) {
+          languageError.style.display = 'block';
+          setTimeout(() => { languageError.style.display = 'none'; }, 1800);
+          return;
+        }
+        setPressed(button, !wasPressed);
+      }));
+
+      commit.addEventListener('click', () => {
+        status.textContent = commit.textContent.startsWith('Create') ? 'Created ✓' : 'Saved ✓';
+        status.classList.remove('od-hidden');
+      });
+      document.getElementById('od-cancel').addEventListener('click', () => setMode(root.querySelector('[data-mode][aria-pressed="true"]').dataset.mode));
+      duplicate.addEventListener('click', () => setMode('create'));
+      setMode('edit');
+    })();
+  </script>
+</div>

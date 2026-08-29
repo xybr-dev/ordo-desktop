@@ -1,0 +1,184 @@
+<section id="ordo-pagination-explainer" aria-label="Shared chorus with choir-specific slide divisions">
+  <style>
+    #ordo-pagination-explainer {
+      --ordo-bg: light-dark(#f7f4ec, #171816);
+      --ordo-surface: light-dark(#ffffff, #232520);
+      --ordo-text: light-dark(#1f241e, #f3f1e9);
+      --ordo-muted: light-dark(#667064, #b8c0b4);
+      --ordo-border: light-dark(#ccd3c8, #454b42);
+      --ordo-accent: light-dark(#355f43, #8bc89d);
+      --ordo-accent-soft: light-dark(#e6efe7, #293c2e);
+      --ordo-slide: light-dark(#171b17, #050605);
+      --ordo-slide-text: light-dark(#ffffff, #ffffff);
+      color-scheme: light dark;
+      color: var(--ordo-text);
+      background: var(--ordo-bg);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      padding: 18px;
+      border-radius: 14px;
+    }
+    #ordo-pagination-explainer * { box-sizing: border-box; }
+    #ordo-pagination-explainer h2,
+    #ordo-pagination-explainer h3,
+    #ordo-pagination-explainer p { margin: 0; }
+    #ordo-pagination-explainer h2 { font-size: 1.05rem; font-weight: 500; }
+    #ordo-pagination-explainer h3 { font-size: 0.92rem; font-weight: 500; }
+    #ordo-pagination-explainer .shared {
+      background: var(--ordo-surface);
+      border: 1px solid var(--ordo-border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    #ordo-pagination-explainer .shared-head,
+    #ordo-pagination-explainer .arrangement-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    #ordo-pagination-explainer .tag {
+      color: var(--ordo-accent);
+      background: var(--ordo-accent-soft);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.75rem;
+    }
+    #ordo-pagination-explainer .lyrics {
+      display: grid;
+      gap: 5px;
+      margin-top: 11px;
+    }
+    #ordo-pagination-explainer .line {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 8px;
+      align-items: baseline;
+    }
+    #ordo-pagination-explainer .line-id {
+      color: var(--ordo-accent);
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    #ordo-pagination-explainer .flow {
+      text-align: center;
+      color: var(--ordo-muted);
+      padding: 8px 0 6px;
+      font-size: 0.82rem;
+    }
+    #ordo-pagination-explainer .arrangements {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    #ordo-pagination-explainer .arrangement {
+      background: var(--ordo-surface);
+      border: 1px solid var(--ordo-border);
+      border-radius: 12px;
+      padding: 13px;
+    }
+    #ordo-pagination-explainer .sequence {
+      color: var(--ordo-muted);
+      font-size: 0.78rem;
+    }
+    #ordo-pagination-explainer .slides {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 11px;
+    }
+    #ordo-pagination-explainer .arrangement:last-child .slides {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    #ordo-pagination-explainer .slide-wrap { min-width: 0; }
+    #ordo-pagination-explainer .slide {
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      background: var(--ordo-slide);
+      color: var(--ordo-slide-text);
+      border-radius: 5px;
+      padding: 7px;
+      text-align: center;
+      font-size: clamp(0.48rem, 1.1vw, 0.68rem);
+      overflow: hidden;
+    }
+    #ordo-pagination-explainer .slide-id {
+      color: var(--ordo-muted);
+      font-size: 0.7rem;
+      margin-top: 4px;
+      text-align: center;
+    }
+    #ordo-pagination-explainer .meaning {
+      margin-top: 14px;
+      border-left: 3px solid var(--ordo-accent);
+      padding-left: 10px;
+      color: var(--ordo-muted);
+      font-size: 0.85rem;
+    }
+    @media (max-width: 620px) {
+      #ordo-pagination-explainer .arrangements { grid-template-columns: 1fr; }
+      #ordo-pagination-explainer .slide { font-size: 0.68rem; }
+    }
+  </style>
+
+  <div class="shared">
+    <div class="shared-head">
+      <h2>Shared chorus text — encoded once</h2>
+      <span class="tag">Song library · Chorus C</span>
+    </div>
+    <div class="lyrics">
+      <div class="line"><span class="line-id">L1</span><span>Daygon ta ang Ginoo</span></div>
+      <div class="line"><span class="line-id">L2</span><span>Kay maayo siya</span></div>
+      <div class="line"><span class="line-id">L3</span><span>Ang iyang gugma</span></div>
+      <div class="line"><span class="line-id">L4</span><span>Molungtad sa kahangturan</span></div>
+    </div>
+  </div>
+
+  <div class="flow" aria-hidden="true">The same L1–L4 feed both arrangements ↓</div>
+
+  <div class="arrangements">
+    <article class="arrangement">
+      <div class="arrangement-head">
+        <h3>Choir A · slower phrasing</h3>
+        <span class="sequence">2 chorus slides</span>
+      </div>
+      <div class="slides">
+        <div class="slide-wrap">
+          <div class="slide"><span>Daygon ta ang Ginoo</span><span>Kay maayo siya</span></div>
+          <div class="slide-id">Slide C1 · L1 + L2</div>
+        </div>
+        <div class="slide-wrap">
+          <div class="slide"><span>Ang iyang gugma</span><span>Molungtad sa kahangturan</span></div>
+          <div class="slide-id">Slide C2 · L3 + L4</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="arrangement">
+      <div class="arrangement-head">
+        <h3>Choir B · phrase-by-phrase</h3>
+        <span class="sequence">3 chorus slides</span>
+      </div>
+      <div class="slides">
+        <div class="slide-wrap">
+          <div class="slide"><span>Daygon ta ang Ginoo</span></div>
+          <div class="slide-id">C1 · L1</div>
+        </div>
+        <div class="slide-wrap">
+          <div class="slide"><span>Kay maayo siya</span><span>Ang iyang gugma</span></div>
+          <div class="slide-id">C2 · L2 + L3</div>
+        </div>
+        <div class="slide-wrap">
+          <div class="slide"><span>Molungtad sa kahangturan</span></div>
+          <div class="slide-id">C3 · L4</div>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <p class="meaning">Editing any shared line changes its words in both choirs. Only the grouping of those lines into slides differs.</p>
+</section>

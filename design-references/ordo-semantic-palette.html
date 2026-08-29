@@ -1,0 +1,385 @@
+<section id="ordo-semantic-palette" data-appearance="preparation" data-output-state="live" aria-label="Ordo semantic color study">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500&display=swap');
+
+    #ordo-semantic-palette {
+      width: 100%;
+      color: #27231f;
+      font-family: "Atkinson Hyperlegible Next", "Noto Sans", sans-serif;
+    }
+    #ordo-semantic-palette * { box-sizing: border-box; }
+    #ordo-semantic-palette button { font: inherit; }
+
+    #ordo-semantic-palette .ordo-window {
+      overflow: hidden;
+      border: 1px solid #d7cfc2;
+      border-radius: 14px;
+      background: #f4f0e7;
+      box-shadow: 0 20px 55px rgba(53, 47, 38, 0.14);
+      transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+    }
+    #ordo-semantic-palette .ordo-topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 58px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #d7cfc2;
+      background: #fffdf8;
+    }
+    #ordo-semantic-palette .ordo-brand {
+      letter-spacing: 0.14em;
+      font-weight: 500;
+    }
+    #ordo-semantic-palette .ordo-context {
+      color: #716b62;
+    }
+    #ordo-semantic-palette .ordo-context strong { color: #27231f; font-weight: 500; }
+    #ordo-semantic-palette .ordo-appearance-switch {
+      display: inline-flex;
+      gap: 3px;
+      margin-left: auto;
+      padding: 3px;
+      border: 1px solid #d7cfc2;
+      border-radius: 9px;
+      background: #eee8de;
+    }
+    #ordo-semantic-palette .ordo-appearance-switch button,
+    #ordo-semantic-palette .ordo-state-picker button {
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #5f5a52;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    #ordo-semantic-palette .ordo-appearance-switch button[aria-pressed="true"] {
+      background: #fffdf8;
+      color: #27231f;
+      box-shadow: 0 1px 4px rgba(44, 38, 30, 0.12);
+    }
+    #ordo-semantic-palette .ordo-body {
+      display: grid;
+      grid-template-columns: 188px minmax(0, 1fr);
+      min-height: 560px;
+    }
+    #ordo-semantic-palette .ordo-rail {
+      padding: 16px 12px;
+      border-right: 1px solid #d7cfc2;
+      background: #ebe5db;
+    }
+    #ordo-semantic-palette .ordo-kicker {
+      margin: 0 0 8px;
+      color: #756f65;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    #ordo-semantic-palette .ordo-rail button {
+      display: block;
+      width: 100%;
+      margin: 3px 0;
+      padding: 9px 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #5d574f;
+      text-align: left;
+    }
+    #ordo-semantic-palette .ordo-rail button[aria-current="true"] {
+      background: #dfe9e2;
+      color: #294c3b;
+      box-shadow: inset 3px 0 #355d4b;
+    }
+    #ordo-semantic-palette .ordo-main { min-width: 0; padding: 18px; }
+    #ordo-semantic-palette .ordo-heading-row {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+    #ordo-semantic-palette h2 { margin: 0 0 3px; font-weight: 500; }
+    #ordo-semantic-palette .ordo-subtitle { margin: 0; color: #716b62; }
+    #ordo-semantic-palette .ordo-state-picker {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    #ordo-semantic-palette .ordo-state-picker button {
+      border: 1px solid #d2cabc;
+      background: #fffdf8;
+    }
+    #ordo-semantic-palette .ordo-state-picker button[data-state="live"][aria-pressed="true"] {
+      border-color: #356a50;
+      background: #dfeee4;
+      color: #25543d;
+    }
+    #ordo-semantic-palette .ordo-state-picker button[data-state="freeze"][aria-pressed="true"] {
+      border-color: #a96b1b;
+      background: #fff0d4;
+      color: #7b4609;
+    }
+    #ordo-semantic-palette .ordo-state-picker button[data-state="blackout"][aria-pressed="true"] {
+      border-color: #25282a;
+      background: #111315;
+      color: #ffffff;
+    }
+    #ordo-semantic-palette .ordo-output {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+    #ordo-semantic-palette .ordo-monitor-shell {
+      padding: 10px;
+      border: 1px solid #d7cfc2;
+      border-radius: 11px;
+      background: #fffdf8;
+    }
+    #ordo-semantic-palette .ordo-monitor-head {
+      display: flex;
+      align-items: center;
+      min-height: 29px;
+      margin-bottom: 8px;
+    }
+    #ordo-semantic-palette .ordo-monitor-head strong { font-weight: 500; }
+    #ordo-semantic-palette .ordo-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #dfeee4;
+      color: #25543d;
+    }
+    #ordo-semantic-palette .ordo-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2f6b4f;
+    }
+    #ordo-semantic-palette .ordo-canvas {
+      position: relative;
+      display: grid;
+      place-items: center;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 3px solid #356a50;
+      border-radius: 8px;
+      background: #070808;
+      color: #ffffff;
+      padding: 9%;
+      text-align: center;
+    }
+    #ordo-semantic-palette .ordo-slide-text { max-width: 22ch; font-weight: 500; }
+    #ordo-semantic-palette .ordo-program-note {
+      display: none;
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      border-radius: 6px;
+      padding: 4px 7px;
+      background: #9a5b10;
+      color: #fffaf0;
+    }
+    #ordo-semantic-palette .ordo-findings {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+    #ordo-semantic-palette .ordo-finding {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #d7cfc2;
+      border-radius: 9px;
+      background: #fffdf8;
+    }
+    #ordo-semantic-palette .ordo-finding-symbol {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      font-weight: 500;
+    }
+    #ordo-semantic-palette .ordo-warning .ordo-finding-symbol { background: #fff0d4; color: #8b500d; }
+    #ordo-semantic-palette .ordo-error .ordo-finding-symbol { background: #f8e1dd; color: #963a2e; }
+    #ordo-semantic-palette .ordo-info .ordo-finding-symbol { background: #e0edf7; color: #315e83; }
+    #ordo-semantic-palette .ordo-finding strong { display: block; margin-bottom: 2px; font-weight: 500; }
+    #ordo-semantic-palette .ordo-finding small { color: #716b62; }
+    #ordo-semantic-palette .ordo-liturgical {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      padding-top: 13px;
+      border-top: 1px solid #d7cfc2;
+    }
+    #ordo-semantic-palette .ordo-liturgical > span { color: #716b62; margin-right: auto; }
+    #ordo-semantic-palette .ordo-liturgical-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 7px;
+      border: 1px solid #d7cfc2;
+      border-radius: 7px;
+      background: #fffdf8;
+    }
+    #ordo-semantic-palette .ordo-swatch { width: 10px; height: 10px; border-radius: 3px; }
+    #ordo-semantic-palette .ordo-swatch-purple { background: #6d4a87; }
+    #ordo-semantic-palette .ordo-swatch-red { background: #a43f38; }
+    #ordo-semantic-palette .ordo-swatch-green { background: #46744d; }
+    #ordo-semantic-palette .ordo-swatch-rose { background: #c9788e; }
+    #ordo-semantic-palette .ordo-swatch-white { background: #f9f5e9; border: 1px solid #bcb4a7; }
+
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-program .ordo-canvas { border-color: #b17424; }
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-program .ordo-status { background: #fff0d4; color: #7b4609; }
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-program .ordo-status::before { border-radius: 1px; background: #9a5b10; }
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-program-note { display: block; }
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-program-text::after { content: "Kyrie eleison"; }
+    #ordo-semantic-palette[data-output-state="freeze"] .ordo-preview-text::after { content: "Maanaa usab kanimo"; }
+    #ordo-semantic-palette[data-output-state="live"] .ordo-program-text::after,
+    #ordo-semantic-palette[data-output-state="live"] .ordo-preview-text::after { content: "Maanaa usab kanimo"; }
+    #ordo-semantic-palette[data-output-state="blackout"] .ordo-program .ordo-canvas { border-color: #55595b; }
+    #ordo-semantic-palette[data-output-state="blackout"] .ordo-program .ordo-status { background: #1a1c1e; color: #ffffff; }
+    #ordo-semantic-palette[data-output-state="blackout"] .ordo-program .ordo-status::before { border-radius: 1px; background: #ffffff; }
+    #ordo-semantic-palette[data-output-state="blackout"] .ordo-program-text::after { content: ""; }
+    #ordo-semantic-palette[data-output-state="blackout"] .ordo-preview-text::after { content: "Maanaa usab kanimo"; }
+
+    #ordo-semantic-palette[data-appearance="presenter"] { color: #f2efe8; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-window { border-color: #3d443e; background: #151816; box-shadow: 0 20px 55px rgba(0, 0, 0, 0.32); }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-topbar { border-color: #3d443e; background: #1c201d; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-context,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-subtitle,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-kicker,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-finding small,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-liturgical > span { color: #b1ada4; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-context strong { color: #f2efe8; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-appearance-switch { border-color: #414842; background: #131614; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-appearance-switch button { color: #b1ada4; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-appearance-switch button[aria-pressed="true"] { background: #303630; color: #f2efe8; box-shadow: none; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-rail { border-color: #3d443e; background: #111411; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-rail button { color: #aaa79f; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-rail button[aria-current="true"] { background: #26362c; color: #bce0c8; box-shadow: inset 3px 0 #84c49d; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-state-picker button { border-color: #414842; background: #222722; color: #d0ccc4; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-state-picker button[data-state="live"][aria-pressed="true"] { border-color: #65ba85; background: #263e30; color: #9fe2b8; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-state-picker button[data-state="freeze"][aria-pressed="true"] { border-color: #d8953f; background: #46331d; color: #ffd08c; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-state-picker button[data-state="blackout"][aria-pressed="true"] { border-color: #e8e6e0; background: #050606; color: #ffffff; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-monitor-shell,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-finding,
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-liturgical-label { border-color: #414842; background: #222722; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-status { background: #263e30; color: #9fe2b8; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-status::before { background: #55d69c; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-warning .ordo-finding-symbol { background: #46331d; color: #ffd08c; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-error .ordo-finding-symbol { background: #452823; color: #ffaba0; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-info .ordo-finding-symbol { background: #223746; color: #9acdf2; }
+    #ordo-semantic-palette[data-appearance="presenter"] .ordo-liturgical { border-color: #414842; }
+    #ordo-semantic-palette[data-appearance="presenter"][data-output-state="freeze"] .ordo-program .ordo-status { background: #46331d; color: #ffd08c; }
+    #ordo-semantic-palette[data-appearance="presenter"][data-output-state="freeze"] .ordo-program .ordo-status::before { background: #f0b35e; }
+    #ordo-semantic-palette[data-appearance="presenter"][data-output-state="blackout"] .ordo-program .ordo-status { background: #050606; color: #ffffff; outline: 1px solid #777b78; }
+
+    @media (max-width: 680px) {
+      #ordo-semantic-palette .ordo-topbar { flex-wrap: wrap; }
+      #ordo-semantic-palette .ordo-context { order: 3; width: 100%; }
+      #ordo-semantic-palette .ordo-body { grid-template-columns: 1fr; }
+      #ordo-semantic-palette .ordo-rail { display: none; }
+      #ordo-semantic-palette .ordo-heading-row { display: block; }
+      #ordo-semantic-palette .ordo-state-picker { margin-top: 12px; }
+      #ordo-semantic-palette .ordo-output,
+      #ordo-semantic-palette .ordo-findings { grid-template-columns: 1fr; }
+    }
+  </style>
+
+  <div class="ordo-window">
+    <header class="ordo-topbar">
+      <span class="ordo-brand">ORDO</span>
+      <span class="ordo-context"><strong>21st Sunday in Ordinary Time</strong> · 6:00 PM</span>
+      <div class="ordo-appearance-switch" aria-label="Application appearance">
+        <button type="button" data-appearance-choice="preparation" aria-pressed="true">Preparation</button>
+        <button type="button" data-appearance-choice="presenter" aria-pressed="false">Presenter</button>
+      </div>
+    </header>
+
+    <div class="ordo-body">
+      <aside class="ordo-rail">
+        <p class="ordo-kicker">Mass outline</p>
+        <button type="button">Entrance</button>
+        <button type="button">Penitential Act</button>
+        <button type="button" aria-current="true">Greeting response</button>
+        <button type="button">Gloria</button>
+        <button type="button">First reading</button>
+        <button type="button">Responsorial Psalm</button>
+      </aside>
+
+      <main class="ordo-main">
+        <div class="ordo-heading-row">
+          <div>
+            <h2>Operational state language</h2>
+            <p class="ordo-subtitle">The label, icon shape, border, and color change together.</p>
+          </div>
+          <div class="ordo-state-picker" aria-label="Output state">
+            <button type="button" data-state="live" aria-pressed="true">● Live</button>
+            <button type="button" data-state="freeze" aria-pressed="false">■ Freeze</button>
+            <button type="button" data-state="blackout" aria-pressed="false">▰ Blackout</button>
+          </div>
+        </div>
+
+        <div class="ordo-output">
+          <section class="ordo-monitor-shell ordo-program">
+            <div class="ordo-monitor-head"><strong>Program</strong><span class="ordo-status"><span class="ordo-status-label">LIVE</span></span></div>
+            <div class="ordo-canvas"><span class="ordo-program-note">PROGRAM HELD</span><span class="ordo-slide-text ordo-program-text"></span></div>
+          </section>
+          <section class="ordo-monitor-shell ordo-preview">
+            <div class="ordo-monitor-head"><strong>Preview</strong><span class="ordo-context">Selected Cue</span></div>
+            <div class="ordo-canvas"><span class="ordo-slide-text ordo-preview-text"></span></div>
+          </section>
+        </div>
+
+        <div class="ordo-findings">
+          <div class="ordo-finding ordo-warning"><span class="ordo-finding-symbol">!</span><span><strong>Warning</strong><small>2 cues need pagination review</small></span></div>
+          <div class="ordo-finding ordo-error"><span class="ordo-finding-symbol">×</span><span><strong>Unavailable</strong><small>Missing background asset</small></span></div>
+          <div class="ordo-finding ordo-info"><span class="ordo-finding-symbol">i</span><span><strong>Information</strong><small>Backup verified yesterday</small></span></div>
+        </div>
+
+        <div class="ordo-liturgical">
+          <span>Liturgical colors remain metadata—not app status colors.</span>
+          <span class="ordo-liturgical-label"><i class="ordo-swatch ordo-swatch-purple"></i>Advent</span>
+          <span class="ordo-liturgical-label"><i class="ordo-swatch ordo-swatch-green"></i>Ordinary</span>
+          <span class="ordo-liturgical-label"><i class="ordo-swatch ordo-swatch-red"></i>Martyr</span>
+          <span class="ordo-liturgical-label"><i class="ordo-swatch ordo-swatch-rose"></i>Rose</span>
+          <span class="ordo-liturgical-label"><i class="ordo-swatch ordo-swatch-white"></i>White</span>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-semantic-palette');
+      const appearanceButtons = root.querySelectorAll('[data-appearance-choice]');
+      const stateButtons = root.querySelectorAll('[data-state]');
+      const statusLabel = root.querySelector('.ordo-status-label');
+
+      appearanceButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          root.dataset.appearance = button.dataset.appearanceChoice;
+          appearanceButtons.forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+        });
+      });
+
+      stateButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const state = button.dataset.state;
+          root.dataset.outputState = state;
+          stateButtons.forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+          statusLabel.textContent = state === 'live' ? 'LIVE' : state === 'freeze' ? 'FROZEN' : 'BLACKOUT';
+        });
+      });
+    })();
+  </script>
+</section>

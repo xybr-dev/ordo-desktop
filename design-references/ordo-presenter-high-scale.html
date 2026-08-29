@@ -1,0 +1,597 @@
+<div id="ordo-high-scale-presenter" data-scale="175" data-view="grid">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500&display=swap');
+
+    #ordo-high-scale-presenter {
+      width: 100%;
+      color: #f1f4f2;
+      font-family: "Atkinson Hyperlegible Next", "Noto Sans", system-ui, sans-serif;
+    }
+
+    #ordo-high-scale-presenter * { box-sizing: border-box; }
+
+    #ordo-high-scale-presenter .ohs-controls {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    #ordo-high-scale-presenter .ohs-control-group,
+    #ordo-high-scale-presenter .ohs-view-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #ordo-high-scale-presenter .ohs-field {
+      display: grid;
+      gap: 4px;
+      color: light-dark(#4c5661, #b7c0bb);
+    }
+
+    #ordo-high-scale-presenter select,
+    #ordo-high-scale-presenter .ohs-controls button {
+      min-height: 36px;
+      border: 1px solid light-dark(#a9b0aa, #69736e);
+      border-radius: 4px;
+      background: light-dark(#f7f5f0, #252c29);
+      color: light-dark(#232724, #f1f4f2);
+      padding: 7px 10px;
+      font: inherit;
+    }
+
+    #ordo-high-scale-presenter .ohs-controls button[aria-pressed="true"] {
+      border-color: light-dark(#2f6248, #72b88e);
+      background: light-dark(#dce9e0, #284638);
+    }
+
+    #ordo-high-scale-presenter .ohs-window {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1366 / 768;
+      min-height: 430px;
+      overflow: hidden;
+      border: 1px solid #59635e;
+      border-radius: 4px;
+      background: #151a18;
+      color: #f1f4f2;
+      box-shadow: 0 18px 52px rgb(0 0 0 / 45%);
+    }
+
+    #ordo-high-scale-presenter .ohs-app-header {
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid #46504b;
+      background: #1c2220;
+    }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-app-header { height: 56px; padding-inline: 16px; }
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-app-header { height: 62px; padding-inline: 18px; }
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-app-header { height: 68px; padding-inline: 20px; }
+
+    #ordo-high-scale-presenter .ohs-brand,
+    #ordo-high-scale-presenter .ohs-session,
+    #ordo-high-scale-presenter .ohs-header-actions,
+    #ordo-high-scale-presenter .ohs-monitor-label,
+    #ordo-high-scale-presenter .ohs-output-controls,
+    #ordo-high-scale-presenter .ohs-timeline-head,
+    #ordo-high-scale-presenter .ohs-cue-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    #ordo-high-scale-presenter .ohs-brand strong,
+    #ordo-high-scale-presenter .ohs-session strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    #ordo-high-scale-presenter .ohs-session {
+      flex: 1;
+      justify-content: center;
+      color: #c4ccc8;
+    }
+
+    #ordo-high-scale-presenter .ohs-header-actions { justify-content: end; }
+
+    #ordo-high-scale-presenter .ohs-app-header button,
+    #ordo-high-scale-presenter .ohs-output-controls button,
+    #ordo-high-scale-presenter .ohs-timeline-head button,
+    #ordo-high-scale-presenter .ohs-ordo-overlay button {
+      min-height: 36px;
+      border: 1px solid #65706a;
+      border-radius: 4px;
+      background: #252c29;
+      color: #f1f4f2;
+      padding: 7px 10px;
+      font: inherit;
+    }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-app-header button,
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-output-controls button,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-app-header button,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-output-controls button,
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-app-header button,
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-output-controls button { min-height: 42px; }
+
+    #ordo-high-scale-presenter .ohs-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #95e3ad;
+      white-space: nowrap;
+    }
+
+    #ordo-high-scale-presenter .ohs-live::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #65d68a;
+    }
+
+    #ordo-high-scale-presenter .ohs-display-ok {
+      color: #d3dad6;
+      white-space: nowrap;
+    }
+
+    #ordo-high-scale-presenter .ohs-standard-layout {
+      height: calc(100% - 50px);
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(280px, .85fr);
+    }
+
+    #ordo-high-scale-presenter[data-scale="125"] .ohs-standard-layout { height: calc(100% - 50px); }
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-standard-layout,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-standard-layout,
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-standard-layout { display: none; }
+
+    #ordo-high-scale-presenter .ohs-high-layout { display: none; }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-high-layout,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-high-layout,
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-high-layout {
+      height: calc(100% - 62px);
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-high-layout { height: calc(100% - 56px); }
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-high-layout { height: calc(100% - 68px); }
+
+    #ordo-high-scale-presenter .ohs-timeline-panel {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #46504b;
+      background: #171c1a;
+    }
+
+    #ordo-high-scale-presenter .ohs-output-dock {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      padding: 12px;
+      background: #1c2220;
+    }
+
+    #ordo-high-scale-presenter .ohs-timeline-head {
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid #46504b;
+      background: #1c2220;
+    }
+
+    #ordo-high-scale-presenter .ohs-timeline-head h2,
+    #ordo-high-scale-presenter .ohs-monitor-label h3,
+    #ordo-high-scale-presenter .ohs-group-label h3 { margin: 0; font-weight: 500; }
+
+    #ordo-high-scale-presenter .ohs-timeline-scroll {
+      min-height: 0;
+      overflow: hidden;
+      padding: 10px 12px 18px;
+      background: #171c1a;
+    }
+
+    #ordo-high-scale-presenter .ohs-group-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 8px;
+      color: #c3cbc7;
+    }
+
+    #ordo-high-scale-presenter .ohs-slide-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    #ordo-high-scale-presenter[data-view="list"] .ohs-slide-grid { grid-template-columns: 1fr; }
+
+    #ordo-high-scale-presenter .ohs-cue {
+      min-width: 0;
+      border: 1px solid #59635e;
+      border-radius: 4px;
+      background: #202623;
+      color: #f1f4f2;
+      overflow: hidden;
+      text-align: left;
+    }
+
+    #ordo-high-scale-presenter .ohs-cue[aria-selected="true"] {
+      border-color: #7cbd93;
+      background: #263b31;
+      box-shadow: inset 0 0 0 2px #7cbd93;
+    }
+
+    #ordo-high-scale-presenter .ohs-cue-frame,
+    #ordo-high-scale-presenter .ohs-canonical-frame {
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7%;
+      overflow: hidden;
+      background: #050605;
+      color: #ffffff;
+      text-align: center;
+      font-family: "Atkinson Hyperlegible Next", "Noto Sans", system-ui, sans-serif;
+      font-size: 18px;
+      line-height: 1.15;
+      font-weight: 500;
+    }
+
+    #ordo-high-scale-presenter .ohs-cue-frame { border-bottom: 1px solid #59635e; }
+
+    #ordo-high-scale-presenter .ohs-cue-caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 9px;
+      color: #cbd3cf;
+    }
+
+    #ordo-high-scale-presenter .ohs-cue-caption span:first-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #ordo-high-scale-presenter[data-view="list"] .ohs-cue {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+    }
+
+    #ordo-high-scale-presenter[data-view="list"] .ohs-cue-frame { border-bottom: 0; border-right: 1px solid #59635e; }
+    #ordo-high-scale-presenter[data-view="list"] .ohs-cue-caption { align-items: start; flex-direction: column; justify-content: center; }
+
+    #ordo-high-scale-presenter .ohs-monitor {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    #ordo-high-scale-presenter .ohs-monitor-label {
+      justify-content: space-between;
+      color: #d8dedb;
+    }
+
+    #ordo-high-scale-presenter .ohs-monitor-shell {
+      overflow: hidden;
+      border: 1px solid #69736e;
+      border-radius: 4px;
+      background: #050605;
+    }
+
+    #ordo-high-scale-presenter .ohs-output-dock .ohs-canonical-frame { font-size: 15px; }
+
+    #ordo-high-scale-presenter .ohs-output-status {
+      display: grid;
+      gap: 8px;
+      padding-top: 2px;
+    }
+
+    #ordo-high-scale-presenter .ohs-output-controls { flex-wrap: wrap; }
+
+    #ordo-high-scale-presenter .ohs-freeze { color: #f4c979; border-color: #9e7a3c !important; }
+    #ordo-high-scale-presenter .ohs-blackout { background: #050605 !important; border-color: #b4bbb7 !important; }
+    #ordo-high-scale-presenter .ohs-live-copy { color: #95e3ad; white-space: nowrap; }
+
+    #ordo-high-scale-presenter .ohs-monitor-band {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 10px 14px 8px;
+      border-bottom: 1px solid #46504b;
+      background: #1c2220;
+    }
+
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-monitor-band { padding: 11px 16px 9px; }
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-monitor-band { padding: 12px 18px 10px; }
+
+    #ordo-high-scale-presenter .ohs-monitor-band .ohs-canonical-frame {
+      font-size: 18px;
+      min-height: 0;
+    }
+
+    #ordo-high-scale-presenter .ohs-fixed-control-band {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 14px;
+      border-bottom: 1px solid #46504b;
+      background: #202623;
+    }
+
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-fixed-control-band { padding: 9px 16px; }
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-fixed-control-band { padding: 10px 18px; }
+
+    #ordo-high-scale-presenter .ohs-high-layout .ohs-timeline-panel { border-right: 0; }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-high-layout .ohs-slide-grid,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-high-layout .ohs-slide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-high-layout .ohs-slide-grid { grid-template-columns: 1fr; }
+    #ordo-high-scale-presenter[data-view="list"] .ohs-high-layout .ohs-slide-grid { grid-template-columns: 1fr; }
+
+    #ordo-high-scale-presenter .ohs-scale-note {
+      color: #aeb8b3;
+      white-space: nowrap;
+    }
+
+    #ordo-high-scale-presenter .ohs-ordo-overlay {
+      position: absolute;
+      z-index: 5;
+      inset: 8px auto 8px 8px;
+      width: min(360px, calc(100% - 16px));
+      display: none;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+      border: 1px solid #7b8781;
+      border-radius: 8px;
+      background: #202623;
+      box-shadow: 0 18px 52px rgb(0 0 0 / 58%);
+    }
+
+    #ordo-high-scale-presenter[data-rail="open"] .ohs-ordo-overlay { display: grid; }
+
+    #ordo-high-scale-presenter .ohs-ordo-head,
+    #ordo-high-scale-presenter .ohs-ordo-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 12px;
+      border-bottom: 1px solid #46504b;
+    }
+
+    #ordo-high-scale-presenter .ohs-ordo-foot { border-top: 1px solid #46504b; border-bottom: 0; }
+    #ordo-high-scale-presenter .ohs-ordo-list { overflow: auto; padding: 6px; }
+    #ordo-high-scale-presenter .ohs-ordo-list button { width: 100%; text-align: left; border-color: transparent; background: transparent; }
+    #ordo-high-scale-presenter .ohs-ordo-list button[aria-current="true"] { background: #284638; border-color: #72b88e; }
+
+    #ordo-high-scale-presenter[data-scale="100"] { font-size: 13px; }
+    #ordo-high-scale-presenter[data-scale="125"] { font-size: 14px; }
+    #ordo-high-scale-presenter[data-scale="150"] { font-size: 15px; }
+    #ordo-high-scale-presenter[data-scale="175"] { font-size: 16px; }
+    #ordo-high-scale-presenter[data-scale="200"] { font-size: 17px; }
+
+    #ordo-high-scale-presenter[data-scale="100"] .ohs-scale-compact,
+    #ordo-high-scale-presenter[data-scale="125"] .ohs-scale-compact { display: none; }
+
+    #ordo-high-scale-presenter[data-scale="150"] .ohs-scale-wide,
+    #ordo-high-scale-presenter[data-scale="175"] .ohs-scale-wide,
+    #ordo-high-scale-presenter[data-scale="200"] .ohs-scale-wide { display: none; }
+
+    @media (max-width: 520px) {
+      #ordo-high-scale-presenter .ohs-window { aspect-ratio: auto; min-height: 760px; }
+      #ordo-high-scale-presenter .ohs-app-header { align-items: flex-start; height: auto !important; padding-block: 10px; flex-wrap: wrap; }
+      #ordo-high-scale-presenter .ohs-session { order: 3; width: 100%; justify-content: flex-start; }
+      #ordo-high-scale-presenter .ohs-standard-layout { display: none; }
+      #ordo-high-scale-presenter .ohs-high-layout { display: grid !important; height: auto !important; min-height: 670px; grid-template-rows: auto auto minmax(300px, 1fr); }
+      #ordo-high-scale-presenter .ohs-monitor-band { grid-template-columns: 1fr; }
+      #ordo-high-scale-presenter .ohs-fixed-control-band { align-items: stretch; flex-direction: column; }
+      #ordo-high-scale-presenter .ohs-slide-grid { grid-template-columns: 1fr !important; }
+    }
+  </style>
+
+  <div class="ohs-controls" aria-label="Presenter layout simulation controls">
+    <label class="ohs-field" for="ohs-scale">
+      <span>Interface scale</span>
+      <select id="ohs-scale">
+        <option value="100">100%</option>
+        <option value="125">125%</option>
+        <option value="150">150%</option>
+        <option value="175" selected>175%</option>
+        <option value="200">200%</option>
+      </select>
+    </label>
+    <div class="ohs-view-group" aria-label="Cue timeline view">
+      <button type="button" data-view-choice="grid" aria-pressed="true">Slide grid</button>
+      <button type="button" data-view-choice="list" aria-pressed="false">Cue list</button>
+    </div>
+  </div>
+
+  <section class="ohs-window" aria-label="Ordo Presenter at 1366 by 768">
+    <header class="ohs-app-header">
+      <div class="ohs-brand">
+        <button type="button" data-open-ordo aria-expanded="false">ORDO</button>
+        <strong>21st Sunday in Ordinary Time</strong>
+      </div>
+      <div class="ohs-session">
+        <span class="ohs-live">LIVE</span>
+        <span class="ohs-display-ok">Display 2 connected</span>
+        <span class="ohs-scale-note">1366×768 · <span data-scale-readout>175%</span></span>
+      </div>
+      <div class="ohs-header-actions">
+        <button type="button" class="ohs-scale-wide">Shortcuts</button>
+        <button type="button">More</button>
+        <button type="button">Exit</button>
+      </div>
+    </header>
+
+    <div class="ohs-standard-layout">
+      <section class="ohs-timeline-panel" aria-label="Cue timeline">
+        <div class="ohs-timeline-head">
+          <h2>Cue timeline</h2>
+          <span>14 of 86</span>
+        </div>
+        <div class="ohs-timeline-scroll">
+          <div class="ohs-group-label"><h3>Introductory Rites</h3><span>6 cues</span></div>
+          <div class="ohs-slide-grid" data-cues-standard></div>
+        </div>
+      </section>
+      <aside class="ohs-output-dock" aria-label="Output controls">
+        <section class="ohs-monitor" aria-label="Program">
+          <div class="ohs-monitor-label"><h3>Program</h3><span class="ohs-live">LIVE</span></div>
+          <div class="ohs-monitor-shell"><div class="ohs-canonical-frame">Maanaa usab kanimo.</div></div>
+        </section>
+        <section class="ohs-monitor" aria-label="Preview">
+          <div class="ohs-monitor-label"><h3>Preview</h3><span>Cue 14</span></div>
+          <div class="ohs-monitor-shell"><div class="ohs-canonical-frame">Maanaa usab kanimo.</div></div>
+        </section>
+        <div class="ohs-output-status">
+          <span class="ohs-display-ok">Congregation output · Display 2</span>
+          <div class="ohs-output-controls">
+            <button type="button" class="ohs-freeze">Freeze</button>
+            <button type="button" class="ohs-blackout">Blackout</button>
+          </div>
+          <strong class="ohs-live-copy">LIVE — navigation updates Program</strong>
+        </div>
+      </aside>
+    </div>
+
+    <div class="ohs-high-layout">
+      <div class="ohs-monitor-band">
+        <section class="ohs-monitor" aria-label="Program">
+          <div class="ohs-monitor-label"><h3>Program</h3><span class="ohs-live">LIVE</span></div>
+          <div class="ohs-monitor-shell"><div class="ohs-canonical-frame">Maanaa usab kanimo.</div></div>
+        </section>
+        <section class="ohs-monitor" aria-label="Preview">
+          <div class="ohs-monitor-label"><h3>Preview</h3><span>Cue 14</span></div>
+          <div class="ohs-monitor-shell"><div class="ohs-canonical-frame">Maanaa usab kanimo.</div></div>
+        </section>
+      </div>
+      <div class="ohs-fixed-control-band" aria-label="Output controls">
+        <div class="ohs-output-controls">
+          <span class="ohs-display-ok">Output · Display 2</span>
+          <button type="button" class="ohs-freeze">Freeze</button>
+          <button type="button" class="ohs-blackout">Blackout</button>
+        </div>
+        <strong class="ohs-live-copy">LIVE — navigation updates Program</strong>
+      </div>
+      <section class="ohs-timeline-panel" aria-label="Cue timeline">
+        <div class="ohs-timeline-head">
+          <div><h2>Cue timeline</h2><span>Introductory Rites · 14 of 86</span></div>
+          <span>Grid retained</span>
+        </div>
+        <div class="ohs-timeline-scroll">
+          <div class="ohs-slide-grid" data-cues-high></div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="ohs-ordo-overlay" aria-label="Ordo" aria-hidden="true">
+      <div class="ohs-ordo-head"><strong>Entire Mass</strong><button type="button" data-close-ordo aria-label="Close Ordo">›</button></div>
+      <div class="ohs-ordo-list">
+        <button type="button">Before Mass</button>
+        <button type="button" aria-current="true">Introductory Rites</button>
+        <button type="button">Liturgy of the Word</button>
+        <button type="button">Liturgy of the Eucharist</button>
+        <button type="button">Concluding Rites</button>
+        <button type="button">After Mass</button>
+      </div>
+      <div class="ohs-ordo-foot"><span>O · Focus Ordo</span><button type="button">Keyboard shortcuts</button></div>
+    </aside>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-high-scale-presenter');
+      const scale = root.querySelector('#ohs-scale');
+      const readout = root.querySelector('[data-scale-readout]');
+      const viewButtons = Array.from(root.querySelectorAll('[data-view-choice]'));
+      const cueTargets = Array.from(root.querySelectorAll('[data-cues-standard], [data-cues-high]'));
+      const cueData = [
+        { number: '13', text: 'Ang Ginoo maanaa kaninyo.', label: 'Priest greeting' },
+        { number: '14', text: 'Maanaa usab kanimo.', label: 'Congregation response', selected: true },
+        { number: '15', text: 'Ginoo, kaloy-i kami.', label: 'Kyrie response' },
+        { number: '16', text: 'Kristo, kaloy-i kami.', label: 'Kyrie response' }
+      ];
+
+      function renderCues() {
+        cueTargets.forEach((target) => {
+          target.replaceChildren();
+          cueData.forEach((cue) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'ohs-cue';
+            button.setAttribute('aria-selected', cue.selected ? 'true' : 'false');
+            button.setAttribute('aria-label', `Cue ${cue.number}, ${cue.label}, projects: ${cue.text}`);
+
+            const frame = document.createElement('span');
+            frame.className = 'ohs-cue-frame';
+            frame.textContent = cue.text;
+            const caption = document.createElement('span');
+            caption.className = 'ohs-cue-caption';
+            const label = document.createElement('span');
+            label.textContent = cue.label;
+            const number = document.createElement('span');
+            number.textContent = cue.number;
+            caption.append(label, number);
+            button.append(frame, caption);
+            target.append(button);
+          });
+        });
+      }
+
+      function updateScale() {
+        root.dataset.scale = scale.value;
+        readout.textContent = `${scale.value}%`;
+      }
+
+      scale.addEventListener('change', updateScale);
+      viewButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          root.dataset.view = button.dataset.viewChoice;
+          viewButtons.forEach((peer) => peer.setAttribute('aria-pressed', String(peer === button)));
+        });
+      });
+
+      const openOrdo = root.querySelector('[data-open-ordo]');
+      const closeOrdo = root.querySelector('[data-close-ordo]');
+      const overlay = root.querySelector('.ohs-ordo-overlay');
+      function setRail(open) {
+        if (open) root.dataset.rail = 'open'; else delete root.dataset.rail;
+        openOrdo.setAttribute('aria-expanded', String(open));
+        overlay.setAttribute('aria-hidden', String(!open));
+        if (open) closeOrdo.focus(); else openOrdo.focus();
+      }
+      openOrdo.addEventListener('click', () => setRail(true));
+      closeOrdo.addEventListener('click', () => setRail(false));
+
+      renderCues();
+      updateScale();
+    })();
+  </script>
+</div>

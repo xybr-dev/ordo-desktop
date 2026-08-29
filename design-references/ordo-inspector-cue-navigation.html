@@ -1,0 +1,304 @@
+<section id="ordo-inspector-cue-navigation" aria-label="Interactive Ordo Inspector cue navigation mockup">
+  <style>
+    #ordo-inspector-cue-navigation {
+      width: 100%;
+      color: light-dark(#272721, #f0efe8);
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+    }
+    #ordo-inspector-cue-navigation * { box-sizing: border-box; }
+    #ordo-inspector-cue-navigation button { font: inherit; color: inherit; }
+    #ordo-inspector-cue-navigation .ordo-window {
+      overflow: hidden;
+      border: 1px solid light-dark(#d4cfc3, #40443f);
+      border-radius: 14px;
+      background: light-dark(#eeebe4, #181a19);
+      box-shadow: 0 16px 48px light-dark(rgb(54 48 39 / 12%), rgb(0 0 0 / 30%));
+    }
+    #ordo-inspector-cue-navigation .ordo-topbar,
+    #ordo-inspector-cue-navigation .ordo-planbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-bottom: 1px solid light-dark(#d4cfc3, #40443f);
+      background: light-dark(#fbfaf6, #232623);
+    }
+    #ordo-inspector-cue-navigation .ordo-brand { font-weight: 500; letter-spacing: .08em; }
+    #ordo-inspector-cue-navigation .ordo-crumbs { flex: 1; min-width: 0; color: light-dark(#747268, #aaa99d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ordo-inspector-cue-navigation .ordo-planbar strong { font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-saved { margin-left: auto; color: light-dark(#347253, #83c79f); }
+    #ordo-inspector-cue-navigation .ordo-layout {
+      display: grid;
+      grid-template-columns: minmax(145px, .72fr) minmax(280px, 1.55fr) minmax(240px, 1.1fr);
+      min-height: 520px;
+    }
+    #ordo-inspector-cue-navigation .ordo-pane {
+      min-width: 0;
+      background: light-dark(#fbfaf6, #232623);
+    }
+    #ordo-inspector-cue-navigation .ordo-pane + .ordo-pane { border-left: 1px solid light-dark(#d4cfc3, #40443f); }
+    #ordo-inspector-cue-navigation .ordo-pane-head {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid light-dark(#d4cfc3, #40443f);
+    }
+    #ordo-inspector-cue-navigation .ordo-pane-head strong { font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-outline { padding: 8px; }
+    #ordo-inspector-cue-navigation .ordo-section-label {
+      padding: 10px 8px 5px;
+      color: light-dark(#747268, #aaa99d);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    #ordo-inspector-cue-navigation .ordo-outline-row {
+      width: 100%;
+      padding: 9px 9px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+    }
+    #ordo-inspector-cue-navigation .ordo-outline-row.is-selected { background: light-dark(#ddd7ca, #3a3e39); font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-editor { background: light-dark(#ffffff, #292c29); }
+    #ordo-inspector-cue-navigation .ordo-editor-body { padding: 14px; }
+    #ordo-inspector-cue-navigation .ordo-editor-kicker { color: light-dark(#747268, #aaa99d); }
+    #ordo-inspector-cue-navigation .ordo-editor-title { margin: 3px 0 14px; font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-cue-list { border-top: 1px solid light-dark(#d4cfc3, #40443f); }
+    #ordo-inspector-cue-navigation .ordo-cue {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 11px 7px;
+      border: 0;
+      border-bottom: 1px solid light-dark(#d4cfc3, #40443f);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    #ordo-inspector-cue-navigation .ordo-cue:hover { background: light-dark(#f1eee7, #1d201e); }
+    #ordo-inspector-cue-navigation .ordo-cue[aria-pressed="true"] {
+      background: light-dark(#e2dccf, #3a3e39);
+      box-shadow: inset 3px 0 0 light-dark(#31332f, #e8e8df);
+    }
+    #ordo-inspector-cue-navigation .ordo-cue-index {
+      color: light-dark(#747268, #aaa99d);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    #ordo-inspector-cue-navigation .ordo-cue-copy { min-width: 0; }
+    #ordo-inspector-cue-navigation .ordo-cue-copy strong { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ordo-inspector-cue-navigation .ordo-cue-copy span { display: block; margin-top: 2px; color: light-dark(#747268, #aaa99d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ordo-inspector-cue-navigation .ordo-cue-kind {
+      color: light-dark(#747268, #aaa99d);
+      white-space: nowrap;
+    }
+    #ordo-inspector-cue-navigation .ordo-inspector-body { padding: 12px; }
+    #ordo-inspector-cue-navigation .ordo-nav {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    #ordo-inspector-cue-navigation .ordo-nav button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      min-width: 72px;
+      padding: 7px 9px;
+      border: 1px solid light-dark(#d4cfc3, #40443f);
+      border-radius: 8px;
+      background: light-dark(#ffffff, #292c29);
+      cursor: pointer;
+    }
+    #ordo-inspector-cue-navigation .ordo-nav button:disabled { opacity: .38; cursor: default; }
+    #ordo-inspector-cue-navigation .ordo-position { text-align: center; color: light-dark(#747268, #aaa99d); font-variant-numeric: tabular-nums; }
+    #ordo-inspector-cue-navigation .ordo-frame {
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9%;
+      border-radius: 8px;
+      background: #000;
+      color: #fff;
+      text-align: center;
+      font-weight: 500;
+      white-space: pre-line;
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 16%);
+    }
+    #ordo-inspector-cue-navigation .ordo-output-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 11px 0 7px;
+      color: light-dark(#747268, #aaa99d);
+    }
+    #ordo-inspector-cue-navigation .ordo-output-label strong { color: light-dark(#272721, #f0efe8); font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-private {
+      padding: 10px 0 12px;
+      border-bottom: 1px solid light-dark(#d4cfc3, #40443f);
+    }
+    #ordo-inspector-cue-navigation .ordo-private-label { color: light-dark(#8a542d, #e0aa7e); }
+    #ordo-inspector-cue-navigation .ordo-private strong { display: block; margin-top: 4px; font-weight: 500; }
+    #ordo-inspector-cue-navigation .ordo-private span { display: block; margin-top: 3px; color: light-dark(#747268, #aaa99d); }
+    #ordo-inspector-cue-navigation .ordo-fact {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid light-dark(#d4cfc3, #40443f);
+    }
+    #ordo-inspector-cue-navigation .ordo-fact span { color: light-dark(#747268, #aaa99d); }
+    #ordo-inspector-cue-navigation .ordo-fact strong { font-weight: 500; text-align: right; }
+    #ordo-inspector-cue-navigation .ordo-boundary-note {
+      display: none;
+      margin-top: 10px;
+      color: light-dark(#747268, #aaa99d);
+    }
+    #ordo-inspector-cue-navigation[data-last="true"] .ordo-boundary-note { display: block; }
+    #ordo-inspector-cue-navigation svg { flex: 0 0 auto; }
+    @media (max-width: 700px) {
+      #ordo-inspector-cue-navigation .ordo-layout { grid-template-columns: 1fr; }
+      #ordo-inspector-cue-navigation .ordo-pane + .ordo-pane { border-left: 0; border-top: 1px solid light-dark(#d4cfc3, #40443f); }
+      #ordo-inspector-cue-navigation .ordo-outline-pane { display: none; }
+      #ordo-inspector-cue-navigation .ordo-layout { min-height: 0; }
+    }
+  </style>
+
+  <div class="ordo-window">
+    <div class="ordo-topbar">
+      <span class="ordo-brand">ORDO</span>
+      <span class="ordo-crumbs">Masses / 21st Sunday in Ordinary Time / <strong>6:00 PM — Choir A</strong></span>
+    </div>
+    <div class="ordo-planbar">
+      <strong>Mass plan</strong>
+      <span class="ordo-saved">● Saved</span>
+    </div>
+
+    <div class="ordo-layout">
+      <aside class="ordo-pane ordo-outline-pane" aria-label="Mass outline">
+        <div class="ordo-pane-head"><strong>Mass outline</strong></div>
+        <div class="ordo-outline">
+          <div class="ordo-section-label">Introductory rites</div>
+          <button type="button" class="ordo-outline-row">Entrance song</button>
+          <button type="button" class="ordo-outline-row">Greeting</button>
+          <div class="ordo-section-label">Liturgy of the Eucharist</div>
+          <button type="button" class="ordo-outline-row is-selected">Preface dialogue</button>
+          <button type="button" class="ordo-outline-row">Sanctus</button>
+        </div>
+      </aside>
+
+      <main class="ordo-pane ordo-editor" aria-label="Selected Mass item editor">
+        <div class="ordo-pane-head">
+          <strong>Selected item</strong>
+          <span>4 Cues</span>
+        </div>
+        <div class="ordo-editor-body">
+          <div class="ordo-editor-kicker">Response sequence</div>
+          <div class="ordo-editor-title">Preface dialogue</div>
+          <div class="ordo-cue-list" id="ordo-cue-list">
+            <button type="button" class="ordo-cue" data-index="0" aria-pressed="true">
+              <span class="ordo-cue-index">1</span>
+              <span class="ordo-cue-copy"><strong>Ang Ginoo maanaa kaninyo.</strong><span>Priest · private timing prompt</span></span>
+              <span class="ordo-cue-kind">Operator only</span>
+            </button>
+            <button type="button" class="ordo-cue" data-index="1" aria-pressed="false">
+              <span class="ordo-cue-index">2</span>
+              <span class="ordo-cue-copy"><strong>Maanaa usab kanimo.</strong><span>Congregation response</span></span>
+              <span class="ordo-cue-kind">Output</span>
+            </button>
+            <button type="button" class="ordo-cue" data-index="2" aria-pressed="false">
+              <span class="ordo-cue-index">3</span>
+              <span class="ordo-cue-copy"><strong>Ipataas ang inyong mga kasingkasing.</strong><span>Priest · private timing prompt</span></span>
+              <span class="ordo-cue-kind">Operator only</span>
+            </button>
+            <button type="button" class="ordo-cue" data-index="3" aria-pressed="false">
+              <span class="ordo-cue-index">4</span>
+              <span class="ordo-cue-copy"><strong>Gibayaw namo ngadto sa Ginoo.</strong><span>Congregation response</span></span>
+              <span class="ordo-cue-kind">Output</span>
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="ordo-pane" aria-label="Inspector">
+        <div class="ordo-pane-head"><strong>Inspector</strong><span id="ordo-inspector-kind">Operator only</span></div>
+        <div class="ordo-inspector-body">
+          <div class="ordo-nav">
+            <button type="button" id="ordo-prev" disabled><i data-lucide="chevron-left" aria-hidden="true"></i> Previous</button>
+            <span class="ordo-position" id="ordo-position">Cue 1 of 4</span>
+            <button type="button" id="ordo-next">Next <i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          </div>
+          <div class="ordo-frame" id="ordo-frame" aria-live="polite"></div>
+          <div class="ordo-output-label"><i data-lucide="monitor" aria-hidden="true"></i><span>Congregation frame:</span> <strong id="ordo-output-state">Black</strong></div>
+          <div class="ordo-private" id="ordo-private">
+            <span class="ordo-private-label">Private operator context</span>
+            <strong id="ordo-private-text">Priest: Ang Ginoo maanaa kaninyo.</strong>
+            <span>Advance when the priest finishes this line.</span>
+          </div>
+          <div class="ordo-fact"><span>Selected item</span><strong>Preface dialogue</strong></div>
+          <div class="ordo-fact"><span>Navigation scope</span><strong>This item only</strong></div>
+          <div class="ordo-boundary-note" id="ordo-boundary">End of Preface dialogue. Select Sanctus in the Mass outline to inspect it.</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-inspector-cue-navigation');
+      const cues = [
+        { kind: 'Operator only', frame: '', output: 'Black', privateText: 'Priest: Ang Ginoo maanaa kaninyo.' },
+        { kind: 'Congregation output', frame: 'Maanaa usab kanimo.', output: 'Response visible', privateText: '' },
+        { kind: 'Operator only', frame: '', output: 'Black', privateText: 'Priest: Ipataas ang inyong mga kasingkasing.' },
+        { kind: 'Congregation output', frame: 'Gibayaw namo ngadto sa Ginoo.', output: 'Response visible', privateText: '' }
+      ];
+      const rows = [...root.querySelectorAll('.ordo-cue')];
+      const prev = root.querySelector('#ordo-prev');
+      const next = root.querySelector('#ordo-next');
+      const position = root.querySelector('#ordo-position');
+      const kind = root.querySelector('#ordo-inspector-kind');
+      const frame = root.querySelector('#ordo-frame');
+      const outputState = root.querySelector('#ordo-output-state');
+      const privateBox = root.querySelector('#ordo-private');
+      const privateText = root.querySelector('#ordo-private-text');
+      let selected = 0;
+
+      function render() {
+        const cue = cues[selected];
+        rows.forEach((row, index) => row.setAttribute('aria-pressed', String(index === selected)));
+        position.textContent = `Cue ${selected + 1} of ${cues.length}`;
+        kind.textContent = cue.kind;
+        frame.textContent = cue.frame;
+        outputState.textContent = cue.output;
+        privateBox.style.display = cue.privateText ? 'block' : 'none';
+        privateText.textContent = cue.privateText;
+        prev.disabled = selected === 0;
+        next.disabled = selected === cues.length - 1;
+        root.dataset.last = String(selected === cues.length - 1);
+      }
+
+      rows.forEach(row => row.addEventListener('click', () => {
+        selected = Number(row.dataset.index);
+        render();
+      }));
+      prev.addEventListener('click', () => {
+        if (selected > 0) selected -= 1;
+        render();
+      });
+      next.addEventListener('click', () => {
+        if (selected < cues.length - 1) selected += 1;
+        render();
+      });
+      render();
+    })();
+  </script>
+</section>

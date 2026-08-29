@@ -1,0 +1,409 @@
+<div id="ordo-song-merge-entry">
+  <style>
+    #ordo-song-merge-entry {
+      color-scheme: light dark;
+      position: relative;
+      overflow: hidden;
+      min-height: 690px;
+      color: light-dark(#292723, #f3f0e9);
+      background: light-dark(#f2eee5, #1d1f1d);
+      border: 1px solid light-dark(#d5cdbf, #444741);
+      border-radius: 16px;
+      box-shadow: 0 18px 50px light-dark(#312b211f, #0000005c);
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Noto Sans", system-ui, sans-serif;
+    }
+    #ordo-song-merge-entry * { box-sizing: border-box; }
+    #ordo-song-merge-entry button,
+    #ordo-song-merge-entry input { font: inherit; color: inherit; }
+    #ordo-song-merge-entry button { cursor: pointer; }
+    #ordo-song-merge-entry h2,
+    #ordo-song-merge-entry h3,
+    #ordo-song-merge-entry p { margin: 0; }
+    #ordo-song-merge-entry small { color: light-dark(#70695e, #b8b8b1); }
+    #ordo-song-merge-entry .ome-appbar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 15px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#fbf8f1, #282a27);
+    }
+    #ordo-song-merge-entry .ome-brand { font-weight: 500; letter-spacing: .11em; }
+    #ordo-song-merge-entry .ome-nav { display: flex; gap: 3px; }
+    #ordo-song-merge-entry .ome-nav span { padding: 7px 9px; border-radius: 9px; }
+    #ordo-song-merge-entry .ome-nav .ome-active { background: light-dark(#e6dfd3, #3a3d38); font-weight: 500; }
+    #ordo-song-merge-entry .ome-saved { margin-left: auto; white-space: nowrap; }
+    #ordo-song-merge-entry .ome-underlay {
+      display: grid;
+      grid-template-columns: minmax(245px, 31%) minmax(0, 1fr);
+      min-height: 633px;
+    }
+    #ordo-song-merge-entry .ome-library-list {
+      padding: 15px;
+      border-right: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#f7f3eb, #222421);
+    }
+    #ordo-song-merge-entry .ome-list-title,
+    #ordo-song-merge-entry .ome-detail-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #ordo-song-merge-entry .ome-search-fake,
+    #ordo-song-merge-entry .ome-under-row {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid light-dark(#ded7cb, #414440);
+      border-radius: 9px;
+      background: light-dark(#fffdf8, #292b29);
+    }
+    #ordo-song-merge-entry .ome-under-row strong,
+    #ordo-song-merge-entry .ome-under-row small { display: block; }
+    #ordo-song-merge-entry .ome-under-row.ome-current { box-shadow: inset 3px 0 light-dark(#355d4b, #91c0a7); }
+    #ordo-song-merge-entry .ome-under-detail { padding: 20px; }
+    #ordo-song-merge-entry .ome-under-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 18px; }
+    #ordo-song-merge-entry .ome-under-fact { padding: 12px; border-radius: 9px; background: light-dark(#e9e3d8, #292c28); }
+    #ordo-song-merge-entry .ome-under-fact strong,
+    #ordo-song-merge-entry .ome-under-fact small { display: block; }
+    #ordo-song-merge-entry .ome-scrim {
+      position: absolute;
+      inset: 0;
+      background: light-dark(#302b2359, #080a086e);
+      backdrop-filter: blur(1px);
+    }
+    #ordo-song-merge-entry .ome-panel {
+      position: absolute;
+      z-index: 2;
+      top: 14px;
+      right: 14px;
+      bottom: 14px;
+      width: min(720px, calc(100% - 44px));
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid light-dark(#cfc6b8, #50534d);
+      border-radius: 15px;
+      background: light-dark(#fbf8f1, #252724);
+      box-shadow: -18px 20px 54px light-dark(#2f291f33, #00000080);
+    }
+    #ordo-song-merge-entry .ome-panel-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+    }
+    #ordo-song-merge-entry .ome-back,
+    #ordo-song-merge-entry .ome-icon-button,
+    #ordo-song-merge-entry .ome-button,
+    #ordo-song-merge-entry .ome-candidate {
+      border: 1px solid light-dark(#cec6b8, #4a4d48);
+      background: light-dark(#fffdf8, #30332f);
+    }
+    #ordo-song-merge-entry .ome-back,
+    #ordo-song-merge-entry .ome-icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+    }
+    #ordo-song-merge-entry .ome-icon-button { margin-left: auto; }
+    #ordo-song-merge-entry .ome-heading { min-width: 0; }
+    #ordo-song-merge-entry .ome-heading p { margin-top: 3px; color: light-dark(#70695e, #b8b8b1); }
+    #ordo-song-merge-entry .ome-roles {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: stretch;
+      gap: 9px;
+      padding: 13px 18px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#f5f0e7, #20221f);
+    }
+    #ordo-song-merge-entry .ome-role {
+      min-width: 0;
+      padding: 10px 11px;
+      border-radius: 10px;
+      background: light-dark(#e7eee8, #26332b);
+    }
+    #ordo-song-merge-entry .ome-role.ome-retire { background: light-dark(#eee9df, #30322f); }
+    #ordo-song-merge-entry .ome-role strong,
+    #ordo-song-merge-entry .ome-role small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ordo-song-merge-entry .ome-role-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 3px;
+      color: light-dark(#355d4b, #9cc7b0);
+    }
+    #ordo-song-merge-entry .ome-retire .ome-role-label { color: light-dark(#766e63, #c0bdb6); }
+    #ordo-song-merge-entry .ome-swap {
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border: 1px solid light-dark(#cec6b8, #4a4d48);
+      border-radius: 9px;
+      background: light-dark(#fffdf8, #30332f);
+      white-space: nowrap;
+    }
+    #ordo-song-merge-entry .ome-body {
+      display: grid;
+      grid-template-columns: minmax(230px, .88fr) minmax(0, 1.12fr);
+      min-height: 0;
+      overflow: hidden;
+    }
+    #ordo-song-merge-entry .ome-find,
+    #ordo-song-merge-entry .ome-preview { min-width: 0; padding: 16px 18px; overflow: auto; }
+    #ordo-song-merge-entry .ome-find { border-right: 1px solid light-dark(#d5cdbf, #444741); }
+    #ordo-song-merge-entry .ome-section-label { display: block; margin-bottom: 8px; }
+    #ordo-song-merge-entry .ome-search-wrap { position: relative; }
+    #ordo-song-merge-entry .ome-search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: light-dark(#70695e, #b8b8b1); pointer-events: none; }
+    #ordo-song-merge-entry .ome-search {
+      width: 100%;
+      padding: 9px 10px 9px 34px;
+      border: 1px solid light-dark(#ccc4b7, #4b4e49);
+      border-radius: 9px;
+      background: light-dark(#fffdf8, #2d302c);
+    }
+    #ordo-song-merge-entry .ome-candidates { display: grid; gap: 7px; margin-top: 10px; }
+    #ordo-song-merge-entry .ome-candidate {
+      width: 100%;
+      padding: 10px;
+      border-radius: 9px;
+      text-align: left;
+    }
+    #ordo-song-merge-entry .ome-candidate strong,
+    #ordo-song-merge-entry .ome-candidate small { display: block; }
+    #ordo-song-merge-entry .ome-candidate[aria-pressed="true"] {
+      border-color: light-dark(#486b59, #90c1a7);
+      background: light-dark(#e7eee8, #26332b);
+      box-shadow: inset 3px 0 light-dark(#355d4b, #91c0a7);
+    }
+    #ordo-song-merge-entry .ome-preview-head { margin-bottom: 13px; }
+    #ordo-song-merge-entry .ome-preview-head p { margin-top: 3px; color: light-dark(#70695e, #b8b8b1); }
+    #ordo-song-merge-entry .ome-preview-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #ordo-song-merge-entry .ome-preview-fact {
+      padding: 10px;
+      border-radius: 9px;
+      background: light-dark(#eee8dd, #2c2f2b);
+    }
+    #ordo-song-merge-entry .ome-preview-fact strong,
+    #ordo-song-merge-entry .ome-preview-fact small { display: block; }
+    #ordo-song-merge-entry .ome-arrangements { margin-top: 15px; }
+    #ordo-song-merge-entry .ome-arrangement {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid light-dark(#ded7cb, #414440);
+    }
+    #ordo-song-merge-entry .ome-arrangement strong,
+    #ordo-song-merge-entry .ome-arrangement small { display: block; }
+    #ordo-song-merge-entry .ome-badge {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: light-dark(#e7eee8, #26332b);
+      color: light-dark(#355d4b, #a4cbb6);
+      white-space: nowrap;
+    }
+    #ordo-song-merge-entry .ome-panel-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 18px;
+      border-top: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#fbf8f1, #282a27);
+    }
+    #ordo-song-merge-entry .ome-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 11px;
+      border-radius: 9px;
+      white-space: nowrap;
+    }
+    #ordo-song-merge-entry .ome-button-primary {
+      border-color: light-dark(#355d4b, #91c0a7);
+      background: light-dark(#355d4b, #91c0a7);
+      color: light-dark(#ffffff, #14231c);
+      font-weight: 500;
+    }
+    #ordo-song-merge-entry .ome-button-row { display: flex; gap: 7px; }
+    #ordo-song-merge-entry .ome-ready { display: flex; align-items: center; gap: 6px; }
+    @media (max-width: 680px) {
+      #ordo-song-merge-entry { min-height: 820px; }
+      #ordo-song-merge-entry .ome-nav span:not(.ome-active) { display: none; }
+      #ordo-song-merge-entry .ome-panel { left: 10px; right: 10px; top: 10px; bottom: 10px; width: auto; }
+      #ordo-song-merge-entry .ome-roles { grid-template-columns: 1fr auto 1fr; }
+      #ordo-song-merge-entry .ome-swap span { display: none; }
+      #ordo-song-merge-entry .ome-body { grid-template-columns: 1fr; overflow: auto; }
+      #ordo-song-merge-entry .ome-find { border-right: 0; border-bottom: 1px solid light-dark(#d5cdbf, #444741); overflow: visible; }
+      #ordo-song-merge-entry .ome-preview { overflow: visible; }
+      #ordo-song-merge-entry .ome-underlay { grid-template-columns: 1fr; }
+      #ordo-song-merge-entry .ome-library-list { display: none; }
+    }
+    @media (max-width: 440px) {
+      #ordo-song-merge-entry .ome-roles { grid-template-columns: 1fr; }
+      #ordo-song-merge-entry .ome-swap { justify-self: center; }
+      #ordo-song-merge-entry .ome-preview-facts { grid-template-columns: 1fr; }
+      #ordo-song-merge-entry .ome-panel-foot { align-items: flex-start; flex-direction: column; }
+      #ordo-song-merge-entry .ome-button-row { width: 100%; justify-content: flex-end; }
+    }
+  </style>
+
+  <header class="ome-appbar">
+    <span class="ome-brand">ORDO</span>
+    <nav class="ome-nav" aria-label="Main navigation">
+      <span>Masses</span><span class="ome-active">Songs</span><span>Themes</span><span>Transfer</span><span>Settings</span>
+    </nav>
+    <small class="ome-saved">Saved locally</small>
+  </header>
+
+  <main class="ome-underlay" aria-hidden="true">
+    <aside class="ome-library-list">
+      <div class="ome-list-title"><div><small>Parish library</small><h2>Songs</h2></div><strong>＋ New song</strong></div>
+      <div class="ome-search-fake">Kyrie</div>
+      <div class="ome-under-row ome-current"><strong>Kyrie · 3rd Mass</strong><small>2 arrangements</small></div>
+      <div class="ome-under-row"><strong>Kyrie · 8th Mass</strong><small>1 arrangement</small></div>
+      <div class="ome-under-row"><strong>Kyrie · 13th Mass</strong><small>2 arrangements</small></div>
+    </aside>
+    <section class="ome-under-detail">
+      <div class="ome-detail-title"><div><small>Song work</small><h2>Kyrie · 3rd Mass</h2></div><strong>New arrangement&nbsp;&nbsp; History&nbsp;&nbsp; ···</strong></div>
+      <div class="ome-under-facts">
+        <div class="ome-under-fact"><small>Aliases</small><strong>Ginoo, Kaloy-i Kami</strong></div>
+        <div class="ome-under-fact"><small>Usual moment</small><strong>Penitential Act</strong></div>
+        <div class="ome-under-fact"><small>Arrangements</small><strong>2 renditions</strong></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="ome-scrim" aria-hidden="true"></div>
+
+  <section class="ome-panel" aria-label="Merge songs">
+    <header class="ome-panel-head">
+      <button type="button" class="ome-back" aria-label="Back"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <div class="ome-heading"><small>Song library</small><h2>Merge songs</h2><p>Choose the duplicate and confirm which identity survives.</p></div>
+      <button type="button" class="ome-icon-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+    </header>
+
+    <div class="ome-roles" aria-live="polite">
+      <div class="ome-role">
+        <small class="ome-role-label"><i data-lucide="bookmark-check" aria-hidden="true"></i>Survives</small>
+        <strong id="ome-survivor-title">Kyrie · 3rd Mass</strong>
+        <small id="ome-survivor-id">Current song · 2 arrangements</small>
+      </div>
+      <button type="button" id="ome-swap" class="ome-swap"><i data-lucide="arrow-left-right" aria-hidden="true"></i><span>Swap survivor</span></button>
+      <div class="ome-role ome-retire">
+        <small class="ome-role-label"><i data-lucide="corner-down-right" aria-hidden="true"></i>Retires</small>
+        <strong id="ome-retire-title">Kyrie · 13th Mass</strong>
+        <small id="ome-retire-id">Selected duplicate · 2 arrangements</small>
+      </div>
+    </div>
+
+    <div class="ome-body">
+      <section class="ome-find">
+        <small class="ome-section-label">Find the duplicate song</small>
+        <div class="ome-search-wrap">
+          <i data-lucide="search" aria-hidden="true"></i>
+          <input id="ome-search" class="ome-search" type="search" value="Kyrie" aria-label="Find duplicate song">
+        </div>
+        <div id="ome-candidates" class="ome-candidates"></div>
+      </section>
+
+      <section class="ome-preview" aria-live="polite">
+        <header class="ome-preview-head"><small>Candidate preview</small><h3 id="ome-preview-title">Kyrie · 13th Mass</h3><p id="ome-preview-attribution">Traditional parish setting</p></header>
+        <div class="ome-preview-facts">
+          <div class="ome-preview-fact"><small>Alias</small><strong id="ome-preview-alias">Kyrie XIII</strong></div>
+          <div class="ome-preview-fact"><small>Usual moment</small><strong>Penitential Act</strong></div>
+        </div>
+        <div class="ome-arrangements">
+          <small>Arrangements that will move to the survivor</small>
+          <div id="ome-arrangement-list"></div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="ome-panel-foot">
+      <small class="ome-ready"><i data-lucide="info" aria-hidden="true"></i>No library changes yet</small>
+      <div class="ome-button-row">
+        <button type="button" class="ome-button">Cancel</button>
+        <button type="button" id="ome-continue" class="ome-button ome-button-primary">Continue to review<i data-lucide="arrow-right" aria-hidden="true"></i></button>
+      </div>
+    </footer>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-song-merge-entry');
+      const current = { title: 'Kyrie · 3rd Mass', count: 2 };
+      const candidates = [
+        { id: 'k13', title: 'Kyrie · 13th Mass', attribution: 'Traditional parish setting', alias: 'Kyrie XIII', count: 2, arrangements: ['Choir C · Cebuano', 'Choir B · English'] },
+        { id: 'plain', title: 'Kyrie Eleison', attribution: 'Traditional chant', alias: 'Lord, have mercy', count: 1, arrangements: ['Choir B · English'] },
+        { id: 'misspelled', title: 'Kirie · 3rd Mass', attribution: 'Source not recorded', alias: 'Ginoo, Kaloy-i Kami', count: 1, arrangements: ['Unspecified choir · Cebuano'] }
+      ];
+      let selectedId = 'k13';
+      let swapped = false;
+      const search = root.querySelector('#ome-search');
+
+      function safe(value) {
+        return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      }
+
+      function selected() { return candidates.find(item => item.id === selectedId); }
+
+      function renderRoles() {
+        const other = selected();
+        const survivor = swapped ? other : current;
+        const retired = swapped ? current : other;
+        root.querySelector('#ome-survivor-title').textContent = survivor.title;
+        root.querySelector('#ome-survivor-id').textContent = `${swapped ? 'Selected duplicate' : 'Current song'} · ${survivor.count} arrangement${survivor.count === 1 ? '' : 's'}`;
+        root.querySelector('#ome-retire-title').textContent = retired.title;
+        root.querySelector('#ome-retire-id').textContent = `${swapped ? 'Current song' : 'Selected duplicate'} · ${retired.count} arrangement${retired.count === 1 ? '' : 's'}`;
+      }
+
+      function renderPreview() {
+        const item = selected();
+        root.querySelector('#ome-preview-title').textContent = item.title;
+        root.querySelector('#ome-preview-attribution').textContent = item.attribution;
+        root.querySelector('#ome-preview-alias').textContent = item.alias;
+        root.querySelector('#ome-arrangement-list').innerHTML = item.arrangements.map(name => `
+          <div class="ome-arrangement"><span><strong>${safe(name)}</strong><small>Reusable rendition</small></span><span class="ome-badge">Moves</span></div>
+        `).join('');
+      }
+
+      function renderCandidates() {
+        const query = search.value.trim().toLocaleLowerCase();
+        const visible = candidates.filter(item => [item.title, item.attribution, item.alias].join(' ').toLocaleLowerCase().includes(query));
+        root.querySelector('#ome-candidates').innerHTML = visible.map(item => `
+          <button type="button" class="ome-candidate" data-id="${item.id}" aria-pressed="${item.id === selectedId}">
+            <strong>${safe(item.title)}</strong><small>${safe(item.attribution)} · ${item.count} arrangement${item.count === 1 ? '' : 's'}</small>
+          </button>
+        `).join('') || '<small>No other songs match.</small>';
+        root.querySelectorAll('.ome-candidate').forEach(button => button.addEventListener('click', () => {
+          selectedId = button.dataset.id;
+          swapped = false;
+          render();
+        }));
+      }
+
+      function render() {
+        renderCandidates();
+        renderPreview();
+        renderRoles();
+        if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+      }
+
+      root.querySelector('#ome-swap').addEventListener('click', () => { swapped = !swapped; renderRoles(); });
+      search.addEventListener('input', renderCandidates);
+      root.querySelector('#ome-continue').addEventListener('click', () => {
+        const button = root.querySelector('#ome-continue');
+        button.innerHTML = 'Ready for comparison <i data-lucide="check" aria-hidden="true"></i>';
+        root.querySelector('.ome-ready').innerHTML = '<i data-lucide="layers-3" aria-hidden="true"></i>Next: resolve metadata and Arrangement conflicts';
+        if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+      });
+      render();
+    })();
+  </script>
+</div>

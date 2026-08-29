@@ -1,0 +1,289 @@
+<div id="ordo-merge-flow">
+  <style>
+    #ordo-merge-flow {
+      color-scheme: light dark;
+      position: relative;
+      min-height: 720px;
+      overflow: hidden;
+      color: light-dark(#292723, #f3f0e9);
+      background: light-dark(#f2eee5, #1d1f1d);
+      border: 1px solid light-dark(#d5cdbf, #444741);
+      border-radius: 16px;
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Noto Sans", system-ui, sans-serif;
+    }
+    #ordo-merge-flow * { box-sizing: border-box; }
+    #ordo-merge-flow button,
+    #ordo-merge-flow input { font: inherit; color: inherit; }
+    #ordo-merge-flow button { cursor: pointer; }
+    #ordo-merge-flow h2,
+    #ordo-merge-flow h3,
+    #ordo-merge-flow p { margin: 0; }
+    #ordo-merge-flow small { color: light-dark(#70695e, #b8b8b1); }
+    #ordo-merge-flow .omf-appbar {
+      display: flex; align-items: center; gap: 18px; padding: 12px 15px;
+      border-bottom: 1px solid light-dark(#d5cdbf, #444741);
+      background: light-dark(#fbf8f1, #282a27);
+    }
+    #ordo-merge-flow .omf-brand { font-weight: 500; letter-spacing: .11em; }
+    #ordo-merge-flow .omf-nav { display: flex; gap: 3px; }
+    #ordo-merge-flow .omf-nav span { padding: 7px 9px; border-radius: 9px; }
+    #ordo-merge-flow .omf-nav .omf-active { background: light-dark(#e6dfd3, #3a3d38); font-weight: 500; }
+    #ordo-merge-flow .omf-saved { margin-left: auto; white-space: nowrap; }
+    #ordo-merge-flow .omf-underlay { display: grid; grid-template-columns: minmax(230px, 31%) 1fr; min-height: 664px; }
+    #ordo-merge-flow .omf-list { padding: 15px; border-right: 1px solid light-dark(#d5cdbf, #444741); background: light-dark(#f7f3eb, #222421); }
+    #ordo-merge-flow .omf-list-head,
+    #ordo-merge-flow .omf-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #ordo-merge-flow .omf-fake-search,
+    #ordo-merge-flow .omf-song-row { margin-top: 12px; padding: 10px; border: 1px solid light-dark(#ded7cb, #414440); border-radius: 9px; background: light-dark(#fffdf8, #292b29); }
+    #ordo-merge-flow .omf-song-row strong,
+    #ordo-merge-flow .omf-song-row small { display: block; }
+    #ordo-merge-flow .omf-song-row.omf-current { box-shadow: inset 3px 0 light-dark(#355d4b, #91c0a7); }
+    #ordo-merge-flow .omf-detail { padding: 20px; }
+    #ordo-merge-flow .omf-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 18px; }
+    #ordo-merge-flow .omf-fact { padding: 12px; border-radius: 9px; background: light-dark(#e9e3d8, #292c28); }
+    #ordo-merge-flow .omf-fact strong,
+    #ordo-merge-flow .omf-fact small { display: block; }
+    #ordo-merge-flow .omf-scrim { position: absolute; inset: 0; background: light-dark(#302b2359, #080a086e); backdrop-filter: blur(1px); }
+    #ordo-merge-flow .omf-panel {
+      position: absolute; z-index: 2; top: 14px; right: 14px; bottom: 14px;
+      width: min(730px, calc(100% - 44px)); display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
+      border: 1px solid light-dark(#cfc6b8, #50534d); border-radius: 15px;
+      background: light-dark(#fbf8f1, #252724);
+      box-shadow: -18px 20px 54px light-dark(#2f291f33, #00000080);
+      transition: transform 180ms ease, filter 180ms ease;
+    }
+    #ordo-merge-flow.omf-child-open .omf-panel { transform: translateX(-38px) scale(.985); filter: brightness(.84); }
+    #ordo-merge-flow .omf-panel-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid light-dark(#d5cdbf, #444741); }
+    #ordo-merge-flow .omf-icon,
+    #ordo-merge-flow .omf-button,
+    #ordo-merge-flow .omf-candidate,
+    #ordo-merge-flow .omf-compare { border: 1px solid light-dark(#cec6b8, #4a4d48); background: light-dark(#fffdf8, #30332f); }
+    #ordo-merge-flow .omf-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto; }
+    #ordo-merge-flow .omf-close { margin-left: auto; }
+    #ordo-merge-flow .omf-heading { min-width: 0; }
+    #ordo-merge-flow .omf-heading p { margin-top: 3px; color: light-dark(#70695e, #b8b8b1); }
+    #ordo-merge-flow .omf-progress { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-bottom: 1px solid light-dark(#d5cdbf, #444741); background: light-dark(#f5f0e7, #20221f); }
+    #ordo-merge-flow .omf-step { display: inline-flex; align-items: center; gap: 6px; color: light-dark(#756f65, #aaa9a3); }
+    #ordo-merge-flow .omf-step.omf-step-active { color: light-dark(#2f5947, #a7d1bb); font-weight: 500; }
+    #ordo-merge-flow .omf-step-number { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: light-dark(#e4ddd1, #343733); }
+    #ordo-merge-flow .omf-step-active .omf-step-number { background: light-dark(#355d4b, #91c0a7); color: light-dark(#fff, #15251d); }
+    #ordo-merge-flow .omf-step-line { width: 26px; height: 1px; background: light-dark(#cfc7ba, #50534d); }
+    #ordo-merge-flow .omf-body { min-height: 0; overflow: auto; padding: 17px 18px; }
+    #ordo-merge-flow .omf-select-grid { display: grid; grid-template-columns: minmax(210px, .82fr) minmax(0, 1.18fr); gap: 18px; }
+    #ordo-merge-flow .omf-field-label { display: block; margin-bottom: 8px; }
+    #ordo-merge-flow .omf-search-wrap { position: relative; }
+    #ordo-merge-flow .omf-search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: light-dark(#70695e, #b8b8b1); }
+    #ordo-merge-flow .omf-search { width: 100%; padding: 9px 10px 9px 34px; border: 1px solid light-dark(#ccc4b7, #4b4e49); border-radius: 9px; background: light-dark(#fffdf8, #2d302c); }
+    #ordo-merge-flow .omf-candidates { display: grid; gap: 7px; margin-top: 10px; }
+    #ordo-merge-flow .omf-candidate { width: 100%; padding: 10px; border-radius: 9px; text-align: left; }
+    #ordo-merge-flow .omf-candidate strong,
+    #ordo-merge-flow .omf-candidate small { display: block; }
+    #ordo-merge-flow .omf-candidate[aria-pressed="true"] { border-color: light-dark(#486b59, #90c1a7); background: light-dark(#e7eee8, #26332b); box-shadow: inset 3px 0 light-dark(#355d4b, #91c0a7); }
+    #ordo-merge-flow .omf-roles { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin-bottom: 14px; }
+    #ordo-merge-flow .omf-role { min-width: 0; padding: 10px; border-radius: 10px; background: light-dark(#e7eee8, #26332b); }
+    #ordo-merge-flow .omf-role.omf-retire { background: light-dark(#eee9df, #30322f); }
+    #ordo-merge-flow .omf-role strong,
+    #ordo-merge-flow .omf-role small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ordo-merge-flow .omf-swap { padding: 8px; border: 1px solid light-dark(#cec6b8, #4a4d48); border-radius: 9px; background: light-dark(#fffdf8, #30332f); }
+    #ordo-merge-flow .omf-preview-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #ordo-merge-flow .omf-preview-fact { padding: 10px; border-radius: 9px; background: light-dark(#eee8dd, #2c2f2b); }
+    #ordo-merge-flow .omf-preview-fact strong,
+    #ordo-merge-flow .omf-preview-fact small { display: block; }
+    #ordo-merge-flow .omf-section + .omf-section { margin-top: 20px; }
+    #ordo-merge-flow .omf-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    #ordo-merge-flow .omf-section-head p { color: light-dark(#70695e, #b8b8b1); }
+    #ordo-merge-flow .omf-review-row { display: grid; grid-template-columns: minmax(125px, .72fr) minmax(0, 1.28fr) auto; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid light-dark(#ded7cb, #414440); }
+    #ordo-merge-flow .omf-review-row strong,
+    #ordo-merge-flow .omf-review-row small { display: block; }
+    #ordo-merge-flow .omf-resolution { display: inline-flex; align-items: center; gap: 5px; color: light-dark(#355d4b, #a4cbb6); }
+    #ordo-merge-flow .omf-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 999px; background: light-dark(#e7eee8, #26332b); color: light-dark(#355d4b, #a4cbb6); white-space: nowrap; }
+    #ordo-merge-flow .omf-warning { background: light-dark(#eee7d7, #3a3326); color: light-dark(#705d2c, #dec987); }
+    #ordo-merge-flow .omf-compare { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border-radius: 8px; white-space: nowrap; }
+    #ordo-merge-flow .omf-reference-line { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+    #ordo-merge-flow .omf-reference-line + .omf-reference-line { border-top: 1px solid light-dark(#ded7cb, #414440); }
+    #ordo-merge-flow .omf-reference-line svg { color: light-dark(#625d54, #b8b8b1); }
+    #ordo-merge-flow .omf-reference-line span { flex: 1; }
+    #ordo-merge-flow .omf-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 18px; border-top: 1px solid light-dark(#d5cdbf, #444741); background: light-dark(#fbf8f1, #282a27); }
+    #ordo-merge-flow .omf-foot-note { display: inline-flex; align-items: center; gap: 6px; }
+    #ordo-merge-flow .omf-actions { display: flex; gap: 7px; }
+    #ordo-merge-flow .omf-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 11px; border-radius: 9px; white-space: nowrap; }
+    #ordo-merge-flow .omf-primary { border-color: light-dark(#355d4b, #91c0a7); background: light-dark(#355d4b, #91c0a7); color: light-dark(#fff, #14231c); font-weight: 500; }
+    #ordo-merge-flow .omf-child {
+      position: absolute; z-index: 4; top: 14px; right: 14px; bottom: 14px;
+      width: min(610px, calc(100% - 44px)); display: none;
+      grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden;
+      border: 1px solid light-dark(#cfc6b8, #50534d); border-radius: 15px;
+      background: light-dark(#fbf8f1, #252724); box-shadow: -22px 22px 60px light-dark(#2f291f52, #000000a3);
+    }
+    #ordo-merge-flow.omf-child-open .omf-child { display: grid; }
+    #ordo-merge-flow .omf-child-body { overflow: auto; padding: 17px 18px; }
+    #ordo-merge-flow .omf-compare-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    #ordo-merge-flow .omf-compare-col { min-width: 0; padding: 12px; border-radius: 10px; background: light-dark(#eee8dd, #2c2f2b); }
+    #ordo-merge-flow .omf-compare-col strong,
+    #ordo-merge-flow .omf-compare-col small { display: block; }
+    #ordo-merge-flow .omf-lyrics { margin-top: 12px; white-space: pre-line; color: light-dark(#3b3935, #e5e1d9); }
+    #ordo-merge-flow .omf-child-note { margin-top: 17px; padding-top: 14px; border-top: 1px solid light-dark(#ded7cb, #414440); }
+    #ordo-merge-flow .omf-child-note strong,
+    #ordo-merge-flow .omf-child-note small { display: block; }
+    @media (max-width: 680px) {
+      #ordo-merge-flow { min-height: 880px; }
+      #ordo-merge-flow .omf-nav span:not(.omf-active) { display: none; }
+      #ordo-merge-flow .omf-panel,
+      #ordo-merge-flow .omf-child { left: 10px; right: 10px; top: 10px; bottom: 10px; width: auto; }
+      #ordo-merge-flow.omf-child-open .omf-panel { transform: translateX(-18px) scale(.98); }
+      #ordo-merge-flow .omf-select-grid { grid-template-columns: 1fr; }
+      #ordo-merge-flow .omf-review-row { grid-template-columns: 1fr auto; }
+      #ordo-merge-flow .omf-review-row > :first-child { grid-column: 1 / -1; }
+      #ordo-merge-flow .omf-underlay { grid-template-columns: 1fr; }
+      #ordo-merge-flow .omf-list { display: none; }
+    }
+    @media (max-width: 440px) {
+      #ordo-merge-flow .omf-roles,
+      #ordo-merge-flow .omf-compare-cols { grid-template-columns: 1fr; }
+      #ordo-merge-flow .omf-swap { justify-self: center; }
+      #ordo-merge-flow .omf-panel-foot { align-items: flex-start; flex-direction: column; }
+      #ordo-merge-flow .omf-actions { width: 100%; justify-content: flex-end; }
+      #ordo-merge-flow .omf-step-line { width: 12px; }
+    }
+  </style>
+
+  <header class="omf-appbar">
+    <span class="omf-brand">ORDO</span>
+    <nav class="omf-nav" aria-label="Main navigation"><span>Masses</span><span class="omf-active">Songs</span><span>Themes</span><span>Transfer</span><span>Settings</span></nav>
+    <small class="omf-saved">Saved locally</small>
+  </header>
+  <main class="omf-underlay" aria-hidden="true">
+    <aside class="omf-list">
+      <div class="omf-list-head"><div><small>Parish library</small><h2>Songs</h2></div><strong>＋ New song</strong></div>
+      <div class="omf-fake-search">Kyrie</div>
+      <div class="omf-song-row omf-current"><strong>Kyrie · 3rd Mass</strong><small>2 arrangements</small></div>
+      <div class="omf-song-row"><strong>Kyrie · 8th Mass</strong><small>1 arrangement</small></div>
+      <div class="omf-song-row"><strong>Kyrie · 13th Mass</strong><small>2 arrangements</small></div>
+    </aside>
+    <section class="omf-detail">
+      <div class="omf-detail-head"><div><small>Song work</small><h2>Kyrie · 3rd Mass</h2></div><strong>New arrangement&nbsp;&nbsp; History&nbsp;&nbsp; ···</strong></div>
+      <div class="omf-facts"><div class="omf-fact"><small>Aliases</small><strong>Ginoo, Kaloy-i Kami</strong></div><div class="omf-fact"><small>Usual moment</small><strong>Penitential Act</strong></div><div class="omf-fact"><small>Arrangements</small><strong>2 renditions</strong></div></div>
+    </section>
+  </main>
+  <div class="omf-scrim" aria-hidden="true"></div>
+
+  <section class="omf-panel" aria-label="Merge songs">
+    <header class="omf-panel-head">
+      <button type="button" id="omf-main-back" class="omf-icon" aria-label="Back"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <div class="omf-heading"><small>Song library</small><h2 id="omf-title">Review merge</h2><p id="omf-subtitle">Confirm what moves and inspect anything that needs attention.</p></div>
+      <button type="button" class="omf-icon omf-close" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+    </header>
+    <div class="omf-progress" aria-label="Merge progress">
+      <span id="omf-step-one" class="omf-step"><span class="omf-step-number">1</span>Choose songs</span>
+      <span class="omf-step-line" aria-hidden="true"></span>
+      <span id="omf-step-two" class="omf-step omf-step-active"><span class="omf-step-number">2</span>Review merge</span>
+    </div>
+
+    <div id="omf-body" class="omf-body"></div>
+
+    <footer class="omf-panel-foot">
+      <small id="omf-foot-note" class="omf-foot-note"><i data-lucide="info" aria-hidden="true"></i>No library changes yet</small>
+      <div class="omf-actions">
+        <button type="button" class="omf-button">Cancel</button>
+        <button type="button" id="omf-primary-action" class="omf-button omf-primary">Merge songs<i data-lucide="combine" aria-hidden="true"></i></button>
+      </div>
+    </footer>
+  </section>
+
+  <section class="omf-child" aria-label="Compare arrangements">
+    <header class="omf-panel-head">
+      <button type="button" id="omf-child-back" class="omf-icon" aria-label="Back to merge review"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <div class="omf-heading"><small>Arrangement comparison</small><h2>Compare Cebuano settings</h2><p>Inspect this conflict without leaving the merge review.</p></div>
+      <button type="button" id="omf-child-close" class="omf-icon omf-close" aria-label="Close comparison"><i data-lucide="x" aria-hidden="true"></i></button>
+    </header>
+    <div class="omf-child-body">
+      <div class="omf-compare-cols">
+        <section class="omf-compare-col"><small>From survivor</small><strong>Choir A · Cebuano</strong><small>2 choirs · edited Aug 20</small><p class="omf-lyrics">Ginoo, kaloy-i kami
+Kristo, kaloy-i kami
+Ginoo, kaloy-i kami</p></section>
+        <section class="omf-compare-col"><small>From retiring song</small><strong>Choir C · Cebuano</strong><small>1 choir · edited Jul 14</small><p class="omf-lyrics">Ginoo, kaloy-i kami
+Kristo, kaloy-i kami
+Ginoo, kaloy-i kanamo</p></section>
+      </div>
+      <div class="omf-child-note"><strong>Different lyrics detected</strong><small>These remain two independent Arrangements under the surviving Song. Nothing is line-merged.</small></div>
+    </div>
+    <footer class="omf-panel-foot">
+      <small>Review position is preserved</small>
+      <button type="button" id="omf-return-review" class="omf-button omf-primary"><i data-lucide="arrow-left" aria-hidden="true"></i>Return to merge review</button>
+    </footer>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ordo-merge-flow');
+      const body = root.querySelector('#omf-body');
+      const title = root.querySelector('#omf-title');
+      const subtitle = root.querySelector('#omf-subtitle');
+      const mainBack = root.querySelector('#omf-main-back');
+      const primary = root.querySelector('#omf-primary-action');
+      const footNote = root.querySelector('#omf-foot-note');
+      let step = 'review';
+
+      const icons = () => { if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } }); };
+
+      function renderReview() {
+        step = 'review';
+        title.textContent = 'Review merge';
+        subtitle.textContent = 'Confirm what moves and inspect anything that needs attention.';
+        root.querySelector('#omf-step-one').classList.remove('omf-step-active');
+        root.querySelector('#omf-step-two').classList.add('omf-step-active');
+        primary.innerHTML = 'Merge songs <i data-lucide="combine" aria-hidden="true"></i>';
+        footNote.innerHTML = '<i data-lucide="info" aria-hidden="true"></i>No library changes yet';
+        body.innerHTML = `
+          <section class="omf-section">
+            <div class="omf-section-head"><div><small>Surviving identity</small><h3>Kyrie · 3rd Mass</h3></div><span class="omf-badge"><i data-lucide="bookmark-check" aria-hidden="true"></i>Survives</span></div>
+            <div class="omf-review-row"><span><small>Primary title</small><strong>Kyrie · 3rd Mass</strong></span><span><small>Retired title becomes an alias</small><strong>Kyrie · 13th Mass</strong></span><span class="omf-resolution"><i data-lucide="check" aria-hidden="true"></i>Automatic</span></div>
+            <div class="omf-review-row"><span><small>Aliases</small><strong>3 total</strong></span><span><small>Normalized and deduplicated</small><strong>Ginoo, Kaloy-i Kami · Kyrie XIII · Kyrie 13</strong></span><span class="omf-resolution"><i data-lucide="check" aria-hidden="true"></i>Automatic</span></div>
+          </section>
+          <section class="omf-section">
+            <div class="omf-section-head"><div><small>Arrangements</small><h3>4 move under the survivor</h3></div><p>Each keeps its UUID and history.</p></div>
+            <div class="omf-review-row"><span><small>From survivor</small><strong>Choir A · Cebuano</strong></span><span><small>Similar candidate found</small><strong>Choir C · Cebuano</strong></span><span><button type="button" class="omf-compare" data-open-compare><i data-lucide="columns-2" aria-hidden="true"></i>Compare</button></span></div>
+            <div class="omf-review-row"><span><small>From retiring song</small><strong>Choir B · English</strong></span><span><small>No likely duplicate</small><strong>Moves unchanged</strong></span><span class="omf-resolution"><i data-lucide="check" aria-hidden="true"></i>Ready</span></div>
+          </section>
+          <section class="omf-section">
+            <div class="omf-section-head"><div><small>References</small><h3>Existing uses stay connected</h3></div></div>
+            <div class="omf-reference-line"><i data-lucide="calendar-days" aria-hidden="true"></i><span><strong>6 Mass plans</strong><small>Arrangement references remain unchanged</small></span><span class="omf-badge">Preserved</span></div>
+            <div class="omf-reference-line"><i data-lucide="route" aria-hidden="true"></i><span><strong>Retired Song UUID</strong><small>Redirects permanently to the survivor</small></span><span class="omf-badge">Redirect</span></div>
+          </section>`;
+        body.querySelector('[data-open-compare]').addEventListener('click', openChild);
+        icons();
+      }
+
+      function renderChoose() {
+        step = 'choose';
+        title.textContent = 'Merge songs';
+        subtitle.textContent = 'Choose the duplicate and confirm which identity survives.';
+        root.querySelector('#omf-step-one').classList.add('omf-step-active');
+        root.querySelector('#omf-step-two').classList.remove('omf-step-active');
+        primary.innerHTML = 'Continue to review <i data-lucide="arrow-right" aria-hidden="true"></i>';
+        footNote.innerHTML = '<i data-lucide="info" aria-hidden="true"></i>Your selection is preserved';
+        body.innerHTML = `
+          <div class="omf-roles">
+            <div class="omf-role"><small>Survives</small><strong>Kyrie · 3rd Mass</strong><small>Current song · 2 arrangements</small></div>
+            <button type="button" class="omf-swap" aria-label="Swap survivor"><i data-lucide="arrow-left-right" aria-hidden="true"></i></button>
+            <div class="omf-role omf-retire"><small>Retires</small><strong>Kyrie · 13th Mass</strong><small>Selected duplicate · 2 arrangements</small></div>
+          </div>
+          <div class="omf-select-grid">
+            <section><small class="omf-field-label">Find the duplicate song</small><div class="omf-search-wrap"><i data-lucide="search" aria-hidden="true"></i><input class="omf-search" value="Kyrie" aria-label="Find duplicate song"></div><div class="omf-candidates"><button type="button" class="omf-candidate" aria-pressed="true"><strong>Kyrie · 13th Mass</strong><small>Traditional parish setting · 2 arrangements</small></button><button type="button" class="omf-candidate" aria-pressed="false"><strong>Kyrie Eleison</strong><small>Traditional chant · 1 arrangement</small></button></div></section>
+            <section><small>Candidate preview</small><h3>Kyrie · 13th Mass</h3><p><small>Traditional parish setting</small></p><div class="omf-preview-facts"><div class="omf-preview-fact"><small>Alias</small><strong>Kyrie XIII</strong></div><div class="omf-preview-fact"><small>Usual moment</small><strong>Penitential Act</strong></div></div><div class="omf-section"><small>Arrangements that move</small><div class="omf-review-row"><span><strong>Choir C · Cebuano</strong><small>Reusable rendition</small></span><span></span><span class="omf-badge">Moves</span></div><div class="omf-review-row"><span><strong>Choir B · English</strong><small>Reusable rendition</small></span><span></span><span class="omf-badge">Moves</span></div></div></section>
+          </div>`;
+        icons();
+      }
+
+      function openChild() { root.classList.add('omf-child-open'); icons(); }
+      function closeChild() { root.classList.remove('omf-child-open'); }
+      mainBack.addEventListener('click', () => { if (step === 'review') renderChoose(); });
+      primary.addEventListener('click', () => { if (step === 'choose') renderReview(); });
+      root.querySelector('#omf-child-back').addEventListener('click', closeChild);
+      root.querySelector('#omf-child-close').addEventListener('click', closeChild);
+      root.querySelector('#omf-return-review').addEventListener('click', closeChild);
+      renderReview();
+    })();
+  </script>
+</div>

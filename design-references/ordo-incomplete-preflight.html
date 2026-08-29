@@ -1,0 +1,434 @@
+<div id="ordo-incomplete-preflight" aria-label="Ordo incomplete presentation preflight mockup">
+  <style>
+    #ordo-incomplete-preflight {
+      --ordo-paper: light-dark(#f4f1ea, #17191b);
+      --ordo-surface: light-dark(#fffdf8, #222528);
+      --ordo-surface-raised: light-dark(#ffffff, #292d30);
+      --ordo-ink: light-dark(#22201c, #f4f2ed);
+      --ordo-muted: light-dark(#756f65, #aaa59b);
+      --ordo-line: light-dark(#ddd7cc, #3a3e41);
+      --ordo-soft: light-dark(#ebe6dc, #303438);
+      --ordo-accent: light-dark(#292722, #ece8df);
+      --ordo-accent-ink: light-dark(#fffdf8, #1d1f21);
+      --ordo-warning: light-dark(#9a5b10, #f0b35e);
+      --ordo-warning-soft: light-dark(#fff3d8, #3b2c18);
+      --ordo-danger: light-dark(#9d3e31, #ef8e82);
+      --ordo-shadow: light-dark(rgb(36 29 20 / 22%), rgb(0 0 0 / 52%));
+      color: var(--ordo-ink);
+      font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+      width: 100%;
+    }
+
+    #ordo-incomplete-preflight * { box-sizing: border-box; }
+
+    #ordo-incomplete-preflight button {
+      color: inherit;
+      font: inherit;
+    }
+
+    #ordo-incomplete-preflight .ordo-window {
+      position: relative;
+      min-height: 650px;
+      overflow: hidden;
+      border: 1px solid var(--ordo-line);
+      border-radius: 14px;
+      background: var(--ordo-paper);
+      box-shadow: 0 18px 55px var(--ordo-shadow);
+    }
+
+    #ordo-incomplete-preflight .ordo-topbar {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ordo-line);
+      background: var(--ordo-surface);
+    }
+
+    #ordo-incomplete-preflight .ordo-brand {
+      font-weight: 500;
+      letter-spacing: .14em;
+    }
+
+    #ordo-incomplete-preflight .ordo-crumbs {
+      color: var(--ordo-muted);
+      flex: 1;
+    }
+
+    #ordo-incomplete-preflight .ordo-status {
+      color: var(--ordo-muted);
+      font-size: 12px;
+    }
+
+    #ordo-incomplete-preflight .ordo-present {
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 15px;
+      background: var(--ordo-accent);
+      color: var(--ordo-accent-ink);
+      font-weight: 500;
+    }
+
+    #ordo-incomplete-preflight .ordo-planbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--ordo-line);
+      background: color-mix(in srgb, var(--ordo-surface) 74%, transparent);
+    }
+
+    #ordo-incomplete-preflight .ordo-plan-title { font-weight: 500; }
+    #ordo-incomplete-preflight .ordo-plan-meta { color: var(--ordo-muted); font-size: 12px; }
+    #ordo-incomplete-preflight .ordo-plan-spacer { flex: 1; }
+
+    #ordo-incomplete-preflight .ordo-readiness {
+      color: var(--ordo-warning);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    #ordo-incomplete-preflight .ordo-workspace {
+      display: grid;
+      grid-template-columns: minmax(190px, .8fr) minmax(260px, 1.25fr) minmax(220px, 1fr);
+      min-height: 525px;
+    }
+
+    #ordo-incomplete-preflight .ordo-pane {
+      padding: 14px;
+      border-right: 1px solid var(--ordo-line);
+      background: color-mix(in srgb, var(--ordo-surface) 66%, transparent);
+    }
+
+    #ordo-incomplete-preflight .ordo-pane:last-child { border-right: 0; }
+
+    #ordo-incomplete-preflight .ordo-pane-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--ordo-muted);
+    }
+
+    #ordo-incomplete-preflight .ordo-section {
+      padding: 8px 5px;
+      border-bottom: 1px solid var(--ordo-line);
+      color: var(--ordo-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    #ordo-incomplete-preflight .ordo-item {
+      padding: 9px 10px 9px 18px;
+      border-radius: 7px;
+      color: var(--ordo-muted);
+    }
+
+    #ordo-incomplete-preflight .ordo-item-selected {
+      background: var(--ordo-soft);
+      color: var(--ordo-ink);
+    }
+
+    #ordo-incomplete-preflight .ordo-editor-line {
+      height: 10px;
+      margin-bottom: 10px;
+      border-radius: 99px;
+      background: var(--ordo-soft);
+    }
+
+    #ordo-incomplete-preflight .ordo-editor-line:nth-child(2) { width: 78%; }
+    #ordo-incomplete-preflight .ordo-editor-line:nth-child(3) { width: 92%; }
+    #ordo-incomplete-preflight .ordo-editor-line:nth-child(4) { width: 61%; }
+
+    #ordo-incomplete-preflight .ordo-frame {
+      aspect-ratio: 16 / 9;
+      display: grid;
+      place-items: center;
+      margin-top: 14px;
+      border-radius: 6px;
+      background: #000;
+      color: #fff;
+      text-align: center;
+      padding: 16px;
+    }
+
+    #ordo-incomplete-preflight .ordo-frame span { max-width: 16ch; }
+
+    #ordo-incomplete-preflight .ordo-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background: light-dark(rgb(31 27 22 / 48%), rgb(0 0 0 / 62%));
+      backdrop-filter: blur(1.5px);
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog {
+      width: min(570px, 100%);
+      max-height: 570px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--ordo-line);
+      border-radius: 14px;
+      background: var(--ordo-surface-raised);
+      box-shadow: 0 28px 80px var(--ordo-shadow);
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog-header {
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 12px;
+      align-items: start;
+      padding: 20px 20px 14px;
+    }
+
+    #ordo-incomplete-preflight .ordo-warning-icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--ordo-warning-soft);
+      color: var(--ordo-warning);
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog-title {
+      margin: 0 0 5px;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 500;
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog-copy {
+      margin: 0;
+      color: var(--ordo-muted);
+      line-height: 1.45;
+    }
+
+    #ordo-incomplete-preflight .ordo-close {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--ordo-muted);
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 0 20px 4px;
+    }
+
+    #ordo-incomplete-preflight .ordo-findings-label {
+      margin: 6px 0 7px;
+      color: var(--ordo-muted);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+
+    #ordo-incomplete-preflight .ordo-finding {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 12px 0;
+      border-top: 1px solid var(--ordo-line);
+    }
+
+    #ordo-incomplete-preflight .ordo-finding-icon {
+      color: var(--ordo-warning);
+      padding-top: 1px;
+    }
+
+    #ordo-incomplete-preflight .ordo-finding-title {
+      margin-bottom: 2px;
+      font-weight: 500;
+    }
+
+    #ordo-incomplete-preflight .ordo-finding-meta {
+      color: var(--ordo-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    #ordo-incomplete-preflight .ordo-cue-count {
+      color: var(--ordo-danger);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    #ordo-incomplete-preflight .ordo-skip-note {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      margin: 8px 0 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--ordo-warning-soft);
+      color: var(--ordo-warning);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    #ordo-incomplete-preflight .ordo-dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 9px;
+      padding: 14px 20px 18px;
+      border-top: 1px solid var(--ordo-line);
+      background: var(--ordo-surface-raised);
+    }
+
+    #ordo-incomplete-preflight .ordo-button {
+      min-height: 38px;
+      border: 1px solid var(--ordo-line);
+      border-radius: 8px;
+      padding: 8px 13px;
+      background: transparent;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    #ordo-incomplete-preflight .ordo-button-warning {
+      border-color: color-mix(in srgb, var(--ordo-warning) 45%, var(--ordo-line));
+      color: var(--ordo-warning);
+    }
+
+    #ordo-incomplete-preflight .ordo-button-primary {
+      border-color: var(--ordo-accent);
+      background: var(--ordo-accent);
+      color: var(--ordo-accent-ink);
+    }
+
+    #ordo-incomplete-preflight button:hover { filter: brightness(.97); }
+
+    @media (max-width: 700px) {
+      #ordo-incomplete-preflight .ordo-workspace { grid-template-columns: 1fr 1.2fr; }
+      #ordo-incomplete-preflight .ordo-pane:last-child { display: none; }
+      #ordo-incomplete-preflight .ordo-backdrop { padding: 16px; }
+    }
+
+    @media (max-width: 520px) {
+      #ordo-incomplete-preflight .ordo-window { min-height: 720px; }
+      #ordo-incomplete-preflight .ordo-workspace { grid-template-columns: 1fr; }
+      #ordo-incomplete-preflight .ordo-pane:nth-child(2) { display: none; }
+      #ordo-incomplete-preflight .ordo-status,
+      #ordo-incomplete-preflight .ordo-crumbs { display: none; }
+      #ordo-incomplete-preflight .ordo-dialog-header { padding: 16px 16px 12px; }
+      #ordo-incomplete-preflight .ordo-dialog-body { padding-inline: 16px; }
+      #ordo-incomplete-preflight .ordo-dialog-footer {
+        align-items: stretch;
+        flex-direction: column-reverse;
+        padding: 12px 16px 16px;
+      }
+      #ordo-incomplete-preflight .ordo-button { width: 100%; }
+    }
+  </style>
+
+  <div class="ordo-window">
+    <header class="ordo-topbar">
+      <div class="ordo-brand">ORDO</div>
+      <div class="ordo-crumbs">Masses &nbsp;/&nbsp; 21st Sunday in Ordinary Time</div>
+      <div class="ordo-status">Saved</div>
+      <button class="ordo-present" type="button">Present</button>
+    </header>
+
+    <div class="ordo-planbar">
+      <div>
+        <div class="ordo-plan-title">Sunday Mass · 8:30 AM</div>
+        <div class="ordo-plan-meta">Cebuano · Choir A · Parish Church</div>
+      </div>
+      <div class="ordo-plan-spacer"></div>
+      <div class="ordo-readiness">2 incomplete · 1 warning</div>
+    </div>
+
+    <main class="ordo-workspace" aria-hidden="true">
+      <section class="ordo-pane">
+        <div class="ordo-pane-heading"><span>Mass outline</span><span>＋</span></div>
+        <div class="ordo-section">⌄ Introductory Rites</div>
+        <div class="ordo-item">Entrance Song</div>
+        <div class="ordo-item">Greeting</div>
+        <div class="ordo-section">⌄ Liturgy of the Word</div>
+        <div class="ordo-item">First Reading</div>
+        <div class="ordo-item">Responsorial Psalm</div>
+        <div class="ordo-item ordo-item-selected">Second Reading</div>
+        <div class="ordo-section">⌄ Liturgy of the Eucharist</div>
+        <div class="ordo-item">Offertory Song</div>
+      </section>
+
+      <section class="ordo-pane">
+        <div class="ordo-pane-heading"><span>Second Reading</span><span>Reading</span></div>
+        <div class="ordo-editor-line"></div>
+        <div class="ordo-editor-line"></div>
+        <div class="ordo-editor-line"></div>
+        <div class="ordo-editor-line"></div>
+      </section>
+
+      <section class="ordo-pane">
+        <div class="ordo-pane-heading"><span>Inspector</span><span>Cue —</span></div>
+        <div class="ordo-frame"><span>No projectable content</span></div>
+      </section>
+    </main>
+
+    <div class="ordo-backdrop">
+      <section class="ordo-dialog" role="dialog" aria-modal="true" aria-labelledby="ordo-preflight-title" aria-describedby="ordo-preflight-description">
+        <header class="ordo-dialog-header">
+          <div class="ordo-warning-icon"><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
+          <div>
+            <h2 class="ordo-dialog-title" id="ordo-preflight-title">Some content cannot be presented</h2>
+            <p class="ordo-dialog-copy" id="ordo-preflight-description">2 Mass items contain 3 unavailable Cues. You can fix them now or present the content that is ready.</p>
+          </div>
+          <button class="ordo-close" type="button" aria-label="Close preflight"><i data-lucide="x" aria-hidden="true"></i></button>
+        </header>
+
+        <div class="ordo-dialog-body">
+          <div class="ordo-findings-label">Unavailable content</div>
+
+          <div class="ordo-finding">
+            <div class="ordo-finding-icon"><i data-lucide="circle-alert" aria-hidden="true"></i></div>
+            <div>
+              <div class="ordo-finding-title">Second Reading</div>
+              <div class="ordo-finding-meta">Liturgy of the Word · No reading content selected</div>
+            </div>
+            <div class="ordo-cue-count">1 Cue</div>
+          </div>
+
+          <div class="ordo-finding">
+            <div class="ordo-finding-icon"><i data-lucide="circle-alert" aria-hidden="true"></i></div>
+            <div>
+              <div class="ordo-finding-title">Communion Song</div>
+              <div class="ordo-finding-meta">Liturgy of the Eucharist · Arrangement is missing</div>
+            </div>
+            <div class="ordo-cue-count">2 Cues</div>
+          </div>
+
+          <div class="ordo-skip-note">
+            <i data-lucide="info" aria-hidden="true"></i>
+            <span>Unavailable Cues remain visible in Presenter Mode but are disabled and cannot be taken live.</span>
+          </div>
+        </div>
+
+        <footer class="ordo-dialog-footer">
+          <button class="ordo-button" type="button">Cancel</button>
+          <button class="ordo-button ordo-button-warning" type="button">Present available content</button>
+          <button class="ordo-button ordo-button-primary" type="button" autofocus>Review and fix</button>
+        </footer>
+      </section>
+    </div>
+  </div>
+</div>
