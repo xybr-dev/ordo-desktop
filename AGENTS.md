@@ -3,6 +3,12 @@
 Before changing source, read only the authoritative material relevant to the
 active task:
 
+Read documentation selectively: use headings and search to locate relevant
+sections. Do not read an entire file unless explicitly required, the relevant
+section depends on broader context, or targeted reading leaves behavior
+ambiguous. Always read the complete selected milestone task and its acceptance
+criterion.
+
 1. Use `MILESTONES.md` to select exactly one active task and its acceptance
    criterion.
 2. Use `CONTEXT.md` for domain terms and invariants.
