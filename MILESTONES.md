@@ -175,11 +175,12 @@ and responsive chrome before feature pages depend on them.
 
 **AC**
 
-- [ ] `[AUTO]` Implement the warm Preparation appearance from `DESIGN.md` with
-      Atkinson operator typography, semantic colors, spacing, radii, borders,
-      elevation, Lucide icons, and reduced-motion rules.
+- [ ] `[AUTO]` Implement System-default, Light, and Dark Preparation appearance
+      from `DESIGN.md`, including live OS-theme following, Atkinson operator
+      typography, semantic colors, spacing, radii, borders, elevation, Lucide
+      icons, and reduced-motion rules; Presenter always selects graphite dark.
 - [ ] `[UI-AUTO]` Global destinations appear in a vertical application rail:
-      Masses, Songs, Themes, and Transfer & Backup; Settings, Help, and
+      Masses, Library, Themes, and Transfer & Backup; Settings, Help, and
       Diagnostics are anchored at the bottom.
 - [ ] `[UI-AUTO]` Global destinations are navigation, not tabs. Horizontal tabs
       are reserved for local views such as Masses' Upcoming, History, Archive,
@@ -192,6 +193,11 @@ and responsive chrome before feature pages depend on them.
 - [ ] `[AUTO]` Buttons, fields, menus, tooltips, comboboxes, disclosures, tabs,
       dialogs, and nested slideovers are Ordo-owned GPUI primitives with typed
       state and one application overlay layer.
+- [ ] `[UI-AUTO]` Dialogs, ordinary slideovers, and unpinned Presenter Ordo use
+      one input-capturing dim scrim with no click-through; bottom-center toasts
+      distinguish expiring confirmation/Undo from owned persistent failures.
+- [ ] `[UI-AUTO]` Slideovers enter in 400ms and exit in 200ms through
+      interruptible reduced-motion-aware tokens.
 - [ ] `[AUTO]` The internal `ui` crate uses a pinned GPUI-compatible
       `gpui-base` revision only behind Ordo-owned primitive Interfaces; the
       styled `gpui-component` layer is not a production dependency.
@@ -223,7 +229,7 @@ and responsive chrome before feature pages depend on them.
 **E2E** `[UI-AUTO]` — Open `ui-lab`, exercise the field, combobox, dialog, and
 nested-slideover scenarios using only the keyboard, change from 1920×1080/100%
 to 1366×768/200%, and verify state, focus return, and viewport containment.
-Then launch `ordo`, navigate from the expanded Masses rail to Songs and its
+Then launch `ordo`, navigate from the expanded Masses rail to Library/Songs and its
 local views, and verify that the same primitive behavior holds in the shell
 without whole-workspace horizontal scroll.
 
@@ -244,12 +250,14 @@ operator sizes, operating systems, display scaling, and preview consumers.
       and target density and returns either one complete frame plus diagnostics
       or one structured failure; partial frames are impossible.
 - [ ] `[AUTO]` Composition occurs in explicit 1920×1080 logical coordinates
-      with the 96×54 safe-area inset and never uses operator viewport metrics.
+      with the minimum 120×80 safe-area inset and never uses operator viewport
+      metrics; a Theme may increase but not reduce that inset.
 - [ ] `[AUTO]` Bundle Atkinson Hyperlegible Next and Noto Sans with pinned hash
       manifests; rendering never falls back to installed system fonts.
 - [ ] `[AUTO]` Golden fixtures cover Cebuano, English, Tagalog, mixed scripts,
       punctuation, long words, missing-glyph fallback, one-to-four lyric lines,
-      prose, identification, response, black, and image slides.
+      Celebration/Song identification, Scripture, Psalm, response, General
+      text/image, black, label-off, and overflow-warning Slides.
 - [ ] `[AUTO]` The canonical layout/shaping path is explicit and separate from
       ordinary GPUI operator text layout; it never asks a preview container to
       reflow canonical content.
@@ -264,6 +272,9 @@ operator sizes, operating systems, display scaling, and preview consumers.
       internal pixels and a 4px operator-only viewport radius.
 - [ ] `[MANUAL]` Atkinson operator fit and Noto fallback are legible and stable
       in packaged Windows and Linux builds at both qualified resolutions.
+- [ ] `[MANUAL]` The fixture-backed Canonical Slide Layout Gallery qualifies
+      every adopted template and freezes projected numeric type levels only
+      after long Cebuano/English cases remain comfortably readable.
 
 **E2E** `[UI-AUTO]` — Render one mixed-language fixture once, display it in four
 different-size operator viewports plus the congregation renderer, capture every
@@ -508,12 +519,14 @@ of planning and persistence.
 - [ ] `[AUTO]` Build sanitized Normal Mass and Recovery Drill fixtures with the
       six Mass sections and complete stable IDs/hashes.
 - [ ] `[AUTO]` Cover projectable lyrics, identification, responses, readings,
-      announcements, operator-only triggers, Hold, Blackout, long wrapping,
-      repeated chorus occurrences, both Themes, and an unavailable Cue.
+      timed General Presentations, operator-only triggers, Wait, Hold, Blackout,
+      long wrapping, repeated chorus/refrain occurrences, both Themes, and an
+      unavailable Cue.
 - [ ] `[AUTO]` Every Cue belongs to exactly one Mass item; Mass sections own no
       Cue and no projectable output.
 - [ ] `[AUTO]` Operator-only triggers and Hold provide black projectable output
-      while retaining private operator context.
+      while retaining private operator context; Wait Cues retain private context
+      and deliberately leave Program unchanged.
 - [ ] `[AUTO]` Snapshot loading validates every required frame/dependency before
       exposing a usable presentation input.
 
@@ -541,6 +554,13 @@ Interface used by UI and tests.
       navigation changes Preview only; Space takes valid Preview live.
 - [ ] `[AUTO]` `F` toggles Freeze, `B` activates Blackout, and unchanged/repeated
       commands are deterministic.
+- [ ] `[AUTO]` Content-to-content changes cut; content-to/from Blackout or Hold
+      exposes interruptible reversible 500ms fade progress without queueing
+      commands or delaying the underlying state transition.
+- [ ] `[AUTO]` Explicit item/section auto-play advances eligible General
+      Presentation Cues from inherited eight-second/per-Slide durations, wraps
+      inside scope, resets each newly shown Cue's timer, and stops on outside
+      navigation, Freeze, Blackout, exit, or recovery.
 - [ ] `[AUTO]` Selecting an operator-only Cue while Live sends black, not private
       content, to Program.
 - [ ] `[AUTO]` An unavailable future Cue preserves the last valid Program,
@@ -634,10 +654,12 @@ cannot accidentally change Program.
 - [ ] `[UI-AUTO]` `O` opens/focuses the Ordo rail without changing pin state;
       `Esc` closes only the topmost temporary surface and restores the active
       Cue focus.
+- [ ] `[UI-AUTO]` `A` toggles eligible item auto-play; a visible menu owns Loop
+      this section, while ineligible liturgical content explains refusal.
 - [ ] `[UI-AUTO]` `F6` cycles Ordo rail, Cue timeline, and Output controls while
       skipping a closed unpinned rail and never changing live state.
 - [ ] `[UI-AUTO]` Passive rail and shortcut_reference focus leave `F`, `B`, and
-      Space active.
+      `A`, and Space active.
 - [ ] `[UI-AUTO]` A focused text field, emergency editor, or true modal suspends
       every single-key Presenter command until closed.
 - [ ] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
@@ -754,6 +776,10 @@ every authoring Module.
       cross records, and enforced foreign keys.
 - [ ] `[AUTO]` Storage errors preserve prior committed state and return a stable
       domain-relevant failure.
+- [ ] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
+      migrations: its Mermaid physical overview and per-table columns, types,
+      null/default/constraint/index/FK/ownership/lifecycle details correspond
+      directly to the schema rather than duplicating domain prose.
 
 **E2E** `[AUTO]` — Create a temporary Parish with Choir, Song, Arrangement,
 sections, occurrences, and an image asset through Module Interfaces; restart the
@@ -823,7 +849,7 @@ Arrangements shared across different Choir sets, archive the parent and one
 child independently, restore the parent, and assert exact visibility and
 selection eligibility.
 
-### T2.4 — Persistent Song Library and Choir workspaces
+### T2.4 — Persistent Library/Songs and Choir workspaces
 
 **Goal:** Provide stable discovery and selection surfaces before detailed
 Arrangement editing.
@@ -835,6 +861,9 @@ Arrangement editing.
 
 **AC**
 
+- [ ] `[UI-AUTO]` Library exposes local Songs, Responses & Prayers, and General
+      Presentations views; this task implements Songs and Choirs without
+      placeholder repository/API layers for the later views.
 - [ ] `[UI-AUTO]` Songs uses the permanent master-detail shell for empty,
       populated, no-match, archived-only, and selected states.
 - [ ] `[UI-AUTO]` Empty state offers Create song and Import `.ordo` without an
@@ -851,6 +880,8 @@ Arrangement editing.
       returning from an Arrangement.
 - [ ] `[UI-AUTO]` Choir management supports name-only creation, optional details,
       archive visibility, and duplicate-safe inline quick-create.
+- [ ] `[UI-AUTO]` Include archived is off by default and deliberately adds
+      archived Songs/Arrangements to search without changing their state.
 
 **E2E** `[UI-AUTO]` — Seed mixed Songs/Arrangements, combine search with three
 Arrangement-scoped filters, open an Arrangement and return, then verify the same
@@ -1020,8 +1051,8 @@ permanent-deletion path.
 
 ### T2.10 — Automatic-first Song import review
 
-**Goal:** Let external AI extraction produce reliable library content without
-Ordo interpreting arbitrary PowerPoint files.
+**Goal:** Accept durable machine exchange and lightweight human Song authoring
+without Ordo interpreting arbitrary PowerPoint files.
 
 **Changes:** `crates/domain/src/song_library/import/`, `crates/ordo/src/songs/import_review/`,
 `contracts/song-import/`, `tests/fixtures/song-import/`,
@@ -1033,6 +1064,13 @@ Ordo interpreting arbitrary PowerPoint files.
 
 - [ ] `[AUTO]` Accept one or many `song-import` `.ordo` artifacts whose JSON
       payload obeys the published AI-authoring contract; never inspect PPT/PPTX.
+- [ ] `[AUTO]` Accept one `.md`/`.txt` as one Song plus one Arrangement with YAML
+      front matter, bracket labels, hard blank-line Slide boundaries,
+      `[Unlabeled]`, and uniquely resolved forward/backward `[Repeat: label]`
+      references; unresolved repeats preserve a saveable but unready draft.
+- [ ] `[UI-AUTO]` Markdown opens directly as an unsaved Song/Arrangement editor
+      with inline validation and ordinary duplicate comparison; `.ordo` retains
+      batch review, stable identity, and idempotent machine exchange.
 - [ ] `[AUTO]` Normalize identity comparisons case-insensitively and classify
       Add new Song, Attach Arrangement, Skip unchanged, or Needs decision with
       concrete evidence.
@@ -1052,7 +1090,9 @@ Ordo interpreting arbitrary PowerPoint files.
 **E2E** `[UI-AUTO]` — Import a batch containing one new Song, one unchanged
 Arrangement, one attachable Arrangement, one ambiguous replacement, and one
 invalid document; resolve the ambiguity, commit, reload, and assert exact atomic
-results and revision evidence. Repeat unchanged as a no-op.
+results and revision evidence. Repeat unchanged as a no-op, then open a Markdown
+Song with a forward repeat and one unresolved label, repair it in the editor,
+save, and assert the exact linked Sequence and Slide boundaries.
 
 ### Phase 2 gate
 
@@ -1121,6 +1161,9 @@ assert stable proposals and exact review-state transitions.
 
 - [ ] `[AUTO]` Theme owns typography, text colors, fallback/background color,
       optional image/crop, layout values, safe area, and revision identity.
+- [ ] `[AUTO]` Theme safe area may increase but never reduce the canonical
+      120×80 minimum; semantic templates retain renderer-owned header/body/
+      footer anchors rather than arbitrary element positioning.
 - [ ] `[AUTO]` Protected Ordo Black is always available, deterministic, and
       independently renderable without a decorative asset.
 - [ ] `[AUTO]` Ordo Black can be selected or duplicated but not edited, renamed,
@@ -1130,8 +1173,9 @@ assert stable proposals and exact review-state transitions.
       image frame.
 - [ ] `[AUTO]` Contrast, overflow, aspect/crop, and source-resolution findings
       are structured; non-16:9 and below-1920×1080 image findings are advisory.
-- [ ] `[AUTO]` Canonical specimen fixtures cover current Mass slide, Lyrics,
-      Response, Identification, and Reading kinds.
+- [ ] `[AUTO]` Canonical specimen fixtures cover Celebration title, Song
+      identification, Lyrics with/without label, Response, Reading
+      identification/passage, Psalm, and General text/image kinds.
 
 **E2E** `[AUTO]` — Remove every parish Theme and verify Ordo Black still renders
 all specimen kinds; corrupt a saved background image and assert complete
@@ -1152,8 +1196,8 @@ propagation or per-slide styling.
 
 - [ ] `[UI-AUTO]` Theme Library always shows Ordo Black under System Theme and
       uses a distinct No parish themes yet state with Create parish theme.
-- [ ] `[UI-AUTO]` Editor specimen navigation covers Current Mass slide, Lyrics,
-      Response, Identification, and Reading without changing saved content.
+- [ ] `[UI-AUTO]` Editor specimen navigation covers every canonical template
+      from T3.2 plus Current Mass slide without changing saved content.
 - [ ] `[UI-AUTO]` Typography, Appearance, and Layout task groups expose only
       adopted Theme-level properties with live canonical specimen previews.
 - [ ] `[UI-AUTO]` Text/background color selection shows current and staged
@@ -1189,7 +1233,8 @@ pretending every Celebration has one universal Ordo.
 
 - [ ] `[AUTO]` New templates start with independently identified editable
       sections: Before Mass, Introductory Rites, Liturgy of the Word, Liturgy of
-      the Eucharist, Communion Rite, and Concluding Rites.
+      the Eucharist, Concluding Rites, and After Mass; Communion remains inside
+      Liturgy of the Eucharist.
 - [ ] `[AUTO]` Every template has a language; multiple independently named
       templates may share a language and one may be its explicit fallback.
 - [ ] `[AUTO]` Sections use UUID plus unique nonblank label, own ordered items,
@@ -1200,8 +1245,10 @@ pretending every Celebration has one universal Ordo.
 - [ ] `[AUTO]` Conditional evaluation uses Celebration context but produces a
       visible recommendation/override result; uncertainty warns rather than
       silently omitting content.
-- [ ] `[AUTO]` Template instantiation copies sections and content into an
-      independent Mass plan; later edits never synchronize either direction.
+- [ ] `[AUTO]` Template instantiation copies its structure into an independent
+      Mass plan while concrete Songs, Responses/Prayers, and General
+      Presentations retain reusable Library links; later template-structure
+      edits never synchronize either direction.
 - [ ] `[AUTO]` Recommendation ranks applicable same-language templates and
       exposes the language fallback without prohibiting manual selection.
 
@@ -1264,7 +1311,12 @@ Mass-plan relationship that organizes all preparation.
       language duplication copies fully, while different language derives from
       an applicable target-language template and independently authored text.
 - [ ] `[AUTO]` Reuse for another Celebration creates an independent plan and
-      requires a new Celebration/date; no synchronization remains.
+      requires a new Celebration/date; no synchronization remains and every
+      copied Reading starts Needs Review regardless of language, with explicit
+      per-item and confirmed all-readings review clearing.
+- [ ] `[AUTO]` Each plan generates an enabled Celebration-title Cue before its
+      first section, inherits Celebration title by default, and may override
+      projected title/appearance without adding Celebration language maps.
 - [ ] `[AUTO]` Presider/location editable suggestions and Parish defaults copy
       only into new plans and never retroactively rewrite saved plans.
 - [ ] `[AUTO]` Shared Celebration edits recompute readiness/review evidence but
@@ -1327,6 +1379,8 @@ editors fill its center pane.
 
 - [ ] `[UI-AUTO]` Plan header, Mass outline, selected-item editor, and Inspector
       follow the approved three-pane ownership and responsive reference.
+- [ ] `[UI-AUTO]` The automatic Celebration-title Cue is selectable before the
+      first section, defaults enabled, and remains available as the idle Cue.
 - [ ] `[UI-AUTO]` Header owns Celebration context, autosave, readiness access,
       Mass Theme, Mass details, and Present; outline owns only its title and
       top-right + Add Mass item.
@@ -1364,9 +1418,9 @@ one ambiguous generic form.
 **AC**
 
 - [ ] `[UI-AUTO]` + Add Mass item opens a categorized chooser for Song,
-      Reading, Response sequence, Custom text/sequence, Announcement, Hold, and
-      Blackout; it inserts after current selection or appends to the active
-      section when none is selected.
+      Reading, linked Response/Prayer, General Presentation, Custom sequence,
+      Hold, and Blackout; it inserts after current selection or appends to the
+      active section when none is selected.
 - [ ] `[AUTO]` Song items reference a library Arrangement by default, own an
       optional identification Cue, and expand the exact section-occurrence
       Sequence into position-based Cues.
@@ -1380,10 +1434,15 @@ one ambiguous generic form.
       Return to library arrangement uses one direct guarded comparison, not a
       nested picker.
 - [ ] `[AUTO]` Reading supports language, reference, body, responses/acclamations,
-      optional full-reading projection, and multiple Reading slots/items.
+      optional full-reading projection, hard blank-line boundaries, ordered
+      language-template Gospel blocks, and multiple Reading slots/items.
+- [ ] `[AUTO]` Responsorial Psalm generates `n + 1` linked refrains around `n`
+      cantor verses; private cantor Wait Cues leave Program unchanged and may
+      be enabled for projection.
 - [ ] `[AUTO]` Response sequence owns ordered exchange blocks with optional
       operator-only trigger then required congregation response; role defaults
-      are Priest (`P`) and congregation (`T`) but remain extensible.
+      are Priest (`P`) and congregation (`T`) but remain extensible. Reusable
+      entries stay linked until Customize for this Mass.
 - [ ] `[AUTO]` Custom sequence supports deliberate mixed Cue behavior;
       Announcement is focused projectable text; Hold is an ordinary black Cue;
       Blackout is a state-changing Cue.
@@ -1551,6 +1610,44 @@ language/source provider part of Ordo core.
 one ambiguous target, commit to a plan, edit the copied response, delete the
 source artifact, restart offline, and verify complete independent authoring and
 rendering.
+
+### T3.15 — Reusable Responses, Prayers, and General Presentations
+
+**Goal:** Complete the multi-view Library without flattening specialized Song,
+exchange, and presentation models into one generic content record.
+
+**Changes:** `crates/domain/src/reusable_content/`,
+`crates/ordo/src/library/responses_prayers/`,
+`crates/ordo/src/library/general_presentations/`,
+`crates/storage/src/reusable_content/`, `tests/e2e/library/reusable-content.*`
+
+**Depends on:** T0.3, T2.2, T3.9.
+
+**AC**
+
+- [ ] `[UI-AUTO]` Library local views are Songs, Responses & Prayers, and
+      General Presentations with stable search, selection, History, and Include
+      archived behavior while preserving type-specific editors.
+- [ ] `[AUTO]` Response/Prayer sources own ordered exchange blocks; General
+      Presentation sources own constrained Text or Image Slides plus an
+      eight-second entry duration inherited by Slides with optional overrides.
+- [ ] `[AUTO]` One Mass plan binds every still-linked occurrence of one source
+      to one Edit revision. Reusing it adds that same bound revision; reviewed
+      update advances linked occurrences atomically while local overrides and
+      immutable snapshots remain unchanged.
+- [ ] `[UI-AUTO]` Current, Update available, Mass-local override, Source updated,
+      and Archived source states expose direct compare/update/restore routes.
+- [ ] `[AUTO]` Promotion after upstream divergence never auto-merges or
+      overwrites. It saves only an explicit reviewed new source revision and
+      relinks the promoting occurrence only when content exactly matches.
+- [ ] `[AUTO]` Archive preserves every retained binding and remains presentable;
+      permanent deletion is limited to never-referenced entries with no retained
+      history.
+
+**E2E** `[UI-AUTO]` — Reuse one response and two announcements multiple times,
+customize one occurrence, revise/archive/promote their sources, update one plan,
+and assert plan-wide binding consistency, visible divergence, stable snapshots,
+and exact reload behavior.
 
 ### Phase 3 gate
 
@@ -1980,7 +2077,7 @@ Presenter relies on real projector geometry.
       visually distinct from an assigned display becoming unavailable.
 - [ ] `[UI-AUTO]` Calibration opens the congregation window black, then only the
       calibration pattern; exiting returns black before close.
-- [ ] `[AUTO]` Pattern marks 5% safe area and Output Fit adjusts completed-frame
+- [ ] `[AUTO]` Pattern marks the 120×80 minimum safe area and Output Fit adjusts completed-frame
       uniform scale from 0–10% without recomposition.
 - [ ] `[AUTO]` Ratios within 0.1% of 16:9 fill; other ratios letterbox/pillarbox
       complete frames and warn without cropping/stretching.
@@ -2006,10 +2103,11 @@ current Program or silently changing reusable library content.
 **AC**
 
 - [ ] `[UI-AUTO]` Insert immediately Freezes Program and opens a viewport-
-      bounded text/image insert editor; Cancel leaves Program held and creates
-      no Cue.
-- [ ] `[UI-AUTO]` Save inserts after current Cue, autosaves as Mass-local
-      content, selects it in Preview, and leaves Program held until Space.
+      bounded chooser/editor for General text/image, Response sequence, or Song;
+      Cancel leaves Program held and creates no item.
+- [ ] `[UI-AUTO]` Save inserts a Mass-local item after the current Mass item in
+      the same section, selects its first projectable Cue in Preview, and leaves
+      Program held until Space. A missing Song/Arrangement is Mass-local first.
 - [ ] `[UI-AUTO]` Ctrl+E immediately Freezes and edits the selected projectable
       Cue in Preview only; operator-only/noneditable targets explain refusal.
 - [ ] `[UI-AUTO]` Editing a reused linked section applies to every linked
@@ -2019,6 +2117,12 @@ current Program or silently changing reusable library content.
       restores them without mutating the immutable source snapshot or library.
 - [ ] `[AUTO]` Post-Mass review may deliberately promote applicable content as
       a later library/Mass revision; promotion never mutates the used snapshot.
+- [ ] `[UI-AUTO]` Back/close/exit flushes pending saves; failure offers Retry
+      save, Keep editing, or destructive Leave without saving and successful
+      retry resumes the original navigation.
+- [ ] `[UI-AUTO]` Next Mass appears only for the next scheduled sibling under
+      the Celebration, fades current Program black, closes safely, and opens
+      sibling preflight without automatic exposure.
 
 **E2E** `[UI-AUTO]` — While a Cue is live, Insert text, cancel, Insert/save an
 image, Space it live, emergency-edit a linked Chorus for all occurrences and a
@@ -2349,7 +2453,7 @@ failure states are present.
       deduplicated polite updates, urgent fail-closed announcements, and absence
       of operator-only congregation content.
 - [ ] `[MANUAL]` Forced colors and reduced motion preserve meaning, focus,
-      immediate output transitions, and equivalent nested-overlay navigation.
+      content cuts, bounded blank fades, and equivalent nested-overlay navigation.
 - [ ] `[MANUAL]` Visual comparison against approved references confirms
       hierarchy/ownership, not pixel-copying of mockup artifacts.
 

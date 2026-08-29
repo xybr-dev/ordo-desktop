@@ -34,15 +34,16 @@ The first release is a complete vertical slice:
 ### Included
 
 - Parish-scoped Songs, aliases, choir repertoire membership, Arrangements, reusable sections, performance sequences, pagination, languages, applicability tags, provenance, and rights notes.
-- Structured `song-import` `.ordo` batch import with readable versioned JSON payloads, staged validation, duplicate suggestions, and atomic commit.
+- Structured `song-import` `.ordo` batch import with readable versioned JSON payloads, staged validation, duplicate suggestions, and atomic commit; `.md`/`.txt` provides a separate one-Song human-authoring path into the editor.
 - Search across titles, aliases, lyrics, Arrangement titles, attribution, and choirs, with language, choir, numbered-Mass, and occasion filters.
 - Archive, restore, reference-safe deletion, and edit revisions for Song works and Arrangements; Song merge and UUID redirects are deferred.
 - Parish Mass templates with ordered and conditional Mass items.
-- Dated Mass plans for Sundays and solemnities, including responses, readings, songs, announcements, holds, Blackouts, operator-only triggers, and projectable Cues.
+- A top-level Library with local Songs, Responses & Prayers, and General Presentations views; reusable non-Song entries remain specialized rather than sharing one generic schema.
+- Dated Mass plans for Sundays and solemnities, including linked reusable content, responses, readings, songs, announcements, holds, Blackouts, Wait Cues, operator-only triggers, and projectable Cues.
 - Source-neutral Liturgy Import Document review and manual liturgical-content entry.
 - Computed Mass-plan readiness: `Incomplete`, `Ready with warnings`, and `Ready`.
 - Mass-plan Upcoming, History, Archive, restoration, and **Reuse for another Celebration**.
-- Fixed `1920x1080` canonical composition, Themes, 5% safe area, automatic pagination proposals, and reviewed slide boundaries.
+- Fixed `1920x1080` canonical composition, renderer-owned semantic templates, a minimum `120x80` safe area, automatic pagination proposals, and reviewed slide boundaries.
 - Three-column Presenter Mode with responsive visual-grid and compact-list timeline modes.
 - Program, Preview, Freeze, Blackout, keyboard navigation, prepared jumps, emergency insert, emergency edit, and crash recovery.
 - Explicit congregation-output enablement, display selection, identification, calibration pattern, Output Fit, disconnect recovery, and cursor-location assistance.
@@ -60,7 +61,7 @@ The first release is a complete vertical slice:
 - Funerals, weddings, baptisms, novenas, and other special rites as qualified workflows.
 - First-class Mass-setting families grouping numbered Ordinary movements.
 - Choir rehearsal scheduling, attendance, proficiency, or analytics.
-- Usage analytics, recommendation engines, remote phone control, audio playback, animations, and transition configuration.
+- Usage analytics, recommendation engines, remote phone control, audio playback, configurable or content-to-content transitions, and timed Song playback.
 - General per-slide styling, advanced revision branches/diffs, shortcut customization, background updates, portable Windows packaging, or public-release code signing.
 - Decisions about open-source licensing, commercial licensing, or anti-tamper measures.
 
@@ -116,7 +117,9 @@ All durable identities use canonical lowercase UUIDv4 strings generated in Rust 
 | Mass plan | Independent editable preparation for one scheduled Mass under a Celebration, with time, primary language, choir and other local context, Theme, ordered Mass items, readiness results, and Mass-local overrides. |
 | Mass item | Top-level titled unit such as a song, reading, response sequence, rite, announcement, hold, or Blackout. |
 | Cue | Ordered operator event within a Mass item, carrying role, visibility, behavior, private context, and optional projectable output. |
+| Wait Cue | Operator-relevant Cue that deliberately leaves Program unchanged, such as an unprojected cantor verse. |
 | Mass-local override | Emergency insert or correction owned only by one Mass plan until reviewed promotion. |
+| Reusable-source binding | One Mass-plan association that keeps all still-linked occurrences of a reusable source on the same Edit revision. |
 | Presentation snapshot | Immutable content and rendering dependency capture for one Mass plan, used by Presenter Mode, as one member of a Celebration Package, or by PowerPoint export. |
 | Installed Celebration Package | Verified managed local lineage for one Celebration Package, owning immutable Package versions and one Current version independently of removable media. |
 | Package version | One immutable exported state under an Installed Celebration Package, with its own UUID, fingerprint, exact plan set, and per-plan Presentation snapshots. |
@@ -136,9 +139,10 @@ All durable identities use canonical lowercase UUIDv4 strings generated in Rust 
 - A Mass plan belongs to one language-neutral Celebration, which may own several plans for different schedules, languages, or choirs. **Duplicate for another Mass** creates an independent plan under the same Celebration; **Reuse for another Celebration** creates one under a different Celebration. Neither workflow keeps the new plan synchronized with its source.
 - Conditional template items are evaluated automatically from Celebration metadata but remain visible and overridable in preparation. Missing or conflicting applicability information produces a readiness warning rather than a silent guess; per-plan overrides never silently rewrite the template.
 - Templates may contain typed Song and Reading slots. Required unresolved slots contribute to incomplete readiness; additional slots can be added per plan, and multiple independently named templates may exist for the same language and different Celebration shapes.
-- Responses and readings are independently authored for each language. Entries may share a neutral liturgical role, but Ordo neither assumes textual equivalence nor translates or synchronizes wording across languages; Reading slots require content matching the plan language.
+- Responses and readings are independently authored for each language. Entries may share a neutral liturgical role, but Ordo neither assumes textual equivalence nor translates wording across languages; Reading slots require content matching the plan language. Reusable Responses/Prayers retain explicit language metadata and plan bindings rather than implicit translation.
+- One Mass plan resolves one Edit revision per reusable source. All still-linked occurrences use that binding; a reviewed update advances them together, while Mass-local overrides remain independent and immutable Presentation snapshots never change.
 - Every Cue belongs to exactly one ordered Mass item.
-- Operator-only Cues have black projectable output while retaining private context.
+- Operator-only triggers and Hold Cues have black projectable output while retaining private context. Wait Cues leave Program unchanged.
 - A Presentation snapshot is immutable and self-contained with respect to its rendering dependencies.
 - A Presentation session references exactly one snapshot.
 - Archive is reversible visibility. Permanent deletion never cascades through retained history.
@@ -150,6 +154,8 @@ All durable identities use canonical lowercase UUIDv4 strings generated in Rust 
 - The role model remains explicit and extensible to deacon, lector, cantor, choir, commentator, and operator.
 - Spoken dialogues project the congregation response by default; priest or minister text remains operator-only context.
 - Scripture readings project responses, Psalm refrains, and acclamations by default. A planner may enable full-reading projection for an individual reading.
+- Ordinary Gospel content is an ordered language-template sequence: optional opening P/T exchange, identification, congregation acclamation, optional Scripture Slides, and closing P/T exchange. Presets may omit blocks where the rite requires it, including the reviewed Good Friday form, rather than hard-coding Sunday wording.
+- A Responsorial Psalm projects its linked refrain before the first cantor verse and after every cantor verse. Cantor verses are Wait Cues by default, leaving the refrain visible, and may be enabled as projected Scripture-style Slides.
 - Every Cue records its speaker/actor role, congregation visibility, parent Mass item, order, and operational behavior such as project, wait/trigger, hold, or Blackout.
 - The normal live timeline favors operator-relevant Cues; full missal context may be expandable without cluttering the primary sequence.
 
@@ -249,7 +255,7 @@ inside an existing crate.
   focus behavior, constrained overlays, accessibility semantics, and long or
   multilingual content. The same scenarios feed manual exploration and the
   automated GPUI UI harness; the lab is never included in parish packages.
-- Render every dialog and slideover through one application-owned overlay layer bounded to the current native window viewport rather than pane height. Preserve exterior gutters; when content is taller than available space, keep header and actions reachable while its body scrolls internally. Apply the same boundary to nested slideovers and verify it in resized windows and at increased Interface scale.
+- Render every dialog and slideover through one application-owned overlay layer bounded to the current native window viewport rather than pane height. Dialogs, ordinary slideovers, and unpinned Presenter Ordo share one visible dim scrim that captures and dismisses on outside click without activating content beneath it; pinning Ordo removes the scrim. Preserve exterior gutters; when content is taller than available space, keep header and actions reachable while its body scrolls internally. Apply the same boundary to nested slideovers and verify it in resized windows and at increased Interface scale.
 - The visible product vocabulary remains in deep Ordo Modules such as Presenter Workspace, Cue Timeline, Output Dock, Arrangement Editor, and Theme Editor. Their Interfaces consume Ordo state and commands and do not expose primitive-library properties to callers.
 - The canonical frame viewport, thumbnail virtualization, pagination surface, arrangement sequence surface, Theme canvas, display-topology view, and calibration pattern remain custom Implementations at their established Seams.
 - Bundle every font, icon, and UI asset into or beside the native application with verified manifests. No installed runtime path requires a CDN, registry, web font, or network resource.
@@ -274,22 +280,23 @@ inside an existing crate.
 - Bundle Lucide as Ordo's only general operator-interface icon family, import only used SVG modules, and retain the applicable license notices. Use `16px`/`20px` icons with a consistent `2px` stroke; pair high-stakes or unfamiliar actions with visible labels and restrict icon-only controls to familiar compact actions with accessible names and matching tooltips.
 - Keep ordinary icons outlined and use filled shapes only for meaningful status markers. Route any necessary Ordo-specific SVG through the same icon Module and visual rules rather than introducing another general icon family or emoji.
 - Build layouts from the adopted `4px` spacing scale, using `8px` for related elements, `16px` for groups, and `24px` for major sections. Use `36px` default controls/rows, permit `32x32px` compact icon controls, and keep high-stakes Presenter controls at least `40px` high.
+- Place operator-only toasts at bottom-center. Confirmation and Undo may expire; failures and hazards remain attached to a clear owner until resolved or deliberately dismissed.
 - Use `16px` primary workspace gutters at `1366x768` and `24px` at `1920x1080`. Spend wider-screen space on previews, slide columns, and context rather than proportional application scaling; allow increased interface text to grow rows and reflow secondary content without clipping.
 - In constrained Preparation workspaces, preserve the editor as the fixed primary surface, convert Inspector and eventually the primary list/outline into opposing slideovers, and allow only one temporary side pane at a time. Restore fixed panes and their contextual state when space returns; never solve constraint with application-level horizontal scrolling.
 - Ship one adaptive MVP density and no Compact/Comfortable preference.
 - Provide installation-specific Interface scale steps at `100%`, `125%`, `150%`, `175%`, and `200%`, controlled through Settings and `Ctrl++`/`Ctrl+-`/`Ctrl+0`. Apply scale only through operator-shell typography and layout tokens; never multiply the canonical Slide's logical layout scale.
 - Isolate every canonical Slide from Ordo Interface scale, Windows/Linux system scaling, GPUI window scale factor, and physical output density. Always compose in explicit `1920x1080` logical coordinates. A target-density rerender may improve sampling sharpness but may not change font metrics, wrapping, pagination, safe area, or element geometry.
 - Treat timeline thumbnails, Inspector, Preview, and Program as uniformly scaled viewports onto the completed canonical frame. Operator scaling may alter viewport size, grid columns, and surrounding chrome only. Fit the passive congregation view to physical output through the qualified Output Fit path without recomposition.
-- Use the adopted motion durations—`120ms` quick, `160ms` standard, and `220ms` overlay—with one calm ease-out curve. Keep transitions interruptible and prohibit spring, bounce, overshoot, and decorative looping.
-- Apply Preview/Program changes, Freeze, Blackout, Live restoration, and congregation output immediately with `0ms` motion. Under reduced motion, remove spatial transforms, animated reordering, and parent recession; allow only clarifying opacity changes up to `100ms` while preserving the exact interaction and focus sequence.
+- Use `120ms` quick and `160ms` standard motion. Open dialogs/slideovers in `400ms` with fast-start/slow-finish motion and close in `200ms` with smooth acceleration. Keep every transition interruptible and prohibit spring, bounce, overshoot, and decorative looping.
+- Keep content-to-content Preview/Program changes as immediate cuts. Fade content to/from Blackout or Hold over `500ms` independently per output surface; contrary commands reverse from current opacity with proportional remaining time and never queue. Under reduced motion, remove spatial transforms and limit clarifying opacity—including blank boundaries—to `100ms` while preserving interaction and focus sequence.
 
 ### 6.6 Application appearance polarity
 
-- Preparation workspaces render with a warm, paper-neutral light appearance for prolonged editing and planning.
+- Preparation offers System (default), Light, and Dark appearance. System follows operating-system changes live; Light uses the warm paper-neutral appearance and Dark uses the graphite family.
 - Presenter Mode renders with a graphite-dark appearance appropriate to a dim church and keeps canonical Preview and Program frames visually dominant.
 - The two appearances share the same operator typography, geometry, spacing, control hierarchy, icons, focus behavior, and operational state semantics.
 - Liturgical colors remain inside congregation Themes and canonical slide previews; they never recolor the ordinary operator shell.
-- Workspace context selects the appearance automatically in the MVP. User-selectable application appearance is deferred.
+- Presenter always selects graphite dark and restores the saved Preparation preference on exit.
 - Operator appearance and congregation Theme are independent inputs. Neither may alter the other's saved or rendered result.
 - Share one semantic color language across both appearances: forest green for primary action and selection, clear green for Live, amber for Freeze and warning/incomplete findings, near-black plus a light label and border for Blackout, muted red for error/destructive conditions, and restrained blue for information. Pair every operational state with text and an icon or shape cue.
 - Keep liturgical purple, red, green, rose, and white exclusive to actual liturgical metadata and Slide Theme content rather than reusing them as generic interface accents.
@@ -318,7 +325,7 @@ inside an existing crate.
 - Do not equate **Anticipated** with a generic Vigil mode; specialized vigils may require distinct Celebration context and templates.
 - Require only liturgical date and title for Celebration creation, and scheduled start plus primary language for Mass-plan creation. Keep other metadata optional while surfacing unresolved conditional rules, choir-dependent Song slots, duplicate schedules, and inconsistent timing relationships through validation or readiness as appropriate.
 - Use a hybrid navigation hierarchy: the vertical application rail owns global destinations, while horizontal tabs belong only to local views inside the current destination or editor.
-- **Songs** contains Song works, Arrangements, Choir repertoire, and Song-import workflows. **Themes** and **Transfer & Backup** are the other primary destinations; anchor **Settings**, **Help**, and **Diagnostics** at the bottom of the same global rail.
+- **Library** is the primary destination with local **Songs**, **Responses & Prayers**, and **General Presentations** views. Songs owns Song works, Arrangements, Choir repertoire, and Song-import workflows. **Themes** and **Transfer & Backup** are the other primary destinations; anchor **Settings**, **Help**, and **Diagnostics** at the bottom of the same global rail.
 - **Masses** uses **Upcoming**, **History**, **Archive**, and **Templates** as horizontal local tabs. Arrangement and Theme editor tabs likewise change the current entity's task/view rather than navigating to another global destination.
 - Launch Presenter Mode from a selected Mass plan so the presentation context is explicit.
 - Show icons with persistent labels at comfortable widths. At constrained widths, collapse the rail to accessible labeled icons with tooltips while preserving a non-color-only active-workspace treatment.
@@ -331,13 +338,14 @@ inside an existing crate.
 
 - Opening a Mass plan replaces the list view with a focused planner; a breadcrumb returns to the originating Masses subview.
 - Keep a plan header above three permanent structural panes: **Mass outline**, **selected-item editor**, and **Inspector**. The header owns Celebration context, autosave state, readiness, Mass Theme access, and the Presenter entry point.
+- Generate one enabled-by-default selectable Celebration-title Cue before the first Mass section. It inherits the Celebration title and Mass Theme, may use a Mass-plan title override, and serves as the idle Cue. Its appearance may inherit the Mass Theme, select another reusable Theme, or replace only the background with one Mass-local image.
 - The Mass outline contains ordered Mass-item titles and local ordering controls. Place **+ Add Mass item** in its header at the top-right; compact it to an accessibly named `+` button only when width requires it. Keep the header otherwise clean: the MVP has no outline-wide `...` menu, because plan-wide actions belong to the plan header and item actions belong to each Mass item.
 - Group the Mass outline into ordered **Mass sections** copied from the selected template. New templates begin with **Before Mass**, **Introductory Rites**, **Liturgy of the Word**, **Liturgy of the Eucharist**, **Concluding Rites**, and **After Mass**; Communion remains within Liturgy of the Eucharist. Before/After Mass are operational wrappers rather than liturgical rites. Templates and copied plans may independently add, rename, reorder, and remove sections, but removing a non-empty section never cascades to its Mass items. Sections have stable local identity plus editable labels, with no hidden liturgical type or name-derived behavior; cross-language derivation uses the target template's structure. A Mass section owns no Cue or output and must not be confused with an Arrangement section; remaining interaction rules are the next design branch.
 - Always show empty sections in template and plan authoring, allow individual and expand/collapse-all disclosure, retain item/readiness counts on collapsed headers, and automatically reveal a section when navigation targets one of its items. Keep collapse state outside content and revision history. Presenter Mode omits empty sections.
 - Build each section header from a drag handle, disclosure caret, unique nonblank name, counts, and one consistent right-click/`...` menu for rename, add above/below, move, and eligible removal. Clicking the header body activates it as the insertion target and clears item selection; the editor and Inspector then show **Select an item**. Keep at least one section in every plan/template, require every Mass item to belong to exactly one section, disable removal of non-empty or final sections, and omit section duplication from the MVP.
 - Allow exactly one selected Mass item in the MVP, with both the editor and Inspector following it. Defer multi-selection and bulk item actions.
 - **+ Add Mass item** opens an anchored type dropdown that identifies the complete section-aware insertion destination. Insert immediately after the selected Mass item in its section, or append within an actively targeted section. If neither an item nor section is active, require a destination section rather than silently appending to the Ordo; per-item **Insert before** and **Insert after** commands reuse the same chooser. The created item becomes selected and its section expands.
-- Selecting a type immediately creates, selects, and autosaves the item, with Undo as the recovery path. Provide editor presets for Song, Reading, Response sequence, Custom text, Announcement, Hold, Blackout, and **Custom sequence**; the latter is the flexible escape hatch formerly described as a blank item.
+- Selecting a type immediately creates, selects, and autosaves the item, with Undo as the recovery path. Provide editor presets for Song, Reading, linked Response/Prayer, General Presentation, Hold, Blackout, and **Custom sequence**; the latter is the flexible escape hatch formerly described as a blank item.
 - Treat Hold as an ordinary operator-only black Cue, not a persistent state. Treat Blackout as an explicit state-changing Cue that remains active while Preview navigation continues until Space takes Preview live.
 - The selected-item editor owns type-specific content and sequence work. The Inspector owns canonical slide inspection, warnings/dependencies for the selected scope, and item-level Theme override.
 - Song/Arrangement picking opens a floating right slide-over instead of adding a fourth permanent pane. Selection is staged until a sticky top-right action such as **Use Choir A arrangement** commits it.
@@ -360,17 +368,18 @@ inside an existing crate.
 
 - Manage reusable templates under **Masses → Templates**. Allow several independently named templates per language and filter the library by language and advisory applicability metadata.
 - Opening a template reuses the planner's three-pane structure for its ordered outline, selected concrete item or typed slot editor, and Inspector.
-- Let templates own ordered Mass sections and copy their section/item structure into each new Mass plan. Later template section edits do not synchronize into existing plans, and each copied plan may customize its section structure independently.
+- Let templates own ordered Mass sections and copy their section/item structure into each new Mass plan. Concrete reusable Songs, Responses/Prayers, and General Presentations retain Library links through instantiation; template structure itself remains independent, later template edits do not synchronize, and each plan may customize its section structure.
 - Applicability ranks likely choices but never prohibits deliberate template selection. Flexible representation of a specialized rite does not imply qualified MVP support for that rite.
 - Creating a Mass plan materializes an independent copy of the selected template revision. Later template edits affect future plans only; provenance does not imply synchronization, and reapplying template changes to an edited plan is deferred.
 - When creating a plan, rank templates using language and Celebration applicability. Visibly preselect the best match while allowing the operator to change it; a specific match outranks the parish's optional general fallback for that language.
 - If no applicable or fallback template exists, create an empty plan with a readiness warning. Choir assignment does not influence template selection; it resolves the resulting Song slots through choir Arrangements.
 - **Duplicate for another Mass** makes a complete independent copy when the language is unchanged. If the target language changes, derive the new plan from its recommended target-language template, retain only language-compatible Arrangements matched by liturgical role, and leave readings or other language-bound custom content unresolved. Preview retained and unresolved content before creation.
+- **Reuse for another Celebration** marks every copied Reading **Needs Review**, even when language is unchanged. Editing or explicitly reviewing one Reading clears its flag; **Mark all readings reviewed** clears the remainder after confirmation.
 
 ### 6.11 Theme Editor workspace
 
 - Use a dedicated preparation workspace with one dominant canonical `16:9` preview. Entry from a Mass plan retains contextual **Back to Mass Theme** navigation and the chooser's staged state; entry from top-level **Themes** has no Mass context.
-- Provide stable **Lyrics**, **Response**, **Identification**, and **Reading** preview specimens. Add **Current Mass slide** only for Mass-plan entry. Changing specimens tests the Theme against different content without editing Mass content or changing which reusable Theme rule is being edited.
+- Provide stable **Celebration title**, **Song identification**, **Lyrics**, **Response**, **Reading identification**, **Reading passage**, **Responsorial Psalm**, **General text**, and **General image** preview specimens. Add **Current Mass slide** only for Mass-plan entry. Changing specimens tests the Theme against different content without editing Mass content or changing which reusable Theme rule is being edited.
 - Render every specimen through the canonical `1920x1080` pipeline so wrapping, density, placement, overflow, and contrast feedback match downstream slides.
 - Separate controls into **Typography**, **Appearance**, and **Layout**. Typography covers text role, bundled typeface, preferred/minimum size, weight, and line spacing. Appearance covers the text/background pair, picker plus hexadecimal input, parish colors, immediate preview, computed contrast, and background assets. Layout covers horizontal/vertical placement, safe area, and maximum text width.
 - Keep specimen selection distinct from text-role selection. Lyrics and responses use the projection body role; identification titles, credits, and labels may use the established secondary role.
@@ -414,9 +423,10 @@ inside an existing crate.
 - Selecting a private trigger shows the established black Preview plus operator-only text. Selecting a response Cue drives the authoritative canonical Inspector frame.
 - Display generated response Cues beneath their exchange block and route any splitting or overflow work into the owning Response-sequence editor.
 - Direct arbitrary cue mixtures and control behavior to Custom sequence rather than broadening the focused exchange model.
-- Treat template-derived Response sequences as independent Mass-owned content that is directly editable without **Customize for this Mass**.
-- Retain lightweight source-template provenance, but never synchronize later changes in either direction. **Open source template** deliberately enters the separate reusable-template context for changes intended only for future plan creation.
-- Reuse recurring language-specific responses through Mass templates; do not add a separately inherited response library in the MVP.
+- Select a reusable Response/Prayer entry by default. Keep it read-only while linked and require **Customize for this Mass** before changing its blocks locally.
+- Resolve one Library-source Edit revision per Mass plan. Repeated linked occurrences use that same binding; an upstream change produces **Update available** until reviewed, then advances every still-linked occurrence together. A local override retains its source/base revision and remains independent.
+- Allow reviewed **Update reusable source** from a local override. If upstream moved since its base, compare the editable latest source beside the Mass-local text and require an explicit new revision rather than automatic merge or overwrite.
+- Keep reusable wording language-specific and available through both templates and direct Library insertion; never infer translation from the Celebration or another language entry.
 
 ### 6.14 Mass-editor persistence and Undo
 
@@ -439,6 +449,26 @@ inside an existing crate.
 - Collapse duplicate evidence into a compact possible-match count. Expanding it reveals concise candidates; selecting one opens a nested viewport-bounded identity preview rather than navigating away or rendering the full Song page.
 - Preserve the staged New Song form on Back. **Use this existing Song** deliberately abandons creation and selects the existing library entry; preview alone changes nothing.
 - Limit the nested preview to identity evidence: title/aliases, composer/source, liturgical moments, and compact Arrangement, Choir, and language summaries, with lyric excerpts only when needed to distinguish a match.
+
+### 6.15a Reusable Library views and source lifecycle
+
+- Keep one Library destination with local **Songs**, **Responses & Prayers**,
+  and **General Presentations** views. Share search, archive visibility, History,
+  and source-impact vocabulary, but retain type-specific editors and models.
+- General Presentation Text mode owns optional header/body/footer. Image mode
+  owns one foreground image plus optional header/caption. Its reusable entry
+  owns an eight-second auto-play default with optional per-Slide overrides.
+- Exclude archived entries by default and expose **Include archived**. Existing
+  bound Mass items remain renderable with an **Archived source** notice; restore
+  the source before ordinary editing. Permit permanent deletion only before any
+  retained plan/template/history reference exists.
+- A source edit creates a new revision and marks bound plans **Update available**
+  rather than silently mutating prepared content. Reviewing one plan advances
+  all of its still-linked occurrences atomically; Presenter sessions and
+  Presentation snapshots stay pinned.
+- A Mass-local override remembers its source and base revision. Promotion opens
+  latest-source-versus-local comparison when upstream moved, never auto-merges,
+  and saves only through an explicit new source revision.
 
 ### 6.16 Song import review
 
@@ -612,12 +642,18 @@ inside an existing crate.
 
 - Compose every slide in a fixed `1920x1080` logical canvas.
 - Preserve text wrapping, line breaks, positions, and pagination across physical resolutions.
-- Use Atkinson Hyperlegible Next ExtraBold for lyrics/responses and SemiBold for titles/credits/labels; use bundled Noto Sans for missing glyphs.
+- Use renderer-owned semantic header, body, and footer zones; absent edge content collapses its zone. Do not support freely draggable elements.
+- Use Atkinson Hyperlegible Next ExtraBold for emphasized lyrics/responses and titles, Regular for Scripture, and Medium/SemiBold for references/credits/labels; use bundled Noto Sans for missing glyphs. Exact numeric levels remain provisional until the Canonical Slide Layout Gallery is visually qualified.
 - Retain a guaranteed black/white fallback Theme with no decorative dependency.
-- Default important-content safe area is 5%: 96 horizontal and 54 vertical canvas units.
+- Default important-content safe area is 120 horizontal and 80 vertical canvas units. Themes may increase but not reduce it.
 - Default lyric body size is 72 canvas units; automatic reduction stops at 64.
 - Pagination targets two logical lyric phrases and no more than four rendered lyric lines per slide.
 - Split at intentional line or phrase boundaries before reducing size; never silently clip or shrink below the minimum.
+- Lyrics preserve authored casing and optionally repeat their section label at top-left; Response text stores authored casing but renders uppercase beneath an optional repeated `TUBAG:` label.
+- Reading identification renders the uppercase proclamation title above a bottom-left reference. Reading passages preserve authored casing, keep the reference on every Slide, and treat a blank line as a hard Slide boundary.
+- Responsorial Psalm emits one linked refrain before the first cantor verse and after every verse. An unprojected cantor verse is a Wait Cue that leaves Program unchanged; an enabled cantor projection uses Reading-passage treatment.
+- Song identification uses a bottom-left uppercase title/credit block. Celebration title uses a vertically centered uppercase title and bottom-left localized date. Both permit at most three title lines before readiness warning.
+- General Presentation Text mode supports optional header, center-left body, and optional footer. Image mode contains one foreground image in the safe area with optional header/caption; Theme images remain backgrounds.
 - Higher-density output may rerender the same geometry for sharpness but cannot recompute layout.
 - Ratios within 0.1% of 16:9 fill the display. Other ratios preserve the complete frame with black bars and a warning.
 - Output Fit uniformly scales the completed frame inward by 0–10%; it never alters composition.
@@ -631,12 +667,14 @@ inside an existing crate.
 |---|---|---|---|
 | Congregation output disabled | No external window exists. | Preview changes normally. | Cannot expose output until it is explicitly enabled. |
 | Enabled, black | External Program exists and is black. | Preview changes independently. | Takes current Preview live. |
-| Live / unfrozen | Program and Preview are linked; selecting a projectable Cue cuts immediately to it. Operator-only Cue output is black. | Changes both Preview and Program. | Keeps/takes current Preview live. |
+| Live / unfrozen | Program and Preview are linked; selecting a projectable Cue cuts immediately to it. Operator-only triggers/Hold produce black; Wait leaves Program unchanged. | Changes Preview and, for projectable/black Cues, Program. | Keeps/takes current Preview live. |
 | Frozen | Last Program frame is held. | Changes Preview only. | Takes Preview live and clears Freeze. |
 | Blackout | Program is forced black. | Changes Preview only. | Takes Preview live and clears Blackout. |
 | Disconnected | No claim is made that external content remains visible; Program monitor shows disconnected. | Preview and session continue. | Has no external effect until output is deliberately re-enabled. |
 
-All congregation-facing changes are instantaneous cuts in the MVP.
+Content-to-content changes are instantaneous cuts. Content-to-Blackout/Hold and
+Blackout/Hold-to-content fade for `500ms`; Presentation Engine state changes
+immediately and contrary commands reverse the visible fade from current opacity.
 
 ### 8.2 Keyboard map
 
@@ -648,6 +686,7 @@ All congregation-facing changes are instantaneous cuts in the MVP.
 | Home / End | First / last Cue |
 | F | Toggle Freeze |
 | B | Activate Blackout |
+| A | Toggle auto-play for the current eligible General Presentation item |
 | O | Open/focus the Ordo rail without changing pin state |
 | Space | Take Preview live and clear Freeze/Blackout |
 | Esc | Close current overlay without changing Program |
@@ -668,6 +707,7 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
 - Freeze and Blackout remain directly visible and keyboard-accessible whenever applicable. Every operational state uses text and structure in addition to color.
 - When collapsed, the Ordo rail leaves a narrow labeled **ORDO** tab. Intentional click or keyboard activation opens it as an overlay; hover alone never reveals it in Presenter Mode.
 - Pinning converts the rail into the persistent first column. Clicking outside or pressing `Esc` closes an unpinned overlay and restores focus to the previously active Cue without changing selection, timeline scroll, Preview, Program, or presentation state.
+- Unpinned Ordo uses the ordinary visible dim scrim. The outside click dismisses it and is consumed; it never also activates a timeline or output control. Pinning removes the scrim.
 - `O` opens and focuses the collapsed Ordo overlay, or focuses an already-pinned rail, without changing pin state. `Esc` returns focus to the active Cue; it closes an unpinned overlay but never collapses a pinned rail. The ORDO tab, rail footer, and shortcut reference expose this binding.
 - Selecting a Mass-item title scrolls the complete timeline rather than filtering it.
 - Timeline groups can be collapsed manually. The active Cue stays highlighted and is automatically kept in view during keyboard navigation.
@@ -680,12 +720,27 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
 - Use `design-references/ordo-presenter-high-scale*` as the approved interactive acceptance evidence for this constrained hierarchy across `100%`–`200%` Interface scale. It demonstrates information ownership and invariant canonical frames, not exact production breakpoints or implementation markup.
 - Resizing changes UI density only; it never changes slide composition or live state.
 - The ordinary operator window is resizable. Presenter Mode transforms that same window into native-full-screen Live Control; it never creates a third operator window or leaves a separate preparation window open. The only additional window is congregation output when explicitly enabled.
+- **Next Mass** appears only when the Celebration has a later scheduled sibling. It fades Program black, closes the current session safely, and opens that sibling's preflight without automatically exposing its output.
 
-### 8.4 Controlled live changes
+### 8.4 Bounded auto-play
 
-- Opening emergency insert with `Insert` automatically Freezes Program. Saving creates a Cue immediately after the current Cue and selects it in Preview.
+- Auto-play is always started manually and is eligible only for General
+  Presentations in the MVP. `A` toggles the current item; a visible menu offers
+  **Loop this section** when the section's projectable scope is eligible. Never
+  loop the complete Mass plan or an arbitrary selected group.
+- A reusable General Presentation owns an eight-second default duration. Slides
+  inherit it and may override it. Every newly shown Slide receives its full
+  duration, including after manual Previous/Next, and the last wraps to the
+  first Slide in the bounded item or section.
+- Direct navigation outside scope, Freeze, Blackout, leaving Presenter, or
+  recovery stops auto-play and resets to manual. It never silently resumes.
+
+### 8.5 Controlled live changes
+
+- Opening emergency insert with `Insert` automatically Freezes Program and offers General text/image, Response sequence, and Song. Saving creates a Mass-local item immediately after the current Mass item in the same section and selects its first projectable Cue in Preview; Program remains frozen until Space.
 - Opening emergency edit with `Ctrl+E` automatically Freezes Program and updates Preview only.
 - Emergency changes autosave as Mass-local content for crash recovery and never silently modify the permanent library or imported source text.
+- A missing live Song/Arrangement is created Mass-locally first. Promotion to a reusable Library source is a later reviewed action.
 - Editing a Cue generated from a reused Arrangement section updates every linked occurrence in the current Mass by default; the operator may limit it to the selected occurrence.
 - Space takes the corrected/inserted Preview live. Reviewed post-Mass promotion is a separate action and never mutates an immutable snapshot.
 
@@ -698,6 +753,8 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
 - Disposable thumbnails and decoded frames are caches, not authoritative records.
 - Use explicit parameterized SQL, foreign keys, transactions, and ordered schema migrations; do not introduce an ORM.
 - Ordinary preparation autosaves. Undo/Redo is session-friendly; durable checkpoints cover meaningful safety points such as import, bulk change, snapshot capture, export, and Presenter entry.
+- Back, close, and application exit first flush pending autosave. Failure blocks navigation with **Retry save**, **Keep editing**, and destructive **Leave without saving**; successful retry continues the originally requested navigation.
+- `ERD.md` is created with the authoritative SQLite migrations rather than guessed in advance. It documents the physical schema with a Mermaid overview and per-table columns, constraints, indexes, ownership, and lifecycle corresponding directly to migrations; domain terminology remains in `CONTEXT.md`.
 
 ### 9.2 Versioned contracts
 
@@ -714,6 +771,16 @@ Define JSON Schema plus representative valid/invalid fixtures for:
 Every contract includes a schema version, stable identities, integrity hashes where files are referenced, and explicit validation errors. Unknown future versions fail clearly rather than being guessed.
 
 Package end-user exchange contracts in the universal `.ordo` ZIP container: a required `manifest.json`, structured JSON payload, and optional `assets/`. The manifest declares `celebration-package`, `parish-backup`, `song-import`, `liturgy-import`, or `diagnostic-report`; the extension never substitutes for kind-specific verification. Keep the JSON contracts directly usable as readable authoring and test fixtures, while the product imports the validated container. A Diagnostic report is always read-only when opened and cannot mutate Parish scope.
+
+Separately accept `.md`/`.txt` as one-Song/one-Arrangement human authoring
+input. Use YAML front matter with required `title`; optional fields are
+`aliases`, `composer`, `source`, `rights`, `arrangement`, `language`, `choirs`,
+`translator`, `adapter`, `liturgical_moments`, `occasions`, and `notes`. A blank
+line is a hard Slide boundary, labels persist until another bracketed label,
+`[Unlabeled]` clears the label, and `[Repeat: label]` creates a linked occurrence
+only when a unique trimmed case-insensitive match exists. Open the result as an
+unsaved editor draft with inline unresolved-repeat/readiness warnings and the
+ordinary duplicate review; do not replace `.ordo` identity/history exchange.
 
 Generate artifact-kind-specific human-readable `.ordo` filenames. Repeated Celebration exports propose the same date-and-title name; internal manifests own identity and versions. On replacement, verify a temporary sibling before atomic or recoverable publication so failure cannot destroy the existing destination artifact.
 
@@ -787,7 +854,7 @@ Commit a blank report template only. Keep each completed report locally beside t
 
 1. Install or upgrade offline and verify the published checksum before USB transfer.
 2. Import the versioned sanitized qualification Celebration Package and record its hash. Its **Normal Mass** plan covers realistic Sunday structure/pacing, both Themes, identification, short responses, one-to-four-line lyrics, long wrapping, reading/prose, repeated sections, operator-only triggers, Hold, Blackout, Cebuano, and bundled fallback-font glyphs. Its separately numbered **Recovery Drill** covers the adversarial controls and protected-state checks without parish-owned or identifying content.
-3. Select **Normal Mass** and cold-start Presenter Mode without internet. Complete a normal uninterrupted, realistically paced session for at least `60 minutes`, or the longer typical duration of a regular local Sunday Mass, with one operator at the church PC and a separate observer checking the farthest routinely occupied seating area plus at least one off-center position under representative lighting. Include realistic idle intervals; setup, calibration, and the adversarial drill do not count toward this duration. Verify comfortable readability—not only technical visibility—along with canonical scaling, 5% safe area, calibration, Output Fit, cursor hiding, sustained performance/thermal stability, and ordinary operator flow. Record clipping, unsafe margins, poor contrast, soft/unstable rendering, timing artifacts, or text that requires strain. Unusually long feast/vigil simulation is not required for this MVP gate.
+3. Select **Normal Mass** and cold-start Presenter Mode without internet. Complete a normal uninterrupted, realistically paced session for at least `60 minutes`, or the longer typical duration of a regular local Sunday Mass, with one operator at the church PC and a separate observer checking the farthest routinely occupied seating area plus at least one off-center position under representative lighting. Include realistic idle intervals; setup, calibration, and the adversarial drill do not count toward this duration. Verify comfortable readability—not only technical visibility—along with canonical scaling, the `120x80` minimum safe area, calibration, Output Fit, cursor hiding, sustained performance/thermal stability, and ordinary operator flow. Record clipping, unsafe margins, poor contrast, soft/unstable rendering, timing artifacts, or text that requires strain. Unusually long feast/vigil simulation is not required for this MVP gate.
 4. Present **Recovery Drill** in a separate shorter adversarial pass covering rapid navigation, Freeze, Blackout, cursor recovery, emergency insert/edit, display disconnect/reconnect, and application interruption/recovery. Verify the protected Program result and recovery path after every event.
 5. Open and run the emergency `.pptx` in the installed PowerPoint version.
 6. Confirm the adopted performance budgets and verify across both passes that Program never exposes operator material, application chrome, a pointer, partial rendering, or diagnostics.
@@ -834,7 +901,7 @@ The MVP is done when all of the following are true:
 | Native memory or GPU-resource pressure | Bounded full-resolution cache, virtualized low-resolution thumbnails, one storage-owner worker, explicit resource release, profiling gate, evidence-based native preferred target, and 1 GB hard ceiling. |
 | Linux/Windows rendering drift | Bundled fonts, deterministic canonical shaping/composition isolated from ordinary GPUI layout, immutable rendering inputs, golden frames, native packaged tests, and church qualification. |
 | Accidental congregation exposure | Output disabled by default, black-first enablement/recovery, passive output window, fail-closed render/display handling, Freeze on emergency workflows, and operator-only diagnostics. |
-| Projector overscan or odd aspect ratio | Calibration pattern, 5% safe area, uniform Output Fit, ratio tolerance, black-bar fitting, warning, and saved installation calibration. |
+| Projector overscan or odd aspect ratio | Calibration pattern, `120x80` minimum safe area, uniform Output Fit, ratio tolerance, black-bar fitting, warning, and saved installation calibration. |
 | Air-gapped data loss or drift | Self-contained Celebration Packages, complete Parish Backups, checksums, versioned contracts, immutable snapshots, safety backup before restore/migration, and rollback. |
 | Heterogeneous legacy PowerPoint content | External AI/extraction tools produce strict structured Song import documents; Ordo never interprets arbitrary decks. |
 | Duplicate or mislabeled Songs | Aliases plus evidence-based suggestions, explicit attach/create/update/skip decisions, archival and reference-safe deletion where eligible, and no automatic overwrite. Song merge remains post-MVP. |

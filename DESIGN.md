@@ -73,8 +73,10 @@ density:
 motion:
   quick-duration: 120ms
   standard-duration: 160ms
-  overlay-duration: 220ms
-  output-duration: 0ms
+  overlay-open-duration: 400ms
+  overlay-close-duration: 200ms
+  output-content-duration: 0ms
+  output-blank-duration: 500ms
   easing: "cubic-bezier(0.2, 0, 0, 1)"
 typography:
   operator-title:
@@ -151,6 +153,12 @@ Token values may be adjusted only through an explicit design-system change and
 must retain their semantic role and pass the adopted accessibility contrast
 requirements.
 
+Preparation exposes System, Light, and Dark appearance. System is the default
+and follows operating-system appearance changes while Ordo is running.
+Presenter Mode always uses graphite dark; leaving Presenter restores the saved
+Preparation preference. Operator appearance and congregation Theme remain
+independent inputs.
+
 ## Typography
 
 Bundle `Atkinson Hyperlegible Next` locally and use it throughout operator and
@@ -223,6 +231,50 @@ and do not add an MVP Compact/Comfortable preference. Increased interface text
 scaling may expand rows and reflow secondary content; labels and controls must
 not clip or overlap to preserve a fixed density.
 
+## Canonical Slide Layouts
+
+Compose congregation Slides in renderer-owned semantic header, body, and footer
+zones on a `1920x1080` logical canvas. Use `120px` left/right and `80px`
+top/bottom as the minimum default safe area. A Theme may increase those insets
+but may not reduce them. Header and footer occupy only their measured content
+plus the adopted gap; when either is absent, the body receives that space.
+Never expose freely draggable positioning in the MVP.
+
+Use these fixed template relationships:
+
+- **Lyrics:** optional repeated section label at top-left; authored-case body
+  optically centered in the remaining region and left-aligned by default.
+- **Response:** optional repeated ExtraBold `TUBAG:` header; stored authored
+  text rendered uppercase as the emphasized body.
+- **Reading identification:** large uppercase proclamation title centered in
+  the space above a bottom-left Scripture reference. Do not add First Reading,
+  Second Reading, or Gospel labels to congregation output.
+- **Reading passage:** authored-case ordinary-weight Scripture, smaller than
+  identification, with the reference at bottom-left on every Slide.
+- **Responsorial Psalm:** small ExtraBold `SALMO RESPONSORYO` at top-left,
+  emphasized refrain centered in the remainder, and reference at bottom-left.
+  A projected cantor verse uses Reading-passage treatment.
+- **Song identification:** a bottom-left identity block with large uppercase
+  Song title, smaller composer/source, and optional Arrangement/Choir credit.
+- **Celebration title:** uppercase, left-aligned title optically centered above
+  the bottom-left localized date.
+- **General Text:** optional header, center-left body, and optional footer.
+  **General Image:** one contained foreground image plus optional header and
+  caption. A Theme image is background, not foreground content.
+
+Preserve authored line breaks. A blank source line is a hard Slide boundary for
+Lyrics and Scripture and overrides automatic proposals. Pagination targets two
+logical lyric phrases and no more than four rendered lines; split before
+shrinking, never clip, and emit a readiness warning when content cannot fit at
+the approved minimum. Limit Song and Celebration titles to three rendered lines
+before warning. Validate measured canonical geometry rather than character
+counts.
+
+The relative hierarchy is adopted, but exact projected font sizes remain under
+visual qualification. Use the current `72px` projected-response token as the
+first gallery baseline rather than treating every provisional numeric level as
+final.
+
 ## Elevation & Depth
 
 Prefer tonal layers, separators, and borders over floating-card shadows.
@@ -252,6 +304,13 @@ popovers, dropdowns, and tooltips. **Overlay** applies to dialogs, slide-overs,
 and the focused child in a nested slide-over sequence. Both retain their
 adopted neutral border so the edge remains legible without depending upon the
 shadow alone.
+
+Dialogs, ordinary slideovers, and unpinned Presenter Ordo use the same visible
+dim scrim. It captures pointer input: clicking the scrim dismisses the temporary
+surface without activating anything beneath it. Pinning Ordo removes the scrim
+and converts it to a fixed pane. Every overlay and its scrim share one
+application-owned stacking layer so background controls cannot receive stray
+events.
 
 Fixed panes, list rows, buttons, selected items, and canonical slide frames have
 no shadow. Nested slide-overs use one overlay shadow plus the adopted parent
@@ -302,6 +361,9 @@ visual language.
 - Use bordered rows and disclosures for structured information before reaching
   for cards.
 - Keep high-stakes Presenter controls labeled and stationary.
+- Place operator-only toasts at bottom-center. Use transient toasts for
+  confirmations and Undo; persistent failures and hazards remain visibly owned
+  by the affected surface until resolved or dismissed deliberately.
 - Render canonical thumbnails, Preview, Program, and congregation output from
   the same slide composition.
 - Use Disabled only for a control that cannot currently execute, Unavailable for
@@ -498,22 +560,24 @@ meaning, or below-minimum font shrinking to conceal overflow.
 ## Motion
 
 Motion is functional and restrained. Use `120ms` for hover, pressed, and color
-transitions; `160ms` for menus, popovers, disclosures, and visible reordering;
-and `220ms` for dialogs, slide-overs, nested-slide navigation, and parent
-recession. Use the one adopted calm ease-out curve. Do not use spring, bounce,
-overshoot, decorative looping, or attention-seeking animation.
+transitions and `160ms` for menus, popovers, disclosures, and visible
+reordering. Dialogs and slideovers enter in `400ms` with fast-start/slow-finish
+motion and exit in `200ms` with smooth acceleration; nested parent recession
+follows the same direction. Do not use spring, bounce, overshoot, decorative
+looping, or attention-seeking animation.
 
 All motion remains interruptible and may never delay accepting the next input.
-Preview and Program content changes, Freeze, Blackout, Live restoration, and
-congregation output use the `0ms` output duration: they cut immediately without
-fade, slide, or animated cross-dissolve. Operator chrome may update around the
-new state, but the command's state and visible output are immediate.
+Content-to-content Preview and Program changes remain immediate cuts. Content
+to Blackout/Hold and Blackout/Hold to content use a `500ms` opacity fade,
+independently for Preview and Program. A contrary command reverses from current
+opacity with proportional remaining duration; presentation commands never
+queue. Operator state changes immediately even while the output fade completes.
 
 Under `prefers-reduced-motion`, remove translation, scaling, animated
 reordering, and parent recession. A short opacity transition of at most `100ms`
-may remain where it clarifies appearance, but output changes remain immediate.
-Focus order, surface ownership, state transitions, and final layouts are
-identical with and without motion.
+may remain where it clarifies appearance, including blank/content boundaries.
+Focus order, surface ownership, state transitions, and final layouts remain
+identical.
 
 ## Approved References
 
@@ -533,6 +597,13 @@ and may contain explicitly documented superseded details.
   while holding selected content and canonical Slide composition constant.
 - Song, Arrangement, import, History, pagination, readiness, and overlay
   references are indexed in `design-references/README.md`.
+
+### Planned Reference
+
+T0.4 will create and qualify `design-references/ordo-canonical-slide-layouts*`,
+a fixture-backed gallery covering every canonical template, label/background
+variants, and representative overflow warnings through the same scaled
+`1920x1080` composition. Move it into Approved References only after approval.
 
 When a reference conflicts with this document, `decision.md`, or `MVP-PLAN.md`,
 the written contract wins. Update this file whenever an adopted visual rule or

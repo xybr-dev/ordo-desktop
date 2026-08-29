@@ -95,9 +95,13 @@ A minister's phrase or action used by the operator to time a following Cue, with
 One ordered unit in a Response-sequence item that pairs an optional operator-only trigger with one required congregation response. Presenter navigation encounters the trigger first when present, then the response's projectable Cue or Cues.
 _Avoid_: Dialogue slide, arbitrary Cue group
 
-**Mass-owned response sequence**:
-A Response-sequence item copied from a Mass template into one Mass plan and edited independently thereafter. Its template reference is provenance, not inheritance, and changes do not synchronize in either direction.
-_Avoid_: Shared response, inherited response
+**Reusable response sequence**:
+A Library entry containing ordered Exchange blocks that Mass plans reference until deliberately customized for one Mass. A Mass-local override remains independent until a reviewed update promotes it to the reusable source.
+_Avoid_: Mass-owned response copy, inherited response text
+
+**General presentation**:
+A reusable or Mass-local ordered presentation of constrained text or foreground-image slides for announcements, prayers, intentions, donor lists, and other content that is neither a Song nor a Reading.
+_Avoid_: Freeform slide deck, custom PowerPoint
 
 **Source reference**:
 Informational provenance attached to parish content, such as its origin, attribution, or retrieval date; it does not make the content immutable.
@@ -181,12 +185,20 @@ A presentation state that forces Program to black while allowing Preview navigat
 An ordinary operator-only checkpoint Cue with black projectable output; unlike Blackout, it does not establish a persistent presentation state.
 _Avoid_: Blackout
 
+**Wait Cue**:
+An operator-relevant Cue that deliberately leaves Program unchanged while an unprojected action or text occurs, such as a nonprojected cantor verse.
+_Avoid_: Hold, Blackout, projectable blank
+
 **Unavailable Cue**:
 A Cue whose intended projectable output cannot currently be produced faithfully. It remains inspectable but can never be taken live until corrected.
 _Avoid_: Disabled Cue
 
 **Mass-local override**:
-A correction belonging only to one Mass plan until explicitly promoted through post-Mass review.
+A correction belonging only to one Mass plan until explicitly promoted through a reviewed reusable-source update.
+
+**Reusable-source binding**:
+The association that keeps every still-linked occurrence of one reusable Library source in a Mass plan on the same Edit revision. Advancing the binding updates those occurrences together while Mass-local overrides remain independent.
+_Avoid_: Per-item source copy, automatic upstream sync
 
 **Live Control**:
 The operator-facing presentation screen shown inside Ordo's existing main window while Presenter Mode is active.
@@ -215,8 +227,16 @@ The Theme selected as the default visual identity for one Mass plan's projectabl
 _Avoid_: Application theme, operator-shell appearance
 
 **Theme override**:
-A Mass item's explicit selection of a Theme instead of inheriting its Mass Theme. Clearing the override restores inheritance rather than copying the current Mass Theme onto the item.
+A Mass item's or generated Celebration-title Cue's explicit selection of a Theme instead of inheriting its Mass Theme. Clearing the override restores inheritance rather than copying the current Mass Theme onto the owner.
 _Avoid_: Per-slide formatting
+
+**Celebration title Cue**:
+The automatic selectable Cue before a Mass plan's first section that presents its Celebration title and date. It inherits the Celebration title and Mass Theme unless the Mass plan supplies explicit title or appearance overrides.
+_Avoid_: Title Mass item, manually maintained opening slide
+
+**Auto-play scope**:
+The one Mass item or Mass section whose projectable descendant Cues advance and loop during an explicitly started Presenter session action. It never denotes the complete Mass plan and never remains active after returning to manual control.
+_Avoid_: Mass-wide timer, automatic Mass playback
 
 ## Portability
 
