@@ -205,6 +205,12 @@ The two application windows have different display behavior:
 
 ### 11. Program, Preview, Freeze, and Blackout semantics
 
+> **Superseded in part by Decision 169.** Operator-only triggers use a black
+> canonical Preview/Program frame; their private prompt and related response
+> remain adjacent operator context rather than entering the Preview frame. The
+> body below is reconciled to that distinction; the remaining linked/frozen
+> state rules stay adopted.
+
 Ordo uses a linked/frozen model rather than a traditional manual OBS transition model.
 
 #### Live / unfrozen
@@ -212,8 +218,8 @@ Ordo uses a linked/frozen model rather than a traditional manual OBS transition 
 - Preview and Program are effectively linked.
 - Left/Right navigates the timeline.
 - The selected projectable output immediately appears in both Preview and Program.
-- Entering an operator-only priest cue normally makes Program black because the cue has no congregation output.
-- The related upcoming congregation response is visible to the operator as context/preview.
+- Entering an operator-only priest cue makes the canonical Preview and Program frames black because the cue has no congregation output.
+- The private prompt and related upcoming congregation response remain visible to the operator as adjacent context outside the Preview frame.
 
 #### Frozen
 
@@ -482,7 +488,8 @@ Emergency editing is a second controlled exception:
 > and Electron-specific rationale below are retained as decision history. The
 > hardware qualification and safety/performance outcomes remain applicable,
 > except that Decision 252 replaces the Electron-era 750 MB preferred memory
-> target with the native 512 MiB qualification budget.
+> target with the native 512 MiB qualification budget and restates the
+> historical `1 GB` ceiling as the current `1 GiB` absolute ceiling.
 
 - Use Electron as Ordo's cross-platform desktop shell.
 - Electron's bundled Chromium renderer is preferred over a system-webview shell because Ordo must minimize layout and rendering differences between Linux preparation and Windows presentation.
@@ -1822,6 +1829,9 @@ Emergency editing is a second controlled exception:
 
 ### 169. Inspector navigation follows the selected Mass item's Cue order
 
+- This narrowly supersedes Decision 11's ambiguous operator-only Preview
+  wording: the canonical Preview frame is black, while private prompt, role,
+  timing, and related-response context remain outside it.
 - Navigate the Inspector through the selected Mass item's flattened **Cue** order rather than counting only congregation-facing slides. Label position as **Cue n of total** so operator-only triggers are represented honestly.
 - Show a projectable Cue as its authoritative canonical congregation frame. Show an operator-only trigger as a black congregation frame with its private minister role, prompt, and timing context outside the frame; operator-only text may never appear inside the canonical output.
 - Keep editor and Inspector selection synchronized in both directions. Clicking a generated Cue focuses it in the Inspector, while Inspector Previous/Next selects and reveals the corresponding Cue in the owning editor hierarchy.
@@ -2268,7 +2278,7 @@ Emergency editing is a second controlled exception:
 > Content-to-content cuts and the remaining restraint rules below stay in force;
 > the body is reconciled to those boundaries.
 
-- Use `120ms` for hover, pressed, focus-adjacent, and color transitions; `160ms` for menus, popovers, disclosures, and visible row reordering; and `220ms` for dialogs, slide-overs, nested-slide navigation, and parent recession.
+- Use `120ms` for hover, pressed, focus-adjacent, and color transitions; `160ms` for menus, popovers, disclosures, and visible row reordering; and the adopted `400ms` entry/`200ms` exit timing for dialogs, slide-overs, nested-slide navigation, and parent recession.
 - Use one calm ease-out curve, `cubic-bezier(0.2, 0, 0, 1)`. Do not use spring, bounce, overshoot, decorative looping, or attention-seeking animation.
 - Keep navigation and interface transitions interruptible; animation may never delay accepting another valid command or changing focus ownership.
 - Apply presentation-critical state changes immediately and never wait for operator-chrome animation. Preview/Program content-to-content changes, Freeze, and Live restoration use `0ms` output motion; only content-to/from Blackout or Hold uses the reversible `500ms` opacity fade adopted in Decision 256.

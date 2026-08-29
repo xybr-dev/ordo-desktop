@@ -79,3 +79,6 @@ not production source or a component-migration contract.
   controls in an exploration are retired.
 - Production layout is qualified specifically at 1366x768 and 1920x1080;
   embedded-demo breakpoints are not application requirements.
+- The Arrangement-details **Edit existing / Create new** switch is
+  exploration-only reference control, not product slideover chrome. Production
+  mode comes from the entry path and the slideover header has no mode toggle.
