@@ -5,7 +5,8 @@ MVP interview. They are interaction and information-hierarchy references, not
 production application code. They yield to the applicable normative owner:
 `CONTEXT.md` for domain language and invariants, `DESIGN.md` for visible
 behavior and tokens, `MVP-PLAN.md` for product scope and strategic architecture,
-and `MILESTONES.md` for implementation status and acceptance gates.
+and `MILESTONES.md` for implementation status and acceptance gates. Where those
+owners are silent, adopted detail in `decision.md` also overrides a reference.
 
 Each exploration has two forms:
 

@@ -1438,6 +1438,12 @@ html&gt;body{padding:0}&lt;/style&gt;
       let mode = &#x27;arrangement&#x27;;
       let tab = &#x27;lyrics&#x27;;
 
+      const resetRestoreResult = () =&gt; {
+        result.classList.remove(&#x27;visible&#x27;);
+        result.querySelector(&#x27;span&#x27;).textContent = &#x27;Revision restored as the latest version.&#x27;;
+        result.querySelector(&#x27;button&#x27;).style.display = &#x27;&#x27;;
+      };
+
       const content = {
         arrangement: {
           overview: {
@@ -1493,7 +1499,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         footerMain.classList.remove(&#x27;hidden&#x27;);
         footerConfirm.classList.remove(&#x27;visible&#x27;);
         compareFooter.classList.remove(&#x27;confirming&#x27;);
-        result.classList.remove(&#x27;visible&#x27;);
+        resetRestoreResult();
         render();
       }));
 
@@ -1511,6 +1517,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       }));
 
       root.querySelectorAll(&#x27;[data-open-revision]&#x27;).forEach(button =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; {
+        resetRestoreResult();
         historyPanel.classList.remove(&#x27;foreground&#x27;);
         comparePanel.classList.remove(&#x27;hidden&#x27;);
       }));

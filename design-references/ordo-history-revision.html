@@ -531,6 +531,12 @@
       let mode = 'arrangement';
       let tab = 'lyrics';
 
+      const resetRestoreResult = () => {
+        result.classList.remove('visible');
+        result.querySelector('span').textContent = 'Revision restored as the latest version.';
+        result.querySelector('button').style.display = '';
+      };
+
       const content = {
         arrangement: {
           overview: {
@@ -586,7 +592,7 @@
         footerMain.classList.remove('hidden');
         footerConfirm.classList.remove('visible');
         compareFooter.classList.remove('confirming');
-        result.classList.remove('visible');
+        resetRestoreResult();
         render();
       }));
 
@@ -604,6 +610,7 @@
       }));
 
       root.querySelectorAll('[data-open-revision]').forEach(button => button.addEventListener('click', () => {
+        resetRestoreResult();
         historyPanel.classList.remove('foreground');
         comparePanel.classList.remove('hidden');
       }));

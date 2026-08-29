@@ -228,11 +228,12 @@ xtask/                    # verification, packaging, fixture, and release comman
 ```
 
 This is the initial locality map, not permission to create pass-through crates.
-Portability and PowerPoint export begin at their owning milestone and receive
-dedicated `portability` or `powerpoint` crates only when their Interfaces hide
-enough complexity to earn that extraction. A crate remains only when its
-Interface preserves meaningful dependency direction; otherwise the Module stays
-inside an existing crate.
+Phase 0 Artifact Container and PowerPoint feasibility work remains in
+development-only `tools/*-spike` packages rather than entering an unrelated
+production crate. Portability and PowerPoint export begin at their owning
+milestone and receive dedicated `portability` or `powerpoint` crates only when
+their Interfaces hide enough complexity to earn that extraction. A crate
+remains only when its Interface preserves meaningful dependency direction.
 
 ### 6.5 Operator UI foundation
 
@@ -344,7 +345,7 @@ inside an existing crate.
 - Always show empty sections in template and plan authoring, allow individual and expand/collapse-all disclosure, retain item/readiness counts on collapsed headers, and automatically reveal a section when navigation targets one of its items. Keep collapse state outside content and revision history. Presenter Mode omits empty sections.
 - Build each section header from a drag handle, disclosure caret, unique nonblank name, counts, and one consistent right-click/`...` menu for rename, add above/below, move, and eligible removal. Clicking the header body activates it as the insertion target and clears item selection; the editor and Inspector then show **Select an item**. Keep at least one section in every plan/template, require every Mass item to belong to exactly one section, disable removal of non-empty or final sections, and omit section duplication from the MVP.
 - Allow exactly one selected Mass item in the MVP, with both the editor and Inspector following it. Defer multi-selection and bulk item actions.
-- **+ Add Mass item** opens an anchored type dropdown that identifies the complete section-aware insertion destination. Insert immediately after the selected Mass item in its section, or append within an actively targeted section. If neither an item nor section is active, require a destination section rather than silently appending to the Ordo; per-item **Insert before** and **Insert after** commands reuse the same chooser. The created item becomes selected and its section expands.
+- **+ Add Mass item** opens an anchored type dropdown that identifies the complete section-aware insertion destination. Insert immediately after the selected Mass item in its section, or append within an actively targeted section. If neither an item nor section is active, including an item-empty plan that still owns at least one section, require a destination section rather than silently appending to the Ordo; per-item **Insert before** and **Insert after** commands reuse the same chooser. The created item becomes selected and its section expands.
 - Selecting a type immediately creates, selects, and autosaves the item, with Undo as the recovery path. Provide editor presets for Song, Reading, linked Response/Prayer, General Presentation, Hold, Blackout, and **Custom sequence**; the latter is the flexible escape hatch formerly described as a blank item.
 - Treat Hold as an ordinary operator-only black Cue, not a persistent state. Treat Blackout as an explicit state-changing Cue that remains active while Preview navigation continues until Space takes Preview live.
 - The selected-item editor owns type-specific content and sequence work. The Inspector owns canonical slide inspection, warnings/dependencies for the selected scope, and item-level Theme override.
@@ -369,6 +370,10 @@ inside an existing crate.
 - Manage reusable templates under **Masses → Templates**. Allow several independently named templates per language and filter the library by language and advisory applicability metadata.
 - Opening a template reuses the planner's three-pane structure for its ordered outline, selected concrete item or typed slot editor, and Inspector.
 - Let templates own ordered Mass sections and copy their section/item structure into each new Mass plan. Concrete reusable Songs, Responses/Prayers, and General Presentations retain Library links through instantiation; template structure itself remains independent, later template edits do not synchronize, and each plan may customize its section structure.
+- Let each language-specific template own optional default projected headers for
+  Responses and the Responsorial Psalm. Copy those authored strings into the
+  Mass plan; items may inherit, hide, or override them, while the renderer and
+  Celebration perform no language lookup or translation.
 - Applicability ranks likely choices but never prohibits deliberate template selection. Flexible representation of a specialized rite does not imply qualified MVP support for that rite.
 - Creating a Mass plan materializes an independent copy of the selected template revision. Later template edits affect future plans only; provenance does not imply synchronization, and reapplying template changes to an edited plan is deferred.
 - When creating a plan, rank templates using language and Celebration applicability. Visibly preselect the best match while allowing the operator to change it; a specific match outranks the parish's optional general fallback for that language.
@@ -458,6 +463,9 @@ inside an existing crate.
 - General Presentation Text mode owns optional header/body/footer. Image mode
   owns one foreground image plus optional header/caption. Its reusable entry
   owns an eight-second auto-play default with optional per-Slide overrides.
+- A Mass item may pair either mode with Mass-local private delivery context.
+  Keep that operator-only context outside the reusable source and every
+  canonical frame.
 - Exclude archived entries by default and expose **Include archived**. Existing
   bound Mass items remain renderable with an **Archived source** notice; restore
   the source before ordinary editing. Permit permanent deletion only before any
@@ -649,9 +657,9 @@ inside an existing crate.
 - Default lyric body size is 72 canvas units; automatic reduction stops at 64.
 - Pagination targets two logical lyric phrases and no more than four rendered lyric lines per slide.
 - Split at intentional line or phrase boundaries before reducing size; never silently clip or shrink below the minimum.
-- Lyrics preserve authored casing and optionally repeat their section label at top-left. Response text stores authored casing but renders uppercase beneath an optional repeated language-owned header; `TUBAG:` is the Cebuano default, not a renderer literal.
+- Lyrics preserve authored casing and optionally repeat their section label at top-left. Response text stores authored casing but renders uppercase beneath an optional repeated authored header resolved before rendering; `TUBAG:` is the Cebuano template default, not a renderer literal.
 - Reading identification renders the uppercase proclamation title above a bottom-left reference. Reading passages preserve authored casing, keep the reference on every Slide, and treat a blank line as a hard Slide boundary.
-- Responsorial Psalm emits one linked refrain before the first cantor verse and after every verse. Its language-owned small header uses the plan/template wording; `SALMO RESPONSORYO` is the Cebuano default, not a renderer literal. An unprojected cantor verse is a Wait Cue that leaves Program unchanged; an enabled cantor projection uses Reading-passage treatment.
+- Responsorial Psalm emits one linked refrain before the first cantor verse and after every verse. Its optional authored small header is copied from or overridden against the plan/template wording; `SALMO RESPONSORYO` is the Cebuano template default, not a renderer literal. An unprojected cantor verse is a Wait Cue that leaves Program unchanged; an enabled cantor projection uses Reading-passage treatment.
 - Song identification uses a bottom-left uppercase title/credit block. Celebration title uses a vertically centered uppercase title and bottom-left localized date. Both permit at most three title lines before readiness warning.
 - General Presentation Text mode supports optional header, center-left body, and optional footer. Image mode contains one foreground image in the safe area with optional header/caption; Theme images remain backgrounds.
 - Higher-density output may rerender the same geometry for sharpness but cannot recompute layout.
@@ -728,6 +736,9 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
   Presentations in the MVP. `A` toggles the current item; a visible menu offers
   **Loop this section** when the section's projectable scope is eligible. Never
   loop the complete Mass plan or an arbitrary selected group.
+- The `A` shortcut is active only while focus is in the Cue timeline or Output
+  Dock and no text editor, emergency editor, or true modal owns focus. Passive
+  Ordo-rail and shortcut-reference focus intentionally suppress it.
 - A reusable General Presentation owns an eight-second default duration. Slides
   inherit it and may override it. Every newly shown Slide receives its full
   duration, including after manual Previous/Next, and the last wraps to the
@@ -834,9 +845,10 @@ Test through Module Interfaces; do not mirror each internal class with shallow t
 
 Measure on a minimum-profile reference computer with a representative large Mass:
 
-- Keep total Ordo memory within a `512 MiB` preferred budget across each
-  representative Phase 0 run. Retain `1 GiB` as the hard safety ceiling; a
-  preferred-budget change requires an explicit rationale before Phase 1.
+- Keep total Ordo memory within a `512 MiB` qualification budget across each
+  representative Phase 0 run, with `1 GiB` as the absolute safety ceiling.
+  Exceeding either blocks Phase 1 until an explicit budget and native-memory
+  rationale revision is adopted.
 - Average idle CPU below 5% over 30 seconds on a static Program frame.
 - Left/Right, Freeze, Blackout, and Space visibly take effect within 50 ms at p95.
 - No lost input during rapid sequential navigation.
@@ -898,7 +910,7 @@ The MVP is done when all of the following are true:
 
 | Risk | Control |
 |---|---|
-| Native memory or GPU-resource pressure | Bounded full-resolution cache, virtualized low-resolution thumbnails, one storage-owner worker, explicit resource release, profiling gate, evidence-based native preferred target, and 1 GB hard ceiling. |
+| Native memory or GPU-resource pressure | Bounded full-resolution cache, virtualized low-resolution thumbnails, one storage-owner worker, explicit resource release, profiling gate, 512 MiB qualification budget, and 1 GiB absolute ceiling. |
 | Linux/Windows rendering drift | Bundled fonts, deterministic canonical shaping/composition isolated from ordinary GPUI layout, immutable rendering inputs, golden frames, native packaged tests, and church qualification. |
 | Accidental congregation exposure | Output disabled by default, black-first enablement/recovery, passive output window, fail-closed render/display handling, Freeze on emergency workflows, and operator-only diagnostics. |
 | Projector overscan or odd aspect ratio | Calibration pattern, `120x80` minimum safe area, uniform Output Fit, ratio tolerance, black-bar fitting, warning, and saved installation calibration. |

@@ -386,16 +386,16 @@ Emergency editing is a second controlled exception:
 
 ### 19. Projector-safe area
 
-> **Superseded in part by Decision 255.** Replace the `96x54`/5% default and
-> reducible override below with the `120x80` minimum safe area. Full-bleed
-> background and validation rules remain in force.
+> **Superseded in part by Decision 255.** The body below is reconciled to the
+> `120x80` minimum safe area; full-bleed background and validation rules remain
+> in force.
 
-- The default congregation-output safe area is inset by 5% on every edge of the canonical canvas: `96` horizontal units and `54` vertical units on the `1920x1080` canvas.
+- The minimum congregation-output safe area is `120` horizontal and `80` vertical units on the `1920x1080` canonical canvas.
 - Backgrounds and other intentionally full-bleed decorative elements may extend to the canvas edges.
 - Lyrics, responses, labels, and important image content remain inside the safe area by default.
 - The slide editor visibly indicates the safe-area boundary.
-- Placing important content outside the safe area produces a validation warning rather than a hard editing prohibition.
-- A theme may define a larger safe area. Reducing the parish default requires an explicit reviewed override.
+- Any important-content geometry outside the safe area produces a validation warning and cannot be approved by reducing the minimum.
+- A Theme may define a larger safe area but never a smaller one.
 
 ### 20. Theme inheritance
 
@@ -482,7 +482,7 @@ Emergency editing is a second controlled exception:
 > and Electron-specific rationale below are retained as decision history. The
 > hardware qualification and safety/performance outcomes remain applicable,
 > except that Decision 252 replaces the Electron-era 750 MB preferred memory
-> target with the native 512 MiB preferred budget.
+> target with the native 512 MiB qualification budget.
 
 - Use Electron as Ordo's cross-platform desktop shell.
 - Electron's bundled Chromium renderer is preferred over a system-webview shell because Ordo must minimize layout and rendering differences between Linux preparation and Windows presentation.
@@ -498,7 +498,7 @@ Emergency editing is a second controlled exception:
 - The recommended profile is an Intel Core i3/i5 eighth generation, AMD Ryzen 3, or newer equivalent; `8 GB` RAM for Ordo alone; and `16 GB` RAM when Ordo will share the machine with OBS or similarly demanding software.
 - `4 GB` RAM is not an officially supported configuration even if Ordo happens to launch, because the operating system, Chromium processes, security software, drivers, and decoded media leave insufficient live-presentation safety margin.
 - MVP performance is measured on a minimum-profile reference computer and must satisfy these release budgets:
-  - Keep total Ordo memory below a `750 MB` target during a representative large Mass, with `1 GB` as the hard acceptance ceiling.
+  - Keep total Ordo memory within the `512 MiB` qualification budget during a representative large Mass, with `1 GiB` as the absolute acceptance ceiling.
   - Average below `5%` CPU while idle on a static slide over a 30-second sample.
   - Make Left/Right, Freeze, Blackout, and Space visibly take effect within `50 ms` at the 95th percentile.
   - Lose no navigation input during rapid sequential operation.
@@ -717,9 +717,12 @@ Emergency editing is a second controlled exception:
 
 > **Superseded in part by Decision 256.** Content-to-content changes remain
 > cuts, but content-to/from Blackout or Hold now uses the adopted reversible
-> `500ms` fade.
+> `500ms` fade. The body below is reconciled to that boundary.
 
-- Congregation-facing slide changes, Freeze release, and Blackout restoration use instantaneous cuts in the MVP.
+- Content-to-content changes and Freeze release to nonblank content use
+  instantaneous cuts. Content-to/from Blackout or Hold uses the reversible
+  `500ms` opacity fade adopted in Decision 256; Presentation state still changes
+  immediately.
 - Do not expose fade durations, animation styles, or other transition controls in the MVP.
 - Instant cuts preserve time-sensitive operator timing, deterministic Preview-to-Program behavior, and the established responsiveness target.
 - Keep transition behavior behind the presentation-rendering Seam so a later version may add carefully qualified transitions without changing the Presentation Engine's navigation semantics.
@@ -735,11 +738,11 @@ Emergency editing is a second controlled exception:
 
 ### 46. Projector calibration and overscan compensation
 
-> **Superseded in part by Decision 255.** The calibration guide marks the
-> `120x80` minimum safe area rather than the former 5% boundary. Output Fit and
-> the remaining calibration behavior below are unchanged.
+> **Superseded in part by Decision 255.** The calibration guide below is
+> reconciled to the `120x80` minimum safe area. Output Fit and the remaining
+> calibration behavior are unchanged.
 
-- Provide a built-in congregation-output calibration pattern showing the complete frame edges, center markers, and the established `5%` safe-area boundary.
+- Provide a built-in congregation-output calibration pattern showing the complete frame edges, center markers, and the `120x80` minimum safe-area boundary.
 - Provide a uniform **Output Fit** adjustment from `0%` through `10%`, defaulting to `0%`, for hardware overscan that remains after the operator checks Windows and projector settings.
 - Output Fit scales the entire canonical `16:9` frame inward without cropping, stretching, or changing its proportions; any resulting surrounding area is black.
 - Preview shows the digitally fitted frame and black margin exactly as Program renders them.
@@ -831,14 +834,14 @@ Emergency editing is a second controlled exception:
 
 ### 57. Physical church-system release qualification
 
-> **Superseded in part by Decision 255.** Physical qualification now checks the
-> `120x80` minimum safe area rather than the former 5% boundary. The remaining
-> release-qualification requirements below stay adopted.
+> **Superseded in part by Decision 255.** The physical qualification body below
+> is reconciled to the `120x80` minimum safe area. The remaining requirements
+> stay adopted.
 
 - The MVP is not release-qualified until one complete dress test passes on the actual Windows 10 church PC and congregation projector.
 - Qualification imports a representative Celebration Package while offline and cold-starts Presenter Mode.
 - Run a full Mass-length Presentation session with representative slide count and content density.
-- Verify the actual projector resolution, canonical-frame scaling, readability from the congregation area, `5%` safe area, and any required Output Fit.
+- Verify the actual projector resolution, canonical-frame scaling, readability from the congregation area, the `120x80` minimum safe area, and any required Output Fit.
 - Exercise rapid Cue navigation, Freeze, Blackout, emergency editing, congregation-display disconnect/reconnect, and simulated application interruption and recovery.
 - Generate, validate, open, and run the emergency `.pptx` using the church computer's installed PowerPoint version.
 - Confirm the adopted CPU and memory budgets and verify that Program never exposes operator-only material, application chrome, a cursor, or an error window.
@@ -974,15 +977,20 @@ Emergency editing is a second controlled exception:
 
 ### 71. Add Mass item workflow and editor presets
 
+> **Superseded in part by Decision 257.** **General Presentation** replaces the
+> separate Custom text and Announcement presets while retaining optional
+> Mass-local private delivery context. The remaining insertion behavior and
+> specialized presets below stay adopted.
+
 - **+ Add Mass item** opens a compact anchored dropdown from the Mass-outline header. Opening or dismissing it does not mutate the Mass plan.
 - The dropdown states its insertion destination. Choosing a type immediately creates, selects, and autosaves a Mass-local item; ordinary Undo can reverse an accidental insertion without an extra confirmation step.
 - By default, the new item is inserted immediately after the currently selected Mass item within that item's section. If a section header is the active insertion target, append within that section. If neither an item nor a section is active, require the operator to choose a destination section instead of silently appending to the end of the Ordo.
 - Always state the complete insertion destination in the dropdown, such as **After Responsorial Psalm · Liturgy of the Word**, and allow it to be changed before choosing the item type. Creating the item selects it and expands its destination section.
 - Per-item context actions will expose explicit **Insert before** and **Insert after** commands that open the same type chooser; their remaining wording and organization are still unresolved.
-- The initial chooser groups specialized editor presets for **Song**, **Reading**, **Response sequence**, **Custom text**, **Announcement**, **Hold**, **Blackout**, and **Custom sequence**. Song proceeds into the previously adopted staged Song/Arrangement picker; the other presets open their corresponding selected-item editor.
+- The chooser groups **Song**, **Reading**, linked **Response/Prayer**, **General Presentation**, **Hold**, **Blackout**, and **Custom sequence**. Song proceeds into the adopted staged Song/Arrangement picker; the other choices open their corresponding selected-item editor.
 - Reading keeps Scripture reference and reading text as operator context by default while separately encoding the closing prompt and congregation response; full-reading projection remains an explicit per-item option.
 - Response sequence encodes ordered role-tagged Cues such as operator-only `P` prompts and projectable `T` responses.
-- Custom text creates one-off Mass-local projectable content and routes overflow or pagination concerns back into its owning text editor. Announcement pairs private delivery context with optional congregation-facing content.
+- General Presentation supports reusable or Mass-local constrained Text/Image Slides and may pair them with Mass-local private delivery context that never enters Program or the reusable source.
 - Hold creates an ordinary operator-only black Cue and does not latch the Blackout state. When Live its black output follows the normal linked Program/Preview rule; Freeze is used when the previous Program frame must remain visible.
 - Blackout creates an explicit Cue that enters the persistent Blackout state; Program stays black while Preview may navigate until Space takes the selected Preview live.
 - The flexible escape hatch is named **Custom sequence**, not **Blank item**. It starts as an incomplete titled Mass item and lets the planner assemble an unusual mixture of response, text-slide, operator-trigger, and Blackout Cues.
@@ -1639,7 +1647,7 @@ Emergency editing is a second controlled exception:
 - Confirm Song and Arrangement archival in a compact, viewport-bounded centered dialog rather than a nested slideover or full workflow surface.
 - Name the affected entity and summarize the planning impact. For a Song, disclose its child-Arrangement count; for an Arrangement, disclose Choir associations and editable Mass references. State explicitly that existing plans and immutable Presentation snapshots remain unchanged.
 - Require only **Cancel** and the clearly labeled Archive action. Do not require title entry or another high-friction confirmation for this recoverable operation.
-- After archiving a Song, select the next visible Song in the current active-library result set. After archiving an Arrangement, return to its parent Song detail.
+- After archiving a Song, select the next visible Song in the current active-library result set, otherwise the previous visible Song. When neither exists, focus the active-list empty state while keeping Undo available. After archiving an Arrangement, return to its parent Song detail.
 - Show immediate success feedback with **Undo**. Provide an explicit `Status: Archived` Song Library filter for later discovery and restoration.
 
 ### 148. Inspect-only archived Song and Arrangement state
@@ -1802,9 +1810,13 @@ Emergency editing is a second controlled exception:
 
 ### 168. Owner-directed pagination correction instead of a review workspace
 
+> **Superseded in part by Decision 257.** General Presentation Text replaces
+> the former Custom text editor label; owner-directed correction remains
+> adopted.
+
 - Remove the standalone **Pagination Review** workspace from the MVP. Pagination remains a rendering concern and warning category, but not a second place for editing projectable text.
 - Expose contextual **Fix pagination** from the authoritative Inspector warning and from Readiness or Theme affected-plan findings. Navigate directly to the exact affected content in its owning editor and retain the Inspector as the canonical preview.
-- Route a reusable Arrangement finding to its affected Lyrics section in the Song Library; route a Mass-local Song override to its local Lyrics section; and route Response sequences, Readings, and Custom text to their own Mass-item text editors.
+- Route a reusable Arrangement finding to its affected Lyrics section in the Song Library; route a Mass-local Song override to its local Lyrics section; and route Response sequences, Readings, and General Presentation Text to their own Mass-item text editors.
 - Keep pagination boundary changes, text changes, and their Undo/revision ownership with that source editor. Do not duplicate those controls inside the Inspector or create an intermediate review surface.
 - Use the Readiness panel as the plan-wide overview for unresolved pagination findings. Resolving source content recomputes warnings automatically.
 
@@ -1862,7 +1874,7 @@ Emergency editing is a second controlled exception:
 
 - Refine the adopted **+ Add Mass item** workflow so an item selected in the outline inserts the new item immediately after itself within the same Mass section.
 - Let interaction with a Mass-section header make that section the active insertion target; adding then appends the new item within that section.
-- When neither a Mass item nor section is active, including a completely empty plan, require selection of a destination section before the item type may be chosen. Do not silently default to the bottom of the Ordo or to After Mass.
+- When neither a Mass item nor section is active, including a completely item-empty plan that still owns at least one section, require selection of a destination section before the item type may be chosen. Do not silently default to the bottom of the Ordo or to After Mass.
 - State the complete current destination inside the anchored Add dropdown and let the operator change it before creation. Reuse the same destination semantics for per-item **Insert before** and **Insert after** commands.
 - After creation, select the new Mass item, expand its section, autosave it, and preserve the existing direct Undo behavior.
 
@@ -2538,7 +2550,7 @@ Emergency editing is a second controlled exception:
 - Fail for any operator-only text, application chrome, pointer, diagnostic, partial frame, unintended application window, or other non-congregation material appearing on Program.
 - Fail for incorrect Preview/Program behavior, Freeze or Blackout failure, wrong display targeting, unsafe display-disconnect behavior, or unsafe interruption/restart recovery.
 - Fail for congregation text that is missing, clipped, unexpectedly reflowed, unstable, or not comfortably readable from the adopted observation positions, and for canonical scaling, safe-area, bundled-font/fallback-glyph, contrast, or Output Fit failure.
-- Fail for exceeding the adopted `1 GB` memory ceiling, missing the adopted Presenter command-latency limits, losing rapid input, or otherwise violating the physical performance gates.
+- Fail for exceeding the adopted `1 GiB` absolute memory ceiling, missing the adopted Presenter command-latency limits, losing rapid input, or otherwise violating the physical performance gates.
 - Fail when the generated emergency PowerPoint cannot be opened and run correctly using the church PC's installed PowerPoint version.
 - A minor operator-chrome polish issue may remain non-blocking only when it has no effect on meaning, accessibility, timing, recovery, operator confidence in a safety state, or congregation output. Record every accepted non-blocking finding with rationale; ambiguity is blocking until resolved.
 
@@ -2550,7 +2562,7 @@ Emergency editing is a second controlled exception:
 
 - Lock Electron + React as Ordo's production desktop architecture. Electron is no longer a provisional default and the implementation plan will not include a Tauri, GPUI, NativePHP, Wails, or other shell bake-off.
 - Accept Electron's structural Chromium/Node memory and distribution overhead in exchange for one pinned Chromium generation across Windows and Linux, mature multi-window/display/fullscreen control, an established React toolchain, offline packaging, process/utility isolation, and the strongest low-risk path to future Chromium media support.
-- Retain the `750 MB` preferred target, `1 GB` hard memory ceiling, `<50 ms` p95 Presenter-command target, rapid-input, idle-CPU, startup, and physical qualification gates. Framework selection does not excuse missing a performance budget; failure requires profiling, bounded caches, renderer-local hot paths, process correction, or an honestly revised supported hardware profile—not automatic framework reconsideration.
+- The superseded Electron plan used a `750 MB` preferred target and `1 GiB` hard memory ceiling alongside the `<50 ms` p95 Presenter-command target, rapid-input, idle-CPU, startup, and physical qualification gates. Decision 252 replaces the preferred target while retaining the other safety outcomes.
 - Keep keydown-to-Preview and keydown-to-Program paint measurement in Milestone 0. The live command path remains an in-memory Presentation Engine transition plus narrowly subscribed operator and congregation updates, with no SQLite, filesystem, autosave, pagination, image decode, synchronous IPC, or broad timeline rerender on the path.
 - Bound decoded full-resolution frames, keep operator thumbnails genuinely low-resolution and virtualized, preload only the nearby presentation set, release obsolete media, and measure memory by Electron process. Keep hardware acceleration enabled by default and treat software rendering only as a diagnosed compatibility fallback.
 - Treat Discord as evidence that a heavily interactive React/Electron desktop product can be responsive, not as an Ordo benchmark. Ordo's own packaged measurements on the minimum-profile and actual church PC remain authoritative.
@@ -2642,10 +2654,10 @@ Emergency editing is a second controlled exception:
   native CI builds. Replace Electron Forge/npm packaging with pinned Cargo and
   platform-native packaging scripts.
 - Retain the adopted `<50 ms` p95 Presenter command goal, rapid-input safety,
-  idle-CPU gate, bounded frame caches, and `1 GiB` hard memory ceiling. Adopt a
-  `512 MiB` preferred total-process budget for every representative Phase 0 run;
-  exceeding it blocks Phase 1 until an explicit budget and native-memory
-  rationale revision is adopted.
+  idle-CPU gate, bounded frame caches, and `1 GiB` absolute memory ceiling.
+  Adopt a `512 MiB` total-process qualification budget for every representative
+  Phase 0 run; exceeding either limit blocks Phase 1 until an explicit budget
+  and native-memory rationale revision is adopted.
 - Keep the existing `8 GB` church-PC profile as the conservative initial
   qualification machine, not as proof that GPUI requires 8 GB. Decision 252
   removes Chromium as the reason for rejecting 4 GB; support for a lower-memory
@@ -2724,12 +2736,12 @@ Emergency editing is a second controlled exception:
 - Lyrics use an optional top-left section label and authored-case, left-aligned
   text optically centered in the remaining region. The label defaults on,
   repeats on every generated Slide, and is toggled once per Song item.
-- Response Slides render an optional repeated language-owned header and an
-  emphasized uppercase congregation response. `TUBAG:` is the Cebuano default,
-  not a renderer literal; the Mass plan's language-specific template/content
-  supplies other wording. Store authored casing unchanged. Response sequences
-  contain ordered optional private minister text plus required projected
-  congregation responses.
+- Response Slides render an optional repeated authored header and an emphasized
+  uppercase congregation response. A language-specific Mass template owns the
+  default copied into its plan, and an item may inherit, hide, or override it;
+  `TUBAG:` is the Cebuano template default, not a renderer literal. Store
+  authored casing unchanged. Response sequences contain ordered optional
+  private minister text plus required projected congregation responses.
 - Reading identification uses a large uppercase proclamation title with its
   reference at bottom-left and no redundant First/Second/Gospel output label.
   Subsequent Scripture Slides preserve authored casing, use smaller text, retain
@@ -2740,11 +2752,12 @@ Emergency editing is a second controlled exception:
   exchange. Language-specific templates own the wording and optional blocks. A
   Good Friday preset may omit the opening greeting and pre-passage acclamation
   while retaining the closing exchange.
-- Responsorial Psalms use the same language-owned header rule; `SALMO
-  RESPONSORYO` is the Cebuano default. They project the refrain before the first
-  cantor verse and after every verse (`n + 1` linked occurrences). Cantor verses
-  are private by default and use Wait Cues that leave Program unchanged;
-  optional projection turns them into ordinary Scripture-style Slides.
+- Responsorial Psalms use the same template-default plus plan/item override
+  rule; `SALMO RESPONSORYO` is the Cebuano template default. They project the
+  refrain before the first cantor verse and after every verse (`n + 1` linked
+  occurrences). Cantor verses are private by default and use Wait Cues that
+  leave Program unchanged; optional projection turns them into ordinary
+  Scripture-style Slides.
 - Song identification is a bottom-left block with a large uppercase title,
   smaller composer/source, and optional Arrangement/Choir credit. The automatic
   selectable Celebration-title Cue precedes the first Mass section, defaults
@@ -2796,7 +2809,9 @@ Emergency editing is a second controlled exception:
 ### 257. Make Library a multi-view destination with revision-bound reuse
 
 - This supersedes Decisions 64/250's Songs destination label and Decision 112's
-  Mass-owned template Response copies.
+  Mass-owned template Response copies, and supersedes Decision 71's separate
+  Custom text/Announcement presets plus Decision 168's Custom text editor label
+  with General Presentation.
 - Rename the top-level Songs destination to **Library** with local views
   **Songs**, **Responses & Prayers**, and **General Presentations**. Keep Song
   and Arrangement as their specialized domain rather than forcing every entry
@@ -2804,6 +2819,9 @@ Emergency editing is a second controlled exception:
 - Response/Prayer and General Presentation entries are reusable sources. A Mass
   item references one until **Customize for this Mass** creates a local override;
   Mass templates retain these links when instantiated.
+- A General Presentation Mass item may add private delivery context without
+  changing the reusable source. That context remains operator-only and never
+  enters a canonical frame.
 - One Mass plan owns one reusable-source binding per source. Every still-linked
   occurrence uses that binding's Edit revision. Reusing the source again uses
   the same bound revision; a newer upstream revision appears as **Update
@@ -2839,6 +2857,10 @@ Emergency editing is a second controlled exception:
   General Presentation item or one Mass section. `A` toggles the item scope;
   the visible menu offers **Loop this section**. Never loop the complete plan or
   an arbitrary selection. Timed Songs are post-MVP.
+- `A` is active only while focus is within the Cue timeline or Output Dock and
+  no text editor, emergency editor, or true modal owns focus. Passive Ordo-rail
+  and shortcut-reference focus suppress it while leaving `F`, `B`, and Space
+  active.
 - The reusable General Presentation owns an eight-second default duration,
   inherited by its Slides with optional Slide overrides. Every newly shown
   Slide receives its full timer, including after manual Previous/Next, and the

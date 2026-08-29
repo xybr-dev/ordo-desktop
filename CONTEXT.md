@@ -100,7 +100,7 @@ A Library entry containing ordered Exchange blocks that Mass plans reference unt
 _Avoid_: Mass-owned response copy, inherited response text
 
 **General presentation**:
-A reusable or Mass-local ordered presentation of constrained text or foreground-image slides for announcements, prayers, intentions, donor lists, and other content that is neither a Song nor a Reading.
+A reusable or Mass-local ordered presentation of constrained text or foreground-image slides for announcements, prayers, intentions, donor lists, and other content that is neither a Song nor a Reading. A Mass item may pair it with private delivery context that remains operator-only and is not part of the reusable source.
 _Avoid_: Freeform slide deck, custom PowerPoint
 
 **Source reference**:

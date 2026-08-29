@@ -250,9 +250,11 @@ operator sizes, operating systems, display scaling, and preview consumers.
 
 **AC**
 
-- [ ] `[AUTO]` The Canonical Slide Renderer Interface accepts content, Theme,
-      and target density and returns either one complete frame plus diagnostics
-      or one structured failure; partial frames are impossible.
+- [ ] `[AUTO]` The Canonical Slide Renderer Interface accepts resolved semantic
+      content—including optional authored Response and Psalm header strings—a
+      Theme, and target density, and returns either one complete frame plus
+      diagnostics or one structured failure; partial frames are impossible and
+      the renderer performs no language lookup.
 - [ ] `[AUTO]` Composition occurs in explicit 1920×1080 logical coordinates
       with the minimum 120×80 safe-area inset and never uses operator viewport
       metrics; a Theme may increase but not reduce that inset.
@@ -261,7 +263,8 @@ operator sizes, operating systems, display scaling, and preview consumers.
 - [ ] `[AUTO]` Golden fixtures cover Cebuano, English, Tagalog, mixed scripts,
       punctuation, long words, missing-glyph fallback, one-to-four lyric lines,
       Celebration/Song identification, Scripture, Psalm, response, General
-      text/image, black, label-off, and overflow-warning Slides.
+      text/image, black, label-off, and overflow-warning Slides; each
+      multilingual Response/Psalm fixture supplies its exact authored header.
 - [ ] `[AUTO]` The canonical layout/shaping path is explicit and separate from
       ordinary GPUI operator text layout; it never asks a preview container to
       reflow canonical content.
@@ -353,13 +356,13 @@ baseline before full UI construction.
 - [ ] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
       genuinely lower-resolution, virtualized, and released when obsolete.
 - [ ] `[NATIVE-AUTO]` On minimum-profile Windows and Linux test hardware, p95
-      Presenter commands are below 50ms and total memory never exceeds the 1GB
-      release ceiling.
+      Presenter commands are below 50ms and total memory never exceeds the
+      1 GiB absolute release ceiling.
 - [ ] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
       representative 500-Cue Presenter memory baselines across three runs.
-      Every run stays within the 512 MiB preferred budget and the 1 GiB hard
-      ceiling; exceeding 512 MiB blocks Phase 1 pending an explicit budget and
-      native-memory rationale revision.
+      Every run stays within the 512 MiB qualification budget and the 1 GiB
+      absolute ceiling; exceeding either blocks Phase 1 pending an explicit
+      budget and native-memory rationale revision.
 - [ ] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
 
@@ -408,7 +411,7 @@ version.
 **Goal:** Freeze the portable contract shape before library, snapshot, and
 transfer data begin depending on it.
 
-**Changes:** `contracts/`, `crates/platform/src/artifact_container/`,
+**Changes:** `contracts/`, `tools/artifact-container-spike/`,
 `tests/fixtures/contracts/`, `tests/artifact-container/`, `docs/contracts/`
 
 **Depends on:** T0.1.
@@ -444,7 +447,7 @@ occurs.
 **Goal:** Prove that the chosen library can generate the exact static fallback
 contract and that the church PowerPoint can reopen it.
 
-**Changes:** `crates/platform/src/powerpoint_spike/`, `tests/powerpoint/`,
+**Changes:** `tools/powerpoint-spike/`, `tests/powerpoint/`,
 `tests/fixtures/powerpoint/`, `xtask/src/inspect_pptx.rs`
 
 **Depends on:** T0.4.
@@ -663,8 +666,10 @@ cannot accidentally change Program.
       this section, while ineligible liturgical content explains refusal.
 - [ ] `[UI-AUTO]` `F6` cycles Ordo rail, Cue timeline, and Output controls while
       skipping a closed unpinned rail and never changing live state.
-- [ ] `[UI-AUTO]` Passive rail and shortcut-reference focus leave only `F`, `B`,
-      and Space active; `A` requires an active Presenter command surface.
+- [ ] `[UI-AUTO]` Passive Ordo-rail and shortcut-reference focus leave only
+      `F`, `B`, and Space active. `A` is active only while focus is in the Cue
+      timeline or Output Dock and no text editor, emergency editor, or true
+      modal owns focus.
 - [ ] `[UI-AUTO]` A focused text field, emergency editor, or true modal suspends
       every single-key Presenter command until closed.
 - [ ] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
@@ -1049,6 +1054,9 @@ deferred Song-merge system.
       blocked by any durable reference and never cascade; safe deletion removes
       owned revisions only after explicit non-undoable confirmation.
 - [ ] `[UI-AUTO]` Archive offers immediate Undo; permanent deletion does not.
+- [ ] `[UI-AUTO]` Archiving the selected Song chooses the next visible active
+      result, otherwise the previous; when neither exists, the active-list empty
+      state receives focus while Undo remains available.
 - [ ] `[AUTO]` No merge, survivor, redirect, or reversal action exists.
 
 **E2E** `[UI-AUTO]` — Edit an Arrangement across two History sessions, compare
@@ -1247,6 +1255,9 @@ pretending every Celebration has one universal Ordo.
       Liturgy of the Eucharist.
 - [ ] `[AUTO]` Every template has a language; multiple independently named
       templates may share a language and one may be its explicit fallback.
+- [ ] `[AUTO]` A template owns optional default Response and Responsorial Psalm
+      projected-header strings for its language. Instantiation copies them into
+      the Mass plan; neither the renderer nor Celebration translates them.
 - [ ] `[AUTO]` Sections use UUID plus unique nonblank label, own ordered items,
       carry no inferred behavior, and enforce at least one section/exactly-one
       section membership for every item.
@@ -1312,8 +1323,8 @@ Mass-plan relationship that organizes all preparation.
 - [ ] `[AUTO]` Celebration requires liturgical date and title and may own season,
       color, applicability tags, and several independent Mass plans.
 - [ ] `[AUTO]` A Mass plan requires scheduled start and primary language and may
-      own Choir, Presider, location, private notes, Theme, sections, items, and
-      local overrides.
+      own Choir, Presider, location, private notes, Theme, sections, items,
+      copied default Response/Psalm headers, and local overrides.
 - [ ] `[AUTO]` Celebration date is distinct from scheduled start; an explicitly
       confirmed Anticipated Mass may occur on the preceding civil day and keeps
       the later Celebration context.
@@ -1449,11 +1460,16 @@ one ambiguous generic form.
       language-template Gospel blocks, and multiple Reading slots/items.
 - [ ] `[AUTO]` Responsorial Psalm generates `n + 1` linked refrains around `n`
       cantor verses; private cantor Wait Cues leave Program unchanged and may
-      be enabled for projection.
+      be enabled for projection. Its item may inherit, hide, or override the
+      Mass plan's authored Psalm header.
 - [ ] `[AUTO]` Response sequence owns ordered exchange blocks with optional
       operator-only trigger then required congregation response; role defaults
       are Priest (`P`) and congregation (`T`) but remain extensible. Reusable
-      entries stay linked until Customize for this Mass.
+      entries stay linked until Customize for this Mass, and the item may
+      inherit, hide, or override the Mass plan's authored Response header.
+- [ ] `[AUTO]` A General Presentation item may add Mass-local private delivery
+      context alongside its constrained Text/Image Slides; that context is
+      operator-only and never enters a canonical frame or reusable source.
 - [ ] `[AUTO]` General Presentation Text is the focused projectable
       announcement path; Custom sequence supports deliberate mixed projectable
       and operator-only Cue behavior; Hold is an ordinary black Cue; Blackout
@@ -2425,8 +2441,9 @@ under realistic content and session duration, not only in the Phase 0 fixture.
       navigation, snapshot capture, and artifact operations.
 - [ ] `[NATIVE-AUTO]` Presenter command p95 remains below 50ms on minimum-profile
       and church PCs; p50/p95/p99 distributions and outliers are retained.
-- [ ] `[NATIVE-AUTO]` Total process memory stays below the preferred native
-      budget adopted from T0.6 and never crosses the 1GB hard ceiling.
+- [ ] `[NATIVE-AUTO]` Total process memory stays within the 512 MiB
+      qualification budget adopted in T0.6 and never crosses the 1 GiB absolute
+      ceiling.
 - [ ] `[AUTO]` Process and GPU-resource evidence proves bounded full-frame/thumbnail/media
       caches, virtualization, obsolete-resource release, and no unbounded History
       or journal UI retention.
@@ -2595,7 +2612,7 @@ or disconnected UI alone.
 - Presenter command latency: `<50ms` p95 for keydown→Preview and keydown→Program
   on the supported minimum profile and actual church PC.
 - Native memory: every representative-session run remains within the `512 MiB`
-  preferred budget; `1 GiB` remains the hard release ceiling.
+  qualification budget; `1 GiB` remains the absolute release ceiling.
 - Canonical composition: fixed `1920x1080`; Interface/system scaling may not
   change wrapping, pagination, geometry, or safe area.
 - Program safety: only black, Disconnected, or a complete validated canonical

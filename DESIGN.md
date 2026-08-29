@@ -244,18 +244,19 @@ Use these fixed template relationships:
 
 - **Lyrics:** optional repeated section label at top-left; authored-case body
   optically centered in the remaining region and left-aligned by default.
-- **Response:** optional repeated ExtraBold language-owned header (for example,
-  Cebuano `TUBAG:`); stored authored text rendered uppercase as the emphasized
-  body.
+- **Response:** optional repeated ExtraBold authored header resolved before
+  rendering (for example, the Cebuano template default `TUBAG:`); stored
+  authored text rendered uppercase as the emphasized body.
 - **Reading identification:** large uppercase proclamation title centered in
   the space above a bottom-left Scripture reference. Do not add First Reading,
   Second Reading, or Gospel labels to congregation output.
 - **Reading passage:** authored-case ordinary-weight Scripture, smaller than
   identification, with the reference at bottom-left on every Slide.
-- **Responsorial Psalm:** small ExtraBold language-owned header (for example,
-  Cebuano `SALMO RESPONSORYO`) at top-left, emphasized refrain centered in the
-  remainder, and reference at bottom-left. A projected cantor verse uses
-  Reading-passage treatment.
+- **Responsorial Psalm:** optional small ExtraBold authored header resolved
+  before rendering (for example, the Cebuano template default `SALMO
+  RESPONSORYO`) at top-left, emphasized refrain centered in the remainder, and
+  reference at bottom-left. A projected cantor verse uses Reading-passage
+  treatment.
 - **Song identification:** a bottom-left identity block with large uppercase
   Song title, smaller composer/source, and optional Arrangement/Choir credit.
 - **Celebration title:** uppercase, left-aligned title optically centered above
