@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "canonical_slide": {
+    "width": 1920,
+    "height": 1080,
+    "aspect_ratio": "16:9"
+  },
+  "appearance": {
+    "dark_background": "#11100F",
+    "light_background": "#F7F3EB",
+    "focus_ring": "#2F6FED"
+  }
+}
