@@ -80,6 +80,10 @@ A language-neutral description of the purpose fulfilled by authored liturgical c
 **Language-specific liturgical content**:
 An independently authored response, reading, or other liturgical text for one language. Versions in other languages are separate content and are not kept synchronized.
 
+**Projected header setting**:
+An optional authored Response or Responsorial Psalm header whose language-specific template default is copied into a Mass plan. An item may **Inherit** the plan default, **Hide** the header, or **Override** it with item-specific wording; the renderer never translates or supplies the text.
+_Avoid_: Renderer label, fixed `TUBAG:` literal
+
 **Cue**:
 An ordered operator-relevant event within a Mass item; it may or may not have congregation-facing output.
 _Avoid_: Slide

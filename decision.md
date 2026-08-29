@@ -498,7 +498,7 @@ Emergency editing is a second controlled exception:
 - The recommended profile is an Intel Core i3/i5 eighth generation, AMD Ryzen 3, or newer equivalent; `8 GB` RAM for Ordo alone; and `16 GB` RAM when Ordo will share the machine with OBS or similarly demanding software.
 - `4 GB` RAM is not an officially supported configuration even if Ordo happens to launch, because the operating system, Chromium processes, security software, drivers, and decoded media leave insufficient live-presentation safety margin.
 - MVP performance is measured on a minimum-profile reference computer and must satisfy these release budgets:
-  - Keep total Ordo memory within the `512 MiB` qualification budget during a representative large Mass, with `1 GiB` as the absolute acceptance ceiling.
+  - Keep total Ordo memory below a `750 MB` target during a representative large Mass, with `1 GB` as the hard acceptance ceiling.
   - Average below `5%` CPU while idle on a static slide over a 30-second sample.
   - Make Left/Right, Freeze, Blackout, and Space visibly take effect within `50 ms` at the 95th percentile.
   - Lose no navigation input during rapid sequential operation.
@@ -1095,7 +1095,7 @@ Emergency editing is a second controlled exception:
 - A Celebration owns its liturgical date, while every Mass plan owns its actual scheduled start date and time. These dates may differ.
 - An anticipated Mass held on the preceding civil day remains a plan beneath the later Celebration and therefore uses that Celebration's prepared liturgical context and readings.
 - A new Mass plan defaults its scheduled date to the Celebration date. Selecting the preceding day suggests **Anticipated**, but the operator explicitly confirms the timing; Ordo does not decide liturgical correctness from a hardcoded time threshold.
-- The Masses index shows the actual scheduled date and time on every plan row and orders upcoming Celebration groups by their earliest scheduled Mass, while retaining the Celebration's liturgical date in its header.
+- The Masses index shows the actual scheduled date and time on every plan row and orders upcoming Celebration groups by their earliest scheduled Mass, while retaining the Celebration's liturgical date in its header. A Celebration without plans uses the local start of its liturgical date as its fallback ordering key.
 - **Anticipated** is not a generic **Vigil** mode. Celebrations such as the Easter Vigil may require their own structure, readings, and template and must not be reduced to this scheduling flag.
 
 ### 86. Metadata validation boundary
@@ -2265,13 +2265,14 @@ Emergency editing is a second controlled exception:
 
 > **Superseded in part by Decision 256.** Overlay timing is now `400ms` in and
 > `200ms` out, and Blackout/Hold boundaries use reversible `500ms` fades.
-> Content-to-content cuts and the remaining restraint rules below stay in force.
+> Content-to-content cuts and the remaining restraint rules below stay in force;
+> the body is reconciled to those boundaries.
 
 - Use `120ms` for hover, pressed, focus-adjacent, and color transitions; `160ms` for menus, popovers, disclosures, and visible row reordering; and `220ms` for dialogs, slide-overs, nested-slide navigation, and parent recession.
 - Use one calm ease-out curve, `cubic-bezier(0.2, 0, 0, 1)`. Do not use spring, bounce, overshoot, decorative looping, or attention-seeking animation.
 - Keep navigation and interface transitions interruptible; animation may never delay accepting another valid command or changing focus ownership.
-- Apply presentation-critical commands immediately with `0ms` output motion. Preview/Program content changes, Freeze, Blackout, Live restoration, and congregation output never fade, slide, cross-dissolve, or wait for operator-chrome animation.
-- Under reduced-motion preference, remove translation, scaling, animated reordering, and nested-parent recession. Permit only clarifying opacity transitions of at most `100ms`; retain immediate presentation output.
+- Apply presentation-critical state changes immediately and never wait for operator-chrome animation. Preview/Program content-to-content changes, Freeze, and Live restoration use `0ms` output motion; only content-to/from Blackout or Hold uses the reversible `500ms` opacity fade adopted in Decision 256.
+- Under reduced-motion preference, remove translation, scaling, animated reordering, and nested-parent recession. Limit clarifying opacity, including Blackout/Hold boundaries, to at most `100ms` while retaining immediate state changes.
 - Preserve identical interaction order, focus movement, state change, and final layout with or without motion. Reduced motion changes only the visual path between states.
 
 ### 218. Minimal first-run Parish setup with regular-Presider defaults
@@ -2562,7 +2563,7 @@ Emergency editing is a second controlled exception:
 
 - Lock Electron + React as Ordo's production desktop architecture. Electron is no longer a provisional default and the implementation plan will not include a Tauri, GPUI, NativePHP, Wails, or other shell bake-off.
 - Accept Electron's structural Chromium/Node memory and distribution overhead in exchange for one pinned Chromium generation across Windows and Linux, mature multi-window/display/fullscreen control, an established React toolchain, offline packaging, process/utility isolation, and the strongest low-risk path to future Chromium media support.
-- The superseded Electron plan used a `750 MB` preferred target and `1 GiB` hard memory ceiling alongside the `<50 ms` p95 Presenter-command target, rapid-input, idle-CPU, startup, and physical qualification gates. Decision 252 replaces the preferred target while retaining the other safety outcomes.
+- Retain the `750 MB` preferred target, `1 GB` hard memory ceiling, `<50 ms` p95 Presenter-command target, rapid-input, idle-CPU, startup, and physical qualification gates. Framework selection does not excuse missing a performance budget; failure requires profiling, bounded caches, renderer-local hot paths, process correction, or an honestly revised supported hardware profile—not automatic framework reconsideration.
 - Keep keydown-to-Preview and keydown-to-Program paint measurement in Milestone 0. The live command path remains an in-memory Presentation Engine transition plus narrowly subscribed operator and congregation updates, with no SQLite, filesystem, autosave, pagination, image decode, synchronous IPC, or broad timeline rerender on the path.
 - Bound decoded full-resolution frames, keep operator thumbnails genuinely low-resolution and virtualized, preload only the nearby presentation set, release obsolete media, and measure memory by Electron process. Keep hardware acceleration enabled by default and treat software rendering only as a diagnosed compatibility fallback.
 - Treat Discord as evidence that a heavily interactive React/Electron desktop product can be responsive, not as an Ordo benchmark. Ordo's own packaged measurements on the minimum-profile and actual church PC remain authoritative.
@@ -2679,8 +2680,10 @@ Emergency editing is a second controlled exception:
 - Treat crates as dependency-enforcement tools rather than a folder for every
   future feature. Begin Portability and PowerPoint export as Modules or create
   their dedicated `portability` and `powerpoint` crates only at the milestone
-  where their deep Interfaces justify the extraction. Do not scaffold
-  pass-through crates merely to match a diagram.
+  where their deep Interfaces justify the extraction. Otherwise keep the Module
+  in the closest existing production crate that preserves dependency direction
+  and update the affected milestone Changes paths before implementation. Do not
+  scaffold pass-through crates merely to match a diagram.
 - Keep the native `ui` Module internal to Ordo. Build its visual language from
   `DESIGN.md` on GPUI while using a pinned and qualified `gpui-base` for useful
   unstyled behavior. Do not adopt the styled `gpui-component` layer wholesale,

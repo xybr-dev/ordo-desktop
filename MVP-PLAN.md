@@ -234,6 +234,9 @@ production crate. Portability and PowerPoint export begin at their owning
 milestone and receive dedicated `portability` or `powerpoint` crates only when
 their Interfaces hide enough complexity to earn that extraction. A crate
 remains only when its Interface preserves meaningful dependency direction.
+Otherwise the Module stays in the closest existing production crate that
+preserves dependency direction, and the affected milestone Changes paths are
+updated before implementation begins.
 
 ### 6.5 Operator UI foundation
 
@@ -319,7 +322,7 @@ remains only when its Interface preserves meaningful dependency direction.
 - Present Upcoming and History as chronological Celebration groups with subordinate scheduled Mass-plan rows, including plan time, language, choir, and readiness. Keep groups expanded in Upcoming and allow older History groups to collapse; retain the same hierarchy even when a Celebration has only one Mass.
 - Creation is Celebration-first: create the language-neutral Celebration, then create a new Mass plan beneath it or reuse an earlier plan for that new Celebration. Celebration headers own shared details and group actions; rows open a plan and own plan-specific actions.
 - Use **+ New Celebration** as the primary action. After saving it, offer **Create from template**, **Reuse an earlier Mass plan**, or **Do this later**; an empty Celebration remains valid and exposes those actions inline. After one plan exists, **+ Add another Mass** reuses the same two starting methods.
-- Keep the Celebration's liturgical date separate from each plan's actual scheduled start. Permit an explicitly confirmed **Anticipated** plan on the preceding civil day, display its real date/time beneath the later Celebration, and order Upcoming groups by their earliest scheduled plan.
+- Keep the Celebration's liturgical date separate from each plan's actual scheduled start. Permit an explicitly confirmed **Anticipated** plan on the preceding civil day, display its real date/time beneath the later Celebration, and order Upcoming groups by their earliest scheduled plan. An empty Celebration uses the local start of its liturgical date as the fallback ordering key.
 - Show an Installed Celebration Package's Current version as the same single Celebration group used by its reconciled editable records, with ordinary chronological Mass-plan rows and restrained package provenance. Keep Package history and artifact administration in **Transfer & Backup** rather than duplicating Mass navigation.
 - Offer **Export Celebration Package** from the Celebration group's contextual menu and **Export celebration** from Transfer & Backup. Route both into one viewport-spanning floating slide-over that summarizes change/reuse status, every chronologically grouped plan, readiness, blockers, size, destination, and collapsed package contents; plans are informational because partial Celebration Packages do not exist.
 - Allow incomplete plans to be exported with visible per-plan readiness warnings so preparation can continue elsewhere. Block only failures that prevent a complete, internally consistent, checksummed, self-contained artifact from being captured and atomically published.

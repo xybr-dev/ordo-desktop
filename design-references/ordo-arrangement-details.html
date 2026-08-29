@@ -140,15 +140,11 @@
     }
   </style>
 
-  <div class="od-shell" aria-hidden="true">
+  <div class="od-shell" inert aria-hidden="true">
     <header class="od-topbar">
       <span class="od-brand">ORDO</span>
       <button type="button" class="od-quiet">‹ Kyrie · 3rd Mass</button>
       <div class="od-crumb"><strong>Choir A · Cebuano</strong><small>Songs / Kyrie · 3rd Mass / Arrangement</small></div>
-      <div class="od-stage-switch" aria-label="Visualization state">
-        <button type="button" data-mode="edit" aria-pressed="true">Edit existing</button>
-        <button type="button" data-mode="create" aria-pressed="false">Create new</button>
-      </div>
     </header>
     <div class="od-subbar">
       <div class="od-summary"><strong>Choir A · Cebuano</strong><small>Choirs A and B · 4 sections</small></div>
@@ -178,10 +174,14 @@
   </div>
 
   <div class="od-dim"></div>
-  <section class="od-drawer" aria-label="Arrangement details">
+  <section class="od-drawer" role="dialog" aria-modal="true" aria-label="Arrangement details">
     <header class="od-drawerhead">
       <button type="button" class="od-back" aria-label="Return to Arrangement">‹</button>
       <div class="od-drawertitle"><strong id="od-drawer-title">Arrangement details</strong><small id="od-drawer-subtitle">Kyrie · 3rd Mass / Choir A · Cebuano</small></div>
+      <div class="od-stage-switch" aria-label="Visualization state">
+        <button type="button" data-mode="edit" aria-pressed="true">Edit existing</button>
+        <button type="button" data-mode="create" aria-pressed="false">Create new</button>
+      </div>
     </header>
     <div class="od-drawerbody">
       <div class="od-note" id="od-shared-note"><strong>Shared by Choir A and Choir B</strong><br><small>Saving updates this reusable Arrangement for both Choirs. Existing Mass references stay attached; published Presentation snapshots do not change.</small></div>

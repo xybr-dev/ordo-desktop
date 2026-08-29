@@ -63,7 +63,7 @@ spacing:
   control-inset: 12px
   group: 16px
   section: 24px
-  major: 32px
+  scale-max: 32px
 density:
   compact-control: 32px
   default-control: 36px
@@ -219,8 +219,10 @@ change canonical slide composition, semantic state, or command ownership.
 
 Use the `4px` spacing unit and its adopted scale rather than arbitrary local
 gaps. Keep closely related controls `8px` apart, groups `16px` apart, and major
-sections `24px` apart; use `4px`, `12px`, and `32px` only where their named
-roles fit. At `1366x768`, use `16px` workspace gutters. At `1920x1080`, increase
+sections `24px` apart; use `4px` and `12px` only where their named roles fit.
+`32px` remains the largest scale step but is not the major-section default; use
+it only for an explicitly documented exceptional spacing role.
+At `1366x768`, use `16px` workspace gutters. At `1920x1080`, increase
 major workspace gutters to `24px` while giving most additional area to wider
 previews, more slide columns, and useful context.
 

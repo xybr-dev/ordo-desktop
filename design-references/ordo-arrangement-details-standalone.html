@@ -1047,15 +1047,11 @@ html&gt;body{padding:0}&lt;/style&gt;
     }
   &lt;/style&gt;
 
-  &lt;div class=&quot;od-shell&quot; aria-hidden=&quot;true&quot;&gt;
+  &lt;div class=&quot;od-shell&quot; inert aria-hidden=&quot;true&quot;&gt;
     &lt;header class=&quot;od-topbar&quot;&gt;
       &lt;span class=&quot;od-brand&quot;&gt;ORDO&lt;/span&gt;
       &lt;button type=&quot;button&quot; class=&quot;od-quiet&quot;&gt;‹ Kyrie · 3rd Mass&lt;/button&gt;
       &lt;div class=&quot;od-crumb&quot;&gt;&lt;strong&gt;Choir A · Cebuano&lt;/strong&gt;&lt;small&gt;Songs / Kyrie · 3rd Mass / Arrangement&lt;/small&gt;&lt;/div&gt;
-      &lt;div class=&quot;od-stage-switch&quot; aria-label=&quot;Visualization state&quot;&gt;
-        &lt;button type=&quot;button&quot; data-mode=&quot;edit&quot; aria-pressed=&quot;true&quot;&gt;Edit existing&lt;/button&gt;
-        &lt;button type=&quot;button&quot; data-mode=&quot;create&quot; aria-pressed=&quot;false&quot;&gt;Create new&lt;/button&gt;
-      &lt;/div&gt;
     &lt;/header&gt;
     &lt;div class=&quot;od-subbar&quot;&gt;
       &lt;div class=&quot;od-summary&quot;&gt;&lt;strong&gt;Choir A · Cebuano&lt;/strong&gt;&lt;small&gt;Choirs A and B · 4 sections&lt;/small&gt;&lt;/div&gt;
@@ -1085,10 +1081,14 @@ html&gt;body{padding:0}&lt;/style&gt;
   &lt;/div&gt;
 
   &lt;div class=&quot;od-dim&quot;&gt;&lt;/div&gt;
-  &lt;section class=&quot;od-drawer&quot; aria-label=&quot;Arrangement details&quot;&gt;
+  &lt;section class=&quot;od-drawer&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Arrangement details&quot;&gt;
     &lt;header class=&quot;od-drawerhead&quot;&gt;
       &lt;button type=&quot;button&quot; class=&quot;od-back&quot; aria-label=&quot;Return to Arrangement&quot;&gt;‹&lt;/button&gt;
       &lt;div class=&quot;od-drawertitle&quot;&gt;&lt;strong id=&quot;od-drawer-title&quot;&gt;Arrangement details&lt;/strong&gt;&lt;small id=&quot;od-drawer-subtitle&quot;&gt;Kyrie · 3rd Mass / Choir A · Cebuano&lt;/small&gt;&lt;/div&gt;
+      &lt;div class=&quot;od-stage-switch&quot; aria-label=&quot;Visualization state&quot;&gt;
+        &lt;button type=&quot;button&quot; data-mode=&quot;edit&quot; aria-pressed=&quot;true&quot;&gt;Edit existing&lt;/button&gt;
+        &lt;button type=&quot;button&quot; data-mode=&quot;create&quot; aria-pressed=&quot;false&quot;&gt;Create new&lt;/button&gt;
+      &lt;/div&gt;
     &lt;/header&gt;
     &lt;div class=&quot;od-drawerbody&quot;&gt;
       &lt;div class=&quot;od-note&quot; id=&quot;od-shared-note&quot;&gt;&lt;strong&gt;Shared by Choir A and Choir B&lt;/strong&gt;&lt;br&gt;&lt;small&gt;Saving updates this reusable Arrangement for both Choirs. Existing Mass references stay attached; published Presentation snapshots do not change.&lt;/small&gt;&lt;/div&gt;

@@ -32,6 +32,11 @@ Every task contains:
 - **Goal** — why the task exists and the observable outcome it unlocks.
 - **Changes** — intended files or locality. The repository is not scaffolded
   yet, so exact filenames may move when a deeper Module gives better locality.
+  Later `crates/portability/` and `crates/powerpoint/` paths are conditional
+  candidates, not authorization to create those crates. At T4.1 and T5.4,
+  respectively, either record that the Interface earns extraction or keep the
+  Module in the closest existing production crate and update every affected
+  later Changes path before implementation.
 - **Depends on** — tasks that must be complete before this task begins.
 - **AC** — objectively checkable acceptance criteria.
 - **E2E** — at least one end-to-end scenario, tagged by how it runs.
@@ -494,7 +499,10 @@ platform assumption or an undocumented exception.
       release is blocked or the supported hardware profile is explicitly
       revised; failures are not hidden by adding a second production shell.
 - [ ] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
-      regression tests rather than becoming an abandoned spike directory.
+      regression tests rather than becoming an abandoned spike directory;
+      reusable fixtures, contract cases, inspectors, and instrumentation remain
+      outside `tools/*-spike`, while disposable generator prototypes are never
+      imported by production crates.
 
 **E2E** `[NATIVE-AUTO]` `[MANUAL]` — From one clean commit, build both native
 packages, launch the operator and congregation walking skeleton, exercise task
@@ -1367,7 +1375,9 @@ Celebration relationship.
       with subordinate plan rows containing actual time, language, Choir, and
       readiness; hierarchy remains with one plan.
 - [ ] `[AUTO]` Upcoming ordering uses each Celebration's earliest scheduled plan
-      and accurately displays preceding-day Anticipated plans.
+      and accurately displays preceding-day Anticipated plans; a Celebration
+      without plans uses the local start of its liturgical date as its fallback
+      ordering key.
 - [ ] `[UI-AUTO]` + New Celebration requires only date/title; after Save it
       offers Create from template, Reuse an earlier Mass plan, or Do this later.
 - [ ] `[UI-AUTO]` Empty Celebration remains valid and offers plan creation
@@ -1442,7 +1452,9 @@ one ambiguous generic form.
 - [ ] `[UI-AUTO]` + Add Mass item opens a categorized chooser for Song,
       Reading, linked Response/Prayer, General Presentation, Custom sequence,
       Hold, and Blackout; it inserts after current selection or appends to the
-      active section when none is selected.
+      active section when none is selected. If neither an item nor section is
+      active, including in an item-empty plan, the chooser requires selecting
+      one of the plan's sections before an item type can be chosen.
 - [ ] `[AUTO]` Song items reference a library Arrangement by default, own an
       optional identification Cue, and expand the exact section-occurrence
       Sequence into position-based Cues.
