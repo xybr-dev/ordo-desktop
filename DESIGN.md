@@ -244,16 +244,18 @@ Use these fixed template relationships:
 
 - **Lyrics:** optional repeated section label at top-left; authored-case body
   optically centered in the remaining region and left-aligned by default.
-- **Response:** optional repeated ExtraBold `TUBAG:` header; stored authored
-  text rendered uppercase as the emphasized body.
+- **Response:** optional repeated ExtraBold language-owned header (for example,
+  Cebuano `TUBAG:`); stored authored text rendered uppercase as the emphasized
+  body.
 - **Reading identification:** large uppercase proclamation title centered in
   the space above a bottom-left Scripture reference. Do not add First Reading,
   Second Reading, or Gospel labels to congregation output.
 - **Reading passage:** authored-case ordinary-weight Scripture, smaller than
   identification, with the reference at bottom-left on every Slide.
-- **Responsorial Psalm:** small ExtraBold `SALMO RESPONSORYO` at top-left,
-  emphasized refrain centered in the remainder, and reference at bottom-left.
-  A projected cantor verse uses Reading-passage treatment.
+- **Responsorial Psalm:** small ExtraBold language-owned header (for example,
+  Cebuano `SALMO RESPONSORYO`) at top-left, emphasized refrain centered in the
+  remainder, and reference at bottom-left. A projected cantor verse uses
+  Reading-passage treatment.
 - **Song identification:** a bottom-left identity block with large uppercase
   Song title, smaller composer/source, and optional Arrangement/Choir credit.
 - **Celebration title:** uppercase, left-aligned title optically centered above
@@ -398,9 +400,9 @@ focus, icon, or motion vocabulary inside an individual workspace.
 
 Disabled controls use neutral, subdued styling without warning or danger color.
 Use native disabling when the reason is obvious. A consequentially blocked
-action remains keyboard-focusable through `aria-disabled`, suppresses
-activation, and references a persistent nearby explanation. A hover-only
-tooltip is never the sole explanation.
+action remains keyboard-focusable, exposes its unavailable state through
+AccessKit, suppresses activation, and references a persistent nearby
+explanation. A hover-only tooltip is never the sole explanation.
 
 Unavailable content remains visible and legible. Pair the word **Unavailable**
 with an icon and short reason; retain inspection and corrective navigation while
@@ -499,9 +501,11 @@ into the passive congregation renderer.
 ## Constrained Preparation Layouts
 
 At ordinary `1366x768` and `100%` Interface scale, keep the complete primary
-list or Mass outline, editor, and Inspector composition. Decide adaptation from
-the effective workspace remaining after system scale, Interface scale, window
-size, and minimum useful pane widths—not from physical resolution alone.
+list or Mass outline, editor, and Inspector composition. Use minimum logical
+pane widths of `240px` for the list/outline, `520px` for the editor, and `300px`
+for Inspector. Decide adaptation from the effective workspace remaining after
+system scale, Interface scale, window size, navigation chrome, separators, and
+those minima—not from physical resolution alone.
 
 When width first becomes constrained, preserve the list/outline beside the
 editor and move Inspector into its labeled right slideover. At narrower widths,
@@ -605,6 +609,11 @@ a fixture-backed gallery covering every canonical template, label/background
 variants, and representative overflow warnings through the same scaled
 `1920x1080` composition. Move it into Approved References only after approval.
 
-When a reference conflicts with this document, `decision.md`, or `MVP-PLAN.md`,
-the written contract wins. Update this file whenever an adopted visual rule or
-normative token changes.
+Authority is by subject: this file owns visible behavior and visual tokens;
+`CONTEXT.md` owns domain terms and invariants; `MVP-PLAN.md` owns product scope
+and strategic architecture; and `MILESTONES.md` owns task status and acceptance
+gates. `decision.md` supplies adopted detail only where these shorter contracts
+are silent. Approved references illustrate the contract and yield to it; any
+conflict between normative documents must be reconciled rather than resolved by
+silently choosing one. Update this file whenever an adopted visual rule or token
+changes.

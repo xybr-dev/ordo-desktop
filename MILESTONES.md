@@ -1,11 +1,12 @@
 # Ordo — MVP Execution Milestones
 
 Detailed implementation sequence for the product defined by
-[`MVP-PLAN.md`](./MVP-PLAN.md). That document remains the strategic product and
-architecture baseline; this document owns task order, acceptance criteria, and
-testable delivery gates. Adopted behavior remains authoritative in
-[`decision.md`](./decision.md), domain terms in [`CONTEXT.md`](./CONTEXT.md), and
-visual rules in [`DESIGN.md`](./DESIGN.md).
+[`MVP-PLAN.md`](./MVP-PLAN.md). Authority is by subject: this document owns task
+order, status, acceptance criteria, and delivery gates; `CONTEXT.md` owns domain
+terms and invariants; `DESIGN.md` owns visible behavior and visual tokens; and
+`MVP-PLAN.md` owns product scope and strategic architecture. `decision.md`
+records adopted detail and resolves gaps, but any conflict must be reconciled
+into the applicable shorter document rather than selected ad hoc.
 
 Developers still learning Rust or GPUI should use
 [`LEARNING-ROADMAP.md`](./LEARNING-ROADMAP.md) as a learning-first runway into
@@ -13,8 +14,8 @@ Phase 0. It explains prerequisites and exercises but does not duplicate task
 status or alter the milestone order.
 
 **Current state:** Planning and visual acceptance references are complete. Rust
-+ GPUI is permanently selected for the clean-slate implementation. T0.1 is
-complete in the production repository; T0.2 is the active task.
++ GPUI is permanently selected for the clean-slate implementation. T0.1 is the
+active task; local uncommitted scaffolding is not completion evidence.
 
 **MVP target:** A local-first Linux preparation application and air-gapped
 Windows 10 church installation that can maintain parish content, prepare a
@@ -94,30 +95,30 @@ verification command.
 
 **AC**
 
-- [x] `[AUTO]` Start from a clean repository with no imported source history,
+- [ ] `[AUTO]` Start from a clean repository with no imported source history,
       migrations, or vendored GPUI platform code.
-- [x] `[AUTO]` Pin a Rust toolchain and commit `Cargo.lock`; GPUI,
+- [ ] `[AUTO]` Pin a Rust toolchain and commit `Cargo.lock`; GPUI,
       `gpui_platform`, and every git dependency use exact revisions rather than
       floating branches.
-- [x] `[AUTO]` Scaffold the seven short-named internal crates and development-only
+- [ ] `[AUTO]` Scaffold the seven short-named internal crates and development-only
       `ui-lab` with dependency direction matching `MVP-PLAN.md`; `domain`
       imports no GPUI, SQLite, filesystem,
       or operating-system window types.
-- [x] `[AUTO]` Root `AGENTS.md` points coding agents to `CONTEXT.md`,
+- [ ] `[AUTO]` Root `AGENTS.md` points coding agents to `CONTEXT.md`,
       `DESIGN.md`, `MVP-PLAN.md`, and the active `MILESTONES.md` task and makes
       this repository's committed material authoritative.
-- [x] `[AUTO]` `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [ ] `[AUTO]` `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`, dependency/license checks,
       contract validation, and design-token validation each run a real check
       and fail on an injected error.
-- [x] `[AUTO]` `cargo xtask verify` runs the complete ordinary verification set
+- [ ] `[AUTO]` `cargo xtask verify` runs the complete ordinary verification set
       in a stable order and exits nonzero on the first failed required gate.
-- [x] `[AUTO]` Module and integration tests use temporary directories/databases
+- [ ] `[AUTO]` Module and integration tests use temporary directories/databases
       and never read or mutate a developer's Parish data.
-- [x] `[UI-AUTO]` A GPUI `TestAppContext` or equivalent internal harness opens
+- [ ] `[UI-AUTO]` A GPUI `TestAppContext` or equivalent internal harness opens
       the root view, dispatches one action, verifies state/render output, and
       closes without leaked background work.
-- [x] `[AUTO]` Runtime resources are locally bundled or packaged; a source scan
+- [ ] `[AUTO]` Runtime resources are locally bundled or packaged; a source scan
       and packaged manifest reject an unintended runtime network dependency.
 
 **E2E** `[UI-AUTO]` — From a clean checkout, run `cargo xtask verify`, launch
@@ -188,6 +189,9 @@ and responsive chrome before feature pages depend on them.
 - [ ] `[UI-AUTO]` The rail uses icons plus persistent labels when space permits
       and collapses to accessible labeled icons with tooltips when effective
       width or Interface scale requires it.
+- [ ] `[UI-AUTO]` Settings and `Ctrl++`/`Ctrl+-`/`Ctrl+0` select the supported
+      100%, 125%, 150%, 175%, and 200% Interface scales, persist the
+      installation preference, and never reflow canonical Slide content.
 - [ ] `[UI-AUTO]` The active destination remains non-color-only and survives
       opening and returning from a focused editor.
 - [ ] `[AUTO]` Buttons, fields, menus, tooltips, comboboxes, disclosures, tabs,
@@ -261,10 +265,11 @@ operator sizes, operating systems, display scaling, and preview consumers.
 - [ ] `[AUTO]` The canonical layout/shaping path is explicit and separate from
       ordinary GPUI operator text layout; it never asks a preview container to
       reflow canonical content.
-- [ ] `[NATIVE-AUTO]` Logical glyph positions, wrapping, pagination inputs,
-      safe area, and element bounds are byte-for-byte or tolerance-defined
+- [ ] `[NATIVE-AUTO]` Serialized canonical logical glyph positions, wrapping,
+      pagination inputs, safe area, and element bounds are byte-for-byte
       invariant across packaged Windows/Linux runs, 100–200% Ordo Interface
-      scale, representative system scale, and output densities.
+      scale, representative system scale, and output densities; raster
+      sharpness is qualified separately per platform.
 - [ ] `[AUTO]` Target density may change raster dimensions and sharpness but not
       logical composition.
 - [ ] `[UI-AUTO]` Timeline thumbnail, Inspector, Preview, and Program wrappers
@@ -351,10 +356,10 @@ baseline before full UI construction.
       Presenter commands are below 50ms and total memory never exceeds the 1GB
       release ceiling.
 - [ ] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
-      representative 500-Cue Presenter memory baselines. Adopt the lowest
-      repeatable preferred budget that leaves measured safety headroom; it must
-      be materially below the former 750MB Electron target or the native-memory
-      rationale is explicitly re-examined before Phase 1.
+      representative 500-Cue Presenter memory baselines across three runs.
+      Every run stays within the 512 MiB preferred budget and the 1 GiB hard
+      ceiling; exceeding 512 MiB blocks Phase 1 pending an explicit budget and
+      native-memory rationale revision.
 - [ ] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
 
@@ -403,8 +408,8 @@ version.
 **Goal:** Freeze the portable contract shape before library, snapshot, and
 transfer data begin depending on it.
 
-**Changes:** `contracts/`, `crates/portability/src/container/`,
-`tests/fixtures/contracts/`, `tests/portability/container/`, `docs/contracts/`
+**Changes:** `contracts/`, `crates/platform/src/artifact_container/`,
+`tests/fixtures/contracts/`, `tests/artifact-container/`, `docs/contracts/`
 
 **Depends on:** T0.1.
 
@@ -439,7 +444,7 @@ occurs.
 **Goal:** Prove that the chosen library can generate the exact static fallback
 contract and that the church PowerPoint can reopen it.
 
-**Changes:** `crates/powerpoint/`, `tests/powerpoint/`,
+**Changes:** `crates/platform/src/powerpoint_spike/`, `tests/powerpoint/`,
 `tests/fixtures/powerpoint/`, `xtask/src/inspect_pptx.rs`
 
 **Depends on:** T0.4.
@@ -658,8 +663,8 @@ cannot accidentally change Program.
       this section, while ineligible liturgical content explains refusal.
 - [ ] `[UI-AUTO]` `F6` cycles Ordo rail, Cue timeline, and Output controls while
       skipping a closed unpinned rail and never changing live state.
-- [ ] `[UI-AUTO]` Passive rail and shortcut_reference focus leave `F`, `B`, and
-      `A`, and Space active.
+- [ ] `[UI-AUTO]` Passive rail and shortcut-reference focus leave only `F`, `B`,
+      and Space active; `A` requires an active Presenter command surface.
 - [ ] `[UI-AUTO]` A focused text field, emergency editor, or true modal suspends
       every single-key Presenter command until closed.
 - [ ] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
@@ -800,9 +805,9 @@ multiply.
 
 - [ ] `[AUTO]` Every committed edit point creates a durable content-hashed Edit
       revision linked to its parent; restoration creates a later revision.
-- [ ] `[AUTO]` Continuous text edits coalesce after the adopted idle/focus
-      boundary; structural add/remove/reorder and semantic replacement are
-      discrete points.
+- [ ] `[AUTO]` Continuous text edits coalesce after one second of inactivity or
+      focus departure; structural add/remove/reorder and semantic replacement
+      are discrete points.
 - [ ] `[AUTO]` Immediate Undo/Redo is scoped to the currently open entity and is
       cleared on entity departure or restart.
 - [ ] `[UI-AUTO]` Focused text fields consume native text Undo before committed
@@ -820,8 +825,8 @@ revision; assert current content and immutable history at each step.
 
 **Goal:** Implement the complete MVP Song Library model without UI concerns.
 
-**Changes:** `crates/domain/src/song_library/interface.rs`, `crates/domain/src/song_library/model/`,
-`crates/domain/src/song_library/storage.rs`, `tests/song-library/domain.*`
+**Changes:** `crates/domain/src/song_library/interface.rs`,
+`crates/domain/src/song_library/model/`, `tests/song-library/domain.*`
 
 **Depends on:** T2.1, T2.2.
 
@@ -1021,8 +1026,10 @@ verify exact flattened Cue order and canonical frames after reload.
 **Goal:** Make ordinary library evolution recoverable without introducing the
 deferred Song-merge system.
 
-**Changes:** `crates/ordo/src/history/`, `crates/domain/src/song_library/lifecycle.rs`,
-`crates/storage/src/reference_safety.rs`, `tests/e2e/songs/history-lifecycle.*`
+**Changes:** `crates/ordo/src/history/`,
+`crates/domain/src/song_library/lifecycle.rs`,
+`crates/domain/src/song_library/reference_safety.rs`,
+`crates/storage/src/song_references.rs`, `tests/e2e/songs/history-lifecycle.*`
 
 **Depends on:** T2.2, T2.3, T2.8.
 
@@ -1058,7 +1065,7 @@ without Ordo interpreting arbitrary PowerPoint files.
 `contracts/song-import/`, `tests/fixtures/song-import/`,
 `tests/e2e/songs/import.*`
 
-**Depends on:** T0.8, T2.3, T2.7, T2.8.
+**Depends on:** T0.8, T2.3, T2.5, T2.7, T2.8, T2.9.
 
 **AC**
 
@@ -1206,6 +1213,9 @@ propagation or per-slide styling.
 - [ ] `[UI-AUTO]` Editing a shared Theme is staged in place with affected-plan
       warning; Save creates one revision, while Duplicate creates a safe new
       Theme and redirects the editing context.
+- [ ] `[UI-AUTO]` Theme Library supports Rename, Duplicate, Set as parish
+      default, recoverable Archive, and Restore; archiving the current parish
+      default first requires selecting its replacement.
 - [ ] `[UI-AUTO]` Dirty navigation offers stay, discard, or save; returning from
       contextual edit restores staged Mass Theme chooser context.
 - [ ] `[UI-AUTO]` Theme History compares and restores whole revisions through
@@ -1394,9 +1404,10 @@ editors fill its center pane.
       the hierarchy while retaining one-section membership and Undo.
 - [ ] `[UI-AUTO]` Section menu supports rename, add above/below, move, and only
       eligible removal; item right-click/overflow uses the same action model.
-- [ ] `[UI-AUTO]` At 1366×768/100% all three panes remain; under stronger
-      constraint Inspector then outline become opposing labeled slideovers, one
-      at a time, with no whole-workspace horizontal scroll.
+- [ ] `[UI-AUTO]` At 1366×768/100% all three panes remain. When the effective
+      workspace cannot preserve 240px outline, 520px editor, and 300px
+      Inspector minima, Inspector then outline become opposing labeled
+      slideovers, one at a time, with no whole-workspace horizontal scroll.
 - [ ] `[UI-AUTO]` Resizing restores fixed panes, selection, scroll, autosave,
       and focus context without persisting a content revision.
 
@@ -1443,9 +1454,10 @@ one ambiguous generic form.
       operator-only trigger then required congregation response; role defaults
       are Priest (`P`) and congregation (`T`) but remain extensible. Reusable
       entries stay linked until Customize for this Mass.
-- [ ] `[AUTO]` Custom sequence supports deliberate mixed Cue behavior;
-      Announcement is focused projectable text; Hold is an ordinary black Cue;
-      Blackout is a state-changing Cue.
+- [ ] `[AUTO]` General Presentation Text is the focused projectable
+      announcement path; Custom sequence supports deliberate mixed projectable
+      and operator-only Cue behavior; Hold is an ordinary black Cue; Blackout
+      is a state-changing Cue.
 - [ ] `[UI-AUTO]` Remove from this Mass never deletes reusable source content
       and offers immediate Undo.
 
@@ -1585,14 +1597,14 @@ and assert the exact unavailable set and absence of an approval button.
 language/source provider part of Ordo core.
 
 **Changes:** `crates/domain/src/mass_planning/liturgy_import/`,
-`crates/ordo/src/masses/liturgy_import/`, `contracts/liturgy_import/`,
-`tests/fixtures/liturgy_import/`, `tests/e2e/masses/liturgy_import.*`
+`crates/ordo/src/masses/liturgy_import/`, `contracts/liturgy-import/`,
+`tests/fixtures/liturgy-import/`, `tests/e2e/masses/liturgy_import.*`
 
 **Depends on:** T0.8, T3.9, T3.13.
 
 **AC**
 
-- [ ] `[AUTO]` Accept a `liturgy_import` `.ordo` artifact with language,
+- [ ] `[AUTO]` Accept a `liturgy-import` `.ordo` artifact with language,
       Celebration evidence, readings, responses, roles, source references, and
       intended target slots/items.
 - [ ] `[AUTO]` Provider identity such as Sulugoon is optional provenance only;
@@ -2038,13 +2050,14 @@ keep installation-specific choices separate from Parish content.
 **Changes:** `crates/ordo/src/first_run/`, `crates/ordo/src/settings/parish/`,
 `crates/ordo/src/settings/installation/`, `tests/e2e/first_run.*`
 
-**Depends on:** T3.6, T4.9.
+**Depends on:** T3.10, T4.9.
 
 **AC**
 
-- [ ] `[UI-AUTO]` First launch asks for Parish name and optional default
-      location, regular Presiders/default Presider, and Choirs without requiring
-      internet, login, Theme creation, template creation, or display assignment.
+- [ ] `[UI-AUTO]` First launch requires only Parish name and offers optional
+      default location and regular Presiders/default Presider without requiring
+      Choirs, internet, login, Theme creation, template creation, or display
+      assignment.
 - [ ] `[UI-AUTO]` Optional setup can be skipped and completed later through
       Settings; Masses opens as the default destination.
 - [ ] `[AUTO]` Parish settings travel in Parish Backup as appropriate;
@@ -2375,8 +2388,9 @@ Program or partial durable mutation.
 
 - [ ] `[AUTO]` Rendering faults cover font, image, decode, worker, GPU/context,
       unavailable future Cue, and incomplete frame.
-- [ ] `[AUTO]` Storage faults cover migration, transaction, utility-process
-      death, disk-full/write error, asset coordination, and integrity failure.
+- [ ] `[AUTO]` Storage faults cover migration, transaction, storage-worker
+      thread death, disk-full/write error, asset coordination, and integrity
+      failure.
 - [ ] `[AUTO]` Portability faults cover traversal, unknown version, tamper,
       missing asset, read-back failure, destination replacement, interrupted
       finalization, reconciliation conflict, restore switch, and rollback.
@@ -2580,9 +2594,8 @@ or disconnected UI alone.
 
 - Presenter command latency: `<50ms` p95 for keydown→Preview and keydown→Program
   on the supported minimum profile and actual church PC.
-- Native memory: the preferred representative-session target is established
-  from the repeatable Phase 0 GPUI baseline and must remain materially below the
-  former `750MB` Electron target; `1GB` remains the hard release ceiling.
+- Native memory: every representative-session run remains within the `512 MiB`
+  preferred budget; `1 GiB` remains the hard release ceiling.
 - Canonical composition: fixed `1920x1080`; Interface/system scaling may not
   change wrapping, pagination, geometry, or safe area.
 - Program safety: only black, Disconnected, or a complete validated canonical

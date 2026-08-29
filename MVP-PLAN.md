@@ -329,7 +329,7 @@ inside an existing crate.
 - **Masses** uses **Upcoming**, **History**, **Archive**, and **Templates** as horizontal local tabs. Arrangement and Theme editor tabs likewise change the current entity's task/view rather than navigating to another global destination.
 - Launch Presenter Mode from a selected Mass plan so the presentation context is explicit.
 - Show icons with persistent labels at comfortable widths. At constrained widths, collapse the rail to accessible labeled icons with tooltips while preserving a non-color-only active-workspace treatment.
-- Preparation workspaces retain their full primary-list-or-outline, editor, and Inspector composition at qualified `1366x768`/`100%`. Adapt from effective available dimensions after system scale, Interface scale, window size, and minimum useful pane widths rather than from monitor resolution alone.
+- Preparation workspaces retain their full primary-list-or-outline, editor, and Inspector composition at qualified `1366x768`/`100%`. Adapt from effective available dimensions after system scale, Interface scale, window size, and navigation chrome, preserving minimum logical widths of `240px` for the list/outline, `520px` for the editor, and `300px` for Inspector rather than using a monitor-resolution breakpoint.
 - Use `design-references/ordo-mass-planning-responsive*` as the paired visual-acceptance baseline: the compact target retains all three panes and the wider target preserves their ownership while exposing more outline rows, metadata, generated Cues, and canonical-preview area. Treat the reference as hierarchy evidence rather than exact production dimensions.
 - When constrained, keep the primary list or Mass outline beside the editor while moving Inspector into a labeled right slideover; at narrower effective widths preserve only the editor and expose both side regions as opposing labeled slideovers. Only one temporary side pane opens at a time. Never add whole-workspace horizontal scrolling or squeeze the editor below its useful minimum.
 - Preserve selection, scroll position, editor/autosave state, and meaningful focus targets across responsive transitions. Keep the current entity visible in compact chrome, leave the primary workspace action visible, and move only lower-priority actions into a labeled accessible overflow. Returning to sufficient width restores fixed panes without treating layout as persisted Parish content.
@@ -431,7 +431,7 @@ inside an existing crate.
 ### 6.14 Mass-editor persistence and Undo
 
 - Autosave ordinary Mass-plan edits locally and show quiet **Saving…** / **Saved** status in the plan header; selected-item editors have no routine Save button.
-- Coalesce a continuous text-field editing session into one undoable revision after a short idle commit rather than recording every keystroke.
+- Coalesce a continuous text-field editing session into one undoable revision after one second of inactivity or focus departure rather than recording every keystroke.
 - Create separate undo points for structural and semantic commits, including add/remove/reorder, Song/Arrangement replacement, customization boundaries, and pagination approval.
 - After structural changes, provide temporary **Undo** feedback while retaining `Ctrl+Z` as the persistent latest-edit path.
 - Keep guarded confirmation flows for destructive-boundary operations, and flush pending edits durably on editor/application close without requiring a network connection.
@@ -515,7 +515,7 @@ inside an existing crate.
 
 ### 6.18 Song and Arrangement persistence
 
-- Autosave ordinary Song-detail fields and Arrangement lyric text after a short idle pause or focus departure, coalescing each continuous typing session into one undoable edit.
+- Autosave ordinary Song-detail fields and Arrangement lyric text after one second of inactivity or focus departure, coalescing each continuous typing session into one undoable edit.
 - Persist section, Sequence, and slide-boundary structural changes immediately as discrete undo points. Keep **Create song**, **Create Arrangement**, and staged **Save details** as explicit transactional boundaries rather than treating their surfaces as ordinary autosave forms.
 - Show quiet **Saving…**, **Saved**, and **Couldn’t save** status in the editor header without a routine global Save button.
 - Flush pending local edits before navigation or application close. On failure, retain the recoverable edit and warn before leaving instead of silently discarding it.
@@ -649,9 +649,9 @@ inside an existing crate.
 - Default lyric body size is 72 canvas units; automatic reduction stops at 64.
 - Pagination targets two logical lyric phrases and no more than four rendered lyric lines per slide.
 - Split at intentional line or phrase boundaries before reducing size; never silently clip or shrink below the minimum.
-- Lyrics preserve authored casing and optionally repeat their section label at top-left; Response text stores authored casing but renders uppercase beneath an optional repeated `TUBAG:` label.
+- Lyrics preserve authored casing and optionally repeat their section label at top-left. Response text stores authored casing but renders uppercase beneath an optional repeated language-owned header; `TUBAG:` is the Cebuano default, not a renderer literal.
 - Reading identification renders the uppercase proclamation title above a bottom-left reference. Reading passages preserve authored casing, keep the reference on every Slide, and treat a blank line as a hard Slide boundary.
-- Responsorial Psalm emits one linked refrain before the first cantor verse and after every verse. An unprojected cantor verse is a Wait Cue that leaves Program unchanged; an enabled cantor projection uses Reading-passage treatment.
+- Responsorial Psalm emits one linked refrain before the first cantor verse and after every verse. Its language-owned small header uses the plan/template wording; `SALMO RESPONSORYO` is the Cebuano default, not a renderer literal. An unprojected cantor verse is a Wait Cue that leaves Program unchanged; an enabled cantor projection uses Reading-passage treatment.
 - Song identification uses a bottom-left uppercase title/credit block. Celebration title uses a vertically centered uppercase title and bottom-left localized date. Both permit at most three title lines before readiness warning.
 - General Presentation Text mode supports optional header, center-left body, and optional footer. Image mode contains one foreground image in the safe area with optional header/caption; Theme images remain backgrounds.
 - Higher-density output may rerender the same geometry for sharpness but cannot recompute layout.
@@ -834,9 +834,9 @@ Test through Module Interfaces; do not mirror each internal class with shallow t
 
 Measure on a minimum-profile reference computer with a representative large Mass:
 
-- Keep total Ordo memory below the preferred native budget established by the
-  repeatable Phase 0 GPUI baseline; that target must be materially below the
-  former 750 MB Electron target. Retain 1 GB as the hard safety ceiling.
+- Keep total Ordo memory within a `512 MiB` preferred budget across each
+  representative Phase 0 run. Retain `1 GiB` as the hard safety ceiling; a
+  preferred-budget change requires an explicit rationale before Phase 1.
 - Average idle CPU below 5% over 30 seconds on a static Program frame.
 - Left/Right, Freeze, Blackout, and Space visibly take effect within 50 ms at p95.
 - No lost input during rapid sequential navigation.
@@ -914,5 +914,5 @@ The MVP is done when all of the following are true:
 
 1. Complete [`MILESTONES.md` T0.1](./MILESTONES.md#t01--repository-toolchain-and-verification-harness): qualify the pinned Rust Cargo workspace and native verification harness before feature work.
 2. Continue Phase 0 in dependency order; retain every new spike as a permanent regression fixture or qualification script.
-3. Prepare the sanitized Normal Mass and Recovery Drill fixtures described in T1.1 from the reviewed evidence and `2026-08-23.md`, without copying parish-owned text that should not enter source control.
+3. Prepare the sanitized Normal Mass and Recovery Drill fixtures described in T1.1 from synthetic, in-repository examples that exercise the adopted contracts; do not depend on or copy parish-owned external source text.
 4. Establish the minimum-profile performance machine and schedule access to the actual church projector early, not only at final release.

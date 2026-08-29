@@ -116,7 +116,7 @@ _Avoid_: Canonical source, core liturgy module
 The canonical identity of one underlying musical composition or setting, independent of choir, Arrangement, language version, or liturgical use. Similar titles or shared liturgical text do not unite distinct musical settings into one Song work.
 _Avoid_: Song version
 
-**Merged Song redirect**:
+**Merged Song redirect (post-MVP)**:
 The retained identity of a Song work retired by a reviewed merge, resolving its original UUID, titles, and aliases to the current surviving Song work without remaining an independently selectable Song.
 _Avoid_: Archived Song, deleted Song
 

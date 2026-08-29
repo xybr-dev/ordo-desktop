@@ -480,7 +480,9 @@ Emergency editing is a second controlled exception:
 
 > **Superseded in part by Decision 252.** The Electron selection, process model,
 > and Electron-specific rationale below are retained as decision history. The
-> hardware qualification and safety/performance outcomes remain applicable.
+> hardware qualification and safety/performance outcomes remain applicable,
+> except that Decision 252 replaces the Electron-era 750 MB preferred memory
+> target with the native 512 MiB preferred budget.
 
 - Use Electron as Ordo's cross-platform desktop shell.
 - Electron's bundled Chromium renderer is preferred over a system-webview shell because Ordo must minimize layout and rendering differences between Linux preparation and Windows presentation.
@@ -1342,7 +1344,7 @@ Emergency editing is a second controlled exception:
 
 - Use autosave throughout ordinary Mass-plan editing; do not add a routine **Save** button to selected-item editors.
 - Display quiet persistence feedback in the Mass-plan header: **Saving…** while a local write is pending and **Saved** after it is durably stored.
-- Commit text-field edits after a short inactivity interval and coalesce one continuous field-editing session into a useful undo unit rather than creating a revision for every keystroke.
+- Commit text-field edits after one second of inactivity or focus departure and coalesce one continuous field-editing session into a useful undo unit rather than creating a revision for every keystroke.
 - Create distinct undo points for structural and semantic commits such as adding/removing/reordering exchange blocks or section occurrences, changing a Song/Arrangement, creating or discarding customization, and approving pagination changes.
 - Show temporary action feedback with **Undo** after structural changes. Keep `Ctrl+Z` available for the most recent Mass-plan edit after the temporary feedback disappears.
 - Preserve explicit confirmation before guarded destructive-boundary operations; autosave and Undo do not replace the adopted replacement/customization review flows.
@@ -1558,7 +1560,7 @@ Emergency editing is a second controlled exception:
 
 ### 138. Song and Arrangement autosave boundaries
 
-- Autosave ordinary Song-detail fields and Arrangement lyric text after a short idle pause or when focus leaves the edited field. Keep authored content local-first and require no network or routine global Save action.
+- Autosave ordinary Song-detail fields and Arrangement lyric text after one second of inactivity or when focus leaves the edited field. Keep authored content local-first and require no network or routine global Save action.
 - Coalesce one continuous typing session into one persisted, undoable edit rather than creating a revision for every keystroke.
 - Persist section creation, rename, removal, and reorder; Sequence insertion, repeat, removal, and reorder; and slide-boundary changes immediately as discrete undo points.
 - Preserve explicit transactional boundaries where they already communicate staged intent: **Create song**, **Create Arrangement**, and **Save details** commit their respective New Song, New Arrangement, and Arrangement-details surfaces; Cancel discards those staged changes.
@@ -2414,7 +2416,7 @@ Emergency editing is a second controlled exception:
 
 ### 234. Operator-only interface scaling isolated from canonical slide rendering
 
-- Provide installation-specific **Interface scale** choices of `100%`, `125%`, `150%`, `175%`, and `200%`, with standard `Ctrl++`, `Ctrl+-`, and `Ctrl+0` controls. Scale operator text, controls, spacing, hit areas, and focus treatment together rather than enlarging glyphs inside fixed-height chrome.
+- Provide installation-specific **Interface scale** choices of `100%`, `125%`, `150%`, `175%`, and `200%`, persisted as an installation preference and controlled through Settings plus standard `Ctrl++`, `Ctrl+-`, and `Ctrl+0` controls. Scale operator text, controls, spacing, hit areas, and focus treatment together rather than enlarging glyphs inside fixed-height chrome.
 - Treat Windows/Linux system display scaling and Ordo Interface scale as operator-environment concerns only. They may resize and reflow Ordo's non-slide chrome but may never change the content geometry, font metrics, wrapping, pagination, safe area, or Theme typography of a canonical Slide.
 - Do not implement Interface scale as an indiscriminate GPUI/window scale that also multiplies canonical Slide layout. Apply it through operator-shell layout and typography tokens outside the Canonical Slide Renderer seam; fit the passive congregation view through the qualified Output Fit path.
 - Compose every Slide in an explicit `1920x1080` logical coordinate space independent of GPUI viewport dimensions, operating-system scale, Ordo Interface scale, and physical output density. A target display's physical resolution or scale factor may request a sharper raster, but density changes only sampling quality: logical glyph positions, line breaks, element bounds, and pagination remain identical.
@@ -2436,7 +2438,7 @@ Emergency editing is a second controlled exception:
 ### 236. Editor-first adaptation for constrained Preparation workspaces
 
 - Retain the full primary-list-or-outline, editor, and Inspector composition at the qualified `1366x768` desktop size under ordinary `100%` Interface scale. Wider space may increase useful preview and editing area but does not change ownership among those regions.
-- Base adaptation on effective available workspace dimensions after operating-system scaling, Ordo Interface scale, window resizing, navigation chrome, and minimum usable pane sizes—not on physical monitor resolution alone. Use content-qualified thresholds rather than assuming a device class from its display name.
+- Base adaptation on effective available workspace dimensions after operating-system scaling, Ordo Interface scale, window resizing, navigation chrome, and minimum usable logical pane widths of `240px` for primary list/outline, `520px` for editor, and `300px` for Inspector—not on physical monitor resolution alone.
 - As horizontal space first becomes constrained, preserve the primary list or Mass outline beside the editor and turn the Inspector into a labeled right-side slideover. At narrower effective widths, preserve only the main editor and expose the primary list/outline and Inspector as opposing labeled slideovers.
 - Permit only one temporary side pane to be open at a time in the constrained layout. Opening the other replaces it without losing selection, scroll position, editor state, or autosaved content; dismissal returns focus to its opener or the selected relevant entity.
 - Never introduce whole-workspace horizontal scrolling, squeeze the editor beneath its usable content minimum, clip primary actions, or hide selection context merely to retain nominal three-pane geometry. Keep the current entity/title visible in compact workspace chrome.
@@ -2571,7 +2573,7 @@ Emergency editing is a second controlled exception:
 
 ### 251. Separate strategic planning from checkbox-driven execution milestones
 
-- Keep `MVP-PLAN.md` authoritative for outcome, scope, journeys, domain relationships, architecture, behavior, contracts, verification strategy, release gates, risks, and deferred work.
+- Assign authority by subject: `MVP-PLAN.md` owns product outcome, scope, journeys, strategic architecture, contracts, verification strategy, release gates, risks, and deferred work; `CONTEXT.md` owns domain terms and invariants; `DESIGN.md` owns visible behavior and visual tokens; and `MILESTONES.md` owns task order, status, acceptance criteria, and delivery gates. Use this ledger to resolve gaps and reconcile any conflict into the applicable shorter document before implementation.
 - Move the implementation sequence into `MILESTONES.md` and make it the sole task-status document so parallel milestone descriptions cannot drift.
 - Give every execution task a Goal, intended Changes/locality, dependencies, objectively checkable checkbox acceptance criteria, and at least one E2E scenario.
 - Tag verification honestly as automated CI, automated native GPUI UI testing, native packaged automation, scripted manual work, or physical church qualification. Human judgment and actual projector/PowerPoint behavior may never be relabeled as automatic merely to produce a green CI result.
@@ -2640,10 +2642,10 @@ Emergency editing is a second controlled exception:
   native CI builds. Replace Electron Forge/npm packaging with pinned Cargo and
   platform-native packaging scripts.
 - Retain the adopted `<50 ms` p95 Presenter command goal, rapid-input safety,
-  idle-CPU gate, bounded frame caches, and `1 GB` hard memory ceiling. Phase 0
-  must record a native GPUI baseline and establish a materially lower preferred
-  memory target from representative fixtures rather than declaring success
-  merely because the old Electron ceiling is met.
+  idle-CPU gate, bounded frame caches, and `1 GiB` hard memory ceiling. Adopt a
+  `512 MiB` preferred total-process budget for every representative Phase 0 run;
+  exceeding it blocks Phase 1 until an explicit budget and native-memory
+  rationale revision is adopted.
 - Keep the existing `8 GB` church-PC profile as the conservative initial
   qualification machine, not as proof that GPUI requires 8 GB. Decision 252
   removes Chromium as the reason for rejecting 4 GB; support for a lower-memory
@@ -2722,10 +2724,12 @@ Emergency editing is a second controlled exception:
 - Lyrics use an optional top-left section label and authored-case, left-aligned
   text optically centered in the remaining region. The label defaults on,
   repeats on every generated Slide, and is toggled once per Song item.
-- Response Slides render an optional repeated `TUBAG:` header and an emphasized
-  uppercase congregation response. Store authored casing unchanged. Response
-  sequences contain ordered optional private minister text plus required
-  projected congregation responses.
+- Response Slides render an optional repeated language-owned header and an
+  emphasized uppercase congregation response. `TUBAG:` is the Cebuano default,
+  not a renderer literal; the Mass plan's language-specific template/content
+  supplies other wording. Store authored casing unchanged. Response sequences
+  contain ordered optional private minister text plus required projected
+  congregation responses.
 - Reading identification uses a large uppercase proclamation title with its
   reference at bottom-left and no redundant First/Second/Gospel output label.
   Subsequent Scripture Slides preserve authored casing, use smaller text, retain
@@ -2736,10 +2740,11 @@ Emergency editing is a second controlled exception:
   exchange. Language-specific templates own the wording and optional blocks. A
   Good Friday preset may omit the opening greeting and pre-passage acclamation
   while retaining the closing exchange.
-- Responsorial Psalms project the refrain before the first cantor verse and
-  after every verse (`n + 1` linked occurrences). Cantor verses are private by
-  default and use Wait Cues that leave Program unchanged; optional projection
-  turns them into ordinary Scripture-style Slides.
+- Responsorial Psalms use the same language-owned header rule; `SALMO
+  RESPONSORYO` is the Cebuano default. They project the refrain before the first
+  cantor verse and after every verse (`n + 1` linked occurrences). Cantor verses
+  are private by default and use Wait Cues that leave Program unchanged;
+  optional projection turns them into ordinary Scripture-style Slides.
 - Song identification is a bottom-left block with a large uppercase title,
   smaller composer/source, and optional Arrangement/Choir credit. The automatic
   selectable Celebration-title Cue precedes the first Mass section, defaults

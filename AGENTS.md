@@ -16,9 +16,13 @@ criterion.
 4. Use `MVP-PLAN.md` for strategic architecture and scope.
 5. Use `LEARNING-ROADMAP.md` when explaining unfamiliar Rust or GPUI code.
 
-`decision.md` is the detailed decision ledger. Consult it when the shorter
-documents do not resolve a behavior; do not reinterpret an adopted decision
-silently.
+This list is a reading route, not a precedence stack. Authority is by subject:
+`MILESTONES.md` owns task order, status, and acceptance gates; `CONTEXT.md` owns
+domain terms and invariants; `DESIGN.md` owns visible behavior and visual
+tokens; and `MVP-PLAN.md` owns product scope and strategic architecture.
+`decision.md` is the detailed decision ledger. Consult it when the applicable
+shorter document is silent; if normative documents conflict, reconcile them
+before implementation rather than choosing one silently.
 
 ## Source authority
 

@@ -62,7 +62,7 @@ completed church reports.
 - [ ] Identification, response, lyric, reading, repeated-section, Hold, and Blackout content behaves correctly.
 - [ ] One-to-four-line lyrics and deliberately long wrapped text remain comfortably readable.
 - [ ] Cebuano and fallback-font glyphs render correctly.
-- [ ] Canonical composition, line breaks, 5% safe area, contrast, and Output Fit remain correct.
+- [ ] Canonical composition, line breaks, the 120×80 minimum safe area, contrast, and Output Fit remain correct.
 - [ ] No clipping, soft/unstable rendering, timing artifact, or strained readability is observed.
 - [ ] Cursor remains absent from congregation output and the locator works when required.
 - [ ] CPU, memory, thermal behavior, and Presenter latency remain within adopted gates.
