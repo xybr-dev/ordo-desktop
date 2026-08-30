@@ -85,72 +85,6 @@ struct RuntimeManifest {
     bundled_resources: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct DesignTokens {
-    schema_version: u32,
-    canonical_slide: CanonicalSlide,
-    colors: BTreeMap<String, String>,
-    typography: Typography,
-    spacing: BTreeMap<String, u16>,
-    radii: BTreeMap<String, u16>,
-    borders: BTreeMap<String, u16>,
-    elevation: BTreeMap<String, String>,
-    icons: Icons,
-    density: BTreeMap<String, u16>,
-    motion: Motion,
-    interface_scales: Vec<u16>,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct CanonicalSlide {
-    width: u32,
-    height: u32,
-    aspect_ratio: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct Typography {
-    operator_family: String,
-    fallback_family: String,
-    title: TypeStyle,
-    body: TypeStyle,
-    label: TypeStyle,
-    projected_response: TypeStyle,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct TypeStyle {
-    size: u16,
-    weight: u16,
-    line_height: f32,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct Icons {
-    family: String,
-    control_size: u16,
-    navigation_size: u16,
-    stroke_width: u16,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct Motion {
-    quick_duration_ms: u16,
-    standard_duration_ms: u16,
-    overlay_open_duration_ms: u16,
-    overlay_close_duration_ms: u16,
-    output_content_duration_ms: u16,
-    output_blank_duration_ms: u16,
-    reduced_motion_max_duration_ms: u16,
-    easing: String,
-}
-
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -161,17 +95,15 @@ pub fn repo_root() -> PathBuf {
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
     let metadata = metadata(&root)?;
-    println!("[1/9] workspace contracts");
+    println!("[1/8] workspace contracts");
     verify_architecture_metadata(&metadata)?;
-    println!("[2/9] design tokens");
-    verify_design_tokens(&root)?;
-    println!("[3/9] offline runtime contract");
+    println!("[2/8] offline runtime contract");
     verify_offline_contract(&root)?;
-    println!("[4/9] git pins");
+    println!("[3/8] git pins");
     verify_git_pins_metadata(&root, &metadata)?;
-    println!("[5/9] rustfmt");
+    println!("[4/8] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
-    println!("[6/9] clippy");
+    println!("[5/8] clippy");
     run(
         &root,
         "cargo",
@@ -185,15 +117,15 @@ pub fn verify() -> XtaskResult<()> {
             "warnings",
         ],
     )?;
-    println!("[7/9] shipping configuration");
+    println!("[6/8] shipping configuration");
     run(
         &root,
         "cargo",
         &["check", "-p", "ordo", "--release", "--locked"],
     )?;
-    println!("[8/9] tests");
+    println!("[7/8] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
-    println!("[9/9] dependencies, advisories, sources, and licenses");
+    println!("[8/8] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
     Ok(())
@@ -376,200 +308,6 @@ fn validate_ui_dependency_policy(
         }
     }
     Ok(())
-}
-
-pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
-    let contents = fs::read_to_string(root.join("crates/ui/design-tokens.json"))?;
-    validate_design_tokens(&contents)
-}
-
-fn validate_design_tokens(contents: &str) -> XtaskResult<()> {
-    let tokens: DesignTokens = serde_json::from_str(contents)?;
-    if tokens.schema_version != 2 {
-        return Err("unsupported design-token schema".into());
-    }
-    if tokens.canonical_slide.width != 1920
-        || tokens.canonical_slide.height != 1080
-        || tokens.canonical_slide.aspect_ratio != "16:9"
-    {
-        return Err("canonical slide must remain 1920x1080 at 16:9".into());
-    }
-    let expected_colors = expected_strings(&[
-        ("preparation_background", "#F4F0E7"),
-        ("preparation_surface", "#FFFDF8"),
-        ("preparation_surface_muted", "#EBE5DB"),
-        ("preparation_text", "#27231F"),
-        ("preparation_text_muted", "#716B62"),
-        ("preparation_border", "#D7CFC2"),
-        ("preparation_border_strong", "#8E8476"),
-        ("presenter_background", "#151816"),
-        ("presenter_surface", "#222722"),
-        ("presenter_surface_raised", "#303630"),
-        ("presenter_text", "#F2EFE8"),
-        ("presenter_text_muted", "#B1ADA4"),
-        ("presenter_border", "#414842"),
-        ("presenter_border_strong", "#7A857B"),
-        ("primary", "#355D4B"),
-        ("on_primary", "#FFFFFF"),
-        ("selection_preparation", "#DFE9E2"),
-        ("selection_presenter", "#26362C"),
-        ("live_preparation", "#2F6B4F"),
-        ("live_presenter", "#55D69C"),
-        ("freeze_preparation", "#9A5B10"),
-        ("freeze_presenter", "#F0B35E"),
-        ("blackout", "#050606"),
-        ("on_blackout", "#FFFFFF"),
-        ("warning_preparation", "#9A5B10"),
-        ("warning_presenter", "#F0B35E"),
-        ("danger_preparation", "#9D3E31"),
-        ("danger_presenter", "#EF8E82"),
-        ("information_preparation", "#315E83"),
-        ("information_presenter", "#9ACDF2"),
-        ("focus_preparation", "#2F6FA3"),
-        ("focus_presenter", "#8FCBFF"),
-        ("projection_background", "#000000"),
-        ("projection_text", "#FFFFFF"),
-        ("liturgical_purple", "#6D4A87"),
-        ("liturgical_red", "#A43F38"),
-        ("liturgical_green", "#46744D"),
-        ("liturgical_rose", "#C9788E"),
-        ("liturgical_white", "#F9F5E9"),
-    ]);
-    if tokens.colors != expected_colors {
-        return Err("semantic color tokens differ from DESIGN.md".into());
-    }
-    for (name, color) in &tokens.colors {
-        if !is_hex_color(color) {
-            return Err(format!("{name} must be an opaque #RRGGBB color").into());
-        }
-    }
-    if tokens.typography
-        != (Typography {
-            operator_family: "Atkinson Hyperlegible Next".to_owned(),
-            fallback_family: "Noto Sans".to_owned(),
-            title: TypeStyle {
-                size: 24,
-                weight: 600,
-                line_height: 1.2,
-            },
-            body: TypeStyle {
-                size: 16,
-                weight: 400,
-                line_height: 1.45,
-            },
-            label: TypeStyle {
-                size: 14,
-                weight: 500,
-                line_height: 1.3,
-            },
-            projected_response: TypeStyle {
-                size: 72,
-                weight: 800,
-                line_height: 1.15,
-            },
-        })
-    {
-        return Err("typography tokens differ from DESIGN.md".into());
-    }
-    for (name, actual, expected) in [
-        (
-            "spacing",
-            &tokens.spacing,
-            expected_map(&[
-                ("unit", 4),
-                ("related_tight", 4),
-                ("related", 8),
-                ("control_inset", 12),
-                ("group", 16),
-                ("section", 24),
-            ]),
-        ),
-        (
-            "radii",
-            &tokens.radii,
-            expected_map(&[("control", 4), ("overlay", 8), ("slide_viewport", 4)]),
-        ),
-        (
-            "borders",
-            &tokens.borders,
-            expected_map(&[
-                ("separator", 1),
-                ("focus_separation", 2),
-                ("focus_outer", 2),
-            ]),
-        ),
-        (
-            "density",
-            &tokens.density,
-            expected_map(&[
-                ("compact_control", 32),
-                ("default_control", 36),
-                ("presenter_control", 40),
-                ("workspace_gutter_compact", 16),
-                ("workspace_gutter_wide", 24),
-            ]),
-        ),
-    ] {
-        if actual != &expected {
-            return Err(format!("{name} tokens differ from DESIGN.md").into());
-        }
-    }
-    if tokens.elevation
-        != expected_strings(&[
-            ("floating_preparation", "0 4px 12px rgba(39, 35, 31, 0.14)"),
-            ("overlay_preparation", "0 18px 48px rgba(39, 35, 31, 0.20)"),
-            ("floating_presenter", "0 4px 14px rgba(0, 0, 0, 0.40)"),
-            ("overlay_presenter", "0 18px 52px rgba(0, 0, 0, 0.58)"),
-        ])
-    {
-        return Err("elevation tokens differ from DESIGN.md".into());
-    }
-    if tokens.icons
-        != (Icons {
-            family: "Lucide".to_owned(),
-            control_size: 16,
-            navigation_size: 20,
-            stroke_width: 2,
-        })
-    {
-        return Err("icon tokens differ from DESIGN.md".into());
-    }
-    if tokens.motion
-        != (Motion {
-            quick_duration_ms: 120,
-            standard_duration_ms: 160,
-            overlay_open_duration_ms: 400,
-            overlay_close_duration_ms: 200,
-            output_content_duration_ms: 0,
-            output_blank_duration_ms: 500,
-            reduced_motion_max_duration_ms: 100,
-            easing: "cubic-bezier(0.2, 0, 0, 1)".to_owned(),
-        })
-        || tokens.interface_scales != [100, 125, 150, 175, 200]
-    {
-        return Err("motion or Interface-scale tokens differ from DESIGN.md".into());
-    }
-    Ok(())
-}
-
-fn expected_map<T: Clone>(entries: &[(&str, T)]) -> BTreeMap<String, T> {
-    entries
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), value.clone()))
-        .collect()
-}
-
-fn expected_strings(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
-    entries
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .collect()
-}
-
-fn is_hex_color(value: &str) -> bool {
-    value.len() == 7
-        && value.starts_with('#')
-        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
@@ -800,20 +538,6 @@ fn run(root: &Path, program: &str, args: &[&str]) -> XtaskResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rejects_noncanonical_slide_tokens() {
-        let invalid = r##"{
-            "schema_version": 1,
-            "canonical_slide": {"width": 1366, "height": 768, "aspect_ratio": "16:9"},
-            "appearance": {
-                "dark_background": "#11100F",
-                "light_background": "#F7F3EB",
-                "focus_ring": "#2F6FED"
-            }
-        }"##;
-        assert!(validate_design_tokens(invalid).is_err());
-    }
 
     #[test]
     fn rejects_runtime_network_source() {

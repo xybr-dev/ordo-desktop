@@ -1,4 +1,8 @@
-//! Typed values for the semantic design tokens in `design-tokens.json`.
+//! Typed values for the semantic design tokens defined by `DESIGN.md`.
+//!
+//! `DESIGN.md`'s YAML frontmatter is the normative source. These constants are
+//! the only machine-readable copy; the tests below pin every one of them back
+//! to that frontmatter so the transcription cannot drift silently.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TypeStyle {
@@ -132,36 +136,75 @@ pub mod motion {
 
 pub const INTERFACE_SCALES: [u16; 5] = [100, 125, 150, 175, 200];
 
-/// `xtask verify` pins `design-tokens.json` to `DESIGN.md`; these assertions pin
-/// the typed constants above to that same file, so no transcription can drift
-/// silently. Leaf token names are unique across the document, which is what
-/// makes the containment check unambiguous.
+/// The invariant logical canvas every Slide composes in, independent of GPUI
+/// viewport size, Interface scale, OS scale, and physical output density.
+pub mod canonical_slide {
+    pub const WIDTH: u32 = 1920;
+    pub const HEIGHT: u32 = 1080;
+    pub const ASPECT_RATIO: &str = "16:9";
+}
+
+/// Pins every constant above to `DESIGN.md`'s normative YAML frontmatter, so a
+/// token edited in the design contract but not here fails the build.
+///
+/// Entries are matched with their leading newline and two-space indent, which
+/// is what keeps a lookup unambiguous when one token name is a suffix of
+/// another (`control` inside `compact-control`).
+///
+/// ponytail: `borders`, `interface_scales`, `reduced_motion_max_duration_ms`,
+/// and `fallback_family` live only in DESIGN.md's prose, not its frontmatter,
+/// so they have no automated check. Promote them to the frontmatter to cover
+/// them; matching prose instead would break on ordinary wording edits.
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TOKENS_JSON: &str = include_str!("../design-tokens.json");
+    const DESIGN_MD: &str = include_str!("../../../DESIGN.md");
+
+    /// The frontmatter alone, so prose that happens to quote a token value
+    /// cannot satisfy an assertion.
+    fn frontmatter() -> &'static str {
+        DESIGN_MD
+            .strip_prefix("---\n")
+            .and_then(|rest| rest.split_once("\n---\n"))
+            .expect("DESIGN.md must open with YAML frontmatter")
+            .0
+    }
 
     #[track_caller]
     fn assert_declares(entry: String) {
         assert!(
-            TOKENS_JSON.contains(&entry),
-            "design-tokens.json does not declare {entry}"
+            frontmatter().contains(&entry),
+            "DESIGN.md frontmatter does not declare{entry}"
         );
     }
 
+    /// Rust constants are grouped under snake_case names; the frontmatter spells
+    /// the same tokens in kebab-case.
+    #[track_caller]
+    fn assert_entry(name: &str, value: String) {
+        assert_declares(format!("\n  {}: {value}", name.replace('_', "-")));
+    }
+
     fn assert_color(name: &str, value: u32) {
-        assert_declares(format!("\"{name}\": \"#{value:06X}\""));
+        assert_entry(name, format!("\"#{value:06X}\""));
     }
 
-    fn assert_scalar(name: &str, value: f32) {
-        assert_declares(format!("\"{name}\": {}", value as u16));
+    /// Frontmatter geometry carries a `px` suffix; durations carry `ms`.
+    fn assert_scalar(name: &str, value: f32, unit: &str) {
+        assert_entry(name, format!("{}{unit}", value as u16));
     }
 
+    /// Type levels nest under their name, so the whole block is matched at once
+    /// and each `fontSize` stays bound to the level that declares it.
     fn assert_type_style(name: &str, style: TypeStyle) {
         assert_declares(format!(
-            "\"{name}\": {{ \"size\": {}, \"weight\": {}, \"line_height\": {} }}",
-            style.size as u16, style.weight, style.line_height
+            "\n  {}:\n    fontFamily: {}\n    fontSize: {}px\n    fontWeight: {}\n    lineHeight: {}",
+            name.replace('_', "-"),
+            typography::OPERATOR_FAMILY,
+            style.size as u16,
+            style.weight,
+            style.line_height
         ));
     }
 
@@ -216,23 +259,15 @@ mod tests {
 
     #[test]
     fn typography_and_icons_match_design_tokens() {
-        assert_declares(format!(
-            "\"operator_family\": \"{}\"",
-            typography::OPERATOR_FAMILY
-        ));
-        assert_declares(format!(
-            "\"fallback_family\": \"{}\"",
-            typography::FALLBACK_FAMILY
-        ));
-        assert_type_style("title", typography::TITLE);
-        assert_type_style("body", typography::BODY);
-        assert_type_style("label", typography::LABEL);
+        assert_type_style("operator_title", typography::TITLE);
+        assert_type_style("operator_body", typography::BODY);
+        assert_type_style("operator_label", typography::LABEL);
         assert_type_style("projected_response", typography::PROJECTED_RESPONSE);
 
-        assert_declares(format!("\"family\": \"{}\"", icon::FAMILY));
-        assert_scalar("control_size", icon::CONTROL_SIZE);
-        assert_scalar("navigation_size", icon::NAVIGATION_SIZE);
-        assert_scalar("stroke_width", icon::STROKE_WIDTH);
+        assert_entry("family", icon::FAMILY.to_owned());
+        assert_scalar("control_size", icon::CONTROL_SIZE, "px");
+        assert_scalar("navigation_size", icon::NAVIGATION_SIZE, "px");
+        assert_scalar("stroke_width", icon::STROKE_WIDTH, "px");
     }
 
     #[test]
@@ -247,9 +282,6 @@ mod tests {
             ("control", radius::CONTROL),
             ("overlay", radius::OVERLAY),
             ("slide_viewport", radius::SLIDE_VIEWPORT),
-            ("separator", border::SEPARATOR),
-            ("focus_separation", border::FOCUS_SEPARATION),
-            ("focus_outer", border::FOCUS_OUTER),
             ("compact_control", density::COMPACT_CONTROL),
             ("default_control", density::DEFAULT_CONTROL),
             ("presenter_control", density::PRESENTER_CONTROL),
@@ -259,7 +291,7 @@ mod tests {
             ),
             ("workspace_gutter_wide", density::WORKSPACE_GUTTER_WIDE),
         ] {
-            assert_scalar(name, value);
+            assert_scalar(name, value, "px");
         }
     }
 
@@ -272,36 +304,33 @@ mod tests {
             ("overlay_presenter", elevation::OVERLAY_PRESENTER),
             ("easing", motion::EASING),
         ] {
-            assert_declares(format!("\"{name}\": \"{value}\""));
+            assert_entry(name, format!("\"{value}\""));
         }
 
         for (name, value) in [
-            ("quick_duration_ms", motion::QUICK_DURATION_MS),
-            ("standard_duration_ms", motion::STANDARD_DURATION_MS),
-            ("overlay_open_duration_ms", motion::OVERLAY_OPEN_DURATION_MS),
+            ("quick_duration", motion::QUICK_DURATION_MS),
+            ("standard_duration", motion::STANDARD_DURATION_MS),
+            ("overlay_open_duration", motion::OVERLAY_OPEN_DURATION_MS),
+            ("overlay_close_duration", motion::OVERLAY_CLOSE_DURATION_MS),
             (
-                "overlay_close_duration_ms",
-                motion::OVERLAY_CLOSE_DURATION_MS,
-            ),
-            (
-                "output_content_duration_ms",
+                "output_content_duration",
                 motion::OUTPUT_CONTENT_DURATION_MS,
             ),
-            ("output_blank_duration_ms", motion::OUTPUT_BLANK_DURATION_MS),
-            (
-                "reduced_motion_max_duration_ms",
-                motion::REDUCED_MOTION_MAX_DURATION_MS,
-            ),
+            ("output_blank_duration", motion::OUTPUT_BLANK_DURATION_MS),
         ] {
-            assert_declares(format!("\"{name}\": {value}"));
+            assert_scalar(name, f32::from(value), "ms");
         }
+    }
 
-        assert_declares(format!(
-            "\"interface_scales\": [{}]",
-            INTERFACE_SCALES
-                .map(|scale| scale.to_string())
-                .join(", ")
-                .as_str()
-        ));
+    /// The one invariant `xtask` used to guard through the deleted intermediate.
+    /// DESIGN.md states it in prose rather than frontmatter, but the literal
+    /// geometry is the contract itself, not incidental wording.
+    #[test]
+    fn canonical_slide_geometry_is_stated_by_design_md() {
+        assert_eq!(canonical_slide::WIDTH, 1920);
+        assert_eq!(canonical_slide::HEIGHT, 1080);
+        assert_eq!(canonical_slide::ASPECT_RATIO, "16:9");
+        assert!(DESIGN_MD.contains("`1920x1080` logical canvas"));
+        assert!(DESIGN_MD.contains("canonical `16:9` geometry"));
     }
 }
