@@ -181,7 +181,69 @@ The architecture favors deep Modules: each exposes a small domain-shaped Interfa
 
 The deletion test should hold for each Module: removing it would force its rules into several callers. If a proposed Module only forwards data, fold it into the deeper owner instead.
 
+The principal runtime Seams are:
+
+```mermaid
+flowchart LR
+    operator["Operator views<br/>ordo"]
+
+    domain_i["Domain Interfaces<br/>Seams"]
+    domain_impl["Domain Modules"]
+
+    storage_i["Storage Interface<br/>Seam"]
+    storage_impl["Storage worker<br/>Adapter"]
+    sqlite[("SQLite and managed assets")]
+
+    presenter_i["Presentation Interface<br/>Seam"]
+    presenter_impl["Presentation Engine"]
+
+    renderer_i["Renderer Interface<br/>Seam"]
+    renderer_impl["Canonical Slide Renderer"]
+
+    display_i["Display Control Interface<br/>Seam"]
+    display_impl["Native platform Adapter"]
+    os["GPUI and operating system"]
+
+    congregation["Passive congregation view<br/>complete Program frame and status only"]
+
+    operator --> domain_i --> domain_impl
+    operator --> storage_i --> storage_impl --> sqlite
+    operator --> presenter_i --> presenter_impl
+    presenter_impl --> renderer_i --> renderer_impl
+    operator --> display_i --> display_impl --> os
+    presenter_impl -->|"narrow, one-way state"| congregation
+```
+
 ### 6.2 Dependency strategy
+
+The initial crate contract permits the following internal dependency
+directions. An arrow means the crate at its tail may depend on the crate at its
+head; it does not require every permitted dependency to be present.
+
+```mermaid
+flowchart BT
+    domain["domain<br/>pure domain types and rules"]
+    storage["storage<br/>persistence Module"]
+    rendering["rendering<br/>canonical rendering"]
+    presentation["presentation<br/>Presenter state machine"]
+    ui["ui<br/>Ordo GPUI primitives"]
+    platform["platform<br/>native and OS Adapters"]
+    ordo["ordo<br/>composition root and executable"]
+    ui_lab["ui-lab<br/>development only"]
+    xtask["xtask<br/>repository verification"]
+
+    storage --> domain
+    rendering --> domain
+    presentation --> domain
+    presentation --> rendering
+    ui_lab --> ui
+    ordo --> domain
+    ordo --> storage
+    ordo --> rendering
+    ordo --> presentation
+    ordo --> ui
+    ordo --> platform
+```
 
 - Domain computation and the Presentation Engine are in-process dependencies and are tested directly through their Interfaces.
 - SQLite and filesystem behavior are local-substitutable dependencies. Test the Storage Module through its Interface using temporary databases and asset directories rather than exposing repository ports to callers.
