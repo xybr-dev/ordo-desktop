@@ -132,17 +132,19 @@ pub fn verify_architecture(root: &Path) -> XtaskResult<()> {
 }
 
 fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
-    let domain = workspace_packages(metadata)
-        .into_iter()
-        .find(|package| package.name == "domain")
-        .ok_or("domain package is missing")?;
-    validate_domain_dependencies(
-        &domain
-            .dependencies
-            .iter()
-            .map(|dependency| dependency.name.as_str())
-            .collect::<Vec<_>>(),
-    )?;
+    for name in ["domain", "presentation"] {
+        let package = workspace_packages(metadata)
+            .into_iter()
+            .find(|package| package.name == name)
+            .ok_or_else(|| format!("{name} package is missing"))?;
+        validate_domain_dependencies(
+            &package
+                .dependencies
+                .iter()
+                .map(|dependency| dependency.name.as_str())
+                .collect::<Vec<_>>(),
+        )?;
+    }
     let actual_names: BTreeSet<_> = workspace_packages(metadata)
         .into_iter()
         .map(|package| package.name.as_str())
@@ -156,6 +158,7 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         "platform",
         "ordo",
         "ui-lab",
+        "native-runtime-tests",
         "xtask",
     ]
     .into_iter()
@@ -201,6 +204,10 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
             ]),
         ),
         ("ui-lab", BTreeSet::from(["ui"])),
+        (
+            "native-runtime-tests",
+            BTreeSet::from(["ordo", "presentation", "ui"]),
+        ),
         ("xtask", BTreeSet::new()),
     ]
     .into_iter()

@@ -7,6 +7,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+platform.workspace = true
+presentation.workspace = true
 ui.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
