@@ -26,6 +26,8 @@ const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
     "wayland-client",
 ];
 
+const QUALIFIED_UI_DEPENDENCIES: &[&str] = &["gpui", "gpui-base"];
+
 #[derive(Debug, Deserialize)]
 struct GitPins {
     zed: String,
@@ -187,7 +189,29 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
             )
         })
         .collect();
-    validate_dependency_edges(&edges)
+    validate_dependency_edges(&edges)?;
+
+    let direct_dependencies = |include_development| {
+        workspace_packages(metadata)
+            .into_iter()
+            .map(|package| {
+                (
+                    package.name.as_str(),
+                    package
+                        .dependencies
+                        .iter()
+                        .filter(|dependency| {
+                            dependency.kind == DependencyKind::Normal
+                                || (include_development
+                                    && dependency.kind == DependencyKind::Development)
+                        })
+                        .map(|dependency| dependency.name.as_str())
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    validate_ui_dependency_policy(&direct_dependencies(false), &direct_dependencies(true))
 }
 
 fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
@@ -240,6 +264,30 @@ fn validate_domain_dependencies(dependencies: &[&str]) -> XtaskResult<()> {
     } else {
         Err(format!("forbidden domain dependencies: {forbidden:?}").into())
     }
+}
+
+fn validate_ui_dependency_policy(
+    normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+    normal_and_dev_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+) -> XtaskResult<()> {
+    let ui_dependencies = normal_dependencies
+        .get("ui")
+        .ok_or("ui package is missing")?;
+    let qualified: BTreeSet<_> = QUALIFIED_UI_DEPENDENCIES.iter().copied().collect();
+    let unqualified: Vec<_> = ui_dependencies.difference(&qualified).collect();
+    if !unqualified.is_empty() {
+        return Err(format!("unqualified ui dependency: {unqualified:?}").into());
+    }
+
+    for (package, package_dependencies) in normal_and_dev_dependencies {
+        if *package != "ui" && package_dependencies.contains("gpui-base") {
+            return Err(format!(
+                "gpui-base must remain private to ui, but {package} depends on it"
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
@@ -500,6 +548,41 @@ mod tests {
     fn rejects_forbidden_domain_dependencies() {
         assert!(validate_domain_dependencies(&["gpui"]).is_err());
         assert!(validate_domain_dependencies(&["uuid", "serde"]).is_ok());
+    }
+
+    #[test]
+    fn keeps_gpui_base_private_to_ui() {
+        let valid = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base"])),
+            ("ordo", BTreeSet::from(["gpui", "ui"])),
+        ]);
+
+        let with_test_helper = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base", "insta"])),
+            ("ordo", BTreeSet::from(["gpui", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&valid, &with_test_helper).is_ok());
+
+        let removed = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui"])),
+            ("ordo", BTreeSet::from(["gpui", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&removed, &removed).is_ok());
+
+        let leaked_through_dev = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base"])),
+            ("ordo", BTreeSet::from(["gpui-base", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&valid, &leaked_through_dev).is_err());
+    }
+
+    #[test]
+    fn rejects_unqualified_ui_dependencies() {
+        let dependencies = BTreeMap::from([(
+            "ui",
+            BTreeSet::from(["gpui", "gpui-base", "other-ui-behavior"]),
+        )]);
+        assert!(validate_ui_dependency_policy(&dependencies, &dependencies).is_err());
     }
 
     #[test]
