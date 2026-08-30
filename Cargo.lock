@@ -3392,6 +3392,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-runtime-tests"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "ordo",
+ "presentation",
+ "ui",
+]
+
+[[package]]
 name = "ndk-sys"
 version = "0.6.0+11769913"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4011,6 +4021,8 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "gpui_platform",
+ "platform",
+ "presentation",
  "ui",
 ]
 
