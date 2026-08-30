@@ -100,31 +100,37 @@ verification command.
 
 **AC**
 
-- [ ] `[AUTO]` Start from a clean repository with no imported source history,
+- [x] `[AUTO]` Start from a clean repository with no imported source history,
       migrations, or vendored GPUI platform code.
-- [ ] `[AUTO]` Pin a Rust toolchain and commit `Cargo.lock`; GPUI,
+- [x] `[AUTO]` Pin a Rust toolchain and commit `Cargo.lock`; GPUI,
       `gpui_platform`, and every git dependency use exact revisions rather than
       floating branches.
-- [ ] `[AUTO]` Scaffold the seven short-named internal crates and development-only
+- [x] `[AUTO]` Scaffold the seven short-named internal crates and development-only
       `ui-lab` with dependency direction matching `MVP-PLAN.md`; `domain`
       imports no GPUI, SQLite, filesystem,
       or operating-system window types.
-- [ ] `[AUTO]` Root `AGENTS.md` points coding agents to `CONTEXT.md`,
+- [x] `[AUTO]` Root `AGENTS.md` points coding agents to `CONTEXT.md`,
       `DESIGN.md`, `MVP-PLAN.md`, and the active `MILESTONES.md` task and makes
       this repository's committed material authoritative.
-- [ ] `[AUTO]` `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] `[AUTO]` `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`, dependency/license checks,
       contract validation, and design-token validation each run a real check
       and fail on an injected error.
-- [ ] `[AUTO]` `cargo xtask verify` runs the complete ordinary verification set
+- [x] `[AUTO]` `cargo xtask verify` runs the complete ordinary verification set
       in a stable order and exits nonzero on the first failed required gate.
-- [ ] `[AUTO]` Module and integration tests use temporary directories/databases
+- [x] `[AUTO]` Module and integration tests use temporary directories/databases
       and never read or mutate a developer's Parish data.
-- [ ] `[UI-AUTO]` A GPUI `TestAppContext` or equivalent internal harness opens
+- [x] `[UI-AUTO]` A GPUI `TestAppContext` or equivalent internal harness opens
       the root view, dispatches one action, verifies state/render output, and
       closes without leaked background work.
-- [ ] `[AUTO]` Runtime resources are locally bundled or packaged; a source scan
+- [x] `[AUTO]` Runtime resources are locally bundled or packaged; a source scan
       and packaged manifest reject an unintended runtime network dependency.
+
+**Evidence:** [verification workflow](.github/workflows/verify.yml),
+[contract checks and injected-error tests](xtask/src/lib.rs),
+[GPUI action/render/shutdown harness](crates/ui/src/lib.rs),
+[pinned dependency graph](Cargo.lock), and
+[offline runtime manifest](resources/runtime-manifest.json).
 
 **E2E** `[UI-AUTO]` — From a clean checkout, run `cargo xtask verify`, launch
 the native development application through the harness, assert the expected
@@ -2389,6 +2395,9 @@ manual file assembly.
 - [ ] `[AUTO]` Release outputs include installers/packages, diagnostic ZIP,
       emergency fixture deck, version manifest, third-party notices, SHA-256
       checksums, and retained test reports.
+- [ ] `[AUTO]` Packaged artifacts include a runtime manifest generated from the
+      packaged resource inventory; packaged smoke rejects missing resources and
+      any network-required declaration.
 - [ ] `[AUTO]` Artifacts identify exact commit, version, Rust toolchain,
       GPUI/platform revision, schema head, contract versions, and bundled-font
       manifest hash.

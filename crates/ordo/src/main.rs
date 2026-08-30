@@ -10,7 +10,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| cx.new(RootView::new),
+            |_, cx| cx.new(|cx| RootView::new(concat!("ordo/", env!("CARGO_PKG_VERSION")), cx)),
         )
         .expect("the operator window should open");
         cx.activate(true);

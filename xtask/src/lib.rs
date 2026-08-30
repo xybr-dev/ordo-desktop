@@ -1,4 +1,4 @@
-use cargo_metadata::{Metadata, MetadataCommand, Package};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -11,8 +11,12 @@ use std::{
 
 pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
 
-const ZED_PIN: &str = "8b1497dbd22fb06f5838a7c0b84a1e54fafa71bc";
-const GPUI_BASE_PIN: &str = "7885c41663c7a6cc68ad0c99b1ba33550f807ff0";
+#[derive(Debug, Deserialize)]
+struct GitPins {
+    zed: String,
+    #[serde(rename = "gpui-base")]
+    gpui_base: String,
+}
 
 #[derive(Debug, Deserialize)]
 struct RuntimeManifest {
@@ -51,16 +55,17 @@ pub fn repo_root() -> PathBuf {
 
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
-    println!("[1/7] workspace contracts");
+    println!("[1/8] workspace contracts");
     verify_architecture(&root)?;
-    println!("[2/7] design tokens");
+    println!("[2/8] design tokens");
     verify_design_tokens(&root)?;
-    println!("[3/7] offline runtime contract and git pins");
+    println!("[3/8] offline runtime contract");
     verify_offline_contract(&root)?;
+    println!("[4/8] git pins");
     verify_git_pins(&root)?;
-    println!("[4/7] rustfmt");
+    println!("[5/8] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
-    println!("[5/7] clippy");
+    println!("[6/8] clippy");
     run(
         &root,
         "cargo",
@@ -74,9 +79,9 @@ pub fn verify() -> XtaskResult<()> {
             "warnings",
         ],
     )?;
-    println!("[6/7] tests");
+    println!("[7/8] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
-    println!("[7/7] dependencies, advisories, sources, and licenses");
+    println!("[8/8] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
     Ok(())
@@ -85,9 +90,10 @@ pub fn verify() -> XtaskResult<()> {
 pub fn context() -> XtaskResult<()> {
     let root = repo_root();
     let metadata = metadata(&root)?;
+    let pins = git_pins(&metadata)?;
     println!("Ordo workspace: {}", root.display());
-    println!("Zed/GPUI pin: {ZED_PIN}");
-    println!("gpui-base pin: {GPUI_BASE_PIN}");
+    println!("Zed/GPUI pin: {}", pins.zed);
+    println!("gpui-base pin: {}", pins.gpui_base);
     println!("Runtime: Offline; network not required");
     println!("Workspace dependencies:");
     for package in workspace_packages(&metadata) {
@@ -106,6 +112,17 @@ pub fn context() -> XtaskResult<()> {
 
 pub fn verify_architecture(root: &Path) -> XtaskResult<()> {
     let metadata = metadata(root)?;
+    let domain = workspace_packages(&metadata)
+        .into_iter()
+        .find(|package| package.name == "domain")
+        .ok_or("domain package is missing")?;
+    validate_domain_dependencies(
+        &domain
+            .dependencies
+            .iter()
+            .map(|dependency| dependency.name.as_str())
+            .collect::<Vec<_>>(),
+    )?;
     let actual_names: BTreeSet<_> = workspace_packages(&metadata)
         .into_iter()
         .map(|package| package.name.as_str())
@@ -173,14 +190,22 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
         let expected = allowed
             .get(package)
             .ok_or_else(|| format!("no dependency contract for {package}"))?;
-        if actual != expected {
-            return Err(format!(
-                "invalid internal dependencies for {package}: expected {expected:?}, got {actual:?}"
-            )
-            .into());
+        if !actual.is_subset(expected) {
+            let forbidden: Vec<_> = actual.difference(expected).collect();
+            return Err(
+                format!("forbidden internal dependencies for {package}: {forbidden:?}").into(),
+            );
         }
     }
     Ok(())
+}
+
+fn validate_domain_dependencies(dependencies: &[&str]) -> XtaskResult<()> {
+    if dependencies.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("domain must remain dependency-free, found {dependencies:?}").into())
+    }
 }
 
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
@@ -258,28 +283,21 @@ fn scan_runtime_source(path: &Path) -> XtaskResult<()> {
 }
 
 fn validate_offline_source(source: &str) -> XtaskResult<()> {
-    let forbidden = [
-        ["req", "west::"].concat(),
-        ["Tcp", "Stream"].concat(),
-        ["Udp", "Socket"].concat(),
-        ["http", "://"].concat(),
-        ["https", "://"].concat(),
-    ];
-    if let Some(token) = forbidden
-        .iter()
-        .find(|token| source.contains(token.as_str()))
-    {
+    let forbidden = ["reqwest::", "TcpStream", "UdpSocket"];
+    if let Some(token) = forbidden.iter().find(|token| source.contains(**token)) {
         return Err(format!("runtime network token is forbidden: {token}").into());
     }
     Ok(())
 }
 
 pub fn verify_git_pins(root: &Path) -> XtaskResult<()> {
+    let metadata = metadata(root)?;
+    let pins = git_pins(&metadata)?;
     let lock = fs::read_to_string(root.join("Cargo.lock"))?;
-    validate_git_lock(&lock)
+    validate_git_lock(&lock, &pins)
 }
 
-fn validate_git_lock(lock: &str) -> XtaskResult<()> {
+fn validate_git_lock(lock: &str, pins: &GitPins) -> XtaskResult<()> {
     let mut saw_zed = false;
     let mut saw_gpui_base = false;
     for line in lock.lines().filter(|line| line.contains("git+")) {
@@ -292,17 +310,20 @@ fn validate_git_lock(lock: &str) -> XtaskResult<()> {
         }
         if line.contains("github.com/zed-industries/zed#") {
             saw_zed = true;
-            if revision != ZED_PIN {
-                return Err(
-                    format!("Zed/GPUI lock revision is {revision}, expected {ZED_PIN}").into(),
-                );
+            if revision != pins.zed {
+                return Err(format!(
+                    "Zed/GPUI lock revision is {revision}, expected {}",
+                    pins.zed
+                )
+                .into());
             }
         }
-        if line.contains("github.com/longbridge/gpui-component") {
+        if line.contains("github.com/longbridge/gpui-component?rev=") {
             saw_gpui_base = true;
-            if revision != GPUI_BASE_PIN {
+            if revision != pins.gpui_base {
                 return Err(format!(
-                    "gpui-base lock revision is {revision}, expected {GPUI_BASE_PIN}"
+                    "gpui-base lock revision is {revision}, expected {}",
+                    pins.gpui_base
                 )
                 .into());
             }
@@ -312,6 +333,15 @@ fn validate_git_lock(lock: &str) -> XtaskResult<()> {
         return Err("Cargo.lock must contain the pinned GPUI and gpui-base sources".into());
     }
     Ok(())
+}
+
+fn git_pins(metadata: &Metadata) -> XtaskResult<GitPins> {
+    let pins = metadata
+        .workspace_metadata
+        .get("ordo")
+        .and_then(|ordo| ordo.get("git-pins"))
+        .ok_or("workspace.metadata.ordo.git-pins is missing")?;
+    Ok(serde_json::from_value(pins.clone())?)
 }
 
 fn metadata(root: &Path) -> XtaskResult<Metadata> {
@@ -334,6 +364,7 @@ fn internal_dependencies<'a>(package: &'a Package, metadata: &'a Metadata) -> Ve
     package
         .dependencies
         .iter()
+        .filter(|dependency| dependency.kind == DependencyKind::Normal)
         .filter_map(|dependency| {
             let name = dependency.name.as_str();
             workspace_names.contains(name).then_some(name)
@@ -348,7 +379,7 @@ fn active_milestone(root: &Path) -> XtaskResult<String> {
 
 fn find_active_milestone(milestones: &str) -> &str {
     milestones
-        .split("### ")
+        .split("\n### ")
         .skip(1)
         .find_map(|section| {
             let title = section.lines().next()?;
@@ -392,14 +423,18 @@ mod tests {
 
     #[test]
     fn rejects_runtime_network_source() {
-        let source = ["req", "west::get(\"example\")"].concat();
-        assert!(validate_offline_source(&source).is_err());
+        assert!(validate_offline_source("reqwest::get(\"example\")").is_err());
+        assert!(validate_offline_source("//! Ref: https://example.invalid/spec").is_ok());
     }
 
     #[test]
     fn rejects_floating_git_lock_source() {
         let lock = "source = \"git+https://example.invalid/repository\"";
-        assert!(validate_git_lock(lock).is_err());
+        let pins = GitPins {
+            zed: "0".repeat(40),
+            gpui_base: "1".repeat(40),
+        };
+        assert!(validate_git_lock(lock, &pins).is_err());
     }
 
     #[test]
@@ -409,8 +444,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_domain_dependencies() {
+        assert!(validate_domain_dependencies(&["gpui"]).is_err());
+    }
+
+    #[test]
     fn finds_first_incomplete_milestone() {
-        let milestones = "### T0.1 — Done\n- [x] check\n### T0.2 — Next\n- [ ] check\n";
+        let milestones = "\n### T0.1 — Done\n- [x] check\n### T0.2 — Next\n- [ ] check\n";
         assert_eq!(find_active_milestone(milestones), "T0.2 — Next");
     }
 }

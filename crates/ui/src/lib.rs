@@ -14,16 +14,17 @@ pub enum ShellDestination {
 
 /// T0.1 root view used by both the native harness and `ui-lab`.
 pub struct RootView {
+    build_identity: &'static str,
     active_destination: ShellDestination,
     focus_handle: FocusHandle,
 }
 
 impl RootView {
-    pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
     pub const CONNECTION_STATUS: &str = "Offline";
 
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(build_identity: &'static str, cx: &mut Context<Self>) -> Self {
         Self {
+            build_identity,
             active_destination: ShellDestination::Masses,
             focus_handle: cx.focus_handle(),
         }
@@ -67,7 +68,7 @@ impl Render for RootView {
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())
-                    .child(Self::BUILD_IDENTITY),
+                    .child(self.build_identity),
             )
             .child(
                 div()
@@ -82,8 +83,6 @@ impl Render for RootView {
     }
 }
 
-pub const DESIGN_TOKENS_JSON: &str = include_str!("../design-tokens.json");
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,13 +91,13 @@ mod tests {
     #[gpui::test]
     fn root_view_opens_dispatches_navigation_and_stays_offline(cx: &mut TestAppContext) {
         let (root, cx) = cx.add_window_view(|window, cx| {
-            let root = RootView::new(cx);
+            let root = RootView::new("ordo/0.1.0", cx);
             window.focus(&root.focus_handle, cx);
             root
         });
 
         root.read_with(cx, |root, _| {
-            assert_eq!(RootView::BUILD_IDENTITY, "ordo/0.1.0");
+            assert_eq!(root.build_identity, "ordo/0.1.0");
             assert_eq!(RootView::CONNECTION_STATUS, "Offline");
             assert_eq!(root.active_destination(), ShellDestination::Masses);
         });

@@ -10,7 +10,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| cx.new(RootView::new),
+            |_, cx| cx.new(|cx| RootView::new(concat!("ui-lab/", env!("CARGO_PKG_VERSION")), cx)),
         )
         .expect("the UI laboratory window should open");
         cx.activate(true);

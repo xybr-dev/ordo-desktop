@@ -2,7 +2,12 @@ name: Verify
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
       - name: Verify
