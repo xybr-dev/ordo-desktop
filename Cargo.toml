@@ -1,0 +1,57 @@
+[workspace]
+members = [
+    "crates/domain",
+    "crates/storage",
+    "crates/rendering",
+    "crates/presentation",
+    "crates/ui",
+    "crates/platform",
+    "crates/ordo",
+    "tools/ui-lab",
+    "xtask",
+]
+default-members = ["crates/ordo"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+domain = { path = "crates/domain" }
+storage = { path = "crates/storage" }
+rendering = { path = "crates/rendering" }
+presentation = { path = "crates/presentation" }
+ui = { path = "crates/ui" }
+platform = { path = "crates/platform" }
+
+# gpui-base declares this common Zed source without a revision. Cargo therefore
+# cannot also use a `rev` query without creating a second, incompatible GPUI
+# type universe. The immutable revision is recorded below, enforced against
+# Cargo.lock by xtask, and every build/verification command uses `--locked`.
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
+gpui-base = { git = "https://github.com/longbridge/gpui-component", rev = "7885c41663c7a6cc68ad0c99b1ba33550f807ff0" }
+
+[workspace.metadata.ordo.git-pins]
+zed = "8b1497dbd22fb06f5838a7c0b84a1e54fafa71bc"
+gpui-base = "7885c41663c7a6cc68ad0c99b1ba33550f807ff0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.dev]
+debug = "limited"
+
+[profile.dev.package]
+gpui = { opt-level = 3 }
+gpui_platform = { opt-level = 3 }
