@@ -160,11 +160,11 @@ GPUI thread before features create unsafe shortcuts.
       paths and diagnostics never enter the congregation state tree.
 - [x] `[UI-AUTO]` Closing the operator window closes the congregation window,
       cancels background work, flushes orderly state, and exits cleanly.
-- [ ] `[NATIVE-AUTO]` Development and packaged Windows/Linux builds use
-      native/server Preparation decorations; a borderless full-screen window
-      can be created for Presenter without vendored GPUI platform code.
+- [x] `[AUTO]` Preparation window options request native/server operating-system
+      decorations, and borderless full-screen window options use the pinned GPUI
+      Interface without vendored platform code.
 
-**E2E** `[UI-AUTO]` `[NATIVE-AUTO]` — Open operator and passive congregation
+**E2E** `[UI-AUTO]` — Open operator and passive congregation
 windows, start controlled background work, close the operator, and assert both
 windows and all owned workers terminate. Verify the congregation surface never
 acquires operator actions or focusable controls.
