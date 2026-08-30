@@ -6,10 +6,11 @@ fn main() -> ExitCode {
         "verify" => xtask::verify(),
         "context" => xtask::context(),
         "architecture" => xtask::verify_architecture(&xtask::repo_root()),
+        "tokens" => xtask::verify_design_tokens(&xtask::repo_root()),
         "offline" => xtask::verify_offline_contract(&xtask::repo_root())
             .and_then(|()| xtask::verify_git_pins(&xtask::repo_root())),
         _ => {
-            eprintln!("Usage: cargo xtask <verify|context|architecture|offline>");
+            eprintln!("Usage: cargo xtask <verify|context|architecture|tokens|offline>");
             return ExitCode::FAILURE;
         }
     };

@@ -95,15 +95,17 @@ pub fn repo_root() -> PathBuf {
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
     let metadata = metadata(&root)?;
-    println!("[1/8] workspace contracts");
+    println!("[1/9] workspace contracts");
     verify_architecture_metadata(&metadata)?;
-    println!("[2/8] offline runtime contract");
+    println!("[2/9] design tokens");
+    verify_design_tokens(&root)?;
+    println!("[3/9] offline runtime contract");
     verify_offline_contract(&root)?;
-    println!("[3/8] git pins");
+    println!("[4/9] git pins");
     verify_git_pins_metadata(&root, &metadata)?;
-    println!("[4/8] rustfmt");
+    println!("[5/9] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
-    println!("[5/8] clippy");
+    println!("[6/9] clippy");
     run(
         &root,
         "cargo",
@@ -117,15 +119,15 @@ pub fn verify() -> XtaskResult<()> {
             "warnings",
         ],
     )?;
-    println!("[6/8] shipping configuration");
+    println!("[7/9] shipping configuration");
     run(
         &root,
         "cargo",
         &["check", "-p", "ordo", "--release", "--locked"],
     )?;
-    println!("[7/8] tests");
+    println!("[8/9] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
-    println!("[8/8] dependencies, advisories, sources, and licenses");
+    println!("[9/9] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
     Ok(())
@@ -310,6 +312,17 @@ fn validate_ui_dependency_policy(
     Ok(())
 }
 
+/// Design-token validation is a named gate of its own, as T0.1 requires, but the
+/// check itself lives beside the constants it guards: `ui::tokens` pins every
+/// value to `DESIGN.md`'s frontmatter, which is something only Rust can read.
+pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
+    run(
+        root,
+        "cargo",
+        &["test", "-p", "ui", "--locked", "--lib", "tokens::"],
+    )
+}
+
 pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     let contents = fs::read_to_string(root.join("resources/runtime-manifest.json"))?;
     let manifest: RuntimeManifest = serde_json::from_str(&contents)?;
@@ -330,16 +343,19 @@ fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskRe
     if manifest.icon_family != "Lucide" {
         return Err("Lucide is the only allowed operator icon family".into());
     }
-    let registered: BTreeSet<_> = manifest
-        .bundled_resources
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let missing: Vec<_> = required_ui_assets()
-        .filter(|resource| !registered.contains(resource.as_str()))
-        .collect();
-    if !missing.is_empty() {
-        return Err(format!("required UI assets are not registered: {missing:?}").into());
+    // Exact equality, not containment: the manifest is the committed declaration
+    // of the bundled inventory, so an asset added to one side and not the other
+    // is drift either way.
+    let registered: BTreeSet<String> = manifest.bundled_resources.iter().cloned().collect();
+    let required: BTreeSet<String> = required_ui_assets().collect();
+    if registered != required {
+        let unregistered: Vec<_> = required.difference(&registered).collect();
+        let unexpected: Vec<_> = registered.difference(&required).collect();
+        return Err(format!(
+            "runtime manifest does not match the required UI assets: \
+             missing {unregistered:?}, unexpected {unexpected:?}"
+        )
+        .into());
     }
     for resource in &manifest.bundled_resources {
         if !root.join(resource).is_file() {
