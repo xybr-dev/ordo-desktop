@@ -318,7 +318,10 @@ fn validate_ui_dependency_policy(
 ///
 /// Deliberately unfiltered. A name filter that matches nothing exits zero, so
 /// `--lib tokens::` would keep printing this gate while asserting nothing the
-/// moment that module is renamed or moved.
+/// moment that module is renamed or moved. The cost is that this runs the whole
+/// `ui` lib suite, so the gate's label is narrower than what it executes; read
+/// it as the step that must not pass without the token checks, not as a promise
+/// that only token checks run here.
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
     run(root, "cargo", &["test", "-p", "ui", "--locked", "--lib"])
 }
