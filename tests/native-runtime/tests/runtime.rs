@@ -15,7 +15,11 @@ fn closing_operator_closes_congregation_and_owned_workers(cx: &mut TestAppContex
     cx.run_until_parked();
 
     assert_eq!(cx.read(|cx| cx.windows().len()), 0);
-    assert!(runtime.shutdown_was_orderly());
+    assert!(
+        runtime
+            .shutdown_report()
+            .is_some_and(|report| report.is_empty())
+    );
 }
 
 #[gpui::test]

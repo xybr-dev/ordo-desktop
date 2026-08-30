@@ -37,7 +37,7 @@ pub enum WorkerExit<T> {
     Cancelled,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WorkerFailure {
     Failed { worker: WorkerKind, message: String },
     Panicked(WorkerKind),
@@ -55,6 +55,15 @@ pub struct OwnedWorker<T> {
     kind: WorkerKind,
     cancelled: Arc<AtomicBool>,
     thread: Option<JoinHandle<Result<WorkerExit<T>, String>>>,
+}
+
+impl<T> OwnedWorker<T> {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        if let Some(thread) = &self.thread {
+            thread.thread().unpark();
+        }
+    }
 }
 
 impl<T: Send + 'static> OwnedWorker<T> {
@@ -76,10 +85,6 @@ impl<T: Send + 'static> OwnedWorker<T> {
             cancelled,
             thread: Some(thread),
         })
-    }
-
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
     }
 
     pub fn cancel_and_join(&mut self) -> Result<WorkerExit<T>, WorkerFailure> {
@@ -104,7 +109,7 @@ impl<T: Send + 'static> OwnedWorker<T> {
 
 impl<T> Drop for OwnedWorker<T> {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancel();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

@@ -1,17 +1,10 @@
-use std::{
-    cell::{Cell, RefCell},
-    error::Error,
-    fmt,
-    rc::Rc,
-    thread,
-    time::Duration,
-};
+use std::{cell::RefCell, error::Error, fmt, rc::Rc, thread};
 
 use gpui::{
     App, AppContext, Context, Render, Window, WindowHandle, div, prelude::*, px, rgb, size,
 };
 use platform::{
-    tasks::{OwnedWorker, WorkerExit, WorkerKind, WorkerStartError},
+    tasks::{OwnedWorker, WorkerExit, WorkerFailure, WorkerKind, WorkerStartError},
     windows::{preparation_window_options, presenter_window_options},
 };
 use presentation::{CongregationState, OutputStatus, ProgramFrame};
@@ -77,7 +70,7 @@ impl From<WorkerStartError> for RuntimeError {
 pub struct NativeRuntime {
     operator: WindowHandle<RootView>,
     congregation: Option<WindowHandle<CongregationView>>,
-    shutdown_orderly: Rc<Cell<bool>>,
+    shutdown_report: Rc<RefCell<Option<Vec<WorkerFailure>>>>,
 }
 
 impl NativeRuntime {
@@ -89,8 +82,8 @@ impl NativeRuntime {
         self.congregation
     }
 
-    pub fn shutdown_was_orderly(&self) -> bool {
-        self.shutdown_orderly.get()
+    pub fn shutdown_report(&self) -> Option<Vec<WorkerFailure>> {
+        self.shutdown_report.borrow().clone()
     }
 }
 
@@ -103,19 +96,24 @@ impl RuntimeWorkers {
         Ok(Self(vec![storage, background]))
     }
 
-    fn shutdown(&mut self) -> bool {
-        let mut orderly = true;
-        for worker in &mut self.0 {
-            orderly &= worker.cancel_and_join().is_ok();
+    fn shutdown(&mut self) -> Vec<WorkerFailure> {
+        for worker in &self.0 {
+            worker.cancel();
         }
-        orderly
+        let mut failures = Vec::new();
+        for worker in &mut self.0 {
+            if let Err(failure) = worker.join() {
+                failures.push(failure);
+            }
+        }
+        failures
     }
 }
 
 fn controlled_worker(kind: WorkerKind) -> Result<OwnedWorker<()>, WorkerStartError> {
     OwnedWorker::spawn(kind, |cancel| {
         while !cancel.is_cancelled() {
-            thread::park_timeout(Duration::from_millis(1));
+            thread::park();
         }
         Ok(WorkerExit::Cancelled)
     })
@@ -127,7 +125,7 @@ pub fn open_native_runtime(
     with_congregation: bool,
 ) -> Result<NativeRuntime, RuntimeError> {
     let workers = Rc::new(RefCell::new(RuntimeWorkers::start()?));
-    let shutdown_orderly = Rc::new(Cell::new(false));
+    let shutdown_report = Rc::new(RefCell::new(None));
     let operator_bounds = gpui::Bounds::centered(None, size(px(1100.0), px(700.0)), cx);
     let operator = cx
         .open_window(preparation_window_options(operator_bounds), |_, cx| {
@@ -156,7 +154,7 @@ pub fn open_native_runtime(
 
     let operator_id = operator.window_id();
     let congregation_handle = congregation;
-    let shutdown_status = shutdown_orderly.clone();
+    let shutdown_status = shutdown_report.clone();
     cx.on_window_closed(move |cx, closed| {
         if closed != operator_id {
             return;
@@ -164,7 +162,11 @@ pub fn open_native_runtime(
         if let Some(congregation) = congregation_handle {
             let _ = congregation.update(cx, |_, window, _| window.remove_window());
         }
-        shutdown_status.set(workers.borrow_mut().shutdown());
+        let report = workers.borrow_mut().shutdown();
+        for failure in &report {
+            eprintln!("worker shutdown failed: {failure:?}");
+        }
+        shutdown_status.replace(Some(report));
         cx.quit();
     })
     .detach();
@@ -172,19 +174,67 @@ pub fn open_native_runtime(
     Ok(NativeRuntime {
         operator,
         congregation,
-        shutdown_orderly,
+        shutdown_report,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::mpsc, time::Duration};
 
     #[test]
     fn build_identity_uses_the_ordo_version() {
         assert_eq!(
             BUILD_IDENTITY.strip_prefix("ordo/"),
             Some(env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn shutdown_cancels_every_worker_before_joining() {
+        let (background_cancelled_tx, background_cancelled_rx) = mpsc::channel();
+        let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
+            while !cancel.is_cancelled() {
+                thread::park();
+            }
+            background_cancelled_rx
+                .recv_timeout(Duration::from_millis(50))
+                .map_err(|_| "background was not cancelled before storage joined".to_owned())?;
+            Ok(WorkerExit::Cancelled)
+        })
+        .unwrap();
+        let background = OwnedWorker::spawn(WorkerKind::Background, move |cancel| {
+            while !cancel.is_cancelled() {
+                thread::park();
+            }
+            background_cancelled_tx.send(()).unwrap();
+            Ok(WorkerExit::Cancelled)
+        })
+        .unwrap();
+
+        let report = RuntimeWorkers(vec![storage, background]).shutdown();
+
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn shutdown_preserves_typed_worker_failures() {
+        let failed =
+            OwnedWorker::spawn(
+                WorkerKind::Storage,
+                |_| Err("controlled failure".to_owned()),
+            )
+            .unwrap();
+
+        let report = RuntimeWorkers(vec![failed]).shutdown();
+
+        assert_eq!(
+            report,
+            &[WorkerFailure::Failed {
+                worker: WorkerKind::Storage,
+                message: "controlled failure".to_owned(),
+            }]
         );
     }
 }
