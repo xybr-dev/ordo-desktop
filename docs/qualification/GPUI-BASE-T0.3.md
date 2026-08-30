@@ -88,10 +88,12 @@ is sufficient.
   advisories, bans, licenses, and sources. Its explicit advisory exceptions and
   allowed git sources are reviewable in `deny.toml`; no dependency is silently
   omitted from that graph.
-- `cargo xtask verify` enforces that `ui` has only the qualified direct
-  foundation dependencies (`gpui` and `gpui-base`), that no other workspace
-  package imports `gpui-base`, and that production packages reject the styled
-  façade and common Rust browser/UI runtime stacks.
+- `cargo xtask verify` enforces that `ui` has no unqualified direct foundation
+  dependency and that no other workspace package imports `gpui-base`, including
+  through dev-dependencies. Removing `gpui-base` remains permitted.
+- The `cargo deny` bans reject the styled façade and common Rust browser/UI
+  runtime stacks anywhere in the complete locked graph rather than relying on
+  a hand-maintained package subset.
 
 This is engineering qualification evidence, not a closed-source distribution
 decision. A later distribution decision must retain required notices and review
