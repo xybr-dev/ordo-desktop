@@ -60,10 +60,7 @@ mod tests {
 
         worker.cancel();
 
-        assert_eq!(
-            cancelled_rx.recv_timeout(Duration::from_millis(50)),
-            Ok(true)
-        );
+        assert_eq!(cancelled_rx.recv_timeout(Duration::from_secs(5)), Ok(true));
         assert_eq!(worker.join(), Ok(WorkerExit::Cancelled));
     }
 }

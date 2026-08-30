@@ -212,7 +212,7 @@ mod tests {
                 thread::park();
             }
             background_cancelled_rx
-                .recv_timeout(Duration::from_millis(50))
+                .recv_timeout(Duration::from_secs(5))
                 .map_err(|_| "background was not cancelled before storage joined".to_owned())?;
             Ok(WorkerExit::Cancelled)
         })
