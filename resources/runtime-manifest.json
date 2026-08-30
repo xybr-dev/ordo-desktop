@@ -1,5 +1,28 @@
 {
   "schema_version": 1,
   "network_required": false,
-  "bundled_resources": []
+  "icon_family": "Lucide",
+  "bundled_resources": [
+    "crates/ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
+    "crates/ui/assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
+    "crates/ui/assets/icons/lucide/activity.svg",
+    "crates/ui/assets/icons/lucide/calendar-days.svg",
+    "crates/ui/assets/icons/lucide/check.svg",
+    "crates/ui/assets/icons/lucide/chevron-down.svg",
+    "crates/ui/assets/icons/lucide/chevron-right.svg",
+    "crates/ui/assets/icons/lucide/circle-alert.svg",
+    "crates/ui/assets/icons/lucide/circle-question-mark.svg",
+    "crates/ui/assets/icons/lucide/database-backup.svg",
+    "crates/ui/assets/icons/lucide/ellipsis.svg",
+    "crates/ui/assets/icons/lucide/grip-vertical.svg",
+    "crates/ui/assets/icons/lucide/info.svg",
+    "crates/ui/assets/icons/lucide/library.svg",
+    "crates/ui/assets/icons/lucide/settings.svg",
+    "crates/ui/assets/icons/lucide/swatch-book.svg",
+    "crates/ui/assets/icons/lucide/triangle-alert.svg",
+    "crates/ui/assets/icons/lucide/x.svg",
+    "crates/ui/assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
+    "crates/ui/assets/licenses/Lucide-ISC-MIT.txt",
+    "crates/ui/assets/licenses/Noto-Sans-OFL-1.1.txt"
+  ]
 }

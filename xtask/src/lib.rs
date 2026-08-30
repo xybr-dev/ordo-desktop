@@ -28,6 +28,48 @@ const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
 
 const QUALIFIED_UI_DEPENDENCIES: &[&str] = &["gpui", "gpui-base"];
 
+const LUCIDE_ICON_DIR: &str = "crates/ui/assets/icons/lucide";
+
+const LUCIDE_ICONS: &[&str] = &[
+    "activity.svg",
+    "calendar-days.svg",
+    "check.svg",
+    "chevron-down.svg",
+    "chevron-right.svg",
+    "circle-alert.svg",
+    "circle-question-mark.svg",
+    "database-backup.svg",
+    "ellipsis.svg",
+    "grip-vertical.svg",
+    "info.svg",
+    "library.svg",
+    "settings.svg",
+    "swatch-book.svg",
+    "triangle-alert.svg",
+    "x.svg",
+];
+
+/// Bundled assets that are not icons; the Lucide subset is appended from
+/// `LUCIDE_ICONS` so the two lists cannot drift apart.
+const REQUIRED_UI_ASSETS: &[&str] = &[
+    "crates/ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
+    "crates/ui/assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
+    "crates/ui/assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
+    "crates/ui/assets/licenses/Lucide-ISC-MIT.txt",
+    "crates/ui/assets/licenses/Noto-Sans-OFL-1.1.txt",
+];
+
+fn required_ui_assets() -> impl Iterator<Item = String> {
+    REQUIRED_UI_ASSETS
+        .iter()
+        .map(|asset| (*asset).to_owned())
+        .chain(
+            LUCIDE_ICONS
+                .iter()
+                .map(|icon| format!("{LUCIDE_ICON_DIR}/{icon}")),
+        )
+}
+
 #[derive(Debug, Deserialize)]
 struct GitPins {
     zed: String,
@@ -39,28 +81,8 @@ struct GitPins {
 struct RuntimeManifest {
     schema_version: u32,
     network_required: bool,
+    icon_family: String,
     bundled_resources: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DesignTokens {
-    schema_version: u32,
-    canonical_slide: CanonicalSlide,
-    appearance: Appearance,
-}
-
-#[derive(Debug, Deserialize)]
-struct CanonicalSlide {
-    width: u32,
-    height: u32,
-    aspect_ratio: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Appearance {
-    dark_background: String,
-    light_background: String,
-    focus_ring: String,
 }
 
 pub fn repo_root() -> PathBuf {
@@ -290,38 +312,18 @@ fn validate_ui_dependency_policy(
     Ok(())
 }
 
+/// Design-token validation is a named gate of its own, as T0.1 requires, but the
+/// check itself lives beside the constants it guards: `ui::tokens` pins every
+/// value to `DESIGN.md`'s frontmatter, which is something only Rust can read.
+///
+/// Deliberately unfiltered. A name filter that matches nothing exits zero, so
+/// `--lib tokens::` would keep printing this gate while asserting nothing the
+/// moment that module is renamed or moved. The cost is that this runs the whole
+/// `ui` lib suite, so the gate's label is narrower than what it executes; read
+/// it as the step that must not pass without the token checks, not as a promise
+/// that only token checks run here.
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
-    let contents = fs::read_to_string(root.join("crates/ui/design-tokens.json"))?;
-    validate_design_tokens(&contents)
-}
-
-fn validate_design_tokens(contents: &str) -> XtaskResult<()> {
-    let tokens: DesignTokens = serde_json::from_str(contents)?;
-    if tokens.schema_version != 1 {
-        return Err("unsupported design-token schema".into());
-    }
-    if tokens.canonical_slide.width != 1920
-        || tokens.canonical_slide.height != 1080
-        || tokens.canonical_slide.aspect_ratio != "16:9"
-    {
-        return Err("canonical slide must remain 1920x1080 at 16:9".into());
-    }
-    for (name, color) in [
-        ("dark_background", tokens.appearance.dark_background),
-        ("light_background", tokens.appearance.light_background),
-        ("focus_ring", tokens.appearance.focus_ring),
-    ] {
-        if !is_hex_color(&color) {
-            return Err(format!("{name} must be an opaque #RRGGBB color").into());
-        }
-    }
-    Ok(())
-}
-
-fn is_hex_color(value: &str) -> bool {
-    value.len() == 7
-        && value.starts_with('#')
-        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    run(root, "cargo", &["test", "-p", "ui", "--locked", "--lib"])
 }
 
 pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
@@ -334,6 +336,13 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     Ok(())
 }
 
+/// The manifest is kept because T0.1 requires runtime resources to be declared
+/// in a committed, schema-validated offline manifest, and because it states the
+/// offline and icon-family contracts as data rather than as the absence of code.
+/// Nothing loads assets through these paths — they are `include_bytes!`/
+/// `include_str!` into the binary — so when T6.x generates its own manifest from
+/// the packaged inventory, ask again whether this committed one still earns its
+/// place rather than letting it survive on inertia.
 fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskResult<()> {
     if manifest.schema_version != 1 {
         return Err("unsupported runtime-manifest schema".into());
@@ -341,9 +350,63 @@ fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskRe
     if manifest.network_required {
         return Err("Ordo runtime must not require a network".into());
     }
+    if manifest.icon_family != "Lucide" {
+        return Err("Lucide is the only allowed operator icon family".into());
+    }
+    // Exact equality, not containment: the manifest is the committed declaration
+    // of the bundled inventory, so an asset added to one side and not the other
+    // is drift either way.
+    let registered: BTreeSet<String> = manifest.bundled_resources.iter().cloned().collect();
+    let required: BTreeSet<String> = required_ui_assets().collect();
+    if registered != required {
+        let unregistered: Vec<_> = required.difference(&registered).collect();
+        let unexpected: Vec<_> = registered.difference(&required).collect();
+        return Err(format!(
+            "runtime manifest does not match the required UI assets: \
+             missing {unregistered:?}, unexpected {unexpected:?}"
+        )
+        .into());
+    }
     for resource in &manifest.bundled_resources {
         if !root.join(resource).is_file() {
             return Err(format!("bundled resource is missing: {resource}").into());
+        }
+    }
+    validate_lucide_assets(&root.join("crates/ui/assets/icons"))?;
+    Ok(())
+}
+
+fn validate_lucide_assets(icons_root: &Path) -> XtaskResult<()> {
+    let families: BTreeSet<_> = fs::read_dir(icons_root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    if families != BTreeSet::from(["lucide".into()]) {
+        return Err("crates/ui/assets/icons must contain only the Lucide family".into());
+    }
+
+    let lucide_root = icons_root.join("lucide");
+    let actual: BTreeSet<_> = fs::read_dir(&lucide_root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    let expected: BTreeSet<_> = LUCIDE_ICONS
+        .iter()
+        .map(OsStr::new)
+        .map(OsStr::to_owned)
+        .collect();
+    if actual != expected {
+        return Err(format!(
+            "bundled Lucide subset differs: expected {expected:?}, got {actual:?}"
+        )
+        .into());
+    }
+
+    for icon in LUCIDE_ICONS {
+        let svg = fs::read_to_string(lucide_root.join(icon))?;
+        if !svg.contains("viewBox=\"0 0 24 24\"")
+            || !svg.contains("stroke=\"currentColor\"")
+            || !svg.contains("stroke-width=\"2\"")
+        {
+            return Err(format!("Lucide icon has unexpected visual vocabulary: {icon}").into());
         }
     }
     Ok(())
@@ -501,20 +564,6 @@ fn run(root: &Path, program: &str, args: &[&str]) -> XtaskResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rejects_noncanonical_slide_tokens() {
-        let invalid = r##"{
-            "schema_version": 1,
-            "canonical_slide": {"width": 1366, "height": 768, "aspect_ratio": "16:9"},
-            "appearance": {
-                "dark_background": "#11100F",
-                "light_background": "#F7F3EB",
-                "focus_ring": "#2F6FED"
-            }
-        }"##;
-        assert!(validate_design_tokens(invalid).is_err());
-    }
 
     #[test]
     fn rejects_runtime_network_source() {

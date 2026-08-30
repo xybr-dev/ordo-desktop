@@ -1,5 +1,8 @@
 //! Ordo-owned GPUI primitives and application-shell views.
 
+pub mod assets;
+pub mod tokens;
+
 use gpui::{App, Context, FocusHandle, Focusable, Render, Window, actions, div, prelude::*, rgb};
 
 actions!(ordo_shell, [OpenSongs]);
@@ -63,8 +66,8 @@ impl Render for RootView {
             .flex_col()
             .justify_center()
             .items_center()
-            .bg(rgb(0x11100f))
-            .text_color(rgb(0xf7f3eb))
+            .bg(rgb(tokens::color::PRESENTER_BACKGROUND))
+            .text_color(rgb(tokens::color::PRESENTER_TEXT))
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())
