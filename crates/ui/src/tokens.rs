@@ -148,8 +148,10 @@ pub mod canonical_slide {
 /// token edited in the design contract but not here fails the build.
 ///
 /// Entries are matched with their leading newline and two-space indent, which
-/// is what keeps a lookup unambiguous when one token name is a suffix of
-/// another (`control` inside `compact-control`).
+/// defeats the suffix case (`control` inside `compact-control`) but does not
+/// bind a token to its own top-level map, since every one of these sits at the
+/// same indent. Two sections sharing a leaf name would let one satisfy the
+/// other's assertion; none do today, so check for it when adding a token.
 ///
 /// ponytail: `borders`, `interface_scales`, `reduced_motion_max_duration_ms`,
 /// and `fallback_family` live only in DESIGN.md's prose, not its frontmatter,
@@ -191,13 +193,30 @@ mod tests {
     }
 
     /// Frontmatter geometry carries a `px` suffix; durations carry `ms`.
+    ///
+    /// The cast to `u16` would silently truncate, letting a hairline `1.5`
+    /// satisfy a frontmatter `1px`, so a fractional constant is rejected rather
+    /// than compared. DESIGN.md has no fractional geometry; if it ever gains
+    /// one, this must format the fraction instead of loosening the guard.
+    #[track_caller]
     fn assert_scalar(name: &str, value: f32, unit: &str) {
+        assert_eq!(
+            value.fract(),
+            0.0,
+            "{name} is fractional and cannot be compared as an integer"
+        );
         assert_entry(name, format!("{}{unit}", value as u16));
     }
 
     /// Type levels nest under their name, so the whole block is matched at once
     /// and each `fontSize` stays bound to the level that declares it.
+    #[track_caller]
     fn assert_type_style(name: &str, style: TypeStyle) {
+        assert_eq!(
+            style.size.fract(),
+            0.0,
+            "{name} fontSize is fractional and cannot be compared as an integer"
+        );
         assert_declares(format!(
             "\n  {}:\n    fontFamily: {}\n    fontSize: {}px\n    fontWeight: {}\n    lineHeight: {}",
             name.replace('_', "-"),

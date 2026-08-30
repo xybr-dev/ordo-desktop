@@ -315,12 +315,12 @@ fn validate_ui_dependency_policy(
 /// Design-token validation is a named gate of its own, as T0.1 requires, but the
 /// check itself lives beside the constants it guards: `ui::tokens` pins every
 /// value to `DESIGN.md`'s frontmatter, which is something only Rust can read.
+///
+/// Deliberately unfiltered. A name filter that matches nothing exits zero, so
+/// `--lib tokens::` would keep printing this gate while asserting nothing the
+/// moment that module is renamed or moved.
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
-    run(
-        root,
-        "cargo",
-        &["test", "-p", "ui", "--locked", "--lib", "tokens::"],
-    )
+    run(root, "cargo", &["test", "-p", "ui", "--locked", "--lib"])
 }
 
 pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
@@ -333,6 +333,13 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     Ok(())
 }
 
+/// The manifest is kept because T0.1 requires runtime resources to be declared
+/// in a committed, schema-validated offline manifest, and because it states the
+/// offline and icon-family contracts as data rather than as the absence of code.
+/// Nothing loads assets through these paths — they are `include_bytes!`/
+/// `include_str!` into the binary — so when T6.x generates its own manifest from
+/// the packaged inventory, ask again whether this committed one still earns its
+/// place rather than letting it survive on inertia.
 fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskResult<()> {
     if manifest.schema_version != 1 {
         return Err("unsupported runtime-manifest schema".into());
