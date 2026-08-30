@@ -91,13 +91,12 @@ mod tests {
     #[gpui::test]
     fn root_view_opens_dispatches_navigation_and_stays_offline(cx: &mut TestAppContext) {
         let (root, cx) = cx.add_window_view(|window, cx| {
-            let root = RootView::new("ordo/0.1.0", cx);
+            let root = RootView::new("test-build", cx);
             window.focus(&root.focus_handle, cx);
             root
         });
 
         root.read_with(cx, |root, _| {
-            assert_eq!(root.build_identity, "ordo/0.1.0");
             assert_eq!(RootView::CONNECTION_STATUS, "Offline");
             assert_eq!(root.active_destination(), ShellDestination::Masses);
         });

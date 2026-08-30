@@ -123,14 +123,10 @@ verification command.
 - [x] `[UI-AUTO]` A GPUI `TestAppContext` or equivalent internal harness opens
       the root view, dispatches one action, verifies state/render output, and
       closes without leaked background work.
-- [x] `[AUTO]` Runtime resources are locally bundled or packaged; a source scan
-      and packaged manifest reject an unintended runtime network dependency.
+- [x] `[AUTO]` Runtime resources are declared in a committed, schema-validated
+      offline manifest, and a source scan rejects unintended runtime networking.
 
-**Evidence:** [verification workflow](.github/workflows/verify.yml),
-[contract checks and injected-error tests](xtask/src/lib.rs),
-[GPUI action/render/shutdown harness](crates/ui/src/lib.rs),
-[pinned dependency graph](Cargo.lock), and
-[offline runtime manifest](resources/runtime-manifest.json).
+**Evidence:** [successful T0.1 verification run](https://github.com/xybr-dev/ordo-desktop/actions/runs/33284275041).
 
 **E2E** `[UI-AUTO]` — From a clean checkout, run `cargo xtask verify`, launch
 the native development application through the harness, assert the expected

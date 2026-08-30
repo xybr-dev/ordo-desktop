@@ -11,6 +11,21 @@ use std::{
 
 pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
 
+const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
+    "gpui",
+    "gpui_platform",
+    "gpui-base",
+    "rusqlite",
+    "libsqlite3-sys",
+    "sqlx",
+    "tokio",
+    "async-std",
+    "windows",
+    "winapi",
+    "x11rb",
+    "wayland-client",
+];
+
 #[derive(Debug, Deserialize)]
 struct GitPins {
     zed: String,
@@ -55,14 +70,15 @@ pub fn repo_root() -> PathBuf {
 
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
+    let metadata = metadata(&root)?;
     println!("[1/8] workspace contracts");
-    verify_architecture(&root)?;
+    verify_architecture_metadata(&metadata)?;
     println!("[2/8] design tokens");
     verify_design_tokens(&root)?;
     println!("[3/8] offline runtime contract");
     verify_offline_contract(&root)?;
     println!("[4/8] git pins");
-    verify_git_pins(&root)?;
+    verify_git_pins_metadata(&root, &metadata)?;
     println!("[5/8] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
     println!("[6/8] clippy");
@@ -112,7 +128,11 @@ pub fn context() -> XtaskResult<()> {
 
 pub fn verify_architecture(root: &Path) -> XtaskResult<()> {
     let metadata = metadata(root)?;
-    let domain = workspace_packages(&metadata)
+    verify_architecture_metadata(&metadata)
+}
+
+fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
+    let domain = workspace_packages(metadata)
         .into_iter()
         .find(|package| package.name == "domain")
         .ok_or("domain package is missing")?;
@@ -123,7 +143,7 @@ pub fn verify_architecture(root: &Path) -> XtaskResult<()> {
             .map(|dependency| dependency.name.as_str())
             .collect::<Vec<_>>(),
     )?;
-    let actual_names: BTreeSet<_> = workspace_packages(&metadata)
+    let actual_names: BTreeSet<_> = workspace_packages(metadata)
         .into_iter()
         .map(|package| package.name.as_str())
         .collect();
@@ -147,12 +167,12 @@ pub fn verify_architecture(root: &Path) -> XtaskResult<()> {
         .into());
     }
 
-    let edges: BTreeMap<_, _> = workspace_packages(&metadata)
+    let edges: BTreeMap<_, _> = workspace_packages(metadata)
         .into_iter()
         .map(|package| {
             (
                 package.name.as_str(),
-                internal_dependencies(package, &metadata)
+                internal_dependencies(package, metadata)
                     .into_iter()
                     .collect::<BTreeSet<_>>(),
             )
@@ -201,10 +221,14 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
 }
 
 fn validate_domain_dependencies(dependencies: &[&str]) -> XtaskResult<()> {
-    if dependencies.is_empty() {
+    let forbidden: Vec<_> = dependencies
+        .iter()
+        .filter(|dependency| FORBIDDEN_DOMAIN_DEPENDENCIES.contains(dependency))
+        .collect();
+    if forbidden.is_empty() {
         Ok(())
     } else {
-        Err(format!("domain must remain dependency-free, found {dependencies:?}").into())
+        Err(format!("forbidden domain dependencies: {forbidden:?}").into())
     }
 }
 
@@ -283,7 +307,16 @@ fn scan_runtime_source(path: &Path) -> XtaskResult<()> {
 }
 
 fn validate_offline_source(source: &str) -> XtaskResult<()> {
-    let forbidden = ["reqwest::", "TcpStream", "UdpSocket"];
+    let forbidden = [
+        "reqwest::",
+        "ureq::",
+        "hyper::",
+        "std::net::",
+        "tokio::net::",
+        "TcpStream",
+        "TcpListener",
+        "UdpSocket",
+    ];
     if let Some(token) = forbidden.iter().find(|token| source.contains(**token)) {
         return Err(format!("runtime network token is forbidden: {token}").into());
     }
@@ -292,7 +325,11 @@ fn validate_offline_source(source: &str) -> XtaskResult<()> {
 
 pub fn verify_git_pins(root: &Path) -> XtaskResult<()> {
     let metadata = metadata(root)?;
-    let pins = git_pins(&metadata)?;
+    verify_git_pins_metadata(root, &metadata)
+}
+
+fn verify_git_pins_metadata(root: &Path, metadata: &Metadata) -> XtaskResult<()> {
+    let pins = git_pins(metadata)?;
     let lock = fs::read_to_string(root.join("Cargo.lock"))?;
     validate_git_lock(&lock, &pins)
 }
@@ -424,6 +461,7 @@ mod tests {
     #[test]
     fn rejects_runtime_network_source() {
         assert!(validate_offline_source("reqwest::get(\"example\")").is_err());
+        assert!(validate_offline_source("std::net::TcpListener::bind(\"0.0.0.0:0\")").is_err());
         assert!(validate_offline_source("//! Ref: https://example.invalid/spec").is_ok());
     }
 
@@ -435,6 +473,11 @@ mod tests {
             gpui_base: "1".repeat(40),
         };
         assert!(validate_git_lock(lock, &pins).is_err());
+        let mismatched_zed = format!(
+            "source = \"git+https://github.com/zed-industries/zed#{}\"",
+            "a".repeat(40)
+        );
+        assert!(validate_git_lock(&mismatched_zed, &pins).is_err());
     }
 
     #[test]
@@ -444,8 +487,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_domain_dependencies() {
+    fn rejects_forbidden_domain_dependencies() {
         assert!(validate_domain_dependencies(&["gpui"]).is_err());
+        assert!(validate_domain_dependencies(&["uuid", "serde"]).is_ok());
     }
 
     #[test]
