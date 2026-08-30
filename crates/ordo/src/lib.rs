@@ -1,7 +1,8 @@
 use std::{cell::RefCell, error::Error, fmt, rc::Rc, thread};
 
 use gpui::{
-    App, AppContext, Context, Render, Window, WindowHandle, div, prelude::*, px, rgb, size,
+    App, AppContext, Context, QuitMode, Render, Window, WindowHandle, div, prelude::*, px, rgb,
+    size,
 };
 use platform::{
     tasks::{OwnedWorker, WorkerExit, WorkerFailure, WorkerKind, WorkerStartError},
@@ -124,8 +125,8 @@ pub fn open_native_runtime(
     cx: &mut App,
     with_congregation: bool,
 ) -> Result<NativeRuntime, RuntimeError> {
-    let workers = Rc::new(RefCell::new(RuntimeWorkers::start()?));
-    let shutdown_report = Rc::new(RefCell::new(None));
+    // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
+    cx.set_quit_mode(QuitMode::Explicit);
     let operator_bounds = gpui::Bounds::centered(None, size(px(1100.0), px(700.0)), cx);
     let operator = cx
         .open_window(preparation_window_options(operator_bounds), |_, cx| {
@@ -151,6 +152,18 @@ pub fn open_native_runtime(
     } else {
         None
     };
+
+    let workers = match RuntimeWorkers::start() {
+        Ok(workers) => Rc::new(RefCell::new(workers)),
+        Err(error) => {
+            if let Some(congregation) = congregation {
+                let _ = congregation.update(cx, |_, window, _| window.remove_window());
+            }
+            let _ = operator.update(cx, |_, window, _| window.remove_window());
+            return Err(error.into());
+        }
+    };
+    let shutdown_report = Rc::new(RefCell::new(None));
 
     let operator_id = operator.window_id();
     let congregation_handle = congregation;
