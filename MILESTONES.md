@@ -128,10 +128,9 @@ verification command.
 
 **Evidence:** [successful T0.1 verification run](https://github.com/xybr-dev/ordo-desktop/actions/runs/33284275041).
 
-**E2E** `[UI-AUTO]` — From a clean checkout, run `cargo xtask verify`, launch
-the native development application through the harness, assert the expected
-build identity and Offline status, dispatch one navigation action, and shut
-down with no worker left alive.
+**E2E** `[UI-AUTO]` — From a clean checkout, run `cargo xtask verify`, open the
+root view through `TestAppContext`, assert build-identity and Offline render
+output, dispatch one navigation action, and close cleanly.
 
 ### T0.2 — Native runtime, window ownership, and task supervision
 
