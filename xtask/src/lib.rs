@@ -28,6 +28,48 @@ const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
 
 const QUALIFIED_UI_DEPENDENCIES: &[&str] = &["gpui", "gpui-base"];
 
+const LUCIDE_ICON_DIR: &str = "crates/ui/assets/icons/lucide";
+
+const LUCIDE_ICONS: &[&str] = &[
+    "activity.svg",
+    "calendar-days.svg",
+    "check.svg",
+    "chevron-down.svg",
+    "chevron-right.svg",
+    "circle-alert.svg",
+    "circle-question-mark.svg",
+    "database-backup.svg",
+    "ellipsis.svg",
+    "grip-vertical.svg",
+    "info.svg",
+    "library.svg",
+    "settings.svg",
+    "swatch-book.svg",
+    "triangle-alert.svg",
+    "x.svg",
+];
+
+/// Bundled assets that are not icons; the Lucide subset is appended from
+/// `LUCIDE_ICONS` so the two lists cannot drift apart.
+const REQUIRED_UI_ASSETS: &[&str] = &[
+    "crates/ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
+    "crates/ui/assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
+    "crates/ui/assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
+    "crates/ui/assets/licenses/Lucide-ISC-MIT.txt",
+    "crates/ui/assets/licenses/Noto-Sans-OFL-1.1.txt",
+];
+
+fn required_ui_assets() -> impl Iterator<Item = String> {
+    REQUIRED_UI_ASSETS
+        .iter()
+        .map(|asset| (*asset).to_owned())
+        .chain(
+            LUCIDE_ICONS
+                .iter()
+                .map(|icon| format!("{LUCIDE_ICON_DIR}/{icon}")),
+        )
+}
+
 #[derive(Debug, Deserialize)]
 struct GitPins {
     zed: String,
@@ -39,28 +81,74 @@ struct GitPins {
 struct RuntimeManifest {
     schema_version: u32,
     network_required: bool,
+    icon_family: String,
     bundled_resources: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 struct DesignTokens {
     schema_version: u32,
     canonical_slide: CanonicalSlide,
-    appearance: Appearance,
+    colors: BTreeMap<String, String>,
+    typography: Typography,
+    spacing: BTreeMap<String, u16>,
+    radii: BTreeMap<String, u16>,
+    borders: BTreeMap<String, u16>,
+    elevation: BTreeMap<String, String>,
+    icons: Icons,
+    density: BTreeMap<String, u16>,
+    motion: Motion,
+    interface_scales: Vec<u16>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 struct CanonicalSlide {
     width: u32,
     height: u32,
     aspect_ratio: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct Appearance {
-    dark_background: String,
-    light_background: String,
-    focus_ring: String,
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Typography {
+    operator_family: String,
+    fallback_family: String,
+    title: TypeStyle,
+    body: TypeStyle,
+    label: TypeStyle,
+    projected_response: TypeStyle,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct TypeStyle {
+    size: u16,
+    weight: u16,
+    line_height: f32,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Icons {
+    family: String,
+    control_size: u16,
+    navigation_size: u16,
+    stroke_width: u16,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Motion {
+    quick_duration_ms: u16,
+    standard_duration_ms: u16,
+    overlay_open_duration_ms: u16,
+    overlay_close_duration_ms: u16,
+    output_content_duration_ms: u16,
+    output_blank_duration_ms: u16,
+    reduced_motion_max_duration_ms: u16,
+    easing: String,
 }
 
 pub fn repo_root() -> PathBuf {
@@ -297,7 +385,7 @@ pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
 
 fn validate_design_tokens(contents: &str) -> XtaskResult<()> {
     let tokens: DesignTokens = serde_json::from_str(contents)?;
-    if tokens.schema_version != 1 {
+    if tokens.schema_version != 2 {
         return Err("unsupported design-token schema".into());
     }
     if tokens.canonical_slide.width != 1920
@@ -306,16 +394,176 @@ fn validate_design_tokens(contents: &str) -> XtaskResult<()> {
     {
         return Err("canonical slide must remain 1920x1080 at 16:9".into());
     }
-    for (name, color) in [
-        ("dark_background", tokens.appearance.dark_background),
-        ("light_background", tokens.appearance.light_background),
-        ("focus_ring", tokens.appearance.focus_ring),
-    ] {
-        if !is_hex_color(&color) {
+    let expected_colors = expected_strings(&[
+        ("preparation_background", "#F4F0E7"),
+        ("preparation_surface", "#FFFDF8"),
+        ("preparation_surface_muted", "#EBE5DB"),
+        ("preparation_text", "#27231F"),
+        ("preparation_text_muted", "#716B62"),
+        ("preparation_border", "#D7CFC2"),
+        ("preparation_border_strong", "#8E8476"),
+        ("presenter_background", "#151816"),
+        ("presenter_surface", "#222722"),
+        ("presenter_surface_raised", "#303630"),
+        ("presenter_text", "#F2EFE8"),
+        ("presenter_text_muted", "#B1ADA4"),
+        ("presenter_border", "#414842"),
+        ("presenter_border_strong", "#7A857B"),
+        ("primary", "#355D4B"),
+        ("on_primary", "#FFFFFF"),
+        ("selection_preparation", "#DFE9E2"),
+        ("selection_presenter", "#26362C"),
+        ("live_preparation", "#2F6B4F"),
+        ("live_presenter", "#55D69C"),
+        ("freeze_preparation", "#9A5B10"),
+        ("freeze_presenter", "#F0B35E"),
+        ("blackout", "#050606"),
+        ("on_blackout", "#FFFFFF"),
+        ("warning_preparation", "#9A5B10"),
+        ("warning_presenter", "#F0B35E"),
+        ("danger_preparation", "#9D3E31"),
+        ("danger_presenter", "#EF8E82"),
+        ("information_preparation", "#315E83"),
+        ("information_presenter", "#9ACDF2"),
+        ("focus_preparation", "#2F6FA3"),
+        ("focus_presenter", "#8FCBFF"),
+        ("projection_background", "#000000"),
+        ("projection_text", "#FFFFFF"),
+        ("liturgical_purple", "#6D4A87"),
+        ("liturgical_red", "#A43F38"),
+        ("liturgical_green", "#46744D"),
+        ("liturgical_rose", "#C9788E"),
+        ("liturgical_white", "#F9F5E9"),
+    ]);
+    if tokens.colors != expected_colors {
+        return Err("semantic color tokens differ from DESIGN.md".into());
+    }
+    for (name, color) in &tokens.colors {
+        if !is_hex_color(color) {
             return Err(format!("{name} must be an opaque #RRGGBB color").into());
         }
     }
+    if tokens.typography
+        != (Typography {
+            operator_family: "Atkinson Hyperlegible Next".to_owned(),
+            fallback_family: "Noto Sans".to_owned(),
+            title: TypeStyle {
+                size: 24,
+                weight: 600,
+                line_height: 1.2,
+            },
+            body: TypeStyle {
+                size: 16,
+                weight: 400,
+                line_height: 1.45,
+            },
+            label: TypeStyle {
+                size: 14,
+                weight: 500,
+                line_height: 1.3,
+            },
+            projected_response: TypeStyle {
+                size: 72,
+                weight: 800,
+                line_height: 1.15,
+            },
+        })
+    {
+        return Err("typography tokens differ from DESIGN.md".into());
+    }
+    for (name, actual, expected) in [
+        (
+            "spacing",
+            &tokens.spacing,
+            expected_map(&[
+                ("unit", 4),
+                ("related_tight", 4),
+                ("related", 8),
+                ("control_inset", 12),
+                ("group", 16),
+                ("section", 24),
+            ]),
+        ),
+        (
+            "radii",
+            &tokens.radii,
+            expected_map(&[("control", 4), ("overlay", 8), ("slide_viewport", 4)]),
+        ),
+        (
+            "borders",
+            &tokens.borders,
+            expected_map(&[
+                ("separator", 1),
+                ("focus_separation", 2),
+                ("focus_outer", 2),
+            ]),
+        ),
+        (
+            "density",
+            &tokens.density,
+            expected_map(&[
+                ("compact_control", 32),
+                ("default_control", 36),
+                ("presenter_control", 40),
+                ("workspace_gutter_compact", 16),
+                ("workspace_gutter_wide", 24),
+            ]),
+        ),
+    ] {
+        if actual != &expected {
+            return Err(format!("{name} tokens differ from DESIGN.md").into());
+        }
+    }
+    if tokens.elevation
+        != expected_strings(&[
+            ("floating_preparation", "0 4px 12px rgba(39, 35, 31, 0.14)"),
+            ("overlay_preparation", "0 18px 48px rgba(39, 35, 31, 0.20)"),
+            ("floating_presenter", "0 4px 14px rgba(0, 0, 0, 0.40)"),
+            ("overlay_presenter", "0 18px 52px rgba(0, 0, 0, 0.58)"),
+        ])
+    {
+        return Err("elevation tokens differ from DESIGN.md".into());
+    }
+    if tokens.icons
+        != (Icons {
+            family: "Lucide".to_owned(),
+            control_size: 16,
+            navigation_size: 20,
+            stroke_width: 2,
+        })
+    {
+        return Err("icon tokens differ from DESIGN.md".into());
+    }
+    if tokens.motion
+        != (Motion {
+            quick_duration_ms: 120,
+            standard_duration_ms: 160,
+            overlay_open_duration_ms: 400,
+            overlay_close_duration_ms: 200,
+            output_content_duration_ms: 0,
+            output_blank_duration_ms: 500,
+            reduced_motion_max_duration_ms: 100,
+            easing: "cubic-bezier(0.2, 0, 0, 1)".to_owned(),
+        })
+        || tokens.interface_scales != [100, 125, 150, 175, 200]
+    {
+        return Err("motion or Interface-scale tokens differ from DESIGN.md".into());
+    }
     Ok(())
+}
+
+fn expected_map<T: Clone>(entries: &[(&str, T)]) -> BTreeMap<String, T> {
+    entries
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), value.clone()))
+        .collect()
+}
+
+fn expected_strings(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
+    entries
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
 }
 
 fn is_hex_color(value: &str) -> bool {
@@ -341,9 +589,60 @@ fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskRe
     if manifest.network_required {
         return Err("Ordo runtime must not require a network".into());
     }
+    if manifest.icon_family != "Lucide" {
+        return Err("Lucide is the only allowed operator icon family".into());
+    }
+    let registered: BTreeSet<_> = manifest
+        .bundled_resources
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let missing: Vec<_> = required_ui_assets()
+        .filter(|resource| !registered.contains(resource.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!("required UI assets are not registered: {missing:?}").into());
+    }
     for resource in &manifest.bundled_resources {
         if !root.join(resource).is_file() {
             return Err(format!("bundled resource is missing: {resource}").into());
+        }
+    }
+    validate_lucide_assets(&root.join("crates/ui/assets/icons"))?;
+    Ok(())
+}
+
+fn validate_lucide_assets(icons_root: &Path) -> XtaskResult<()> {
+    let families: BTreeSet<_> = fs::read_dir(icons_root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    if families != BTreeSet::from(["lucide".into()]) {
+        return Err("crates/ui/assets/icons must contain only the Lucide family".into());
+    }
+
+    let lucide_root = icons_root.join("lucide");
+    let actual: BTreeSet<_> = fs::read_dir(&lucide_root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    let expected: BTreeSet<_> = LUCIDE_ICONS
+        .iter()
+        .map(OsStr::new)
+        .map(OsStr::to_owned)
+        .collect();
+    if actual != expected {
+        return Err(format!(
+            "bundled Lucide subset differs: expected {expected:?}, got {actual:?}"
+        )
+        .into());
+    }
+
+    for icon in LUCIDE_ICONS {
+        let svg = fs::read_to_string(lucide_root.join(icon))?;
+        if !svg.contains("viewBox=\"0 0 24 24\"")
+            || !svg.contains("stroke=\"currentColor\"")
+            || !svg.contains("stroke-width=\"2\"")
+        {
+            return Err(format!("Lucide icon has unexpected visual vocabulary: {icon}").into());
         }
     }
     Ok(())
