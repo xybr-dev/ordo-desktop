@@ -71,17 +71,17 @@ pub fn repo_root() -> PathBuf {
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
     let metadata = metadata(&root)?;
-    println!("[1/8] workspace contracts");
+    println!("[1/9] workspace contracts");
     verify_architecture_metadata(&metadata)?;
-    println!("[2/8] design tokens");
+    println!("[2/9] design tokens");
     verify_design_tokens(&root)?;
-    println!("[3/8] offline runtime contract");
+    println!("[3/9] offline runtime contract");
     verify_offline_contract(&root)?;
-    println!("[4/8] git pins");
+    println!("[4/9] git pins");
     verify_git_pins_metadata(&root, &metadata)?;
-    println!("[5/8] rustfmt");
+    println!("[5/9] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
-    println!("[6/8] clippy");
+    println!("[6/9] clippy");
     run(
         &root,
         "cargo",
@@ -95,9 +95,15 @@ pub fn verify() -> XtaskResult<()> {
             "warnings",
         ],
     )?;
-    println!("[7/8] tests");
+    println!("[7/9] shipping configuration");
+    run(
+        &root,
+        "cargo",
+        &["check", "-p", "ordo", "--release", "--locked"],
+    )?;
+    println!("[8/9] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
-    println!("[8/8] dependencies, advisories, sources, and licenses");
+    println!("[9/9] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
     Ok(())
@@ -204,10 +210,7 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
             ]),
         ),
         ("ui-lab", BTreeSet::from(["ui"])),
-        (
-            "native-runtime-tests",
-            BTreeSet::from(["ordo", "presentation", "ui"]),
-        ),
+        ("native-runtime-tests", BTreeSet::new()),
         ("xtask", BTreeSet::new()),
     ]
     .into_iter()

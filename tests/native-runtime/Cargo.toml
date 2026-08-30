@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[dependencies]
+[dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 ordo = { path = "../../crates/ordo" }
 presentation.workspace = true
