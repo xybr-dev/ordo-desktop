@@ -159,7 +159,7 @@ GPUI thread before features create unsafe shortcuts.
 - [x] `[AUTO]` Worker failures become structured typed results; sensitive local
       paths and diagnostics never enter the congregation state tree.
 - [x] `[UI-AUTO]` Closing the operator window closes the congregation window,
-      cancels background work, flushes orderly state, and exits cleanly.
+      cancels background work, joins all owned workers, and exits cleanly.
 - [x] `[AUTO]` Preparation window options request native/server operating-system
       decorations, and borderless full-screen window options use the pinned GPUI
       Interface without vendored platform code.
