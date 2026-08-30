@@ -145,20 +145,20 @@ GPUI thread before features create unsafe shortcuts.
 
 **AC**
 
-- [ ] `[AUTO]` The GPUI application thread owns lifecycle, entities, focus,
+- [x] `[AUTO]` The GPUI application thread owns lifecycle, entities, focus,
       input, and window composition but performs no blocking database,
       filesystem, pagination, hashing, image-encoding, or export work.
-- [ ] `[AUTO]` Define typed task ownership and cancellation: application
+- [x] `[AUTO]` Define typed task ownership and cancellation: application
       shutdown joins or cancels storage and background workers without detached
       mutations or process-wide hangs.
-- [ ] `[AUTO]` Domain Modules accept and return domain types without importing
+- [x] `[AUTO]` Domain Modules accept and return domain types without importing
       GPUI entities, window handles, executor types, or platform errors.
-- [ ] `[AUTO]` The passive congregation view receives only complete Program
+- [x] `[AUTO]` The passive congregation view receives only complete Program
       frames plus output status; it has no storage, diagnostics, planning,
       clipboard, file-dialog, or operator-command Interface.
-- [ ] `[AUTO]` Worker failures become structured typed results; sensitive local
+- [x] `[AUTO]` Worker failures become structured typed results; sensitive local
       paths and diagnostics never enter the congregation state tree.
-- [ ] `[UI-AUTO]` Closing the operator window closes the congregation window,
+- [x] `[UI-AUTO]` Closing the operator window closes the congregation window,
       cancels background work, flushes orderly state, and exits cleanly.
 - [ ] `[NATIVE-AUTO]` Development and packaged Windows/Linux builds use
       native/server Preparation decorations; a borderless full-screen window
