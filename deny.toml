@@ -39,6 +39,18 @@ ignore = true
 multiple-versions = "allow"
 wildcards = "allow"
 highlight = "all"
+deny = [
+    "base-ui",
+    "dioxus",
+    "eframe",
+    "egui",
+    "gpui-component",
+    "iced",
+    "tauri",
+    "web-view",
+    "webkit2gtk",
+    "wry",
+]
 
 [sources]
 unknown-registry = "deny"

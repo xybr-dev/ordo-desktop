@@ -26,6 +26,29 @@ const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
     "wayland-client",
 ];
 
+const QUALIFIED_UI_DEPENDENCIES: &[&str] = &["gpui", "gpui-base"];
+const FORBIDDEN_PRODUCT_UI_DEPENDENCIES: &[&str] = &[
+    "base-ui",
+    "dioxus",
+    "eframe",
+    "egui",
+    "gpui-component",
+    "iced",
+    "tauri",
+    "web-view",
+    "webkit2gtk",
+    "wry",
+];
+const PRODUCT_PACKAGES: &[&str] = &[
+    "domain",
+    "storage",
+    "rendering",
+    "presentation",
+    "ui",
+    "platform",
+    "ordo",
+];
+
 #[derive(Debug, Deserialize)]
 struct GitPins {
     zed: String,
@@ -187,7 +210,23 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
             )
         })
         .collect();
-    validate_dependency_edges(&edges)
+    validate_dependency_edges(&edges)?;
+
+    let direct_dependencies: BTreeMap<_, _> = workspace_packages(metadata)
+        .into_iter()
+        .map(|package| {
+            (
+                package.name.as_str(),
+                package
+                    .dependencies
+                    .iter()
+                    .filter(|dependency| dependency.kind == DependencyKind::Normal)
+                    .map(|dependency| dependency.name.as_str())
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect();
+    validate_ui_dependency_policy(&direct_dependencies)
 }
 
 fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
@@ -240,6 +279,38 @@ fn validate_domain_dependencies(dependencies: &[&str]) -> XtaskResult<()> {
     } else {
         Err(format!("forbidden domain dependencies: {forbidden:?}").into())
     }
+}
+
+fn validate_ui_dependency_policy(dependencies: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
+    let ui_dependencies = dependencies.get("ui").ok_or("ui package is missing")?;
+    let qualified: BTreeSet<_> = QUALIFIED_UI_DEPENDENCIES.iter().copied().collect();
+    if ui_dependencies != &qualified {
+        let unqualified: Vec<_> = ui_dependencies.difference(&qualified).collect();
+        let missing: Vec<_> = qualified.difference(ui_dependencies).collect();
+        return Err(format!(
+            "ui dependency policy differs: unqualified {unqualified:?}, missing {missing:?}"
+        )
+        .into());
+    }
+
+    for (package, package_dependencies) in dependencies {
+        if *package != "ui" && package_dependencies.contains("gpui-base") {
+            return Err(format!(
+                "gpui-base must remain private to ui, but {package} depends on it"
+            )
+            .into());
+        }
+        if PRODUCT_PACKAGES.contains(package)
+            && let Some(forbidden) = package_dependencies
+                .iter()
+                .find(|dependency| FORBIDDEN_PRODUCT_UI_DEPENDENCIES.contains(dependency))
+        {
+            return Err(
+                format!("forbidden production UI dependency: {package} -> {forbidden}").into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
@@ -500,6 +571,36 @@ mod tests {
     fn rejects_forbidden_domain_dependencies() {
         assert!(validate_domain_dependencies(&["gpui"]).is_err());
         assert!(validate_domain_dependencies(&["uuid", "serde"]).is_ok());
+    }
+
+    #[test]
+    fn keeps_gpui_base_private_to_ui() {
+        let valid = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base"])),
+            ("ordo", BTreeSet::from(["gpui", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&valid).is_ok());
+
+        let leaked = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base"])),
+            ("ordo", BTreeSet::from(["gpui-base", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&leaked).is_err());
+    }
+
+    #[test]
+    fn rejects_unqualified_ui_and_browser_stacks() {
+        let styled = BTreeMap::from([(
+            "ui",
+            BTreeSet::from(["gpui", "gpui-base", "gpui-component"]),
+        )]);
+        assert!(validate_ui_dependency_policy(&styled).is_err());
+
+        let browser = BTreeMap::from([
+            ("ui", BTreeSet::from(["gpui", "gpui-base"])),
+            ("ordo", BTreeSet::from(["tauri", "ui"])),
+        ]);
+        assert!(validate_ui_dependency_policy(&browser).is_err());
     }
 
     #[test]
