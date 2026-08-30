@@ -14,6 +14,17 @@ implementation.
 - [`docs/agent-development.md`](./docs/agent-development.md) — agent-assisted
   development strategy.
 
+## Run the app
+
+From the repository root:
+
+```sh
+cargo run --locked
+```
+
+This opens the current operator window. Close it to stop the app; the
+congregation window is not implemented yet.
+
 ## Verify
 
 Install `cargo-deny`, then run:
