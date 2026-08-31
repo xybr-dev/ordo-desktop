@@ -78,8 +78,6 @@ pub struct Palette {
     pub selection: u32,
     pub focus: u32,
     pub warning: u32,
-    pub danger: u32,
-    pub information: u32,
 }
 
 pub const fn palette(appearance: ResolvedAppearance) -> Palette {
@@ -95,8 +93,6 @@ pub const fn palette(appearance: ResolvedAppearance) -> Palette {
             selection: color::SELECTION_PREPARATION,
             focus: color::FOCUS_PREPARATION,
             warning: color::WARNING_PREPARATION,
-            danger: color::DANGER_PREPARATION,
-            information: color::INFORMATION_PREPARATION,
         },
         ResolvedAppearance::Dark => Palette {
             background: color::PRESENTER_BACKGROUND,
@@ -109,8 +105,6 @@ pub const fn palette(appearance: ResolvedAppearance) -> Palette {
             selection: color::SELECTION_PRESENTER,
             focus: color::FOCUS_PRESENTER,
             warning: color::WARNING_PRESENTER,
-            danger: color::DANGER_PRESENTER,
-            information: color::INFORMATION_PRESENTER,
         },
     }
 }
