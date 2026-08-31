@@ -10,14 +10,27 @@ use gpui::{
 };
 
 use crate::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
+    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale, assets,
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
+    },
+    primitives::{
+        Availability,
+        button::Button,
+        field::{Field, FieldState},
     },
     resolved_appearance, tokens,
 };
 
-actions!(ordo_lab, [NextScenario, NextViewport, NextAppearance]);
+actions!(
+    ordo_lab,
+    [
+        NextScenario,
+        NextViewport,
+        NextAppearance,
+        ToggleHighContrast
+    ]
+);
 
 /// Initializes the UI environment plus the lab-only keys. Production shells call
 /// [`crate::init`] instead, so these bindings never reach an operator build.
@@ -29,11 +42,12 @@ pub fn init(cx: &mut App) -> Result<(), String> {
 
 /// Lab-only keys. Every one cycles, because a lab is driven one-handed while
 /// watching the stage; `crate::key_bindings` covers the shared scale keys.
-pub(crate) fn key_bindings() -> [KeyBinding; 3] {
+pub(crate) fn key_bindings() -> [KeyBinding; 4] {
     [
         KeyBinding::new("f2", NextScenario, None),
         KeyBinding::new("f3", NextViewport, None),
         KeyBinding::new("f4", NextAppearance, None),
+        KeyBinding::new("f5", ToggleHighContrast, None),
     ]
 }
 
@@ -86,19 +100,31 @@ pub mod fixtures {
 /// One curated lab scenario: a stable name plus the element it renders.
 pub struct Scenario {
     pub name: &'static str,
-    render: fn(UiEnvironment) -> AnyElement,
+    /// A scenario renders inside the host's frame, so it gets the same context
+    /// a view would: window-keyed control state has to survive between frames.
+    render: fn(UiEnvironment, &mut Window, &mut App) -> AnyElement,
 }
 
-static SCENARIOS: &[Scenario] = &[Scenario {
-    name: "placeholder",
-    render: render_placeholder,
-}];
+static SCENARIOS: &[Scenario] = &[
+    Scenario {
+        name: "placeholder",
+        render: render_placeholder,
+    },
+    Scenario {
+        name: "buttons",
+        render: render_buttons,
+    },
+    Scenario {
+        name: "fields",
+        render: render_fields,
+    },
+];
 
 pub fn scenarios() -> &'static [Scenario] {
     SCENARIOS
 }
 
-fn render_placeholder(environment: UiEnvironment) -> AnyElement {
+fn render_placeholder(environment: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
     let scale = environment.preferences().scale;
     div()
         .debug_selector(|| "scenario-placeholder".into())
@@ -119,6 +145,67 @@ fn render_placeholder(environment: UiEnvironment) -> AnyElement {
         .into_any_element()
 }
 
+/// Every meaningful Button state on one stage, so hover, press, and keyboard
+/// focus can be walked by hand in one pass at either appearance.
+fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
+    row("scenario-buttons", environment)
+        .child(Button::new("save", "Save", environment).icon(assets::icon::CHECK))
+        .child(
+            Button::new("more", "More actions", environment)
+                .icon(assets::icon::ELLIPSIS)
+                .icon_only(),
+        )
+        .child(Button::new("archive", "Archive", environment).availability(Availability::Disabled))
+        .child(
+            Button::new("go-live", "Go Live", environment)
+                .availability(Availability::unavailable("No output is connected")),
+        )
+        .child(Button::new(
+            "long",
+            fixtures::LONG_CEBUANO_TITLE,
+            environment,
+        ))
+        .into_any_element()
+}
+
+/// Every meaningful Field state, including the empty value that is a choice
+/// rather than a fault.
+fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let mut field = |id: &'static str| FieldState::keyed(id, window, cx);
+    let (title, celebration, recorded, song) = (
+        field("lab-title"),
+        field("lab-celebration"),
+        field("lab-recorded"),
+        field("lab-song"),
+    );
+    row("scenario-fields", environment)
+        .child(Field::new("title", "Title", &title, environment))
+        .child(Field::new("celebration", "Celebration", &celebration, environment).not_assigned())
+        .child(
+            Field::new("recorded", "Recorded by", &recorded, environment)
+                .read_only("The Mass has already been celebrated"),
+        )
+        .child(
+            Field::new("song", "Song file", &song, environment)
+                .availability(Availability::unavailable("The Song file is missing")),
+        )
+        .into_any_element()
+}
+
+/// The shared stage frame: controls sit on the surface their focus separation
+/// ring assumes, wrap at a narrow viewport, and never crowd each other.
+fn row(selector: &'static str, environment: UiEnvironment) -> gpui::Div {
+    let scale = environment.preferences().scale;
+    div()
+        .debug_selector(move || selector.into())
+        .flex()
+        .flex_wrap()
+        .items_start()
+        .gap(px(scale.apply(tokens::spacing::SECTION)))
+        .p(px(scale.apply(tokens::spacing::SECTION)))
+        .text_size(px(scale.apply(tokens::typography::BODY.size)))
+}
+
 /// The one on-screen readout of what the scenario is being shown under. The
 /// preference alone would hide which appearance System resolved to, including
 /// after a live system change repaints the whole stage.
@@ -130,8 +217,13 @@ fn status_line(scenario: &str, viewport: ViewportPreset, environment: UiEnvironm
         (PreparationAppearance::Light, _) => "Light",
         (PreparationAppearance::Dark, _) => "Dark",
     };
+    let high_contrast = if environment.high_contrast() {
+        " · High Contrast"
+    } else {
+        ""
+    };
     format!(
-        "{scenario} · {} · {appearance} · {}%",
+        "{scenario} · {} · {appearance} · {}%{high_contrast}",
         viewport.label(),
         preferences.scale.percent()
     )
@@ -212,6 +304,21 @@ impl LabView {
         self.set_viewport(self.viewport.next(), cx);
     }
 
+    /// The escape hatch has no platform signal to follow, so the lab is where
+    /// it can be seen at all: `DESIGN.md` hands focus indication back to the
+    /// operating system here.
+    fn toggle_high_contrast(
+        &mut self,
+        _: &ToggleHighContrast,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change(
+            EnvironmentChange::SetHighContrast(!self.environment.high_contrast()),
+            cx,
+        );
+    }
+
     fn next_appearance(&mut self, _: &NextAppearance, _: &mut Window, cx: &mut Context<Self>) {
         let next = match self.environment.preferences().appearance {
             PreparationAppearance::System => PreparationAppearance::Light,
@@ -229,7 +336,7 @@ impl Focusable for LabView {
 }
 
 impl Render for LabView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let environment = self.environment;
         let preferences = environment.preferences();
         let (background, surface, text, border) = match environment.appearance() {
@@ -257,6 +364,7 @@ impl Render for LabView {
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
             .on_action(cx.listener(Self::next_appearance))
+            .on_action(cx.listener(Self::toggle_high_contrast))
             .on_action(cx.listener(|this, _: &IncreaseInterfaceScale, _, cx| {
                 this.change(EnvironmentChange::IncreaseScale, cx);
             }))
@@ -303,7 +411,7 @@ impl Render for LabView {
                                     .w(px(width))
                                     .h(px(height))
                                     .bg(rgb(surface))
-                                    .child((scenario.render)(environment)),
+                                    .child((scenario.render)(environment, window, cx)),
                             ),
                     ),
             )
@@ -377,6 +485,59 @@ mod tests {
             status_line("placeholder", ViewportPreset::Wide, environment),
             "placeholder · 1920x1080 · Light · 100%"
         );
+    }
+
+    /// Both control scenarios at both appearances: the curated corpus the lab
+    /// exists to make reviewable by hand is also opened once by the harness, so
+    /// a scenario cannot rot into one that no longer renders.
+    #[gpui::test]
+    fn the_control_scenarios_open_at_both_appearances(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+
+        for appearance in [PreparationAppearance::Light, PreparationAppearance::Dark] {
+            for (scenario, selector) in [
+                ("buttons", "scenario-buttons"),
+                ("fields", "scenario-fields"),
+            ] {
+                let opened = lab.update(cx, |lab, cx| {
+                    lab.change(EnvironmentChange::SetAppearance(appearance), cx);
+                    lab.select_scenario(scenario, cx)
+                });
+                cx.run_until_parked();
+
+                assert!(opened, "{scenario} should be registered");
+                assert!(
+                    cx.debug_bounds(selector).is_some(),
+                    "{scenario} renders under {appearance:?}"
+                );
+                assert!(
+                    cx.debug_bounds("control-unavailable").is_some(),
+                    "{scenario} shows its Unavailable Cue under {appearance:?}"
+                );
+            }
+            assert!(
+                cx.debug_bounds("field-read-only").is_some(),
+                "the Read-only reason stays visible under {appearance:?}"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn the_high_contrast_key_hands_focus_indication_back_to_the_platform(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+
+        cx.simulate_keystrokes("f5");
+
+        lab.read_with(cx, |lab, _| {
+            assert!(lab.environment().high_contrast());
+            assert!(
+                crate::primitives::focus_rings(
+                    lab.environment(),
+                    tokens::color::PREPARATION_SURFACE
+                )
+                .is_empty()
+            );
+        });
     }
 
     #[gpui::test]
