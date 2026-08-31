@@ -101,6 +101,9 @@ impl Button {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let disabled = self.availability.is_disabled();
+        // Nothing binds `icon_only()` to `icon()`, and a square with neither a
+        // glyph nor a label is a named empty box. The label wins.
+        let icon_only = self.icon_only && self.icon.is_some();
         let height = scale.apply(tokens::density::DEFAULT_CONTROL);
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
@@ -111,7 +114,7 @@ impl Button {
         let tooltip =
             self.tooltip
                 .clone()
-                .or_else(|| match (self.availability.reason(), self.icon_only) {
+                .or_else(|| match (self.availability.reason(), icon_only) {
                     (Some(reason), true) => {
                         Some(format!("{label}. {}. {reason}", Availability::UNAVAILABLE).into())
                     }
@@ -157,8 +160,8 @@ impl Button {
             .justify_center()
             .gap(px(scale.apply(tokens::spacing::RELATED)))
             .h(px(height))
-            .when(self.icon_only, |control| control.w(px(height)))
-            .when(!self.icon_only, |control| {
+            .when(icon_only, |control| control.w(px(height)))
+            .when(!icon_only, |control| {
                 control.px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             })
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
@@ -203,7 +206,7 @@ impl Button {
                         .data(icon.as_bytes()),
                 )
             })
-            .when(!self.icon_only, |control| control.child(label))
+            .when(!icon_only, |control| control.child(label))
     }
 }
 
