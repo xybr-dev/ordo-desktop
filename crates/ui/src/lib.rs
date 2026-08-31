@@ -2,6 +2,8 @@
 
 pub mod assets;
 pub mod environment;
+/// Development-only scenario host; `ui-lab` enables it, operator builds do not.
+#[cfg(any(test, feature = "lab"))]
 pub mod lab;
 pub mod tokens;
 

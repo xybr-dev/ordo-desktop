@@ -116,6 +116,24 @@ fn render_placeholder(environment: UiEnvironment) -> AnyElement {
         .into_any_element()
 }
 
+/// The one on-screen readout of what the scenario is being shown under. The
+/// preference alone would hide which appearance System resolved to, including
+/// after a live system change repaints the whole stage.
+fn status_line(scenario: &str, viewport: ViewportPreset, environment: UiEnvironment) -> String {
+    let preferences = environment.preferences();
+    let appearance = match (preferences.appearance, environment.appearance()) {
+        (PreparationAppearance::System, ResolvedAppearance::Light) => "System (Light)",
+        (PreparationAppearance::System, ResolvedAppearance::Dark) => "System (Dark)",
+        (PreparationAppearance::Light, _) => "Light",
+        (PreparationAppearance::Dark, _) => "Dark",
+    };
+    format!(
+        "{scenario} · {} · {appearance} · {}%",
+        viewport.label(),
+        preferences.scale.percent()
+    )
+}
+
 /// Hosts one scenario inside a fixed viewport preset, with appearance and scale
 /// driven by the same environment transition the production shell uses.
 pub struct LabView {
@@ -218,17 +236,7 @@ impl Render for LabView {
         };
         let scenario = self.scenario();
         let (width, height) = self.viewport.size();
-        let appearance = match preferences.appearance {
-            PreparationAppearance::System => "System",
-            PreparationAppearance::Light => "Light",
-            PreparationAppearance::Dark => "Dark",
-        };
-        let status = format!(
-            "{} · {} · {appearance} · {}%",
-            scenario.name,
-            self.viewport.label(),
-            preferences.scale.percent()
-        );
+        let status = status_line(scenario.name, self.viewport, environment);
 
         div()
             .id("ordo-lab")
@@ -288,15 +296,20 @@ impl Render for LabView {
                     .flex_1()
                     .overflow_scroll()
                     .child(
+                        // The border is outside the stage so a scenario gets the
+                        // whole preset, not the preset minus two border pixels.
                         div()
-                            .debug_selector(|| "lab-stage".into())
                             .flex_none()
-                            .w(px(width))
-                            .h(px(height))
-                            .bg(rgb(surface))
                             .border_1()
                             .border_color(rgb(border))
-                            .child((scenario.render)(environment)),
+                            .child(
+                                div()
+                                    .debug_selector(|| "lab-stage".into())
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .bg(rgb(surface))
+                                    .child((scenario.render)(environment)),
+                            ),
                     ),
             )
     }
@@ -343,6 +356,32 @@ mod tests {
 
         let unknown = lab.update(cx, |lab, cx| lab.select_scenario("missing", cx));
         assert!(!unknown, "an unknown scenario name should not open");
+    }
+
+    #[test]
+    fn the_status_line_reports_the_resolved_appearance_not_only_the_preference() {
+        let mut environment =
+            UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        assert_eq!(
+            status_line("placeholder", ViewportPreset::Compact, environment),
+            "placeholder · 1366x768 · System (Light) · 100%"
+        );
+
+        environment.apply(EnvironmentChange::SystemAppearanceChanged(
+            ResolvedAppearance::Dark,
+        ));
+        assert_eq!(
+            status_line("placeholder", ViewportPreset::Compact, environment),
+            "placeholder · 1366x768 · System (Dark) · 100%"
+        );
+
+        environment.apply(EnvironmentChange::SetAppearance(
+            PreparationAppearance::Light,
+        ));
+        assert_eq!(
+            status_line("placeholder", ViewportPreset::Wide, environment),
+            "placeholder · 1920x1080 · Light · 100%"
+        );
     }
 
     #[gpui::test]
