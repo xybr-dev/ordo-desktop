@@ -10,8 +10,7 @@ use gpui::{
 };
 
 use crate::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale, UseDarkAppearance,
-    UseLightAppearance, UseSystemAppearance,
+    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
     },
@@ -258,24 +257,6 @@ impl Render for LabView {
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
             .on_action(cx.listener(Self::next_appearance))
-            .on_action(cx.listener(|this, _: &UseSystemAppearance, _, cx| {
-                this.change(
-                    EnvironmentChange::SetAppearance(PreparationAppearance::System),
-                    cx,
-                );
-            }))
-            .on_action(cx.listener(|this, _: &UseLightAppearance, _, cx| {
-                this.change(
-                    EnvironmentChange::SetAppearance(PreparationAppearance::Light),
-                    cx,
-                );
-            }))
-            .on_action(cx.listener(|this, _: &UseDarkAppearance, _, cx| {
-                this.change(
-                    EnvironmentChange::SetAppearance(PreparationAppearance::Dark),
-                    cx,
-                );
-            }))
             .on_action(cx.listener(|this, _: &IncreaseInterfaceScale, _, cx| {
                 this.change(EnvironmentChange::IncreaseScale, cx);
             }))
