@@ -1,11 +1,49 @@
 //! Ordo-owned GPUI primitives and application-shell views.
 
 pub mod assets;
+pub mod environment;
 pub mod tokens;
 
-use gpui::{App, Context, FocusHandle, Focusable, Render, Window, actions, div, prelude::*, rgb};
+use std::{borrow::Cow, rc::Rc};
 
-actions!(ordo_shell, [OpenSongs]);
+use environment::{
+    EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
+};
+use gpui::{
+    App, Context, FocusHandle, Focusable, KeyBinding, Render, Subscription, Window,
+    WindowAppearance, actions, div, prelude::*, px, rgb,
+};
+
+actions!(
+    ordo_shell,
+    [
+        OpenSongs,
+        UseSystemAppearance,
+        UseLightAppearance,
+        UseDarkAppearance,
+        IncreaseInterfaceScale,
+        DecreaseInterfaceScale,
+        ResetInterfaceScale,
+        EnterPresenter,
+        LeavePresenter
+    ]
+);
+
+pub fn init(cx: &mut App) -> Result<(), String> {
+    cx.text_system()
+        .add_fonts(vec![
+            Cow::Borrowed(assets::ATKINSON_HYPERLEGIBLE_NEXT),
+            Cow::Borrowed(assets::NOTO_SANS),
+        ])
+        .map_err(|error| error.to_string())?;
+    cx.bind_keys([
+        KeyBinding::new("ctrl-=", IncreaseInterfaceScale, None),
+        KeyBinding::new("ctrl-+", IncreaseInterfaceScale, None),
+        KeyBinding::new("ctrl--", DecreaseInterfaceScale, None),
+        KeyBinding::new("ctrl-0", ResetInterfaceScale, None),
+    ]);
+    Ok(())
+}
 
 /// The minimal shell destinations needed to prove action-driven navigation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -19,17 +57,45 @@ pub enum ShellDestination {
 pub struct RootView {
     build_identity: &'static str,
     active_destination: ShellDestination,
+    environment: UiEnvironment,
+    preferences_changed_since_startup: bool,
+    save_preferences: Option<Rc<dyn Fn(UiPreferences)>>,
     focus_handle: FocusHandle,
+    _appearance_subscription: Subscription,
 }
 
 impl RootView {
     pub const CONNECTION_STATUS: &str = "Offline";
 
-    pub fn new(build_identity: &'static str, cx: &mut Context<Self>) -> Self {
+    pub fn new(build_identity: &'static str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_preferences(build_identity, UiPreferences::default(), None, window, cx)
+    }
+
+    pub fn with_preferences(
+        build_identity: &'static str,
+        preferences: UiPreferences,
+        save_preferences: Option<Rc<dyn Fn(UiPreferences)>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let environment = UiEnvironment::new(preferences, resolved_appearance(window.appearance()));
+        let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            this.change_environment(
+                EnvironmentChange::SystemAppearanceChanged(resolved_appearance(
+                    window.appearance(),
+                )),
+                false,
+                cx,
+            );
+        });
         Self {
             build_identity,
             active_destination: ShellDestination::Masses,
+            environment,
+            preferences_changed_since_startup: false,
+            save_preferences,
             focus_handle: cx.focus_handle(),
+            _appearance_subscription: appearance_subscription,
         }
     }
 
@@ -37,9 +103,122 @@ impl RootView {
         self.active_destination
     }
 
+    pub fn environment(&self) -> UiEnvironment {
+        self.environment
+    }
+
+    pub fn restore_preferences(&mut self, preferences: UiPreferences, cx: &mut Context<Self>) {
+        if self.preferences_changed_since_startup {
+            return;
+        }
+        self.change_environment(EnvironmentChange::SetPreferences(preferences), false, cx);
+    }
+
+    pub fn change_from_settings(&mut self, change: EnvironmentChange, cx: &mut Context<Self>) {
+        self.change_environment(change, true, cx);
+    }
+
+    fn change_environment(
+        &mut self,
+        change: EnvironmentChange,
+        persist: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.environment.preferences();
+        if !self.environment.apply(change) {
+            return;
+        }
+        let after = self.environment.preferences();
+        if persist && after != before {
+            self.preferences_changed_since_startup = true;
+            if let Some(save) = &self.save_preferences {
+                save(after);
+            }
+        }
+        cx.notify();
+    }
+
     fn open_songs(&mut self, _: &OpenSongs, _: &mut Window, cx: &mut Context<Self>) {
         self.active_destination = ShellDestination::Songs;
         cx.notify();
+    }
+
+    fn use_system_appearance(
+        &mut self,
+        _: &UseSystemAppearance,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(
+            EnvironmentChange::SetAppearance(PreparationAppearance::System),
+            cx,
+        );
+    }
+
+    fn use_light_appearance(
+        &mut self,
+        _: &UseLightAppearance,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(
+            EnvironmentChange::SetAppearance(PreparationAppearance::Light),
+            cx,
+        );
+    }
+
+    fn use_dark_appearance(
+        &mut self,
+        _: &UseDarkAppearance,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(
+            EnvironmentChange::SetAppearance(PreparationAppearance::Dark),
+            cx,
+        );
+    }
+
+    fn increase_interface_scale(
+        &mut self,
+        _: &IncreaseInterfaceScale,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(EnvironmentChange::IncreaseScale, cx);
+    }
+
+    fn decrease_interface_scale(
+        &mut self,
+        _: &DecreaseInterfaceScale,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(EnvironmentChange::DecreaseScale, cx);
+    }
+
+    fn reset_interface_scale(
+        &mut self,
+        _: &ResetInterfaceScale,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_from_settings(EnvironmentChange::ResetScale, cx);
+    }
+
+    fn enter_presenter(&mut self, _: &EnterPresenter, _: &mut Window, cx: &mut Context<Self>) {
+        self.change_environment(EnvironmentChange::EnterPresenter, false, cx);
+    }
+
+    fn leave_presenter(&mut self, _: &LeavePresenter, _: &mut Window, cx: &mut Context<Self>) {
+        self.change_environment(EnvironmentChange::LeavePresenter, false, cx);
+    }
+}
+
+fn resolved_appearance(appearance: WindowAppearance) -> ResolvedAppearance {
+    match appearance {
+        WindowAppearance::Light | WindowAppearance::VibrantLight => ResolvedAppearance::Light,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => ResolvedAppearance::Dark,
     }
 }
 
@@ -55,19 +234,47 @@ impl Render for RootView {
             ShellDestination::Masses => "Masses",
             ShellDestination::Songs => "Songs",
         };
+        let (background, text) = match self.environment.appearance() {
+            ResolvedAppearance::Light => (
+                tokens::color::PREPARATION_BACKGROUND,
+                tokens::color::PREPARATION_TEXT,
+            ),
+            ResolvedAppearance::Dark => (
+                tokens::color::PRESENTER_BACKGROUND,
+                tokens::color::PRESENTER_TEXT,
+            ),
+        };
+        let preferences = self.environment.preferences();
+        let appearance = self.environment.appearance();
+        let scale = preferences.scale.percent();
+        let mode = self.environment.mode();
 
         div()
             .id("ordo-root")
             .key_context("OrdoShell")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::open_songs))
+            .on_action(cx.listener(Self::use_system_appearance))
+            .on_action(cx.listener(Self::use_light_appearance))
+            .on_action(cx.listener(Self::use_dark_appearance))
+            .on_action(cx.listener(Self::increase_interface_scale))
+            .on_action(cx.listener(Self::decrease_interface_scale))
+            .on_action(cx.listener(Self::reset_interface_scale))
+            .on_action(cx.listener(Self::enter_presenter))
+            .on_action(cx.listener(Self::leave_presenter))
             .size_full()
             .flex()
             .flex_col()
             .justify_center()
             .items_center()
-            .bg(rgb(tokens::color::PRESENTER_BACKGROUND))
-            .text_color(rgb(tokens::color::PRESENTER_TEXT))
+            .p(px(preferences.scale.apply(tokens::spacing::GROUP)))
+            .font_family(tokens::typography::OPERATOR_FAMILY)
+            .text_size(px(preferences.scale.apply(tokens::typography::BODY.size)))
+            .bg(rgb(background))
+            .text_color(rgb(text))
+            .child(div().debug_selector(move || format!("appearance-{appearance:?}")))
+            .child(div().debug_selector(move || format!("interface-scale-{scale}")))
+            .child(div().debug_selector(move || format!("operator-mode-{mode:?}")))
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())
@@ -94,7 +301,7 @@ mod tests {
     #[gpui::test]
     fn root_view_opens_dispatches_navigation_and_stays_offline(cx: &mut TestAppContext) {
         let (root, cx) = cx.add_window_view(|window, cx| {
-            let root = RootView::new("test-build", cx);
+            let root = RootView::new("test-build", window, cx);
             window.focus(&root.focus_handle, cx);
             root
         });
@@ -116,5 +323,49 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, _| window.remove_window());
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn settings_actions_shortcuts_and_presenter_use_the_environment_transition(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(init).unwrap();
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let root = RootView::new("test-build", window, cx);
+            window.focus(&root.focus_handle, cx);
+            root
+        });
+
+        cx.dispatch_action(UseDarkAppearance);
+        cx.dispatch_action(EnterPresenter);
+        cx.dispatch_action(LeavePresenter);
+        cx.simulate_keystrokes("ctrl-= ctrl-= ctrl-- ctrl-0");
+        root.update(cx, |root, cx| {
+            root.restore_preferences(
+                UiPreferences {
+                    appearance: PreparationAppearance::Light,
+                    scale: environment::InterfaceScale::Percent175,
+                },
+                cx,
+            );
+        });
+
+        root.read_with(cx, |root, _| {
+            assert_eq!(
+                root.environment().preferences().appearance,
+                PreparationAppearance::Dark
+            );
+            assert_eq!(
+                root.environment().preferences().scale,
+                environment::InterfaceScale::Percent100
+            );
+            assert_eq!(
+                root.environment().mode(),
+                environment::OperatorMode::Preparation
+            );
+            assert_eq!(root.environment().appearance(), ResolvedAppearance::Dark);
+        });
+        assert!(cx.debug_bounds("appearance-Dark").is_some());
+        assert!(cx.debug_bounds("interface-scale-100").is_some());
     }
 }

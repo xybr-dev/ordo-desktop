@@ -1,15 +1,24 @@
-use std::{cell::RefCell, error::Error, fmt, rc::Rc, thread};
+use std::{
+    cell::RefCell,
+    error::Error,
+    fmt,
+    path::Path,
+    rc::Rc,
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+};
 
 use gpui::{
-    App, AppContext, Context, QuitMode, Render, Window, WindowHandle, div, prelude::*, px, rgb,
-    size,
+    App, AppContext, Context, Focusable, QuitMode, Render, Window, WindowHandle, div, prelude::*,
+    px, rgb, size,
 };
 use platform::{
+    preferences::{PreferencesFile, installation_preferences_path},
     tasks::{OwnedWorker, WorkerExit, WorkerFailure, WorkerKind, WorkerStartError},
     windows::{preparation_window_options, presenter_window_options},
 };
 use presentation::{CongregationState, OutputStatus, ProgramFrame};
-use ui::RootView;
+use ui::{RootView, environment::UiPreferences};
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
@@ -44,6 +53,8 @@ impl Render for CongregationView {
 #[derive(Debug)]
 pub enum RuntimeError {
     Worker(WorkerStartError),
+    PreferencesPath(std::io::Error),
+    Ui(String),
     Window(&'static str),
 }
 
@@ -54,6 +65,16 @@ impl fmt::Display for RuntimeError {
                 formatter,
                 "failed to start {:?} worker: {}",
                 error.worker, error.reason
+            ),
+            Self::PreferencesPath(error) => {
+                write!(
+                    formatter,
+                    "failed to locate installation preferences: {error}"
+                )
+            }
+            Self::Ui(error) => write!(
+                formatter,
+                "failed to initialize the UI environment: {error}"
             ),
             Self::Window(role) => write!(formatter, "failed to open {role} window"),
         }
@@ -88,21 +109,54 @@ impl NativeRuntime {
     }
 }
 
-struct RuntimeWorkers(Vec<OwnedWorker<()>>);
+enum PreferenceCommand {
+    Save(String),
+    Shutdown,
+}
+
+type RestoredPreferences = Receiver<std::io::Result<Option<String>>>;
+
+struct RuntimeWorkers {
+    preference_commands: Sender<PreferenceCommand>,
+    workers: Vec<OwnedWorker<()>>,
+}
 
 impl RuntimeWorkers {
-    fn start() -> Result<Self, WorkerStartError> {
-        let storage = controlled_worker(WorkerKind::Storage)?;
+    fn start(
+        preferences: PreferencesFile,
+    ) -> Result<(Self, RestoredPreferences), WorkerStartError> {
+        let (preference_commands, commands) = mpsc::channel();
+        let (restored_preferences, restore) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
-        Ok(Self(vec![storage, background]))
+        let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
+            let _ = restored_preferences.send(preferences.read());
+            while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
+                preferences
+                    .write(&contents)
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(if cancel.is_cancelled() {
+                WorkerExit::Cancelled
+            } else {
+                WorkerExit::Completed(())
+            })
+        })?;
+        Ok((
+            Self {
+                preference_commands,
+                workers: vec![storage, background],
+            },
+            restore,
+        ))
     }
 
     fn shutdown(&mut self) -> Vec<WorkerFailure> {
-        for worker in &self.0 {
+        for worker in &self.workers {
             worker.cancel();
         }
+        let _ = self.preference_commands.send(PreferenceCommand::Shutdown);
         let mut failures = Vec::new();
-        for worker in &mut self.0 {
+        for worker in &mut self.workers {
             if let Err(failure) = worker.join() {
                 failures.push(failure);
             }
@@ -125,14 +179,71 @@ pub fn open_native_runtime(
     cx: &mut App,
     with_congregation: bool,
 ) -> Result<NativeRuntime, RuntimeError> {
+    let preferences_path =
+        installation_preferences_path().map_err(RuntimeError::PreferencesPath)?;
+    open_native_runtime_at(cx, with_congregation, preferences_path)
+}
+
+/// Testable runtime entry point whose installation preferences never need a real user path.
+pub fn open_native_runtime_at(
+    cx: &mut App,
+    with_congregation: bool,
+    preferences_path: impl AsRef<Path>,
+) -> Result<NativeRuntime, RuntimeError> {
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
     cx.set_quit_mode(QuitMode::Explicit);
+    ui::init(cx).map_err(RuntimeError::Ui)?;
+    let (workers, restored_preferences) =
+        RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()))?;
+    let workers = Rc::new(RefCell::new(workers));
+    let save_preferences = {
+        let commands = workers.borrow().preference_commands.clone();
+        Rc::new(move |preferences: UiPreferences| {
+            if commands
+                .send(PreferenceCommand::Save(preferences.encode()))
+                .is_err()
+            {
+                eprintln!("preferences worker stopped before a change could be saved");
+            }
+        })
+    };
     let operator_bounds = gpui::Bounds::centered(None, size(px(1100.0), px(700.0)), cx);
     let operator = cx
-        .open_window(preparation_window_options(operator_bounds), |_, cx| {
-            cx.new(|cx| RootView::new(BUILD_IDENTITY, cx))
+        .open_window(preparation_window_options(operator_bounds), |window, cx| {
+            cx.new(|cx| {
+                let root = RootView::with_preferences(
+                    BUILD_IDENTITY,
+                    UiPreferences::default(),
+                    Some(save_preferences),
+                    window,
+                    cx,
+                );
+                window.focus(&root.focus_handle(cx), cx);
+                root
+            })
         })
         .map_err(|_| RuntimeError::Window("operator"))?;
+
+    let restore = cx
+        .background_executor()
+        .spawn(async move { restored_preferences.recv() });
+    cx.spawn({
+        let restore_target = operator;
+        async move |cx| match restore.await {
+            Ok(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
+                Ok(preferences) => {
+                    let _ = restore_target.update(cx, |root, _, cx| {
+                        root.restore_preferences(preferences, cx);
+                    });
+                }
+                Err(error) => eprintln!("ignored invalid installation preferences: {error}"),
+            },
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => eprintln!("failed to restore installation preferences: {error}"),
+            Err(_) => eprintln!("preferences worker stopped before startup restore"),
+        }
+    })
+    .detach();
 
     let congregation = if with_congregation {
         let bounds = gpui::Bounds::centered(None, size(px(1920.0), px(1080.0)), cx);
@@ -146,6 +257,7 @@ pub fn open_native_runtime(
             Ok(window) => Some(window),
             Err(_) => {
                 let _ = operator.update(cx, |_, window, _| window.remove_window());
+                let _ = workers.borrow_mut().shutdown();
                 return Err(RuntimeError::Window("congregation"));
             }
         }
@@ -153,16 +265,6 @@ pub fn open_native_runtime(
         None
     };
 
-    let workers = match RuntimeWorkers::start() {
-        Ok(workers) => Rc::new(RefCell::new(workers)),
-        Err(error) => {
-            if let Some(congregation) = congregation {
-                let _ = congregation.update(cx, |_, window, _| window.remove_window());
-            }
-            let _ = operator.update(cx, |_, window, _| window.remove_window());
-            return Err(error.into());
-        }
-    };
     let shutdown_report = Rc::new(RefCell::new(None));
 
     let operator_id = operator.window_id();
@@ -226,7 +328,12 @@ mod tests {
         })
         .unwrap();
 
-        let report = RuntimeWorkers(vec![storage, background]).shutdown();
+        let (commands, _) = mpsc::channel();
+        let report = RuntimeWorkers {
+            preference_commands: commands,
+            workers: vec![storage, background],
+        }
+        .shutdown();
 
         assert!(report.is_empty());
     }
@@ -240,7 +347,12 @@ mod tests {
             )
             .unwrap();
 
-        let report = RuntimeWorkers(vec![failed]).shutdown();
+        let (commands, _) = mpsc::channel();
+        let report = RuntimeWorkers {
+            preference_commands: commands,
+            workers: vec![failed],
+        }
+        .shutdown();
 
         assert_eq!(
             report,
