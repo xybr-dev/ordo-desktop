@@ -44,12 +44,20 @@ fn closing_operator_closes_congregation_and_owned_workers(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn runtime_restores_and_persists_installation_preferences(cx: &mut TestAppContext) {
+async fn runtime_restores_and_persists_installation_preferences(cx: &mut TestAppContext) {
     let preferences = temporary_preferences("runtime-preferences");
     fs::write(&preferences, "appearance=light\nscale=175\n").unwrap();
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
-    cx.run_until_parked();
+    let root = runtime
+        .operator()
+        .update(cx, |_, _, cx| cx.entity())
+        .unwrap();
+    cx.condition(&root, |root, _| {
+        root.environment().preferences().appearance == PreparationAppearance::Light
+            && root.environment().preferences().scale == InterfaceScale::Percent175
+    })
+    .await;
 
     runtime
         .operator()

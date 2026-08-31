@@ -6,9 +6,9 @@ use std::{
     rc::Rc,
     sync::mpsc::{self, Sender},
     thread,
-    time::Duration,
 };
 
+use async_channel::Sender as AsyncSender;
 use gpui::{
     App, AppContext, Context, Focusable, QuitMode, Render, Window, WindowHandle, div, prelude::*,
     px, rgb, size,
@@ -123,12 +123,12 @@ struct RuntimeWorkers {
 impl RuntimeWorkers {
     fn start(
         preferences: PreferencesFile,
-        restored_preferences: Sender<std::io::Result<Option<String>>>,
+        restored_preferences: AsyncSender<std::io::Result<Option<String>>>,
     ) -> Result<Self, WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
-            let _ = restored_preferences.send(preferences.read());
+            let _ = restored_preferences.send_blocking(preferences.read());
             while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
                 preferences
                     .write(&contents)
@@ -189,7 +189,7 @@ pub fn open_native_runtime_at(
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
     cx.set_quit_mode(QuitMode::Explicit);
     ui::init(cx).map_err(RuntimeError::Ui)?;
-    let (restore_tx, restore_rx) = mpsc::channel();
+    let (restore_tx, restore_rx) = async_channel::bounded(1);
     let workers =
         RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()), restore_tx)?;
     let workers = Rc::new(RefCell::new(workers));
@@ -224,17 +224,7 @@ pub fn open_native_runtime_at(
     cx.spawn({
         let restore_target = operator;
         async move |cx| {
-            let restored = loop {
-                match restore_rx.try_recv() {
-                    Ok(restored) => break Some(restored),
-                    Err(mpsc::TryRecvError::Empty) => {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(10))
-                            .await;
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => break None,
-                }
-            };
+            let restored = restore_rx.recv().await.ok();
             let restored = match restored {
                 Some(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
                     Ok(preferences) => Some(preferences),

@@ -28,6 +28,7 @@ rendering = { path = "crates/rendering" }
 presentation = { path = "crates/presentation" }
 ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
+async-channel = "2.5.0"
 
 # gpui-base declares this common Zed source without a revision. Cargo therefore
 # cannot also use a `rev` query without creating a second, incompatible GPUI
