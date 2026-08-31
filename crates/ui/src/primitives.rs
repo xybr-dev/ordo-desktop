@@ -64,12 +64,12 @@ impl Availability {
 /// outermost first, because GPUI paints box shadows in list order and the
 /// separation ring has to cover the focus ring's inner half.
 ///
-/// Under a platform high-contrast mode this is empty: the operating system's
-/// own highlight takes precedence, and Ordo never half-replaces it.
+/// Ordo paints this in every platform mode. `DESIGN.md` allows suppressing
+/// operating-system focus indication precisely when the complete Ordo treatment
+/// replaces it, and MILESTONES.md's `[MANUAL]` gate asks for the treatment to be
+/// *preserved* under Windows High Contrast — a GPU-composited window gets no
+/// system repaint to defer to, so standing down would leave no indication at all.
 pub fn focus_rings(environment: UiEnvironment, surface: u32) -> Vec<BoxShadow> {
-    if environment.high_contrast() {
-        return Vec::new();
-    }
     let scale = environment.preferences().scale;
     let separation = scale.apply(tokens::border::FOCUS_SEPARATION);
     let outer = separation + scale.apply(tokens::border::FOCUS_OUTER);
@@ -173,16 +173,6 @@ mod tests {
         assert_eq!(
             focus_rings(dark, tokens::color::PRESENTER_SURFACE)[0].color,
             rgb(tokens::color::FOCUS_PRESENTER).into()
-        );
-    }
-
-    #[test]
-    fn high_contrast_leaves_focus_indication_to_the_platform() {
-        let mut environment = environment(InterfaceScale::Percent100);
-        environment.apply(crate::environment::EnvironmentChange::SetHighContrast(true));
-        assert!(
-            focus_rings(environment, tokens::color::PREPARATION_SURFACE).is_empty(),
-            "Ordo must not paint half of a focus treatment the platform owns"
         );
     }
 }

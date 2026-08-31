@@ -123,12 +123,22 @@ impl RenderOnce for Field {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let disabled = self.availability.is_disabled();
-        // DESIGN.md: omit editing controls where practical rather than leave an
-        // inert one behind. A Read-only or Unavailable value is therefore not a
-        // text box at all — no caret promising an edit, no tab stop, nothing to
-        // click. Disabled keeps the native disabled control, because that is
-        // the obvious affordance for an obviously inapplicable one.
-        let editable = self.read_only.is_none() && self.availability.is_available();
+        // Read-only and Unavailable keep a real control, because the base
+        // registers Copy and every selection action outside its editable gate:
+        // taking the control away would take selecting and copying the value
+        // with it. Only the mutating actions are refused. This is what the web
+        // does for `readonly`, and it is what separates it from `disabled`,
+        // which gives up focus, selection, and Copy together.
+        let read_only = self.read_only.is_some() || !self.availability.is_available();
+        let reason = self
+            .read_only
+            .clone()
+            .map(|reason| format!("Read-only. {reason}"))
+            .or_else(|| {
+                self.availability
+                    .reason()
+                    .map(|reason| format!("{}. {reason}", Availability::UNAVAILABLE))
+            });
         let placeholder = if self.not_assigned {
             SharedString::new_static(Self::NOT_ASSIGNED)
         } else {
@@ -148,13 +158,15 @@ impl RenderOnce for Field {
                     .text_color(rgb(palette.text_muted))
                     .child(self.label.clone()),
             )
-            .child(if editable {
-                self.control(disabled, placeholder, palette, window, cx)
-                    .into_any_element()
-            } else {
-                value(self.state.value(cx), placeholder, palette, self.environment)
-                    .into_any_element()
-            })
+            .child(self.control(
+                disabled,
+                read_only,
+                reason,
+                placeholder,
+                palette,
+                window,
+                cx,
+            ))
             .when_some(self.read_only, |field, reason| {
                 field.child(note(
                     assets::icon::INFO,
@@ -181,10 +193,13 @@ impl RenderOnce for Field {
 const MIN_WIDTH: f32 = 240.0;
 
 impl Field {
-    /// The editable control, for the one state that has one.
+    /// The control, in whichever of its states applies.
+    #[allow(clippy::too_many_arguments)]
     fn control(
         &self,
         disabled: bool,
+        read_only: bool,
+        reason: Option<String>,
         placeholder: SharedString,
         palette: tokens::Palette,
         window: &mut Window,
@@ -198,6 +213,9 @@ impl Field {
         self.state.input.update(cx, |input, cx| {
             if input.presentation().is_disabled() != disabled {
                 input.set_disabled(disabled, cx);
+            }
+            if input.presentation().is_readonly() != read_only {
+                input.set_readonly(read_only, cx);
             }
             if input.presentation().placeholder() != &placeholder {
                 input.set_placeholder(placeholder, window, cx);
@@ -224,6 +242,11 @@ impl Field {
             .focused(focused)
             .disabled(disabled)
             .accessibility_label(self.label.clone())
+            // ponytail: AccessKit can represent read-only, but the pinned GPUI
+            // exposes no `aria_read_only` setter any more than it does a
+            // disabled one, so the state rides the description. Same upgrade
+            // path as `Button::control`.
+            .when_some(reason, |frame, reason| frame.aria_description(reason))
             .flex()
             .items_center()
             .w_full()
@@ -231,10 +254,13 @@ impl Field {
             .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .border(px(tokens::border::SEPARATOR))
-            .border_color(rgb(if focused {
-                palette.border_strong
-            } else {
-                palette.border
+            // A field you cannot type into says so with a fainter edge, not by
+            // fading its value: DESIGN.md forbids approximating Read-only by
+            // dimming content that is perfectly valid.
+            .border_color(rgb(match (focused, read_only) {
+                (true, _) => palette.border_strong,
+                (false, true) => palette.surface_secondary,
+                (false, false) => palette.border,
             }))
             .bg(rgb(if disabled {
                 palette.surface_secondary
@@ -251,30 +277,6 @@ impl Field {
             })
             .child(Input::new(&self.state.input))
     }
-}
-
-/// A value with no editing control: the same reading position and height as the
-/// control it replaces, so a form does not jump when a field becomes
-/// inspectable rather than editable.
-fn value(
-    value: SharedString,
-    placeholder: SharedString,
-    palette: tokens::Palette,
-    environment: UiEnvironment,
-) -> impl IntoElement {
-    let scale = environment.preferences().scale;
-    let empty = value.is_empty();
-    div()
-        .debug_selector(|| "field-value".into())
-        .flex()
-        .items_center()
-        .h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-        .text_color(rgb(if empty {
-            palette.text_muted
-        } else {
-            palette.text
-        }))
-        .child(if empty { placeholder } else { value })
 }
 
 #[cfg(test)]
@@ -327,7 +329,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_read_only_field_shows_the_value_without_a_control_and_says_why(cx: &mut TestAppContext) {
+    fn a_read_only_field_stays_selectable_and_copyable_and_says_why(cx: &mut TestAppContext) {
         let (state, cx) = open(cx, |field| {
             field.read_only("The Mass has already been celebrated")
         });
@@ -341,11 +343,25 @@ mod tests {
             "Gloria",
             "the value stays readable and unedited"
         );
-        assert!(
-            cx.debug_bounds("field-control").is_none(),
-            "DESIGN.md omits the editing control rather than leaving an inert one"
+        // Inspection is the whole point of Read-only, so the value must still
+        // reach the clipboard.
+        cx.update(|window, cx| {
+            state
+                .input
+                .update(cx, |input, cx| input.select_all(window, cx));
+        });
+        // The base binds Copy per platform, so the test presses what an
+        // operator on this platform would actually press.
+        cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-c"
+        } else {
+            "ctrl-c"
+        });
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("Gloria".to_owned()),
+            "a read-only value stays selectable and copyable"
         );
-        assert!(cx.debug_bounds("field-value").is_some());
         assert!(
             cx.debug_bounds("field-read-only").is_some(),
             "DESIGN.md requires the reason to be stated, not implied by fading"
@@ -380,7 +396,7 @@ mod tests {
 
         assert_eq!(cx.update(|_, cx| state.value(cx)), "");
         assert!(
-            cx.debug_bounds("field-control").is_none(),
+            cx.update(|_, cx| state.input.read(cx).presentation().is_readonly()),
             "an Unavailable value stays inspectable, not editable"
         );
         assert!(cx.debug_bounds("control-unavailable").is_some());

@@ -74,7 +74,10 @@ These do not complete Ordo's acceptance gate. In particular, the pinned Button
 test records that GPUI does not expose the disabled flag through its current
 stateful-element setter, so Ordo's consequentially blocked controls announce
 that state through the accessible description instead and their tests assert
-exactly that rather than support Ordo does not have; Collapsible supplies no
+exactly that rather than support Ordo does not have. The same gap covers
+read-only: AccessKit can represent it, but the pinned GPUI exposes no
+`aria_read_only` setter either, so a Read-only or Unavailable Field states its
+condition in the same description. Collapsible supplies no
 expanded/relationship
 semantics; and application-specific names, descriptions, values, availability,
 focus, selection, and live-status policy remain Ordo-owned. Each wrapper must
@@ -106,6 +109,14 @@ resolved-appearance mapping, and the `SystemAppearanceChanged` transition — an
 covers live following by the `[MANUAL]` check recorded in T0.3. Closing the gap
 needs a revision that exposes its test window, which reruns this qualification
 anyway.
+
+No platform mode is reported either. The pinned revision exposes no
+high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no
+system repaint of its own controls, so there is no operating-system focus
+indication for Ordo to defer to. Ordo therefore paints its focus treatment in
+every mode, which is what `MILESTONES.md`'s `[MANUAL]` gate asks to be
+preserved. Deferring to the platform becomes implementable only when a revision
+reports the mode and its system colors, which reruns this qualification anyway.
 
 ## Dependency, source, and license evidence
 

@@ -22,15 +22,7 @@ use crate::{
     resolved_appearance, tokens,
 };
 
-actions!(
-    ordo_lab,
-    [
-        NextScenario,
-        NextViewport,
-        NextAppearance,
-        ToggleHighContrast
-    ]
-);
+actions!(ordo_lab, [NextScenario, NextViewport, NextAppearance]);
 
 /// Initializes the UI environment plus the lab-only keys. Production shells call
 /// [`crate::init`] instead, so these bindings never reach an operator build.
@@ -42,12 +34,11 @@ pub fn init(cx: &mut App) -> Result<(), String> {
 
 /// Lab-only keys. Every one cycles, because a lab is driven one-handed while
 /// watching the stage; `crate::key_bindings` covers the shared scale keys.
-pub(crate) fn key_bindings() -> [KeyBinding; 4] {
+pub(crate) fn key_bindings() -> [KeyBinding; 3] {
     [
         KeyBinding::new("f2", NextScenario, None),
         KeyBinding::new("f3", NextViewport, None),
         KeyBinding::new("f4", NextAppearance, None),
-        KeyBinding::new("f5", ToggleHighContrast, None),
     ]
 }
 
@@ -217,13 +208,8 @@ fn status_line(scenario: &str, viewport: ViewportPreset, environment: UiEnvironm
         (PreparationAppearance::Light, _) => "Light",
         (PreparationAppearance::Dark, _) => "Dark",
     };
-    let high_contrast = if environment.high_contrast() {
-        " · High Contrast"
-    } else {
-        ""
-    };
     format!(
-        "{scenario} · {} · {appearance} · {}%{high_contrast}",
+        "{scenario} · {} · {appearance} · {}%",
         viewport.label(),
         preferences.scale.percent()
     )
@@ -304,21 +290,6 @@ impl LabView {
         self.set_viewport(self.viewport.next(), cx);
     }
 
-    /// The escape hatch has no platform signal to follow, so the lab is where
-    /// it can be seen at all: `DESIGN.md` hands focus indication back to the
-    /// operating system here.
-    fn toggle_high_contrast(
-        &mut self,
-        _: &ToggleHighContrast,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.change(
-            EnvironmentChange::SetHighContrast(!self.environment.high_contrast()),
-            cx,
-        );
-    }
-
     fn next_appearance(&mut self, _: &NextAppearance, _: &mut Window, cx: &mut Context<Self>) {
         let next = match self.environment.preferences().appearance {
             PreparationAppearance::System => PreparationAppearance::Light,
@@ -364,7 +335,6 @@ impl Render for LabView {
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
             .on_action(cx.listener(Self::next_appearance))
-            .on_action(cx.listener(Self::toggle_high_contrast))
             .on_action(cx.listener(|this, _: &IncreaseInterfaceScale, _, cx| {
                 this.change(EnvironmentChange::IncreaseScale, cx);
             }))
@@ -520,24 +490,6 @@ mod tests {
                 "the Read-only reason stays visible under {appearance:?}"
             );
         }
-    }
-
-    #[gpui::test]
-    fn the_high_contrast_key_hands_focus_indication_back_to_the_platform(cx: &mut TestAppContext) {
-        let (lab, cx) = open(cx);
-
-        cx.simulate_keystrokes("f5");
-
-        lab.read_with(cx, |lab, _| {
-            assert!(lab.environment().high_contrast());
-            assert!(
-                crate::primitives::focus_rings(
-                    lab.environment(),
-                    tokens::color::PREPARATION_SURFACE
-                )
-                .is_empty()
-            );
-        });
     }
 
     #[gpui::test]
