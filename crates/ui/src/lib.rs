@@ -39,13 +39,17 @@ pub fn init(cx: &mut App) -> Result<(), String> {
             Cow::Borrowed(assets::NOTO_SANS),
         ])
         .map_err(|error| error.to_string())?;
-    cx.bind_keys([
+    cx.bind_keys(key_bindings());
+    Ok(())
+}
+
+pub(crate) fn key_bindings() -> [KeyBinding; 4] {
+    [
         KeyBinding::new("ctrl-=", IncreaseInterfaceScale, None),
         KeyBinding::new("ctrl-+", IncreaseInterfaceScale, None),
         KeyBinding::new("ctrl--", DecreaseInterfaceScale, None),
         KeyBinding::new("ctrl-0", ResetInterfaceScale, None),
-    ]);
-    Ok(())
+    ]
 }
 
 /// The minimal shell destinations needed to prove action-driven navigation.
@@ -391,6 +395,25 @@ mod tests {
             );
             assert_eq!(root.environment().appearance(), ResolvedAppearance::Dark);
         });
+    }
+
+    /// `ctrl-shift-1` never fired on Linux: xkb reports the shifted keysym, so
+    /// the key arrives as `!` and GPUI then drops `shift` for a non-letter, and
+    /// no binding written with `shift` plus a non-letter can ever match.
+    #[test]
+    fn no_binding_asks_for_shift_with_a_key_shift_already_rewrites() {
+        for binding in key_bindings().iter().chain(lab::key_bindings().iter()) {
+            for keystroke in binding.keystrokes() {
+                let keystroke = keystroke.inner();
+                let unreachable = keystroke.modifiers.shift
+                    && keystroke.key.chars().count() == 1
+                    && keystroke.key.to_lowercase() == keystroke.key.to_uppercase();
+                assert!(
+                    !unreachable,
+                    "{keystroke:?} can never be typed: the platform reports the shifted key instead"
+                );
+            }
+        }
     }
 
     /// The half of live OS-theme following that the pinned GPUI revision lets us

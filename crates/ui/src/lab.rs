@@ -18,20 +18,24 @@ use crate::{
     resolved_appearance, tokens,
 };
 
-actions!(ordo_lab, [NextScenario, NextViewport]);
+actions!(ordo_lab, [NextScenario, NextViewport, NextAppearance]);
 
 /// Initializes the UI environment plus the lab-only keys. Production shells call
 /// [`crate::init`] instead, so these bindings never reach an operator build.
 pub fn init(cx: &mut App) -> Result<(), String> {
     crate::init(cx)?;
-    cx.bind_keys([
+    cx.bind_keys(key_bindings());
+    Ok(())
+}
+
+/// Lab-only keys. Every one cycles, because a lab is driven one-handed while
+/// watching the stage; `crate::key_bindings` covers the shared scale keys.
+pub(crate) fn key_bindings() -> [KeyBinding; 3] {
+    [
         KeyBinding::new("f2", NextScenario, None),
         KeyBinding::new("f3", NextViewport, None),
-        KeyBinding::new("ctrl-shift-1", UseSystemAppearance, None),
-        KeyBinding::new("ctrl-shift-2", UseLightAppearance, None),
-        KeyBinding::new("ctrl-shift-3", UseDarkAppearance, None),
-    ]);
-    Ok(())
+        KeyBinding::new("f4", NextAppearance, None),
+    ]
 }
 
 /// The two operator screen sizes T0.3 must hold up at.
@@ -208,6 +212,15 @@ impl LabView {
     fn next_viewport(&mut self, _: &NextViewport, _: &mut Window, cx: &mut Context<Self>) {
         self.set_viewport(self.viewport.next(), cx);
     }
+
+    fn next_appearance(&mut self, _: &NextAppearance, _: &mut Window, cx: &mut Context<Self>) {
+        let next = match self.environment.preferences().appearance {
+            PreparationAppearance::System => PreparationAppearance::Light,
+            PreparationAppearance::Light => PreparationAppearance::Dark,
+            PreparationAppearance::Dark => PreparationAppearance::System,
+        };
+        self.change(EnvironmentChange::SetAppearance(next), cx);
+    }
 }
 
 impl Focusable for LabView {
@@ -244,6 +257,7 @@ impl Render for LabView {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
+            .on_action(cx.listener(Self::next_appearance))
             .on_action(cx.listener(|this, _: &UseSystemAppearance, _, cx| {
                 this.change(
                     EnvironmentChange::SetAppearance(PreparationAppearance::System),
@@ -393,7 +407,7 @@ mod tests {
             assert_eq!(lab.viewport(), ViewportPreset::Wide)
         });
 
-        cx.simulate_keystrokes("ctrl-shift-3 ctrl-= ctrl-=");
+        cx.simulate_keystrokes("f4 f4 ctrl-= ctrl-=");
         lab.read_with(cx, |lab, _| {
             let preferences = lab.environment().preferences();
             assert_eq!(preferences.appearance, PreparationAppearance::Dark);
