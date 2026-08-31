@@ -367,6 +367,19 @@ mod tests {
 
             let bounds = cx.debug_bounds("button-Start").expect("the button renders");
             cx.simulate_click(bounds.center(), Modifiers::default());
+
+            // The whole point of the two states being distinct: a
+            // consequentially blocked action stays reachable and named, so it
+            // keeps its focus handle. Only an obviously inapplicable one
+            // leaves the tab order. Without this the keyboard half below is
+            // vacuous for Disabled, and a regression to `.disabled(true)` for
+            // Unavailable would pass unnoticed.
+            assert_eq!(
+                cx.update(|window, cx| window.focused(cx).is_some()),
+                availability.reason().is_some(),
+                "{availability:?} must decide focusability, not activation"
+            );
+
             press(cx, "enter");
             press(cx, "space");
 
