@@ -217,16 +217,14 @@ impl Field {
     ) -> gpui_base::input::InputBase {
         let scale = self.environment.preferences().scale;
 
-        // Declarative properties pushed into the state the base owns. Each
-        // setter notifies, so each is guarded: an unguarded write here would
-        // schedule the next frame from inside this one, forever.
+        // Declarative properties pushed into the state the base owns.
+        // `set_disabled` and `set_readonly` early-return when unchanged, but
+        // `set_placeholder` notifies unconditionally, so that one is guarded:
+        // an unguarded write here would schedule the next frame from inside
+        // this one, forever.
         self.state.input.update(cx, |input, cx| {
-            if input.presentation().is_disabled() != disabled {
-                input.set_disabled(disabled, cx);
-            }
-            if input.presentation().is_readonly() != read_only {
-                input.set_readonly(read_only, cx);
-            }
+            input.set_disabled(disabled, cx);
+            input.set_readonly(read_only, cx);
             if input.presentation().placeholder() != &placeholder {
                 input.set_placeholder(placeholder, window, cx);
             }
