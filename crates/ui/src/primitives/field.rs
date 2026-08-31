@@ -30,10 +30,20 @@ impl FieldState {
     }
 
     /// Window-keyed state, for a surface that renders a Field without owning an
-    /// entity of its own. The same key returns the same state every frame.
-    pub fn keyed(id: impl Into<ElementId>, window: &mut Window, cx: &mut App) -> Self {
+    /// entity of its own. The same key returns the same state every frame, so
+    /// `value` seeds it once and every later edit — including back to empty —
+    /// sticks.
+    pub fn keyed(
+        id: impl Into<ElementId>,
+        value: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        let value = value.into();
         Self {
-            input: window.use_keyed_state(id, cx, InputState::new),
+            input: window.use_keyed_state(id, cx, |window, cx| {
+                InputState::new(window, cx).default_value(value)
+            }),
         }
     }
 

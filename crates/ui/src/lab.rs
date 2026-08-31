@@ -162,12 +162,15 @@ fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> An
 /// Every meaningful Field state, including the empty value that is a choice
 /// rather than a fault.
 fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
-    let mut field = |id: &'static str| FieldState::keyed(id, window, cx);
+    let mut field =
+        |id: &'static str, value: &'static str| FieldState::keyed(id, value, window, cx);
+    // Every state but Not assigned carries a value, so the states that refuse
+    // editing can be checked against the one that accepts it.
     let (title, celebration, recorded, song) = (
-        field("lab-title"),
-        field("lab-celebration"),
-        field("lab-recorded"),
-        field("lab-song"),
+        field("lab-title", "Entrance Hymn"),
+        field("lab-celebration", ""),
+        field("lab-recorded", "Fr. Antonio Reyes"),
+        field("lab-song", "gloria-mass-of-creation.mp3"),
     );
     row("scenario-fields", environment)
         .child(Field::new("title", "Title", &title, environment))
