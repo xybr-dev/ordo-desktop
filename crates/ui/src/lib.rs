@@ -5,6 +5,7 @@ pub mod environment;
 /// Development-only scenario host; `ui-lab` enables it, operator builds do not.
 #[cfg(any(test, feature = "lab"))]
 pub mod lab;
+pub mod primitives;
 pub mod tokens;
 
 use std::{borrow::Cow, mem, rc::Rc};
@@ -39,6 +40,10 @@ pub fn init(cx: &mut App) -> Result<(), String> {
             Cow::Borrowed(assets::NOTO_SANS),
         ])
         .map_err(|error| error.to_string())?;
+    // Infrastructure for the adopted base input behavior: it registers the
+    // native editing, selection, and clipboard bindings a Field depends on.
+    // `docs/qualification/GPUI-BASE-T0.3.md` bounds this to exactly that.
+    gpui_base::init(cx);
     cx.bind_keys(key_bindings());
     Ok(())
 }
@@ -278,16 +283,7 @@ impl Render for RootView {
             ShellDestination::Masses => "Masses",
             ShellDestination::Songs => "Songs",
         };
-        let (background, text) = match self.environment.appearance() {
-            ResolvedAppearance::Light => (
-                tokens::color::PREPARATION_BACKGROUND,
-                tokens::color::PREPARATION_TEXT,
-            ),
-            ResolvedAppearance::Dark => (
-                tokens::color::PRESENTER_BACKGROUND,
-                tokens::color::PRESENTER_TEXT,
-            ),
-        };
+        let palette = tokens::palette(self.environment.appearance());
         let preferences = self.environment.preferences();
 
         div()
@@ -311,8 +307,8 @@ impl Render for RootView {
             .p(px(preferences.scale.apply(tokens::spacing::GROUP)))
             .font_family(tokens::typography::OPERATOR_FAMILY)
             .text_size(px(preferences.scale.apply(tokens::typography::BODY.size)))
-            .bg(rgb(background))
-            .text_color(rgb(text))
+            .bg(rgb(palette.background))
+            .text_color(rgb(palette.text))
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())

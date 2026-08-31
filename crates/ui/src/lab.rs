@@ -10,9 +10,14 @@ use gpui::{
 };
 
 use crate::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
+    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale, assets,
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
+    },
+    primitives::{
+        Availability,
+        button::Button,
+        field::{Field, FieldState},
     },
     resolved_appearance, tokens,
 };
@@ -86,19 +91,31 @@ pub mod fixtures {
 /// One curated lab scenario: a stable name plus the element it renders.
 pub struct Scenario {
     pub name: &'static str,
-    render: fn(UiEnvironment) -> AnyElement,
+    /// A scenario renders inside the host's frame, so it gets the same context
+    /// a view would: window-keyed control state has to survive between frames.
+    render: fn(UiEnvironment, &mut Window, &mut App) -> AnyElement,
 }
 
-static SCENARIOS: &[Scenario] = &[Scenario {
-    name: "placeholder",
-    render: render_placeholder,
-}];
+static SCENARIOS: &[Scenario] = &[
+    Scenario {
+        name: "placeholder",
+        render: render_placeholder,
+    },
+    Scenario {
+        name: "buttons",
+        render: render_buttons,
+    },
+    Scenario {
+        name: "fields",
+        render: render_fields,
+    },
+];
 
 pub fn scenarios() -> &'static [Scenario] {
     SCENARIOS
 }
 
-fn render_placeholder(environment: UiEnvironment) -> AnyElement {
+fn render_placeholder(environment: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
     let scale = environment.preferences().scale;
     div()
         .debug_selector(|| "scenario-placeholder".into())
@@ -117,6 +134,88 @@ fn render_placeholder(environment: UiEnvironment) -> AnyElement {
                 .child(fixtures::LONG_MULTILINGUAL_BODY),
         )
         .into_any_element()
+}
+
+/// Every meaningful Button state on one stage, so hover, press, and keyboard
+/// focus can be walked by hand in one pass at either appearance.
+fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
+    let stage = tokens::palette(environment.appearance()).surface;
+    row("scenario-buttons", environment)
+        .child(
+            Button::new("save", "Save", environment)
+                .icon(assets::icon::CHECK)
+                .on_surface(stage),
+        )
+        .child(
+            Button::new("more", "More actions", environment)
+                .icon(assets::icon::ELLIPSIS)
+                .icon_only()
+                .on_surface(stage),
+        )
+        .child(
+            Button::new("archive", "Archive", environment)
+                .availability(Availability::Disabled)
+                .on_surface(stage),
+        )
+        .child(
+            Button::new("go-live", "Go Live", environment)
+                .availability(Availability::unavailable("No output is connected"))
+                .on_surface(stage),
+        )
+        // ponytail: this only widens the control — Button applies none of
+        // DESIGN.md's truncation rules yet, and the row's wrapping hides that
+        // at the row rather than at the control. Truncation is per-context, so
+        // it lands with the typography work; this scenario is what it fixes.
+        .child(Button::new("long", fixtures::LONG_CEBUANO_TITLE, environment).on_surface(stage))
+        .into_any_element()
+}
+
+/// Every meaningful Field state, including the empty value that is a choice
+/// rather than a fault.
+fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let mut field =
+        |id: &'static str, value: &'static str| FieldState::keyed(id, value, window, cx);
+    // Every state but Not assigned carries a value, so the states that refuse
+    // editing can be checked against the one that accepts it.
+    let (title, celebration, recorded, song) = (
+        field("lab-title", "Entrance Hymn"),
+        field("lab-celebration", ""),
+        field("lab-recorded", "Fr. Antonio Reyes"),
+        field("lab-song", "gloria-mass-of-creation.mp3"),
+    );
+    let stage = tokens::palette(environment.appearance()).surface;
+    row("scenario-fields", environment)
+        .child(Field::new("title", "Title", &title, environment).on_surface(stage))
+        .child(
+            Field::new("celebration", "Celebration", &celebration, environment)
+                .not_assigned()
+                .on_surface(stage),
+        )
+        .child(
+            Field::new("recorded", "Recorded by", &recorded, environment)
+                .read_only("The Mass has already been celebrated")
+                .on_surface(stage),
+        )
+        .child(
+            Field::new("song", "Song file", &song, environment)
+                .availability(Availability::unavailable("The Song file is missing"))
+                .on_surface(stage),
+        )
+        .into_any_element()
+}
+
+/// The shared stage frame: controls sit on the surface their focus separation
+/// ring assumes, wrap at a narrow viewport, and never crowd each other.
+fn row(selector: &'static str, environment: UiEnvironment) -> gpui::Div {
+    let scale = environment.preferences().scale;
+    div()
+        .debug_selector(move || selector.into())
+        .flex()
+        .flex_wrap()
+        .items_start()
+        .gap(px(scale.apply(tokens::spacing::SECTION)))
+        .p(px(scale.apply(tokens::spacing::SECTION)))
+        .text_size(px(scale.apply(tokens::typography::BODY.size)))
 }
 
 /// The one on-screen readout of what the scenario is being shown under. The
@@ -229,23 +328,10 @@ impl Focusable for LabView {
 }
 
 impl Render for LabView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let environment = self.environment;
         let preferences = environment.preferences();
-        let (background, surface, text, border) = match environment.appearance() {
-            ResolvedAppearance::Light => (
-                tokens::color::PREPARATION_BACKGROUND,
-                tokens::color::PREPARATION_SURFACE,
-                tokens::color::PREPARATION_TEXT,
-                tokens::color::PREPARATION_BORDER,
-            ),
-            ResolvedAppearance::Dark => (
-                tokens::color::PRESENTER_BACKGROUND,
-                tokens::color::PRESENTER_SURFACE,
-                tokens::color::PRESENTER_TEXT,
-                tokens::color::PRESENTER_BORDER,
-            ),
-        };
+        let palette = tokens::palette(environment.appearance());
         let scenario = self.scenario();
         let (width, height) = self.viewport.size();
         let status = status_line(scenario.name, self.viewport, environment);
@@ -270,16 +356,16 @@ impl Render for LabView {
             .flex()
             .flex_col()
             .font_family(tokens::typography::OPERATOR_FAMILY)
-            .bg(rgb(background))
-            .text_color(rgb(text))
+            .bg(rgb(palette.background))
+            .text_color(rgb(palette.text))
             .child(
                 div()
                     .debug_selector(|| "lab-status".into())
                     .flex_none()
                     .p(px(preferences.scale.apply(tokens::spacing::CONTROL_INSET)))
                     .border_b(px(tokens::border::SEPARATOR))
-                    .border_color(rgb(border))
-                    .bg(rgb(surface))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.surface))
                     .text_size(px(preferences.scale.apply(tokens::typography::LABEL.size)))
                     .child(status),
             )
@@ -296,14 +382,14 @@ impl Render for LabView {
                         div()
                             .flex_none()
                             .border_1()
-                            .border_color(rgb(border))
+                            .border_color(rgb(palette.border))
                             .child(
                                 div()
                                     .debug_selector(|| "lab-stage".into())
                                     .w(px(width))
                                     .h(px(height))
-                                    .bg(rgb(surface))
-                                    .child((scenario.render)(environment)),
+                                    .bg(rgb(palette.surface))
+                                    .child((scenario.render)(environment, window, cx)),
                             ),
                     ),
             )
@@ -377,6 +463,41 @@ mod tests {
             status_line("placeholder", ViewportPreset::Wide, environment),
             "placeholder · 1920x1080 · Light · 100%"
         );
+    }
+
+    /// Both control scenarios at both appearances: the curated corpus the lab
+    /// exists to make reviewable by hand is also opened once by the harness, so
+    /// a scenario cannot rot into one that no longer renders.
+    #[gpui::test]
+    fn the_control_scenarios_open_at_both_appearances(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+
+        for appearance in [PreparationAppearance::Light, PreparationAppearance::Dark] {
+            for (scenario, selector) in [
+                ("buttons", "scenario-buttons"),
+                ("fields", "scenario-fields"),
+            ] {
+                let opened = lab.update(cx, |lab, cx| {
+                    lab.change(EnvironmentChange::SetAppearance(appearance), cx);
+                    lab.select_scenario(scenario, cx)
+                });
+                cx.run_until_parked();
+
+                assert!(opened, "{scenario} should be registered");
+                assert!(
+                    cx.debug_bounds(selector).is_some(),
+                    "{scenario} renders under {appearance:?}"
+                );
+                assert!(
+                    cx.debug_bounds("control-unavailable").is_some(),
+                    "{scenario} shows its Unavailable Cue under {appearance:?}"
+                );
+            }
+            assert!(
+                cx.debug_bounds("field-read-only").is_some(),
+                "the Read-only reason stays visible under {appearance:?}"
+            );
+        }
     }
 
     #[gpui::test]

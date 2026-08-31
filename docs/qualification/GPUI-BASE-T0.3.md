@@ -72,7 +72,13 @@ The pinned implementation supplies these useful semantics:
 
 These do not complete Ordo's acceptance gate. In particular, the pinned Button
 test records that GPUI does not expose the disabled flag through its current
-stateful-element setter; Collapsible supplies no expanded/relationship
+stateful-element setter, so Ordo's consequentially blocked controls announce
+that state through the accessible description instead and their tests assert
+exactly that rather than support Ordo does not have. The same gap covers
+read-only: AccessKit can represent it, but the pinned GPUI exposes no
+`aria_read_only` setter either, so a Read-only or Unavailable Field states its
+condition in the same description. Collapsible supplies no
+expanded/relationship
 semantics; and application-specific names, descriptions, values, availability,
 focus, selection, and live-status policy remain Ordo-owned. Each wrapper must
 capture and assert its final AccessKit node rather than assuming the base node
@@ -88,11 +94,29 @@ appearance while Ordo runs, but no downstream crate can drive it in a test:
 `TestAppContext::test_window` is `pub(crate)`, and the public `simulate_*`
 surface covers resize, keystrokes, mouse, modifiers, prompts, and close only.
 
+The accessibility tree is a second gap of the same shape. GPUI builds it only
+while a platform adapter has activated it, and the test platform implements no
+`a11y_init`, so `Window::debug_a11y_tree_json` is always `None` under
+`TestAppContext`. T0.3 therefore captures a primitive's node from the element
+itself — `Element::a11y_role` plus `Element::write_a11y_info` — which is what
+the pinned `gpui-base` tests do and is enough to assert a final node's role,
+name, description, and actions. What it cannot cover is tree shape, so
+whole-window claims such as "no operator-only node reaches the congregation
+window" still need a live adapter.
+
 Ordo therefore automates the two halves it owns — the `WindowAppearance` to
 resolved-appearance mapping, and the `SystemAppearanceChanged` transition — and
 covers live following by the `[MANUAL]` check recorded in T0.3. Closing the gap
 needs a revision that exposes its test window, which reruns this qualification
 anyway.
+
+No platform mode is reported either. The pinned revision exposes no
+high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no
+system repaint of its own controls, so there is no operating-system focus
+indication for Ordo to defer to. Ordo therefore paints its focus treatment in
+every mode, which is what `MILESTONES.md`'s `[MANUAL]` gate asks to be
+preserved. Deferring to the platform becomes implementable only when a revision
+reports the mode and its system colors, which reruns this qualification anyway.
 
 ## Dependency, source, and license evidence
 
