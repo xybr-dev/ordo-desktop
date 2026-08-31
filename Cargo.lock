@@ -4019,6 +4019,7 @@ dependencies = [
 name = "ordo"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "gpui",
  "gpui_platform",
  "platform",

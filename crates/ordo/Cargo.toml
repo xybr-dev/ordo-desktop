@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+async-channel.workspace = true
 platform.workspace = true
 presentation.workspace = true
 ui.workspace = true

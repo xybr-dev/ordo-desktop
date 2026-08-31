@@ -183,9 +183,14 @@ and responsive chrome before feature pages depend on them.
 **AC**
 
 - [ ] `[AUTO]` Implement System-default, Light, and Dark Preparation appearance
-      from `DESIGN.md`, including live OS-theme following, Atkinson operator
-      typography, semantic colors, spacing, radii, borders, elevation, Lucide
-      icons, and reduced-motion rules; Presenter always selects graphite dark.
+      from `DESIGN.md`, including Atkinson operator typography, semantic colors,
+      spacing, radii, borders, elevation, Lucide icons, and reduced-motion
+      rules; Presenter always selects graphite dark.
+- [ ] `[MANUAL]` Changing the operating-system theme while Ordo runs updates the
+      System appearance live. The pinned GPUI revision exposes no public way to
+      simulate a window-appearance change, so only the resolution mapping and
+      the state transition are automated; see
+      `docs/qualification/GPUI-BASE-T0.3.md`.
 - [ ] `[UI-AUTO]` Global destinations appear in a vertical application rail:
       Masses, Library, Themes, and Transfer & Backup; Settings, Help, and
       Diagnostics are anchored at the bottom.

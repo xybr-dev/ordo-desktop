@@ -78,6 +78,22 @@ focus, selection, and live-status policy remain Ordo-owned. Each wrapper must
 capture and assert its final AccessKit node rather than assuming the base node
 is sufficient.
 
+## Test-harness gaps
+
+The pinned revision also bounds what T0.3 can automate.
+
+`observe_window_appearance` is the supported way to follow operating-system
+appearance while Ordo runs, but no downstream crate can drive it in a test:
+`TestWindow::simulate_appearance_change` exists at the pinned revision while
+`TestAppContext::test_window` is `pub(crate)`, and the public `simulate_*`
+surface covers resize, keystrokes, mouse, modifiers, prompts, and close only.
+
+Ordo therefore automates the two halves it owns — the `WindowAppearance` to
+resolved-appearance mapping, and the `SystemAppearanceChanged` transition — and
+covers live following by the `[MANUAL]` check recorded in T0.3. Closing the gap
+needs a revision that exposes its test window, which reruns this qualification
+anyway.
+
 ## Dependency, source, and license evidence
 
 - Root `Cargo.toml` and `Cargo.lock` pin both git revisions; `xtask` rejects a
