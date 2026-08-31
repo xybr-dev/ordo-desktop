@@ -123,47 +123,24 @@ impl RenderOnce for Field {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let disabled = self.availability.is_disabled();
-        let read_only = self.read_only.is_some() || !self.availability.is_available();
+        // DESIGN.md: omit editing controls where practical rather than leave an
+        // inert one behind. A Read-only or Unavailable value is therefore not a
+        // text box at all — no caret promising an edit, no tab stop, nothing to
+        // click. Disabled keeps the native disabled control, because that is
+        // the obvious affordance for an obviously inapplicable one.
+        let editable = self.read_only.is_none() && self.availability.is_available();
         let placeholder = if self.not_assigned {
             SharedString::new_static(Self::NOT_ASSIGNED)
         } else {
             SharedString::default()
         };
 
-        // Declarative properties pushed into the state the base owns. Each
-        // setter notifies, so each is guarded: an unguarded write here would
-        // schedule the next frame from inside this one, forever.
-        self.state.input.update(cx, |input, cx| {
-            let current = input.presentation();
-            if current.is_disabled() != disabled {
-                input.set_disabled(disabled, cx);
-            }
-            if current.is_readonly() != read_only {
-                input.set_readonly(read_only, cx);
-            }
-            if current.placeholder() != &placeholder {
-                input.set_placeholder(placeholder, window, cx);
-            }
-            input.set_editor_style(InputEditorStyle {
-                foreground: rgb(palette.text).into(),
-                muted_foreground: rgb(palette.text_muted).into(),
-                background: rgb(palette.surface).into(),
-                border: rgb(palette.border).into(),
-                selection: rgb(palette.selection).into(),
-                caret: rgb(palette.text).into(),
-                ..Default::default()
-            });
-        });
-
-        let focused = self.state.focus_handle(cx).is_focused(window);
-        // The base input owns the focus handle, so the wrapper that carries the
-        // treatment resolves keyboard modality itself instead of through
-        // GPUI's `focus_visible`, which needs the element to track the handle.
-        let focus_visible = focused && window.last_input_was_keyboard();
-
         div()
             .flex()
             .flex_col()
+            // Without this a field collapses to the width of an empty value,
+            // which is no width at all.
+            .min_w(px(scale.apply(MIN_WIDTH)))
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .child(
@@ -171,37 +148,13 @@ impl RenderOnce for Field {
                     .text_color(rgb(palette.text_muted))
                     .child(self.label.clone()),
             )
-            .child(
-                gpui_base::input::InputBase::new(self.id)
-                    .focused(focused)
-                    .disabled(disabled)
-                    .accessibility_label(self.label)
-                    .flex()
-                    .items_center()
-                    .h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-                    .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
-                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                    .border(px(tokens::border::SEPARATOR))
-                    .border_color(rgb(if focused {
-                        palette.border_strong
-                    } else {
-                        palette.border
-                    }))
-                    .bg(rgb(if disabled {
-                        palette.surface_secondary
-                    } else {
-                        palette.surface
-                    }))
-                    .text_color(rgb(if disabled {
-                        palette.text_muted
-                    } else {
-                        palette.text
-                    }))
-                    .when(focus_visible, |frame| {
-                        frame.shadow(focus_rings(self.environment, self.surface))
-                    })
-                    .child(Input::new(&self.state.input)),
-            )
+            .child(if editable {
+                self.control(disabled, placeholder, palette, window, cx)
+                    .into_any_element()
+            } else {
+                value(self.state.value(cx), placeholder, palette, self.environment)
+                    .into_any_element()
+            })
             .when_some(self.read_only, |field, reason| {
                 field.child(note(
                     assets::icon::INFO,
@@ -221,6 +174,107 @@ impl RenderOnce for Field {
                 ))
             })
     }
+}
+
+/// The narrowest a field may be before an empty value stops looking like one.
+/// `DESIGN.md` sizes controls by height, not width, so this is Ordo's own.
+const MIN_WIDTH: f32 = 240.0;
+
+impl Field {
+    /// The editable control, for the one state that has one.
+    fn control(
+        &self,
+        disabled: bool,
+        placeholder: SharedString,
+        palette: tokens::Palette,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui_base::input::InputBase {
+        let scale = self.environment.preferences().scale;
+
+        // Declarative properties pushed into the state the base owns. Each
+        // setter notifies, so each is guarded: an unguarded write here would
+        // schedule the next frame from inside this one, forever.
+        self.state.input.update(cx, |input, cx| {
+            if input.presentation().is_disabled() != disabled {
+                input.set_disabled(disabled, cx);
+            }
+            if input.presentation().placeholder() != &placeholder {
+                input.set_placeholder(placeholder, window, cx);
+            }
+            input.set_editor_style(InputEditorStyle {
+                foreground: rgb(palette.text).into(),
+                muted_foreground: rgb(palette.text_muted).into(),
+                background: rgb(palette.surface).into(),
+                border: rgb(palette.border).into(),
+                selection: rgb(palette.selection).into(),
+                caret: rgb(palette.text).into(),
+                ..Default::default()
+            });
+        });
+
+        let focused = self.state.focus_handle(cx).is_focused(window);
+        // The base input owns the focus handle, so the wrapper that carries the
+        // treatment resolves keyboard modality itself instead of through
+        // GPUI's `focus_visible`, which needs the element to track the handle.
+        let focus_visible = focused && window.last_input_was_keyboard();
+
+        gpui_base::input::InputBase::new(self.id.clone())
+            .debug_selector(|| "field-control".into())
+            .focused(focused)
+            .disabled(disabled)
+            .accessibility_label(self.label.clone())
+            .flex()
+            .items_center()
+            .w_full()
+            .h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+            .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+            .rounded(px(scale.apply(tokens::radius::CONTROL)))
+            .border(px(tokens::border::SEPARATOR))
+            .border_color(rgb(if focused {
+                palette.border_strong
+            } else {
+                palette.border
+            }))
+            .bg(rgb(if disabled {
+                palette.surface_secondary
+            } else {
+                palette.surface
+            }))
+            .text_color(rgb(if disabled {
+                palette.text_muted
+            } else {
+                palette.text
+            }))
+            .when(focus_visible, |frame| {
+                frame.shadow(focus_rings(self.environment, self.surface))
+            })
+            .child(Input::new(&self.state.input))
+    }
+}
+
+/// A value with no editing control: the same reading position and height as the
+/// control it replaces, so a form does not jump when a field becomes
+/// inspectable rather than editable.
+fn value(
+    value: SharedString,
+    placeholder: SharedString,
+    palette: tokens::Palette,
+    environment: UiEnvironment,
+) -> impl IntoElement {
+    let scale = environment.preferences().scale;
+    let empty = value.is_empty();
+    div()
+        .debug_selector(|| "field-value".into())
+        .flex()
+        .items_center()
+        .h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+        .text_color(rgb(if empty {
+            palette.text_muted
+        } else {
+            palette.text
+        }))
+        .child(if empty { placeholder } else { value })
 }
 
 #[cfg(test)]
@@ -269,10 +323,11 @@ mod tests {
         cx.simulate_input("Kyrie");
 
         assert_eq!(cx.update(|_, cx| state.value(cx)), "Kyrie");
+        assert!(cx.debug_bounds("field-control").is_some());
     }
 
     #[gpui::test]
-    fn a_read_only_field_stays_inspectable_and_says_why(cx: &mut TestAppContext) {
+    fn a_read_only_field_shows_the_value_without_a_control_and_says_why(cx: &mut TestAppContext) {
         let (state, cx) = open(cx, |field| {
             field.read_only("The Mass has already been celebrated")
         });
@@ -284,8 +339,13 @@ mod tests {
         assert_eq!(
             cx.update(|_, cx| state.value(cx)),
             "Gloria",
-            "a read-only field rejects the edit while keeping the value readable"
+            "the value stays readable and unedited"
         );
+        assert!(
+            cx.debug_bounds("field-control").is_none(),
+            "DESIGN.md omits the editing control rather than leaving an inert one"
+        );
+        assert!(cx.debug_bounds("field-value").is_some());
         assert!(
             cx.debug_bounds("field-read-only").is_some(),
             "DESIGN.md requires the reason to be stated, not implied by fading"
@@ -301,8 +361,9 @@ mod tests {
             cx.debug_bounds("control-unavailable").is_none(),
             "Not assigned is a valid choice and owes no Unavailable Cue"
         );
-        // The placeholder is the whole presentation, so the state that carries
-        // it is what proves the two are not the same treatment.
+        // Not assigned stays an ordinary editable field: the operator can
+        // still assign one. The placeholder is the whole presentation.
+        assert!(cx.debug_bounds("field-control").is_some());
         assert_eq!(
             cx.update(|_, cx| state.input.read(cx).presentation().placeholder().clone()),
             Field::NOT_ASSIGNED
@@ -318,6 +379,10 @@ mod tests {
         cx.simulate_input("edited");
 
         assert_eq!(cx.update(|_, cx| state.value(cx)), "");
+        assert!(
+            cx.debug_bounds("field-control").is_none(),
+            "an Unavailable value stays inspectable, not editable"
+        );
         assert!(cx.debug_bounds("control-unavailable").is_some());
     }
 }

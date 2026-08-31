@@ -104,9 +104,23 @@ impl Button {
         let height = scale.apply(tokens::density::DEFAULT_CONTROL);
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
-        let tooltip = self
-            .tooltip
-            .or_else(|| self.icon_only.then(|| self.label.clone()));
+        // A tooltip may repeat the reason but never carry it alone, so the
+        // Unavailable Cue below the control stays the real explanation. An
+        // icon-only control also needs its name here, since nothing on screen
+        // spells it.
+        let tooltip =
+            self.tooltip
+                .clone()
+                .or_else(|| match (self.availability.reason(), self.icon_only) {
+                    (Some(reason), true) => {
+                        Some(format!("{label}. {}. {reason}", Availability::UNAVAILABLE).into())
+                    }
+                    (Some(reason), false) => {
+                        Some(format!("{}. {reason}", Availability::UNAVAILABLE).into())
+                    }
+                    (None, true) => Some(label.clone()),
+                    (None, false) => None,
+                });
         // Activation is dropped rather than intercepted for both blocked
         // states, so a consequentially blocked action keeps its focus and its
         // name while doing nothing.
@@ -151,6 +165,24 @@ impl Button {
             .border(px(tokens::border::SEPARATOR))
             .border_color(rgb(palette.border))
             .bg(rgb(palette.surface_secondary))
+            // Only a usable control reacts to the pointer, so hover is itself
+            // the cheapest signal that an action is live. Hover strengthens the
+            // border and pressing steps the fill to `border`, which is darker
+            // on the light appearance and lighter on the dark one — the
+            // direction each reads as "pressed".
+            //
+            // ponytail: DESIGN.md asks for a 120ms transition on both; GPUI has
+            // no declarative transition, so these are instant until the motion
+            // work in PR 7 gives Ordo somewhere to put one.
+            .when(self.availability.is_available(), |control| {
+                control
+                    .hover(|style| style.border_color(rgb(palette.border_strong)))
+                    .active(|style| {
+                        style
+                            .border_color(rgb(palette.border_strong))
+                            .bg(rgb(palette.border))
+                    })
+            })
             // Disabled is neutral and subdued: never warning or danger color.
             .text_color(rgb(if disabled {
                 palette.text_muted
