@@ -129,6 +129,7 @@ pub enum EnvironmentChange {
     EnterPresenter,
     LeavePresenter,
     SystemAppearanceChanged(ResolvedAppearance),
+    SetHighContrast(bool),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -136,6 +137,7 @@ pub struct UiEnvironment {
     preferences: UiPreferences,
     system_appearance: ResolvedAppearance,
     mode: OperatorMode,
+    high_contrast: bool,
 }
 
 impl UiEnvironment {
@@ -144,7 +146,16 @@ impl UiEnvironment {
             preferences,
             system_appearance,
             mode: OperatorMode::Preparation,
+            high_contrast: false,
         }
+    }
+
+    /// Whether a platform high-contrast mode owns focus and highlight
+    /// indication. `DESIGN.md` requires Ordo to stand aside there, and the
+    /// pinned GPUI revision reports no such mode, so this stays an operator
+    /// escape hatch rather than something Ordo can detect.
+    pub fn high_contrast(self) -> bool {
+        self.high_contrast
     }
 
     pub fn preferences(self) -> UiPreferences {
@@ -185,6 +196,9 @@ impl UiEnvironment {
             EnvironmentChange::LeavePresenter => self.mode = OperatorMode::Preparation,
             EnvironmentChange::SystemAppearanceChanged(appearance) => {
                 self.system_appearance = appearance;
+            }
+            EnvironmentChange::SetHighContrast(high_contrast) => {
+                self.high_contrast = high_contrast;
             }
         }
         *self != before
