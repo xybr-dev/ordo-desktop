@@ -162,6 +162,10 @@ fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> An
                 .availability(Availability::unavailable("No output is connected"))
                 .on_surface(stage),
         )
+        // ponytail: this only widens the control — Button applies none of
+        // DESIGN.md's truncation rules yet, and the row's wrapping hides that
+        // at the row rather than at the control. Truncation is per-context, so
+        // it lands with the typography work; this scenario is what it fixes.
         .child(Button::new("long", fixtures::LONG_CEBUANO_TITLE, environment).on_surface(stage))
         .into_any_element()
 }
