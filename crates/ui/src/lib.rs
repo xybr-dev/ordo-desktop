@@ -4,7 +4,7 @@ pub mod assets;
 pub mod environment;
 pub mod tokens;
 
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow, mem, rc::Rc};
 
 use environment::{
     EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
@@ -73,6 +73,8 @@ impl RootView {
         Self::with_preferences(build_identity, UiPreferences::default(), None, window, cx)
     }
 
+    /// Supplying a save sink starts a pending restore; the caller must finish it with
+    /// [`Self::finish_preferences_restore`] before subsequent changes can be persisted.
     pub fn with_preferences(
         build_identity: &'static str,
         preferences: UiPreferences,
@@ -133,9 +135,11 @@ impl RootView {
                 restored.scale
             },
         };
+        let changed_since_startup = mem::take(&mut self.appearance_changed_since_startup)
+            | mem::take(&mut self.scale_changed_since_startup);
         self.preferences_restore_pending = false;
         self.change_environment(EnvironmentChange::SetPreferences(merged), false, cx);
-        if self.appearance_changed_since_startup || self.scale_changed_since_startup {
+        if changed_since_startup {
             self.save(merged);
         }
     }
@@ -424,6 +428,9 @@ mod tests {
         };
         root.read_with(cx, |root, _| {
             assert_eq!(root.environment().preferences(), expected);
+            assert!(!root.preferences_restore_pending);
+            assert!(!root.appearance_changed_since_startup);
+            assert!(!root.scale_changed_since_startup);
         });
         assert_eq!(saved.get(), Some(expected));
     }
