@@ -283,16 +283,7 @@ impl Render for RootView {
             ShellDestination::Masses => "Masses",
             ShellDestination::Songs => "Songs",
         };
-        let (background, text) = match self.environment.appearance() {
-            ResolvedAppearance::Light => (
-                tokens::color::PREPARATION_BACKGROUND,
-                tokens::color::PREPARATION_TEXT,
-            ),
-            ResolvedAppearance::Dark => (
-                tokens::color::PRESENTER_BACKGROUND,
-                tokens::color::PRESENTER_TEXT,
-            ),
-        };
+        let palette = tokens::palette(self.environment.appearance());
         let preferences = self.environment.preferences();
 
         div()
@@ -316,8 +307,8 @@ impl Render for RootView {
             .p(px(preferences.scale.apply(tokens::spacing::GROUP)))
             .font_family(tokens::typography::OPERATOR_FAMILY)
             .text_size(px(preferences.scale.apply(tokens::typography::BODY.size)))
-            .bg(rgb(background))
-            .text_color(rgb(text))
+            .bg(rgb(palette.background))
+            .text_color(rgb(palette.text))
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())

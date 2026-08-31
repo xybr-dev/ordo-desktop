@@ -313,20 +313,7 @@ impl Render for LabView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let environment = self.environment;
         let preferences = environment.preferences();
-        let (background, surface, text, border) = match environment.appearance() {
-            ResolvedAppearance::Light => (
-                tokens::color::PREPARATION_BACKGROUND,
-                tokens::color::PREPARATION_SURFACE,
-                tokens::color::PREPARATION_TEXT,
-                tokens::color::PREPARATION_BORDER,
-            ),
-            ResolvedAppearance::Dark => (
-                tokens::color::PRESENTER_BACKGROUND,
-                tokens::color::PRESENTER_SURFACE,
-                tokens::color::PRESENTER_TEXT,
-                tokens::color::PRESENTER_BORDER,
-            ),
-        };
+        let palette = tokens::palette(environment.appearance());
         let scenario = self.scenario();
         let (width, height) = self.viewport.size();
         let status = status_line(scenario.name, self.viewport, environment);
@@ -351,16 +338,16 @@ impl Render for LabView {
             .flex()
             .flex_col()
             .font_family(tokens::typography::OPERATOR_FAMILY)
-            .bg(rgb(background))
-            .text_color(rgb(text))
+            .bg(rgb(palette.background))
+            .text_color(rgb(palette.text))
             .child(
                 div()
                     .debug_selector(|| "lab-status".into())
                     .flex_none()
                     .p(px(preferences.scale.apply(tokens::spacing::CONTROL_INSET)))
                     .border_b(px(tokens::border::SEPARATOR))
-                    .border_color(rgb(border))
-                    .bg(rgb(surface))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.surface))
                     .text_size(px(preferences.scale.apply(tokens::typography::LABEL.size)))
                     .child(status),
             )
@@ -377,13 +364,13 @@ impl Render for LabView {
                         div()
                             .flex_none()
                             .border_1()
-                            .border_color(rgb(border))
+                            .border_color(rgb(palette.border))
                             .child(
                                 div()
                                     .debug_selector(|| "lab-stage".into())
                                     .w(px(width))
                                     .h(px(height))
-                                    .bg(rgb(surface))
+                                    .bg(rgb(palette.surface))
                                     .child((scenario.render)(environment, window, cx)),
                             ),
                     ),
