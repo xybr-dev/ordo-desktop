@@ -4,8 +4,9 @@ use std::{
     fmt,
     path::Path,
     rc::Rc,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Sender},
     thread,
+    time::Duration,
 };
 
 use gpui::{
@@ -114,8 +115,6 @@ enum PreferenceCommand {
     Shutdown,
 }
 
-type RestoredPreferences = Receiver<std::io::Result<Option<String>>>;
-
 struct RuntimeWorkers {
     preference_commands: Sender<PreferenceCommand>,
     workers: Vec<OwnedWorker<()>>,
@@ -124,9 +123,9 @@ struct RuntimeWorkers {
 impl RuntimeWorkers {
     fn start(
         preferences: PreferencesFile,
-    ) -> Result<(Self, RestoredPreferences), WorkerStartError> {
+        restored_preferences: Sender<std::io::Result<Option<String>>>,
+    ) -> Result<Self, WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
-        let (restored_preferences, restore) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
             let _ = restored_preferences.send(preferences.read());
@@ -141,13 +140,10 @@ impl RuntimeWorkers {
                 WorkerExit::Completed(())
             })
         })?;
-        Ok((
-            Self {
-                preference_commands,
-                workers: vec![storage, background],
-            },
-            restore,
-        ))
+        Ok(Self {
+            preference_commands,
+            workers: vec![storage, background],
+        })
     }
 
     fn shutdown(&mut self) -> Vec<WorkerFailure> {
@@ -193,8 +189,9 @@ pub fn open_native_runtime_at(
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
     cx.set_quit_mode(QuitMode::Explicit);
     ui::init(cx).map_err(RuntimeError::Ui)?;
-    let (workers, restored_preferences) =
-        RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()))?;
+    let (restore_tx, restore_rx) = mpsc::channel();
+    let workers =
+        RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()), restore_tx)?;
     let workers = Rc::new(RefCell::new(workers));
     let save_preferences = {
         let commands = workers.borrow().preference_commands.clone();
@@ -224,26 +221,34 @@ pub fn open_native_runtime_at(
         })
         .map_err(|_| RuntimeError::Window("operator"))?;
 
-    let restore = cx
-        .background_executor()
-        .spawn(async move { restored_preferences.recv() });
     cx.spawn({
         let restore_target = operator;
         async move |cx| {
-            let restored = match restore.await {
-                Ok(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
+            let restored = loop {
+                match restore_rx.try_recv() {
+                    Ok(restored) => break Some(restored),
+                    Err(mpsc::TryRecvError::Empty) => {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(10))
+                            .await;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => break None,
+                }
+            };
+            let restored = match restored {
+                Some(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
                     Ok(preferences) => Some(preferences),
                     Err(error) => {
                         eprintln!("ignored invalid installation preferences: {error}");
                         None
                     }
                 },
-                Ok(Ok(None)) => None,
-                Ok(Err(error)) => {
+                Some(Ok(None)) => None,
+                Some(Err(error)) => {
                     eprintln!("failed to restore installation preferences: {error}");
                     None
                 }
-                Err(_) => {
+                None => {
                     eprintln!("preferences worker stopped before startup restore");
                     None
                 }
@@ -267,7 +272,6 @@ pub fn open_native_runtime_at(
             Ok(window) => Some(window),
             Err(_) => {
                 let _ = operator.update(cx, |_, window, _| window.remove_window());
-                let _ = workers.borrow_mut().shutdown();
                 return Err(RuntimeError::Window("congregation"));
             }
         }
