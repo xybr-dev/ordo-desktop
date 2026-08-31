@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod environment;
+pub mod lab;
 pub mod tokens;
 
 use std::{borrow::Cow, mem, rc::Rc};
@@ -53,7 +54,7 @@ pub enum ShellDestination {
     Songs,
 }
 
-/// T0.1 root view used by both the native harness and `ui-lab`.
+/// T0.1 root view used by the native harness and the production shell.
 pub struct RootView {
     build_identity: &'static str,
     active_destination: ShellDestination,
@@ -252,7 +253,7 @@ impl RootView {
     }
 }
 
-fn resolved_appearance(appearance: WindowAppearance) -> ResolvedAppearance {
+pub(crate) fn resolved_appearance(appearance: WindowAppearance) -> ResolvedAppearance {
     match appearance {
         WindowAppearance::Light | WindowAppearance::VibrantLight => ResolvedAppearance::Light,
         WindowAppearance::Dark | WindowAppearance::VibrantDark => ResolvedAppearance::Dark,
