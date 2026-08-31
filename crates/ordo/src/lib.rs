@@ -161,6 +161,12 @@ impl RuntimeWorkers {
     }
 }
 
+impl Drop for RuntimeWorkers {
+    fn drop(&mut self) {
+        let _ = self.preference_commands.send(PreferenceCommand::Shutdown);
+    }
+}
+
 fn controlled_worker(kind: WorkerKind) -> Result<OwnedWorker<()>, WorkerStartError> {
     OwnedWorker::spawn(kind, |cancel| {
         while !cancel.is_cancelled() {
@@ -365,5 +371,30 @@ mod tests {
                 message: "controlled failure".to_owned(),
             }]
         );
+    }
+
+    #[test]
+    fn dropping_workers_stops_storage_with_a_surviving_sender() {
+        let (commands, received_commands) = mpsc::channel();
+        let storage = OwnedWorker::spawn(WorkerKind::Storage, move |_| {
+            while let Ok(PreferenceCommand::Save(_)) = received_commands.recv() {}
+            Ok(WorkerExit::Completed(()))
+        })
+        .unwrap();
+        let workers = RuntimeWorkers {
+            preference_commands: commands,
+            workers: vec![storage],
+        };
+        let surviving_sender = workers.preference_commands.clone();
+        let (dropped_tx, dropped_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            drop(workers);
+            dropped_tx.send(()).unwrap();
+        });
+
+        let result = dropped_rx.recv_timeout(Duration::from_secs(1));
+        drop(surviving_sender);
+        assert!(result.is_ok(), "workers deadlocked while a sender survived");
     }
 }
