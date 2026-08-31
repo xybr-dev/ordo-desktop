@@ -100,7 +100,7 @@ impl Field {
             read_only: None,
             not_assigned: false,
             environment,
-            surface: tokens::palette(environment.appearance()).surface,
+            surface: tokens::palette(environment.appearance()).background,
         }
     }
 

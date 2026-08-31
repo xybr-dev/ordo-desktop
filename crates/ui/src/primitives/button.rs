@@ -54,7 +54,7 @@ impl Button {
             tooltip: None,
             availability: Availability::default(),
             environment,
-            surface: tokens::palette(environment.appearance()).surface,
+            surface: tokens::palette(environment.appearance()).background,
             on_activate: None,
         }
     }
@@ -83,7 +83,8 @@ impl Button {
     }
 
     /// The color immediately behind the button, which its focus separation ring
-    /// has to match. Defaults to the appearance's ordinary surface.
+    /// has to match. Defaults to the shell's own ground, which is what a
+    /// control placed without a container sits on.
     pub fn on_surface(mut self, surface: u32) -> Self {
         self.surface = surface;
         self

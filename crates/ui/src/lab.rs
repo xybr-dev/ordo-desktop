@@ -139,23 +139,30 @@ fn render_placeholder(environment: UiEnvironment, _: &mut Window, _: &mut App) -
 /// Every meaningful Button state on one stage, so hover, press, and keyboard
 /// focus can be walked by hand in one pass at either appearance.
 fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
+    let stage = tokens::palette(environment.appearance()).surface;
     row("scenario-buttons", environment)
-        .child(Button::new("save", "Save", environment).icon(assets::icon::CHECK))
+        .child(
+            Button::new("save", "Save", environment)
+                .icon(assets::icon::CHECK)
+                .on_surface(stage),
+        )
         .child(
             Button::new("more", "More actions", environment)
                 .icon(assets::icon::ELLIPSIS)
-                .icon_only(),
+                .icon_only()
+                .on_surface(stage),
         )
-        .child(Button::new("archive", "Archive", environment).availability(Availability::Disabled))
+        .child(
+            Button::new("archive", "Archive", environment)
+                .availability(Availability::Disabled)
+                .on_surface(stage),
+        )
         .child(
             Button::new("go-live", "Go Live", environment)
-                .availability(Availability::unavailable("No output is connected")),
+                .availability(Availability::unavailable("No output is connected"))
+                .on_surface(stage),
         )
-        .child(Button::new(
-            "long",
-            fixtures::LONG_CEBUANO_TITLE,
-            environment,
-        ))
+        .child(Button::new("long", fixtures::LONG_CEBUANO_TITLE, environment).on_surface(stage))
         .into_any_element()
 }
 
@@ -172,16 +179,23 @@ fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
         field("lab-recorded", "Fr. Antonio Reyes"),
         field("lab-song", "gloria-mass-of-creation.mp3"),
     );
+    let stage = tokens::palette(environment.appearance()).surface;
     row("scenario-fields", environment)
-        .child(Field::new("title", "Title", &title, environment))
-        .child(Field::new("celebration", "Celebration", &celebration, environment).not_assigned())
+        .child(Field::new("title", "Title", &title, environment).on_surface(stage))
+        .child(
+            Field::new("celebration", "Celebration", &celebration, environment)
+                .not_assigned()
+                .on_surface(stage),
+        )
         .child(
             Field::new("recorded", "Recorded by", &recorded, environment)
-                .read_only("The Mass has already been celebrated"),
+                .read_only("The Mass has already been celebrated")
+                .on_surface(stage),
         )
         .child(
             Field::new("song", "Song file", &song, environment)
-                .availability(Availability::unavailable("The Song file is missing")),
+                .availability(Availability::unavailable("The Song file is missing"))
+                .on_surface(stage),
         )
         .into_any_element()
 }
