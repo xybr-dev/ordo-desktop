@@ -4,6 +4,8 @@
 //! the only machine-readable copy; the tests below pin every one of them back
 //! to that frontmatter so the transcription cannot drift silently.
 
+use crate::environment::ResolvedAppearance;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TypeStyle {
     pub size: f32,
@@ -51,6 +53,66 @@ pub mod color {
     pub const LITURGICAL_GREEN: u32 = 0x46744D;
     pub const LITURGICAL_ROSE: u32 = 0xC9788E;
     pub const LITURGICAL_WHITE: u32 = 0xF9F5E9;
+}
+
+/// The appearance-resolved half of [`color`].
+///
+/// `DESIGN.md` pairs every operator color as `*-preparation`/`*-presenter`;
+/// Light resolves to the Preparation value and Dark to the Presenter one. One
+/// resolver keeps that match out of every surface that needs a color.
+///
+/// Live, Freeze, Blackout, and the liturgical colors are deliberately absent:
+/// they are output and content state, not operator chrome, and arrive with the
+/// surfaces that own them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Palette {
+    pub background: u32,
+    pub surface: u32,
+    /// Preparation's muted fill and Presenter's raised fill: the same role, in
+    /// the direction each appearance can move away from its surface.
+    pub surface_secondary: u32,
+    pub text: u32,
+    pub text_muted: u32,
+    pub border: u32,
+    pub border_strong: u32,
+    pub selection: u32,
+    pub focus: u32,
+    pub warning: u32,
+    pub danger: u32,
+    pub information: u32,
+}
+
+pub const fn palette(appearance: ResolvedAppearance) -> Palette {
+    match appearance {
+        ResolvedAppearance::Light => Palette {
+            background: color::PREPARATION_BACKGROUND,
+            surface: color::PREPARATION_SURFACE,
+            surface_secondary: color::PREPARATION_SURFACE_MUTED,
+            text: color::PREPARATION_TEXT,
+            text_muted: color::PREPARATION_TEXT_MUTED,
+            border: color::PREPARATION_BORDER,
+            border_strong: color::PREPARATION_BORDER_STRONG,
+            selection: color::SELECTION_PREPARATION,
+            focus: color::FOCUS_PREPARATION,
+            warning: color::WARNING_PREPARATION,
+            danger: color::DANGER_PREPARATION,
+            information: color::INFORMATION_PREPARATION,
+        },
+        ResolvedAppearance::Dark => Palette {
+            background: color::PRESENTER_BACKGROUND,
+            surface: color::PRESENTER_SURFACE,
+            surface_secondary: color::PRESENTER_SURFACE_RAISED,
+            text: color::PRESENTER_TEXT,
+            text_muted: color::PRESENTER_TEXT_MUTED,
+            border: color::PRESENTER_BORDER,
+            border_strong: color::PRESENTER_BORDER_STRONG,
+            selection: color::SELECTION_PRESENTER,
+            focus: color::FOCUS_PRESENTER,
+            warning: color::WARNING_PRESENTER,
+            danger: color::DANGER_PRESENTER,
+            information: color::INFORMATION_PRESENTER,
+        },
+    }
 }
 
 pub mod typography {
