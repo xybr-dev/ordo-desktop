@@ -140,15 +140,20 @@ impl RenderOnce for Field {
         // does for `readonly`, and it is what separates it from `disabled`,
         // which gives up focus, selection, and Copy together.
         let read_only = self.read_only.is_some() || !self.availability.is_available();
-        let reason = self
-            .read_only
-            .clone()
-            .map(|reason| format!("Read-only. {reason}"))
-            .or_else(|| {
-                self.availability
-                    .reason()
-                    .map(|reason| format!("{}. {reason}", Availability::UNAVAILABLE))
-            });
+        // Both states can be set at once, and both render a note, so the
+        // description carries both too: an accessible name that mentioned only
+        // the first would disagree with the screen.
+        let reason = [
+            self.read_only
+                .as_ref()
+                .map(|reason| format!("Read-only. {reason}")),
+            self.availability
+                .reason()
+                .map(|reason| format!("{}. {reason}", Availability::UNAVAILABLE)),
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(|described, also| format!("{described} {also}"));
         let placeholder = if self.not_assigned {
             SharedString::new_static(Self::NOT_ASSIGNED)
         } else {
