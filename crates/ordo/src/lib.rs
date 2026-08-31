@@ -229,18 +229,28 @@ pub fn open_native_runtime_at(
         .spawn(async move { restored_preferences.recv() });
     cx.spawn({
         let restore_target = operator;
-        async move |cx| match restore.await {
-            Ok(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
-                Ok(preferences) => {
-                    let _ = restore_target.update(cx, |root, _, cx| {
-                        root.restore_preferences(preferences, cx);
-                    });
+        async move |cx| {
+            let restored = match restore.await {
+                Ok(Ok(Some(contents))) => match UiPreferences::decode(&contents) {
+                    Ok(preferences) => Some(preferences),
+                    Err(error) => {
+                        eprintln!("ignored invalid installation preferences: {error}");
+                        None
+                    }
+                },
+                Ok(Ok(None)) => None,
+                Ok(Err(error)) => {
+                    eprintln!("failed to restore installation preferences: {error}");
+                    None
                 }
-                Err(error) => eprintln!("ignored invalid installation preferences: {error}"),
-            },
-            Ok(Ok(None)) => {}
-            Ok(Err(error)) => eprintln!("failed to restore installation preferences: {error}"),
-            Err(_) => eprintln!("preferences worker stopped before startup restore"),
+                Err(_) => {
+                    eprintln!("preferences worker stopped before startup restore");
+                    None
+                }
+            };
+            let _ = restore_target.update(cx, |root, _, cx| {
+                root.finish_preferences_restore(restored, cx);
+            });
         }
     })
     .detach();

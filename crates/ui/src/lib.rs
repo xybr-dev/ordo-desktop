@@ -58,7 +58,9 @@ pub struct RootView {
     build_identity: &'static str,
     active_destination: ShellDestination,
     environment: UiEnvironment,
-    preferences_changed_since_startup: bool,
+    preferences_restore_pending: bool,
+    appearance_changed_since_startup: bool,
+    scale_changed_since_startup: bool,
     save_preferences: Option<Rc<dyn Fn(UiPreferences)>>,
     focus_handle: FocusHandle,
     _appearance_subscription: Subscription,
@@ -92,7 +94,9 @@ impl RootView {
             build_identity,
             active_destination: ShellDestination::Masses,
             environment,
-            preferences_changed_since_startup: false,
+            preferences_restore_pending: save_preferences.is_some(),
+            appearance_changed_since_startup: false,
+            scale_changed_since_startup: false,
             save_preferences,
             focus_handle: cx.focus_handle(),
             _appearance_subscription: appearance_subscription,
@@ -107,11 +111,33 @@ impl RootView {
         self.environment
     }
 
-    pub fn restore_preferences(&mut self, preferences: UiPreferences, cx: &mut Context<Self>) {
-        if self.preferences_changed_since_startup {
+    pub fn finish_preferences_restore(
+        &mut self,
+        restored: Option<UiPreferences>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.preferences_restore_pending {
             return;
         }
-        self.change_environment(EnvironmentChange::SetPreferences(preferences), false, cx);
+        let current = self.environment.preferences();
+        let restored = restored.unwrap_or(current);
+        let merged = UiPreferences {
+            appearance: if self.appearance_changed_since_startup {
+                current.appearance
+            } else {
+                restored.appearance
+            },
+            scale: if self.scale_changed_since_startup {
+                current.scale
+            } else {
+                restored.scale
+            },
+        };
+        self.preferences_restore_pending = false;
+        self.change_environment(EnvironmentChange::SetPreferences(merged), false, cx);
+        if self.appearance_changed_since_startup || self.scale_changed_since_startup {
+            self.save(merged);
+        }
     }
 
     pub fn change_from_settings(&mut self, change: EnvironmentChange, cx: &mut Context<Self>) {
@@ -130,12 +156,19 @@ impl RootView {
         }
         let after = self.environment.preferences();
         if persist && after != before {
-            self.preferences_changed_since_startup = true;
-            if let Some(save) = &self.save_preferences {
-                save(after);
+            self.appearance_changed_since_startup |= after.appearance != before.appearance;
+            self.scale_changed_since_startup |= after.scale != before.scale;
+            if !self.preferences_restore_pending {
+                self.save(after);
             }
         }
         cx.notify();
+    }
+
+    fn save(&self, preferences: UiPreferences) {
+        if let Some(save) = &self.save_preferences {
+            save(preferences);
+        }
     }
 
     fn open_songs(&mut self, _: &OpenSongs, _: &mut Window, cx: &mut Context<Self>) {
@@ -297,6 +330,7 @@ impl Render for RootView {
 mod tests {
     use super::*;
     use gpui::TestAppContext;
+    use std::cell::Cell;
 
     #[gpui::test]
     fn root_view_opens_dispatches_navigation_and_stays_offline(cx: &mut TestAppContext) {
@@ -340,15 +374,6 @@ mod tests {
         cx.dispatch_action(EnterPresenter);
         cx.dispatch_action(LeavePresenter);
         cx.simulate_keystrokes("ctrl-= ctrl-= ctrl-- ctrl-0");
-        root.update(cx, |root, cx| {
-            root.restore_preferences(
-                UiPreferences {
-                    appearance: PreparationAppearance::Light,
-                    scale: environment::InterfaceScale::Percent175,
-                },
-                cx,
-            );
-        });
 
         root.read_with(cx, |root, _| {
             assert_eq!(
@@ -367,5 +392,47 @@ mod tests {
         });
         assert!(cx.debug_bounds("appearance-Dark").is_some());
         assert!(cx.debug_bounds("interface-scale-100").is_some());
+    }
+
+    #[gpui::test]
+    fn startup_restore_merges_with_changes_without_saving_defaults(cx: &mut TestAppContext) {
+        cx.update(init).unwrap();
+        let saved = Rc::new(Cell::new(None));
+        let (root, cx) = cx.add_window_view({
+            let saved = saved.clone();
+            move |window, cx| {
+                let root = RootView::with_preferences(
+                    "test-build",
+                    UiPreferences::default(),
+                    Some(Rc::new(move |preferences| saved.set(Some(preferences)))),
+                    window,
+                    cx,
+                );
+                window.focus(&root.focus_handle, cx);
+                root
+            }
+        });
+
+        cx.dispatch_action(IncreaseInterfaceScale);
+        assert_eq!(saved.get(), None);
+
+        root.update(cx, |root, cx| {
+            root.finish_preferences_restore(
+                Some(UiPreferences {
+                    appearance: PreparationAppearance::Dark,
+                    scale: environment::InterfaceScale::Percent175,
+                }),
+                cx,
+            );
+        });
+
+        let expected = UiPreferences {
+            appearance: PreparationAppearance::Dark,
+            scale: environment::InterfaceScale::Percent125,
+        };
+        root.read_with(cx, |root, _| {
+            assert_eq!(root.environment().preferences(), expected);
+        });
+        assert_eq!(saved.get(), Some(expected));
     }
 }
