@@ -390,6 +390,29 @@ mod tests {
         });
     }
 
+    /// The half of live OS-theme following that the pinned GPUI revision lets us
+    /// automate; `docs/qualification/GPUI-BASE-T0.3.md` records why the observer
+    /// itself cannot be driven from a test.
+    #[test]
+    fn every_window_appearance_resolves_to_an_operator_appearance() {
+        assert_eq!(
+            resolved_appearance(WindowAppearance::Light),
+            ResolvedAppearance::Light
+        );
+        assert_eq!(
+            resolved_appearance(WindowAppearance::VibrantLight),
+            ResolvedAppearance::Light
+        );
+        assert_eq!(
+            resolved_appearance(WindowAppearance::Dark),
+            ResolvedAppearance::Dark
+        );
+        assert_eq!(
+            resolved_appearance(WindowAppearance::VibrantDark),
+            ResolvedAppearance::Dark
+        );
+    }
+
     #[gpui::test]
     fn startup_restore_merges_with_changes_without_saving_defaults(cx: &mut TestAppContext) {
         cx.update(init).unwrap();
