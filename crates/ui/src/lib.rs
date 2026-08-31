@@ -278,9 +278,6 @@ impl Render for RootView {
             ),
         };
         let preferences = self.environment.preferences();
-        let appearance = self.environment.appearance();
-        let scale = preferences.scale.percent();
-        let mode = self.environment.mode();
 
         div()
             .id("ordo-root")
@@ -305,9 +302,6 @@ impl Render for RootView {
             .text_size(px(preferences.scale.apply(tokens::typography::BODY.size)))
             .bg(rgb(background))
             .text_color(rgb(text))
-            .child(div().debug_selector(move || format!("appearance-{appearance:?}")))
-            .child(div().debug_selector(move || format!("interface-scale-{scale}")))
-            .child(div().debug_selector(move || format!("operator-mode-{mode:?}")))
             .child(
                 div()
                     .debug_selector(|| "build-identity".into())
@@ -390,8 +384,6 @@ mod tests {
             );
             assert_eq!(root.environment().appearance(), ResolvedAppearance::Dark);
         });
-        assert!(cx.debug_bounds("appearance-Dark").is_some());
-        assert!(cx.debug_bounds("interface-scale-100").is_some());
     }
 
     #[gpui::test]

@@ -1,5 +1,3 @@
-use crate::tokens;
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum PreparationAppearance {
     #[default]
@@ -19,14 +17,6 @@ pub enum InterfaceScale {
 }
 
 impl InterfaceScale {
-    pub const ALL: [Self; 5] = [
-        Self::Percent100,
-        Self::Percent125,
-        Self::Percent150,
-        Self::Percent175,
-        Self::Percent200,
-    ];
-
     pub const fn percent(self) -> u16 {
         match self {
             Self::Percent100 => 100,
@@ -201,33 +191,6 @@ impl UiEnvironment {
     }
 }
 
-/// Operator chrome may resize this viewport; its completed Slide never recomposes.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CanonicalFrameViewport {
-    viewport_width: f32,
-    viewport_height: f32,
-}
-
-impl CanonicalFrameViewport {
-    pub fn new(viewport_width: f32, viewport_height: f32) -> Self {
-        Self {
-            viewport_width,
-            viewport_height,
-        }
-    }
-
-    pub fn viewport_size(self) -> (f32, f32) {
-        (self.viewport_width, self.viewport_height)
-    }
-
-    pub const fn logical_size(self) -> (u32, u32) {
-        (
-            tokens::canonical_slide::WIDTH,
-            tokens::canonical_slide::HEIGHT,
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,17 +246,5 @@ mod tests {
             environment.apply(EnvironmentChange::DecreaseScale);
         }
         assert_eq!(environment.preferences().scale, InterfaceScale::Percent100);
-    }
-
-    #[test]
-    fn canonical_frame_geometry_is_invariant_across_every_interface_scale() {
-        let mut viewport_sizes = Vec::new();
-        for scale in InterfaceScale::ALL {
-            let viewport =
-                CanonicalFrameViewport::new(960.0 / scale.apply(1.0), 540.0 / scale.apply(1.0));
-            viewport_sizes.push(viewport.viewport_size());
-            assert_eq!(viewport.logical_size(), (1920, 1080));
-        }
-        assert_ne!(viewport_sizes.first(), viewport_sizes.last());
     }
 }
