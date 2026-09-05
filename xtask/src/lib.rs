@@ -43,6 +43,7 @@ const LUCIDE_ICONS: &[&str] = &[
     "grip-vertical.svg",
     "info.svg",
     "library.svg",
+    "plus.svg",
     "settings.svg",
     "swatch-book.svg",
     "triangle-alert.svg",
