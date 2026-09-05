@@ -105,10 +105,7 @@ impl State {
     /// at one ends the filter, so the collection opens back up around it.
     fn query(&self, cx: &App) -> Option<String> {
         let typed = self.field.as_ref()?.value(cx);
-        self.choices
-            .iter()
-            .all(|choice| choice.label != typed)
-            .then(|| typed.to_lowercase())
+        self.current(cx).is_none().then(|| typed.to_lowercase())
     }
 
     /// A Combobox's selection is whichever choice its Field names, and none
@@ -116,14 +113,22 @@ impl State {
     /// cleared value is not a selection, and a name the collection does not
     /// contain leaves the caller to read [`SelectionState::text`] and decide —
     /// which is what `MVP-PLAN.md` asks of the Presider, Location, and Choir
-    /// selectors. The match is exact, so a caller never gets a choice the
-    /// operator cannot see they picked.
+    /// selectors.
+    ///
+    /// The name has to be whole, but not in the operator's exact case, because
+    /// the filter already folds case: `english` filtering to `English` while
+    /// reporting no selection would offer to add the choice it is showing, and
+    /// hand a Choir or Presider caller its own duplicate to reject. Two choices
+    /// that differ only in case are one name here; a collection holding both is
+    /// a collection the operator cannot tell apart either.
     fn current(&self, cx: &App) -> Option<usize> {
         let Some(field) = self.field.as_ref() else {
             return self.selected;
         };
-        let value = field.value(cx);
-        self.choices.iter().position(|choice| choice.label == value)
+        let value = field.value(cx).to_lowercase();
+        self.choices
+            .iter()
+            .position(|choice| choice.label.to_lowercase() == value)
     }
 
     /// The row that offers the typed name, addressed one past the collection.
@@ -1658,10 +1663,16 @@ mod tests {
     }
 
     #[gpui::test]
-    fn typing_a_choice_exactly_selects_it_without_committing_through_the_popup(
+    fn typing_a_whole_name_selects_it_without_committing_through_the_popup(
         cx: &mut TestAppContext,
     ) {
         let (view, cx) = combobox(cx);
+        // Offering new values is what makes the case rule matter: a collection
+        // that folds case in its filter but not in its selection would offer
+        // to add the very choice it is showing.
+        view.update(cx, |v, cx| {
+            v.state = v.state.clone().accepting_new_values(cx);
+        });
         cx.simulate_input("English");
         view.read_with(cx, |v, cx| {
             assert_eq!(
@@ -1671,12 +1682,31 @@ mod tests {
             );
             assert_eq!(v.activations.get(), 0, "no popup activation happened");
         });
+        // The filter folds case, so the selection does too: a name typed in a
+        // hurry is the choice it names, not a new one to be created beside it.
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("english");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), Some(0));
+            assert_eq!(v.state.text(cx), Some("english".into()));
+        });
+        cx.update(|_, cx| {
+            let state = view.read(cx).state.0.read(cx);
+            assert_eq!(state.query(cx), None, "an arrived-at name is no filter");
+            assert_eq!(state.create_row(cx), None, "and is not a new one either");
+        });
+
         // A name the collection does not contain is not a selection, and the
         // caller reads it to decide whether to accept it.
-        cx.simulate_input(" Choir");
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("English Choir");
         view.read_with(cx, |v, cx| {
             assert_eq!(v.state.selected(cx), None);
             assert_eq!(v.state.text(cx), Some("English Choir".into()));
+        });
+        cx.update(|_, cx| {
+            let state = view.read(cx).state.0.read(cx);
+            assert!(state.create_row(cx).is_some(), "this one is new");
         });
     }
 

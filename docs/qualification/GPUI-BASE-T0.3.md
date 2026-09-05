@@ -152,8 +152,14 @@ the operator typed is a filter only while it names no choice; arriving at one
 ends the filter, so the collection opens back up around it.
 
 One rule settles both the selection and the open set: **a Combobox's selection
-is whichever choice its Field names exactly, and none while the text names
-none.** A half-typed value, a cleared one, and a name the collection does not
+is whichever choice its Field names, and none while the text names none.** The
+name has to be whole, but not in the operator's exact case, because the filter
+already folds case and the two halves must agree: `english` filtering to
+`English` while reporting no selection would offer to add the choice it is
+showing, and hand the Choir or Presider caller its own duplicate to reject. Two
+choices differing only in case are therefore one name, as they are to the
+operator reading the list; a collection with genuinely duplicate labels resolves
+to the first, because the Field's text is all this control has to go on. A half-typed value, a cleared one, and a name the collection does not
 contain are all "no selection", so no row is filled, no caller reads a value the
 operator cannot see, and a caller that accepts a new name reads
 `SelectionState::text` and decides for itself. `MVP-PLAN.md` needs exactly that:
