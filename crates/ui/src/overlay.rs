@@ -491,6 +491,15 @@ impl OverlayHost {
         });
     }
 
+    /// Whether a toast is mounted only for the length of its own exit.
+    fn leaving(&self, message: &SharedString, cx: &App) -> bool {
+        self.0
+            .read(cx)
+            .toasts
+            .iter()
+            .any(|(id, _, status)| id == message && status == ToastTransitionStatus::Ending)
+    }
+
     pub fn toasts(&self, cx: &App) -> Vec<SharedString> {
         self.0
             .read(cx)
@@ -818,6 +827,34 @@ impl OverlayHost {
         Rc::new(move |window, cx| host.close(id, window, cx))
     }
 
+    /// Takes the decision the surface was asking for, and closes it.
+    ///
+    /// A control on a card playing its exit is a picture of a control: the card
+    /// stays mounted and hit-testable for the length of the exit, and opacity
+    /// gates neither. Both halves are guarded together and once, because a
+    /// decision taken twice is the delete run twice — `close` already refuses
+    /// the second call, and it is the half that was never the damage.
+    fn take(&self, id: usize, activate: Activate) -> Activate {
+        let host = self.clone();
+        Rc::new(move |window, cx| {
+            if !host.holding(id, cx) {
+                return;
+            }
+            activate(window, cx);
+            host.close(id, window, cx);
+        })
+    }
+
+    /// Whether a surface is still the operator's, rather than mounted only for
+    /// the length of its own exit.
+    fn holding(&self, id: usize, cx: &App) -> bool {
+        self.0
+            .read(cx)
+            .entries
+            .iter()
+            .any(|entry| entry.id == id && !entry.closing)
+    }
+
     fn header(&self, overlay: &Overlay, id: usize, environment: UiEnvironment) -> impl IntoElement {
         let palette = tokens::palette(environment.appearance());
         let scale = environment.preferences().scale;
@@ -875,8 +912,9 @@ impl OverlayHost {
         // An action ends the decision, so taking either one also closes the
         // surface — which is what runs `on_close` exactly once, whichever way
         // the operator leaves.
-        let action = |slot: Option<(SharedString, Activate)>, quiet: bool, close: Activate| {
+        let action = |slot: Option<(SharedString, Activate)>, quiet: bool| {
             slot.map(|(label, activate)| {
+                let take = self.take(id, activate);
                 Button::new(
                     (
                         if quiet {
@@ -891,10 +929,7 @@ impl OverlayHost {
                 )
                 .when(quiet, Button::quiet)
                 .on_surface(palette.surface)
-                .on_activate(move |window, cx| {
-                    activate(window, cx);
-                    close(window, cx);
-                })
+                .on_activate(move |window, cx| take(window, cx))
             })
         };
         Some(
@@ -906,8 +941,8 @@ impl OverlayHost {
                 .p(px(scale.apply(tokens::spacing::GROUP)))
                 .border_t(px(tokens::border::SEPARATOR))
                 .border_color(rgb(palette.border))
-                .children(action(overlay.secondary.clone(), true, self.closer(id)))
-                .children(action(overlay.primary.clone(), false, self.closer(id))),
+                .children(action(overlay.secondary.clone(), true))
+                .children(action(overlay.primary.clone(), false)),
         )
     }
 
@@ -1131,6 +1166,8 @@ impl OverlayHost {
                     .child(div().min_w_0().child(toast.message.clone()))
                     .children(toast.undo.clone().map(|(label, activate)| {
                         let dismiss = dismiss.clone();
+                        let host = host.clone();
+                        let mounted = id.clone();
                         Button::new(
                             SharedString::from(format!("toast-undo-{id}")),
                             label,
@@ -1138,7 +1175,12 @@ impl OverlayHost {
                         )
                         .quiet()
                         .on_surface(palette.surface)
+                        // Undo on a toast that is already expiring is a picture
+                        // of Undo, for the reason a leaving card's actions are.
                         .on_activate(move |window, cx| {
+                            if host.leaving(&mounted, cx) {
+                                return;
+                            }
                             activate(window, cx);
                             dismiss(window, cx);
                         })
@@ -1294,6 +1336,8 @@ mod tests {
         /// A control the scrim has to keep a press away from.
         beneath: Rc<Cell<usize>>,
         closed: Rc<Cell<usize>>,
+        /// How many times the decision the surface asked for was taken.
+        taken: Rc<Cell<usize>>,
         focus: FocusHandle,
     }
 
@@ -1301,7 +1345,7 @@ mod tests {
         /// A surface with two focusable controls inside it, which is the least
         /// that can show Tab cycling rather than escaping.
         fn overlay(&self, kind: Surface) -> Overlay {
-            let closed = self.closed.clone();
+            let (closed, taken) = (self.closed.clone(), self.taken.clone());
             let overlay = match kind {
                 Surface::Dialog => Overlay::dialog("Delete this Mass?"),
                 Surface::Slideover => Overlay::slideover("Inspector"),
@@ -1314,7 +1358,7 @@ mod tests {
                         .child(Button::new("inside-second", "Duplicate", environment))
                         .into_any_element()
                 })
-                .primary("Delete", |_, _| {})
+                .primary("Delete", move |_, _| taken.set(taken.get() + 1))
                 .on_close(move |_, _| closed.set(closed.get() + 1))
         }
     }
@@ -1357,6 +1401,7 @@ mod tests {
                 ),
                 beneath: Rc::new(Cell::new(0)),
                 closed: Rc::new(Cell::new(0)),
+                taken: Rc::new(Cell::new(0)),
                 focus: cx.focus_handle(),
             };
             window.focus(&harness.focus, cx);
@@ -1607,6 +1652,78 @@ mod tests {
         );
         settle(cx);
         view.read_with(cx, |view, cx| assert_eq!(view.host.depth(cx), 0));
+    }
+
+    /// The card is still on screen for the length of its exit, and opacity gates
+    /// neither the hit test nor a listener — so the decision it was asking for
+    /// has to be taken once however many times it is pressed. On this surface
+    /// twice is a second delete.
+    #[gpui::test]
+    fn a_decision_is_taken_once_however_long_the_card_stays_on_screen(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        press_invoker(cx);
+        let primary = cx
+            .debug_bounds("button-Delete")
+            .expect("the primary action renders")
+            .center();
+
+        cx.simulate_click(primary, Modifiers::default());
+        cx.executor().advance_clock(Duration::from_millis(
+            (tokens::motion::OVERLAY_CLOSE_DURATION_MS / 2).into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("button-Delete")
+                .map(|button| button.center()),
+            Some(primary),
+            "the card is still where it was, which is what makes the rest of this a test"
+        );
+
+        cx.simulate_click(primary, Modifiers::default());
+        cx.run_until_parked();
+        settle(cx);
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.taken.get(), 1, "the delete ran once, not twice");
+            assert_eq!(view.closed.get(), 1, "and the surface closed once");
+        });
+    }
+
+    /// Undo on a toast that is already expiring is the same picture of a
+    /// control, and an undo applied twice is the same damage.
+    #[gpui::test]
+    fn undo_is_applied_once_however_long_the_toast_stays_on_screen(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let undone = Rc::new(Cell::new(0));
+        cx.update({
+            let undone = undone.clone();
+            |_, cx| {
+                host.notify(
+                    Toast::confirmation("Cue removed.")
+                        .undo("Undo", move |_, _| undone.set(undone.get() + 1)),
+                    cx,
+                );
+            }
+        });
+        mounted(cx);
+        let undo = cx
+            .debug_bounds("button-Undo")
+            .expect("a confirmation carries its Undo")
+            .center();
+
+        cx.simulate_click(undo, Modifiers::default());
+        cx.executor().advance_clock(Duration::from_millis(
+            (tokens::motion::OVERLAY_CLOSE_DURATION_MS / 2).into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.simulate_click(undo, Modifiers::default());
+        cx.run_until_parked();
+        settle(cx);
+
+        assert_eq!(undone.get(), 1, "the undo applied once, not twice");
+        view.read_with(cx, |view, cx| assert!(view.host.toasts(cx).is_empty()));
     }
 
     /// `DESIGN.md` will not let motion delay the next input, and an exit is

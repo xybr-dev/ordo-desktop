@@ -357,6 +357,14 @@ starts leaving, not when it finishes: focus goes back to the invoker at that
 moment, and the card stops occluding, because `DESIGN.md` will not let motion
 delay the next input and an exit is motion.
 
+A control on a card playing its exit is a picture of a control, and the pin has
+nothing that makes it one: opacity gates neither the hit test nor a listener,
+and `occlude` was never what made the buttons inside a card live. So every
+control that ends a decision goes through one guard that asks whether the
+surface is still the operator's before it runs anything — the primary, the
+secondary, and a toast's Undo. A decision taken twice is the delete run twice,
+and `MVP-PLAN.md` puts a real deletion behind exactly this dialog.
+
 Tab is the half of a focus trap the pin does not implement. `focus_trap`
 registers the container with a global manager and stops there; the only code
 that reads that manager and cycles focus back inside is the styled façade's
