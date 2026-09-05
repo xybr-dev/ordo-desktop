@@ -19,7 +19,7 @@ use crate::{
         button::Button,
         disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
-        selection::{Choice, Menu, Select, SelectionState, Tabs},
+        selection::{Choice, Combobox, Menu, Select, SelectionState, Tabs},
     },
     resolved_appearance, tokens,
 };
@@ -82,6 +82,11 @@ pub mod fixtures {
     pub const LONG_CEBUANO_TITLE: &str =
         "Pasidungog sa Mahal nga Birhen Maria sa Kaputli ug sa Kalinaw sa Katilingban";
 
+    /// A visiting bishop: the value `MVP-PLAN.md` needs a Presider combobox to
+    /// accept without the parish first creating a record for him.
+    pub const LONG_PRESIDER_NAME: &str =
+        "Most Rev. Jose Alan Villanueva Dela Cruz, Obispo sa Diyosesis sa Dumaguete";
+
     pub const LONG_MULTILINGUAL_BODY: &str = concat!(
         "Ang Ginoo maanaa kaninyo, ug maanaa usab sa imong espiritu. ",
         "Panginoon, maawa ka sa amin at sa buong sambayanan. ",
@@ -120,6 +125,14 @@ static SCENARIOS: &[Scenario] = &[
         render: render_select,
     },
     Scenario {
+        name: "combobox",
+        render: render_combobox,
+    },
+    Scenario {
+        name: "combobox-new",
+        render: render_combobox_new,
+    },
+    Scenario {
         name: "tabs",
         render: render_tabs,
     },
@@ -154,6 +167,50 @@ fn render_select(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
     row("scenario-select", environment)
         .child(
             Select::new("select", "Language", &state, environment)
+                .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
+/// The Combobox opens unassigned, so what the operator types is a filter from
+/// the first keystroke rather than an edit of a value already in the Field.
+///
+/// Its collection drops the `Not assigned` choice the Select carries: an empty
+/// Combobox already *is* that value, and offering it as a choice would put the
+/// words in the Field as if they were a Language.
+fn render_combobox(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let assignable = choices().split_off(1);
+    let state = SelectionState::combobox_keyed("lab-combobox", assignable, None, window, cx);
+    row("scenario-combobox", environment)
+        .child(
+            Combobox::new("combobox", "Language", &state, environment)
+                .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
+/// The other half of the Combobox: a collection that does not hold every valid
+/// answer. `MVP-PLAN.md` needs a visiting Presider assignable to one Mass
+/// without becoming a parish record, so an unmatched name is offered rather
+/// than refused.
+fn render_combobox_new(
+    environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let state = SelectionState::combobox_keyed(
+        "lab-combobox-new",
+        vec![
+            Choice::new("Fr. Antonio Reyes"),
+            Choice::new("Fr. Jose Maria Villanueva"),
+            Choice::new(fixtures::LONG_PRESIDER_NAME),
+        ],
+        None,
+        window,
+        cx,
+    )
+    .accepting_new_values(cx);
+    row("scenario-combobox-new", environment)
+        .child(
+            Combobox::new("presider", "Presider", &state, environment)
                 .on_surface(tokens::palette(environment.appearance()).surface),
         )
         .into_any_element()
@@ -651,7 +708,14 @@ mod tests {
                 for viewport in ViewportPreset::ALL {
                     let (width, height) = viewport.size();
                     cx.simulate_resize(size(px(width), px(height)));
-                    for scenario in ["menu", "select", "tabs", "disclosure"] {
+                    for scenario in [
+                        "menu",
+                        "select",
+                        "combobox",
+                        "combobox-new",
+                        "tabs",
+                        "disclosure",
+                    ] {
                         lab.update(cx, |lab, cx| {
                             lab.change(
                                 EnvironmentChange::SetPreferences(UiPreferences {
@@ -666,10 +730,80 @@ mod tests {
                         let selector = match scenario {
                             "menu" => "scenario-menu",
                             "select" => "scenario-select",
+                            "combobox" => "scenario-combobox",
+                            "combobox-new" => "scenario-combobox-new",
                             "tabs" => "scenario-tabs",
                             _ => "scenario-disclosure",
                         };
                         assert!(cx.debug_bounds(selector).is_some());
+                        if scenario == "combobox-new" {
+                            let field = cx.debug_bounds("field-control").unwrap();
+                            cx.simulate_click(field.center(), gpui::Modifiers::default());
+                            // One long multilingual match, plus the offer to
+                            // keep what was typed.
+                            cx.simulate_input("Most");
+                            let popup = cx.debug_bounds("selection-list").unwrap();
+                            let long = cx.debug_bounds("choice-2").unwrap();
+                            let create = cx.debug_bounds("choice-create").unwrap();
+                            assert!(
+                                long.origin.y >= popup.origin.y
+                                    && create.bottom() <= popup.bottom()
+                                    && popup.right() <= px(width)
+                                    && popup.bottom() <= px(height),
+                                "both rows stay inside a contained popup \
+                                 ({appearance:?} {scale:?})"
+                            );
+                            // Nothing matches, and the collection still offers
+                            // the name rather than refusing it.
+                            cx.simulate_input(" Rev. Juan");
+                            assert!(cx.debug_bounds("choice-2").is_none());
+                            assert!(cx.debug_bounds("choice-none").is_none());
+                            let create = cx.debug_bounds("choice-create").unwrap();
+                            let popup = cx.debug_bounds("selection-list").unwrap();
+                            assert!(
+                                create.right() <= popup.right() && popup.right() <= px(width),
+                                "the offered name is truncated inside the popup \
+                                 ({appearance:?} {scale:?})"
+                            );
+                            cx.simulate_keystrokes("escape");
+                            assert!(cx.debug_bounds("selection-list").is_none());
+                        }
+                        if scenario == "combobox" {
+                            let field = cx.debug_bounds("field-control").unwrap();
+                            cx.simulate_click(field.center(), gpui::Modifiers::default());
+                            let popup = cx.debug_bounds("selection-list").unwrap();
+                            assert!(
+                                popup.origin.x >= px(0.0)
+                                    && popup.origin.y >= field.bottom()
+                                    && popup.right() <= px(width)
+                                    && popup.bottom() <= px(height),
+                                "the popup opens below the Field and inside the window \
+                                 ({appearance:?} {scale:?})"
+                            );
+                            // One match, and it is the long multilingual value,
+                            // so the surviving row is also the widest one.
+                            // A Combobox holding a value offers to give it up,
+                            // and an empty one has nothing to offer.
+                            assert!(cx.debug_bounds("button-Clear").is_none());
+                            cx.simulate_input("kyrie");
+                            assert!(cx.debug_bounds("button-Clear").is_some());
+                            let only = cx.debug_bounds("choice-4").unwrap();
+                            assert!(cx.debug_bounds("choice-0").is_none());
+                            let popup = cx.debug_bounds("selection-list").unwrap();
+                            assert!(
+                                only.origin.y >= popup.origin.y
+                                    && only.bottom() <= popup.bottom()
+                                    && popup.right() <= px(width),
+                                "the one match is visible inside a contained popup \
+                                 ({appearance:?} {scale:?})"
+                            );
+                            // No match: an empty popup would read as a fault.
+                            cx.simulate_input("x");
+                            assert!(cx.debug_bounds("choice-4").is_none());
+                            assert!(cx.debug_bounds("choice-none").is_some());
+                            cx.simulate_keystrokes("escape");
+                            assert!(cx.debug_bounds("selection-list").is_none());
+                        }
                         if matches!(scenario, "menu" | "select") {
                             let label = if scenario == "menu" {
                                 "button-More actions"

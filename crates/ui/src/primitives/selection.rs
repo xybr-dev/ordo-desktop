@@ -1,12 +1,19 @@
-//! Menu actions, Select values, and local-view Tabs.
-//! A Select is a button trigger plus a popup list. The editable Combobox that
-//! `DESIGN.md` distinguishes from it is a separate later primitive.
-//! Collections are fixed for the lifetime of their state; recreate state when
-//! membership changes. Labels and availability belong to each owning caller.
+//! Menu actions, Select values, Combobox values, and local-view Tabs.
+//! A Select is a button trigger plus a popup list; a Combobox is an editable
+//! Field trigger plus the same list, filtered by what the operator types.
+//! The collection is fixed for the lifetime of its state — recreate state when
+//! membership changes — but a Combobox's *visible* subset is not, so a choice
+//! is addressed by its index in the whole collection and never by its position
+//! in the filtered view. Labels and availability belong to each owning caller.
 
 use crate::{
     environment::UiEnvironment,
-    primitives::{Availability, button::Button, focus_visible},
+    primitives::{
+        Availability,
+        button::Button,
+        field::{Field, FieldState},
+        focus_visible,
+    },
     tokens,
 };
 use gpui::{
@@ -46,6 +53,16 @@ struct State {
     trigger: FocusHandle,
     focus: Vec<FocusHandle>,
     scroll: ScrollHandle,
+    /// The editable trigger a Combobox renders in place of a Button. Its text
+    /// is the visible value, and while it differs from the committed one it is
+    /// also the filter. `None` for every other kind.
+    field: Option<FieldState>,
+    /// What the Field held when the popup opened, which is what Escape puts
+    /// back. Leaving any other way keeps what the operator typed.
+    restore_to: SharedString,
+    /// Whether an unmatched name is offered as one the operator may keep. Off
+    /// by default: a closed collection must not invite a value it will refuse.
+    creatable: bool,
     /// Set by the trigger's capture-phase press, which runs before the popup's
     /// own outside-press handler. Without it the press dismisses and the
     /// release reopens, so the control that opens the popup cannot close it.
@@ -53,7 +70,12 @@ struct State {
 }
 
 impl State {
-    fn new(choices: Vec<Choice>, selected: Option<usize>, cx: &mut Context<Self>) -> Self {
+    fn new(
+        choices: Vec<Choice>,
+        selected: Option<usize>,
+        field: Option<FieldState>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let selected = selected.filter(|&i| i < choices.len());
         let active = selected
             .filter(|&i| !choices[i].availability.is_disabled())
@@ -64,20 +86,105 @@ impl State {
             selected,
             active,
             open: false,
-            trigger: cx.focus_handle().tab_stop(true),
+            // A Combobox is triggered by its Field, so the Field's own handle
+            // is the trigger: everything that returns focus to the trigger
+            // returns it to the caret without knowing which kind it has.
+            trigger: match &field {
+                Some(field) => field.focus_handle(cx),
+                None => cx.focus_handle().tab_stop(true),
+            },
             scroll: ScrollHandle::new(),
+            field,
+            restore_to: SharedString::default(),
+            creatable: false,
             press_on_trigger: false,
         }
     }
 
+    /// What the operator has typed, while it still names no choice. Arriving
+    /// at one ends the filter, so the collection opens back up around it.
+    fn query(&self, cx: &App) -> Option<String> {
+        let typed = self.field.as_ref()?.value(cx);
+        self.choices
+            .iter()
+            .all(|choice| choice.label != typed)
+            .then(|| typed.to_lowercase())
+    }
+
+    /// A Combobox's selection is whichever choice its Field names, and none
+    /// while the text names none. That is the whole rule: a half-typed or
+    /// cleared value is not a selection, and a name the collection does not
+    /// contain leaves the caller to read [`SelectionState::text`] and decide —
+    /// which is what `MVP-PLAN.md` asks of the Presider, Location, and Choir
+    /// selectors. The match is exact, so a caller never gets a choice the
+    /// operator cannot see they picked.
+    fn current(&self, cx: &App) -> Option<usize> {
+        let Some(field) = self.field.as_ref() else {
+            return self.selected;
+        };
+        let value = field.value(cx);
+        self.choices.iter().position(|choice| choice.label == value)
+    }
+
+    /// The row that offers the typed name, addressed one past the collection.
+    /// It is a row the arrows and Enter reach like any other, so it needs an
+    /// index; nothing else may hand this one out, and every lookup that could
+    /// meet it asks `choices.get` rather than indexing.
+    fn create_row(&self, cx: &App) -> Option<usize> {
+        let query = self.query(cx)?;
+        (self.creatable && !query.is_empty()).then_some(self.choices.len())
+    }
+
+    /// Gives up the value entirely, which is the ordinary **Not assigned**
+    /// state rather than a filter that happens to match everything.
+    fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.active = None;
+        if let Some(field) = self.field.clone() {
+            field.set_value("", window, cx);
+        }
+        cx.notify();
+    }
+
+    /// The choices the operator can currently see, by their index in the whole
+    /// collection. Everything but a filtered Combobox sees all of them.
+    fn visible(&self, cx: &App) -> Vec<usize> {
+        let query = self.query(cx);
+        (0..self.choices.len())
+            .filter(|&i| match &query {
+                Some(query) => self.choices[i].label.to_lowercase().contains(query),
+                None => true,
+            })
+            .chain(self.create_row(cx))
+            .collect()
+    }
+
+    /// The choice the arrows are resting on, which a filter may have hidden
+    /// since it was chosen. A hidden or ineligible one falls back to the first
+    /// choice that is neither, so Enter never commits what is off screen.
+    fn active_choice(&self, cx: &App) -> Option<usize> {
+        let eligible = |i: &usize| {
+            self.choices
+                .get(*i)
+                .is_none_or(|c| !c.availability.is_disabled())
+        };
+        let visible = self.visible(cx);
+        self.active
+            .filter(|i| visible.contains(i) && eligible(i))
+            .or_else(|| visible.iter().copied().find(eligible))
+    }
+
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = true;
+        if let Some(field) = self.field.as_ref() {
+            self.restore_to = field.value(cx);
+        }
         // The press that opened this is spent. A press that never became a
         // click — pressed on the trigger, released elsewhere — would otherwise
         // leave the flag set and swallow one later outside press.
         self.press_on_trigger = false;
         self.active = self
-            .selected
+            .current(cx)
             .filter(|&i| !self.choices[i].availability.is_disabled())
             .or(self.active);
         self.focus_active(window, cx);
@@ -101,25 +208,57 @@ impl State {
     }
 
     fn focus_active(&self, window: &mut Window, cx: &mut App) {
-        if let Some(i) = self.active {
+        let Some(i) = self.active_choice(cx) else {
+            return;
+        };
+        // A Combobox keeps focus — and the caret — in its Field, so its active
+        // choice is marked rather than focused. Everything else moves focus.
+        if self.field.is_none() {
             self.focus[i].focus(window, cx);
-            self.scroll.scroll_to_item(i);
         }
+        if let Some(position) = self.visible(cx).iter().position(|&visible| visible == i) {
+            self.scroll.scroll_to_item(position);
+        }
+    }
+
+    /// One arrow press on a trigger: the first opens, later ones move.
+    fn step(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open {
+            self.navigate(key, window, cx);
+        } else {
+            self.open(window, cx);
+            if key == "up" {
+                self.navigate("end", window, cx);
+            }
+        }
+    }
+
+    /// Cancels the edit: the Field goes back to what it held when the popup
+    /// opened. Arrow movement is provisional, so it is discarded with it.
+    fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(field) = self.field.clone() {
+            field.set_value(self.restore_to.clone(), window, cx);
+        }
+        self.active = None;
     }
 
     fn navigate(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         let eligible: Vec<_> = self
-            .choices
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| (!c.availability.is_disabled()).then_some(i))
+            .visible(cx)
+            .into_iter()
+            .filter(|&i| {
+                self.choices
+                    .get(i)
+                    .is_none_or(|c| !c.availability.is_disabled())
+            })
             .collect();
         if eligible.is_empty() {
             return;
         }
+        let active = self.active_choice(cx);
         let position = eligible
             .iter()
-            .position(|i| Some(*i) == self.active)
+            .position(|i| Some(*i) == active)
             .unwrap_or(0);
         let next = match key {
             "home" => 0,
@@ -135,7 +274,7 @@ impl State {
 
 impl SelectionState {
     pub fn new(choices: Vec<Choice>, selected: Option<usize>, cx: &mut App) -> Self {
-        Self(cx.new(|cx| State::new(choices, selected, cx)))
+        Self(cx.new(|cx| State::new(choices, selected, None, cx)))
     }
     pub fn keyed(
         id: impl Into<ElementId>,
@@ -144,10 +283,49 @@ impl SelectionState {
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        Self(window.use_keyed_state(id, cx, |_, cx| State::new(choices, selected, cx)))
+        Self(window.use_keyed_state(id, cx, |_, cx| State::new(choices, selected, None, cx)))
+    }
+    /// The same collection plus the editable Field a [`Combobox`] triggers and
+    /// filters with, seeded with the committed value.
+    pub fn combobox(
+        choices: Vec<Choice>,
+        selected: Option<usize>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        let field = seed(&choices, selected, window, cx);
+        Self(cx.new(|cx| State::new(choices, selected, Some(field), cx)))
+    }
+    pub fn combobox_keyed(
+        id: impl Into<ElementId>,
+        choices: Vec<Choice>,
+        selected: Option<usize>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        Self(window.use_keyed_state(id, cx, |window, cx| {
+            let field = seed(&choices, selected, window, cx);
+            State::new(choices, selected, Some(field), cx)
+        }))
+    }
+    /// What the operator has typed into a Combobox, which may be a value the
+    /// collection does not contain. Accepting one is the caller's decision.
+    pub fn text(&self, cx: &App) -> Option<SharedString> {
+        self.0.read(cx).field.as_ref().map(|field| field.value(cx))
+    }
+    /// Ends an unmatched filter with a row that offers the typed name, so a
+    /// name the collection does not hold reads as one the operator may keep
+    /// rather than one the control refused. For the open sets `MVP-PLAN.md`
+    /// asks for: a visiting Presider, a Location, a Choir not yet created.
+    ///
+    /// Keeping it is all the row does — the same as leaving with Tab — so the
+    /// caller still reads [`Self::text`] and decides what a new name means.
+    pub fn accepting_new_values(self, cx: &mut App) -> Self {
+        self.0.update(cx, |state, _| state.creatable = true);
+        self
     }
     pub fn selected(&self, cx: &App) -> Option<usize> {
-        self.0.read(cx).selected
+        self.0.read(cx).current(cx)
     }
     pub fn is_open(&self, cx: &App) -> bool {
         self.0.read(cx).open
@@ -164,13 +342,33 @@ impl SelectionState {
     }
 }
 
+/// A Combobox trigger's Field, showing the committed value it starts on.
+fn seed(
+    choices: &[Choice],
+    selected: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) -> FieldState {
+    let field = FieldState::new(window, cx);
+    if let Some(choice) = selected.and_then(|i| choices.get(i)) {
+        field.set_value(choice.label.clone(), window, cx);
+    }
+    field
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     Menu,
     Select,
+    Combobox,
     Tabs,
 }
-type OnSelect = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+/// Reports the selection a choice or the Clear control just produced. A Menu
+/// only ever invokes an action, so it only ever reports `Some`.
+type OnSelect = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
+/// Commits one choice, the only path that both changes the value and tells the
+/// caller. Clearing is the other, and reports `None`.
+type Choose = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
 struct Control {
     id: ElementId,
@@ -179,6 +377,7 @@ struct Control {
     environment: UiEnvironment,
     surface: u32,
     kind: Kind,
+    clearable: bool,
     on_select: Option<OnSelect>,
 }
 
@@ -201,6 +400,7 @@ macro_rules! control {
                     environment,
                     surface: tokens::palette(environment.appearance()).background,
                     kind: Kind::$kind,
+                    clearable: true,
                     on_select: None,
                 })
             }
@@ -210,7 +410,7 @@ macro_rules! control {
             }
             pub fn on_select(
                 mut self,
-                callback: impl Fn(usize, &mut Window, &mut App) + 'static,
+                callback: impl Fn(Option<usize>, &mut Window, &mut App) + 'static,
             ) -> Self {
                 self.0.on_select = Some(Rc::new(callback));
                 self
@@ -234,6 +434,21 @@ control!(
     Select,
     "A button trigger plus a popup list. Arrow focus is provisional until Enter or pointer selection."
 );
+control!(
+    Combobox,
+    Combobox,
+    "An editable Field trigger plus the Select's popup list, filtered by what the operator types."
+);
+impl Combobox {
+    /// The Clear control inside the Field. On by default, because an empty
+    /// Combobox is the ordinary **Not assigned** value; turn it off where
+    /// giving up the value is not a choice the operator may make.
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.0.clearable = clearable;
+        self
+    }
+}
+
 control!(
     Tabs,
     Tabs,
@@ -275,8 +490,26 @@ impl Control {
             .accessibility_label(self.label.clone())
             .open(current.open)
             .focus_handle(&current.trigger)
-            .when_some(current.active, |s, i| {
-                s.content_focus_handle(&current.focus[i])
+            .when(self.kind == Kind::Select, |s| {
+                s.when_some(current.active, |s, i| {
+                    s.content_focus_handle(&current.focus[i])
+                })
+            })
+            .when(self.kind == Kind::Combobox, |s| {
+                let choose = self.select();
+                let active = self.state.clone();
+                let revert = self.state.clone();
+                // Enter and Escape reach the trigger, not the popup, because a
+                // Combobox keeps focus in its Field. The qualified base root
+                // already dispatches both; only what they mean is Ordo's.
+                s.on_confirm(move |window, cx| {
+                    if let Some(i) = active.0.read(cx).active_choice(cx) {
+                        choose(i, window, cx);
+                    }
+                })
+                .on_dismiss(move |window, cx| {
+                    revert.0.update(cx, |state, cx| state.restore(window, cx))
+                })
             })
             .on_open_change(move |open, w, cx| {
                 state.0.update(cx, |s, cx| {
@@ -303,6 +536,56 @@ impl Control {
             })
     }
 
+    /// The row that keeps the typed name. It sits in the same list, carries
+    /// the same option role, and is reached the same way, because from the
+    /// operator's side it is one more thing they can pick.
+    fn create_item(&self, cx: &App) -> gpui::Stateful<gpui::Div> {
+        let state = self.state.0.read(cx);
+        let typed = state
+            .field
+            .as_ref()
+            .map(|f| f.value(cx))
+            .unwrap_or_default();
+        let palette = tokens::palette(self.environment.appearance());
+        let scale = self.environment.preferences().scale;
+        // ponytail: a third bare literal, with the other two.
+        let label = SharedString::from(format!("Add \"{typed}\""));
+        let choose = self.select();
+        let index = state.choices.len();
+        let item = div()
+            .id("create")
+            .capture_any_mouse_down(self.focus_item(index))
+            .min_w_0()
+            .flex_none()
+            .debug_selector(|| "choice-create".into())
+            .role(Role::ListBoxOption)
+            .aria_label(label.clone())
+            .aria_selected(false)
+            .on_click(move |_, w, cx| choose(index, w, cx))
+            .flex()
+            .items_center()
+            .gap(px(scale.apply(tokens::spacing::RELATED)))
+            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+            .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+            .rounded(px(scale.apply(tokens::radius::CONTROL)))
+            .text_color(rgb(palette.text))
+            .when(state.active_choice(cx) == Some(index), |d| {
+                d.aria_active_descendant()
+                    .bg(rgb(palette.surface_secondary))
+            })
+            .cursor_pointer()
+            .hover(|style| style.bg(rgb(palette.surface_secondary)))
+            .child(
+                gpui::svg()
+                    .flex_none()
+                    .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                    .text_color(rgb(palette.text))
+                    .data(crate::assets::icon::PLUS.as_bytes()),
+            )
+            .child(div().min_w_0().truncate().child(label));
+        focus_visible(item, self.environment, palette.surface)
+    }
+
     fn item(&self, i: usize, cx: &App) -> gpui::Stateful<gpui::Div> {
         // A tab renders through `tab()`, which carries the Tab role and its
         // position. Reaching a popup row with `Kind::Tabs` would silently name
@@ -310,6 +593,7 @@ impl Control {
         debug_assert!(self.kind != Kind::Tabs, "a tab is not a popup choice");
         let state = self.state.0.read(cx);
         let choice = &state.choices[i];
+        let selected = state.current(cx) == Some(i);
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let description = choice
@@ -317,6 +601,9 @@ impl Control {
             .reason()
             .map(|r| format!("Unavailable. {r}"));
         let choose = self.select();
+        // The Combobox's caret stays in its Field, so the choice the arrows
+        // rest on is marked here instead of being focused.
+        let active = self.kind == Kind::Combobox && state.active_choice(cx) == Some(i);
         let item = div()
             .id(i)
             .capture_any_mouse_down(self.focus_item(i))
@@ -332,10 +619,12 @@ impl Control {
                 Role::ListBoxOption
             })
             .aria_label(choice.label.clone())
-            .when(self.kind != Kind::Menu, |d| {
-                d.aria_selected(state.selected == Some(i))
-            })
+            .when(self.kind != Kind::Menu, |d| d.aria_selected(selected))
             .when_some(description.clone(), |d, text| d.aria_description(text))
+            .when(active, |d| {
+                d.aria_active_descendant()
+                    .bg(rgb(palette.surface_secondary))
+            })
             .when(choice.availability.is_available(), |d| {
                 d.on_click(move |_, w, cx| choose(i, w, cx))
             })
@@ -354,7 +643,7 @@ impl Control {
             } else {
                 palette.text
             }))
-            .when(state.selected == Some(i) && self.kind != Kind::Menu, |d| {
+            .when(selected && self.kind != Kind::Menu, |d| {
                 d.bg(rgb(palette.selection))
             })
             // An Unavailable choice stays focusable and inspectable but must
@@ -365,10 +654,10 @@ impl Control {
             // ponytail: DESIGN.md asks for a 120ms transition; GPUI has no
             // declarative transition at the pin, as on the Button styles.
             .when(choice.availability.is_available(), |d| {
-                d.cursor_pointer().when(
-                    !(state.selected == Some(i) && self.kind != Kind::Menu),
-                    |d| d.hover(|style| style.bg(rgb(palette.surface_secondary))),
-                )
+                d.cursor_pointer()
+                    .when(!(selected && self.kind != Kind::Menu), |d| {
+                        d.hover(|style| style.bg(rgb(palette.surface_secondary)))
+                    })
             })
             .child(choice.label.clone())
             .when_some(description, |d, text| {
@@ -502,24 +791,163 @@ impl Control {
                 .max(0.0)))
     }
 
-    fn select(&self) -> OnSelect {
+    /// The Combobox's trigger: an Ordo Field, plus the key and pointer
+    /// handling a Field alone has no reason to own.
+    ///
+    /// The base binds Up/Down/Enter/Escape in the popup root's context, and the
+    /// single-line input leaves all four to propagate, so Enter and Escape are
+    /// answered through the root's own Confirm/Cancel seams. Up and Down are
+    /// intercepted in the capture phase instead: the base would move focus into
+    /// the popup, and this control's caret has to stay in the Field.
+    fn field_trigger(&self, cx: &App) -> impl IntoElement {
+        let state = self.state.clone();
+        let field = state
+            .0
+            .read(cx)
+            .field
+            .clone()
+            .expect("a Combobox is constructed with its Field");
+        fn arrow<A: gpui::Action>(
+            state: SelectionState,
+            key: &'static str,
+        ) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+            move |_, window, cx| {
+                state.0.update(cx, |s, cx| s.step(key, window, cx));
+                cx.stop_propagation();
+            }
+        }
+        div()
+            .id("combobox-trigger")
+            // Pressing into the Field opens the collection it filters, and
+            // marks the press so the popup's outside-press handler leaves the
+            // control that owns it alone.
+            .capture_any_mouse_down({
+                let state = state.clone();
+                move |_, window, cx| {
+                    state.0.update(cx, |s, cx| {
+                        if s.open {
+                            // The open popup's outside-press handler is about
+                            // to see this press, and it belongs to the trigger.
+                            // Claiming it while nothing is open would leave the
+                            // flag to swallow a later dismissal instead.
+                            s.press_on_trigger = true;
+                        } else {
+                            s.open(window, cx);
+                        }
+                    })
+                }
+            })
+            .capture_action(arrow::<gpui_base::actions::SelectUp>(state.clone(), "up"))
+            .capture_action(arrow::<gpui_base::actions::SelectDown>(
+                state.clone(),
+                "down",
+            ))
+            .capture_key_down({
+                let state = state.clone();
+                move |event, window, cx| {
+                    let open = state.is_open(cx);
+                    if event.keystroke.key == "tab" && open {
+                        // Leaving is not cancelling: the Field keeps what the
+                        // operator typed, which for an open set is the point.
+                        // Only Escape puts the earlier value back.
+                        state.0.update(cx, |s, cx| s.close(window, cx));
+                        if event.keystroke.modifiers.shift {
+                            window.focus_prev(cx);
+                        } else {
+                            window.focus_next(cx);
+                        }
+                        cx.stop_propagation();
+                        window.prevent_default();
+                    } else if !open && event.keystroke.key_char.is_some() {
+                        // Typing is a filter, and a filter with nothing to show
+                        // is not one.
+                        state.0.update(cx, |s, cx| s.open(window, cx));
+                    }
+                }
+            })
+            .child(
+                Field::new("field", self.label.clone(), &field, self.environment)
+                    // An empty Combobox is the ordinary neutral empty value,
+                    // so no collection needs a pseudo-choice that spells it.
+                    .not_assigned()
+                    .when(self.clearable, |trigger| {
+                        let state = state.clone();
+                        let cleared = self.on_select.clone();
+                        trigger.on_clear(move |window, cx| {
+                            state.0.update(cx, |s, cx| {
+                                s.clear(window, cx);
+                                // Clearing is picking again, not leaving, so
+                                // the collection stays open around the caret.
+                                if !s.open {
+                                    s.open(window, cx);
+                                }
+                            });
+                            state.focus(window, cx);
+                            if let Some(cleared) = &cleared {
+                                cleared(None, window, cx);
+                            }
+                        })
+                    })
+                    .on_surface(self.surface),
+            )
+    }
+
+    /// What a filter that matches nothing shows, so an empty popup does not
+    /// read as a control that has broken.
+    fn no_matches(&self) -> impl IntoElement {
+        let palette = tokens::palette(self.environment.appearance());
+        let scale = self.environment.preferences().scale;
+        div()
+            .debug_selector(|| "choice-none".into())
+            .flex()
+            .items_center()
+            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+            .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+            .text_color(rgb(palette.text_muted))
+            // ponytail: a bare literal, as on the Select trigger's value.
+            .child("No matches")
+    }
+
+    fn select(&self) -> Choose {
         let state = self.state.clone();
         let kind = self.kind;
         let callback = self.on_select.clone();
         Rc::new(move |i, window, cx| {
-            let available = state
-                .0
-                .read(cx)
-                .choices
-                .get(i)
-                .is_some_and(|c| c.availability.is_available());
-            if !available {
+            let (selectable, creating) = {
+                let current = state.0.read(cx);
+                let creating = current.create_row(cx) == Some(i);
+                (
+                    (creating
+                        || current
+                            .choices
+                            .get(i)
+                            .is_some_and(|c| c.availability.is_available()))
+                        // A filter the operator cannot see through is not a
+                        // collection they can commit from.
+                        && current.visible(cx).contains(&i),
+                    creating,
+                )
+            };
+            if !selectable {
+                return;
+            }
+            if creating {
+                // Keeping the typed name is all this row does, so there is
+                // nothing to write: closing is the whole commitment. It still
+                // reports, because the operator did decide something.
+                state.0.update(cx, |state, cx| state.close(window, cx));
+                if let Some(callback) = &callback {
+                    callback(None, window, cx);
+                }
                 return;
             }
             state.0.update(cx, |state, cx| {
                 state.active = Some(i);
                 if kind != Kind::Menu {
                     state.selected = Some(i);
+                }
+                if let Some(field) = state.field.clone() {
+                    field.set_value(state.choices[i].label.clone(), window, cx);
                 }
                 if kind != Kind::Tabs {
                     state.close(window, cx);
@@ -529,7 +957,7 @@ impl Control {
                 }
             });
             if let Some(callback) = &callback {
-                callback(i, window, cx);
+                callback(Some(i), window, cx);
             }
         })
     }
@@ -538,6 +966,7 @@ impl Control {
         let state = self.state.0.read(cx);
         let open = state.open;
         let choice_count = state.choices.len();
+        let visible = state.visible(cx);
         let scroll = state.scroll.clone();
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
@@ -580,15 +1009,22 @@ impl Control {
                     window.prevent_default();
                 }
             });
-        for i in 0..choice_count {
-            if kind == Kind::Tabs {
+        if kind == Kind::Tabs {
+            for i in 0..choice_count {
                 list = list.child(self.tab(i, cx));
+            }
+            return self.tabs().child(list.flex_wrap()).into_any_element();
+        }
+        let create = self.state.0.read(cx).create_row(cx);
+        for &i in &visible {
+            if Some(i) == create {
+                list = list.child(self.create_item(cx));
             } else {
                 list = list.child(self.item(i, cx));
             }
         }
-        if kind == Kind::Tabs {
-            return self.tabs().child(list.flex_wrap()).into_any_element();
+        if visible.is_empty() {
+            list = list.child(self.no_matches());
         }
 
         let list = list
@@ -640,11 +1076,16 @@ impl Control {
                 .child(list),
         )
         .with_priority(1);
-        let trigger_element =
-            focus_visible(self.trigger(window, cx), self.environment, self.surface);
-        if kind == Kind::Select {
-            // The base Select is the qualified popup root. Popup key handling
-            // consumes Confirm before base can refocus a now-closed option.
+        let trigger_element = if kind == Kind::Combobox {
+            self.field_trigger(cx).into_any_element()
+        } else {
+            focus_visible(self.trigger(window, cx), self.environment, self.surface)
+                .into_any_element()
+        };
+        if kind == Kind::Select || kind == Kind::Combobox {
+            // The base Select is the qualified popup root for both. Select's
+            // popup key handling consumes Confirm before base can refocus a
+            // now-closed option; the Combobox's arrives at the trigger.
             self.select_root(cx)
                 .child(trigger_element)
                 .when(open, |s| s.child(popup))
@@ -688,6 +1129,7 @@ mod tests {
         state: SelectionState,
         kind: Kind,
         activations: Rc<std::cell::Cell<usize>>,
+        cleared: Rc<std::cell::Cell<usize>>,
         elsewhere: Rc<std::cell::Cell<usize>>,
     }
     impl Render for Harness {
@@ -700,9 +1142,18 @@ mod tests {
                         label: "Languages".into(),
                         state: self.state.clone(),
                         kind: self.kind,
+                        clearable: true,
                         on_select: Some({
                             let activations = self.activations.clone();
-                            Rc::new(move |_, _, _| activations.set(activations.get() + 1))
+                            let cleared = self.cleared.clone();
+                            Rc::new(move |choice, _, _| {
+                                let counter = if choice.is_some() {
+                                    &activations
+                                } else {
+                                    &cleared
+                                };
+                                counter.set(counter.get() + 1)
+                            })
                         }),
                         environment: UiEnvironment::new(
                             UiPreferences::default(),
@@ -749,7 +1200,11 @@ mod tests {
     ) -> (Entity<Harness>, &mut gpui::VisualTestContext) {
         cx.update(crate::init).unwrap();
         let (view, cx) = cx.add_window_view(move |w, cx| {
-            let state = SelectionState::new(choices, selected, cx);
+            let state = if kind == Kind::Combobox {
+                SelectionState::combobox(choices, selected, w, cx)
+            } else {
+                SelectionState::new(choices, selected, cx)
+            };
             if kind == Kind::Tabs {
                 state.0.read(cx).focus[0].clone().focus(w, cx);
             } else {
@@ -759,6 +1214,7 @@ mod tests {
                 state,
                 kind,
                 activations: Rc::new(std::cell::Cell::new(0)),
+                cleared: Rc::new(std::cell::Cell::new(0)),
                 elsewhere: Rc::new(std::cell::Cell::new(0)),
             }
         });
@@ -863,6 +1319,7 @@ mod tests {
                 label: "Languages".into(),
                 state: view.read(cx).state.clone(),
                 kind: Kind::Menu,
+                clearable: true,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -871,7 +1328,7 @@ mod tests {
                 surface: 0,
             };
             assert_eq!(node(control.list()).role(), Role::Menu);
-            for kind in [Kind::Menu, Kind::Select, Kind::Tabs] {
+            for kind in [Kind::Menu, Kind::Select, Kind::Combobox, Kind::Tabs] {
                 control.kind = kind;
                 for i in 0..4 {
                     let item = if kind == Kind::Tabs {
@@ -883,7 +1340,7 @@ mod tests {
                         item.role(),
                         match kind {
                             Kind::Menu => Role::MenuItem,
-                            Kind::Select => Role::ListBoxOption,
+                            Kind::Select | Kind::Combobox => Role::ListBoxOption,
                             Kind::Tabs => Role::Tab,
                         }
                     );
@@ -953,7 +1410,7 @@ mod tests {
 
     #[gpui::test]
     fn pointer_dismissal_reaches_the_control_the_operator_aimed_at(cx: &mut TestAppContext) {
-        for kind in [Kind::Menu, Kind::Select] {
+        for kind in [Kind::Menu, Kind::Select, Kind::Combobox] {
             let (view, cx) = open(cx, kind);
             press(cx, "down");
             view.read_with(cx, |v, cx| assert!(v.state.is_open(cx)));
@@ -1070,6 +1527,313 @@ mod tests {
             view.read_with(cx, |v, cx| {
                 assert!(!v.state.is_open(cx), "{kind:?} still dismisses");
                 assert_eq!(v.elsewhere.get(), 1);
+            });
+        }
+    }
+
+    fn combobox(cx: &mut TestAppContext) -> (Entity<Harness>, &mut gpui::VisualTestContext) {
+        open_with(
+            cx,
+            Kind::Combobox,
+            vec![
+                Choice::new("English"),
+                Choice::new("Disabled").availability(Availability::Disabled),
+                Choice::new("Blocked").availability(Availability::unavailable("Missing")),
+                Choice::new("Cebuano"),
+            ],
+            None,
+        )
+    }
+
+    fn caret(view: &Entity<Harness>, cx: &mut gpui::VisualTestContext) -> (bool, SharedString) {
+        cx.update(|window, cx| {
+            let state = view.read(cx).state.0.read(cx);
+            let field = state.field.clone().unwrap();
+            (field.focus_handle(cx).is_focused(window), field.value(cx))
+        })
+    }
+
+    #[gpui::test]
+    fn combobox_typing_filters_while_the_caret_stays_in_the_field(cx: &mut TestAppContext) {
+        let (view, cx) = combobox(cx);
+        press(cx, "down");
+        view.read_with(cx, |v, cx| {
+            assert!(v.state.is_open(cx));
+            assert_eq!(v.state.0.read(cx).active, Some(0));
+        });
+
+        cx.simulate_input("ceb");
+        assert_eq!(caret(&view, cx), (true, "ceb".into()));
+        assert!(cx.debug_bounds("choice-3").is_some(), "the one match shows");
+        assert!(
+            cx.debug_bounds("choice-0").is_none(),
+            "and the rest are filtered away"
+        );
+        // The stored active choice is now filtered out, so the arrows and Enter
+        // work from the first choice the operator can actually see.
+        cx.update(|_, cx| {
+            let state = view.read(cx).state.0.read(cx);
+            assert_eq!(state.active, Some(0));
+            assert_eq!(state.active_choice(cx), Some(3));
+        });
+
+        // Arrows move the active choice; they neither type nor take the caret.
+        press(cx, "down");
+        press(cx, "up");
+        assert_eq!(caret(&view, cx), (true, "ceb".into()));
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.0.read(cx).active_choice(cx), Some(3));
+            assert_eq!(v.state.selected(cx), None, "movement commits nothing");
+            assert_eq!(v.activations.get(), 0);
+        });
+
+        cx.simulate_input("zzz");
+        assert!(cx.debug_bounds("choice-none").is_some());
+        assert!(cx.debug_bounds("choice-3").is_none());
+        press(cx, "enter");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), None, "nothing visible to commit");
+            assert!(v.state.is_open(cx));
+        });
+    }
+
+    #[gpui::test]
+    fn combobox_enter_commits_escape_cancels_and_tab_keeps(cx: &mut TestAppContext) {
+        let (view, cx) = combobox(cx);
+        press(cx, "down");
+        cx.simulate_input("ceb");
+        press(cx, "enter");
+        assert_eq!(caret(&view, cx), (true, "Cebuano".into()));
+        cx.update(|window, cx| {
+            let v = view.read(cx);
+            assert!(!v.state.is_open(cx));
+            assert_eq!(v.state.selected(cx), Some(3));
+            assert_eq!(v.activations.get(), 1);
+            assert!(v.state.0.read(cx).trigger.is_focused(window));
+        });
+
+        // The Field names a choice, so it is no longer a filter: reopening on
+        // that value shows the whole collection again.
+        press(cx, "down");
+        assert!(cx.debug_bounds("choice-0").is_some());
+        // Editing away from that name deselects it. What the operator typed is
+        // theirs to keep — `MVP-PLAN.md`'s Presider and Location accept a name
+        // the collection does not contain — so only Escape takes it back.
+        cx.simulate_input("eng");
+        assert_eq!(caret(&view, cx), (true, "Cebuanoeng".into()));
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), None, "editing deselects");
+            assert_eq!(v.state.text(cx), Some("Cebuanoeng".into()));
+        });
+        press(cx, "escape");
+        assert_eq!(caret(&view, cx), (true, "Cebuano".into()));
+        cx.update(|window, cx| {
+            let v = view.read(cx);
+            assert!(!v.state.is_open(cx));
+            assert_eq!(v.state.selected(cx), Some(3), "Escape cancels the edit");
+            assert!(v.state.0.read(cx).trigger.is_focused(window));
+        });
+
+        // Typing on a closed Combobox opens the collection it filters, and
+        // Tab leaves with what was typed rather than cancelling it.
+        cx.simulate_input("x");
+        view.read_with(cx, |v, cx| assert!(v.state.is_open(cx)));
+        press(cx, "tab");
+        assert_eq!(caret(&view, cx).1, "Cebuanox");
+        cx.update(|window, cx| {
+            let v = view.read(cx);
+            assert!(!v.state.is_open(cx));
+            assert_eq!(v.state.selected(cx), None, "and it names no choice");
+            assert!(!v.state.0.read(cx).trigger.is_focused(window), "Tab leaves");
+        });
+    }
+
+    #[gpui::test]
+    fn typing_a_choice_exactly_selects_it_without_committing_through_the_popup(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = combobox(cx);
+        cx.simulate_input("English");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(
+                v.state.selected(cx),
+                Some(0),
+                "the Field names a choice, so that choice is the selection"
+            );
+            assert_eq!(v.activations.get(), 0, "no popup activation happened");
+        });
+        // A name the collection does not contain is not a selection, and the
+        // caller reads it to decide whether to accept it.
+        cx.simulate_input(" Choir");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), None);
+            assert_eq!(v.state.text(cx), Some("English Choir".into()));
+        });
+    }
+
+    #[gpui::test]
+    fn clearing_gives_up_the_value_and_keeps_the_collection_open(cx: &mut TestAppContext) {
+        let (view, cx) = combobox(cx);
+        press(cx, "down");
+        cx.simulate_input("ceb");
+        press(cx, "enter");
+        view.read_with(cx, |v, cx| assert_eq!(v.state.selected(cx), Some(3)));
+
+        let clear = cx
+            .debug_bounds("button-Clear")
+            .expect("a Combobox holding a value offers to clear it");
+        cx.simulate_click(clear.center(), gpui::Modifiers::default());
+        assert_eq!(caret(&view, cx), (true, "".into()));
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), None);
+            assert!(
+                v.state.is_open(cx),
+                "clearing is picking again, not leaving"
+            );
+            assert_eq!(v.cleared.get(), 1, "and the caller is told");
+        });
+        // Nothing left to clear, so nothing offers to.
+        assert!(cx.debug_bounds("button-Clear").is_none());
+        // Clearing is a value, not an abandoned filter: leaving keeps it.
+        press(cx, "tab");
+        assert_eq!(caret(&view, cx).1, "");
+    }
+
+    #[gpui::test]
+    fn an_unmatched_name_is_offered_rather_than_refused(cx: &mut TestAppContext) {
+        let (view, cx) = combobox(cx);
+        view.update(cx, |v, cx| {
+            v.state = v.state.clone().accepting_new_values(cx);
+        });
+        press(cx, "down");
+        cx.simulate_input("Most Rev. Juan");
+        // Nothing matches, but the collection does not say so: it offers the
+        // name, because keeping it is a thing the operator may do.
+        assert!(cx.debug_bounds("choice-none").is_none());
+        cx.update(|_, cx| {
+            use gpui::{Element, accesskit};
+            let control = Control {
+                id: "semantics".into(),
+                label: "Presider".into(),
+                state: view.read(cx).state.clone(),
+                kind: Kind::Combobox,
+                clearable: true,
+                on_select: None,
+                environment: UiEnvironment::new(
+                    UiPreferences::default(),
+                    ResolvedAppearance::Light,
+                ),
+                surface: 0,
+            };
+            let row = control.create_item(cx);
+            let mut node = accesskit::Node::new(row.a11y_role().expect("semantic element"));
+            row.write_a11y_info(&mut node);
+            // The row says what taking it does, in the operator's own words,
+            // rather than reporting that the collection has nothing.
+            assert_eq!(node.label(), Some(r#"Add "Most Rev. Juan""#));
+            assert_eq!(node.role(), Role::ListBoxOption);
+        });
+        // And it is reached like any other row.
+        press(cx, "down");
+        cx.update(|_, cx| {
+            let state = view.read(cx).state.0.read(cx);
+            assert_eq!(state.active_choice(cx), Some(4), "one past the collection");
+        });
+        press(cx, "enter");
+        cx.update(|window, cx| {
+            let v = view.read(cx);
+            assert!(!v.state.is_open(cx));
+            assert_eq!(v.state.text(cx), Some("Most Rev. Juan".into()));
+            assert_eq!(v.state.selected(cx), None, "a new name is not a choice");
+            assert_eq!(v.cleared.get(), 1, "and the caller is told to look");
+            assert!(v.state.0.read(cx).trigger.is_focused(window));
+        });
+
+        // A name the collection does hold is not a new one, and an empty
+        // Combobox has no name to offer.
+        press(cx, "down");
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("English");
+        assert!(cx.debug_bounds("choice-create").is_none());
+        cx.simulate_keystrokes("ctrl-a backspace");
+        assert!(cx.debug_bounds("choice-create").is_none());
+    }
+
+    #[gpui::test]
+    fn a_closed_collection_still_says_it_has_no_match(cx: &mut TestAppContext) {
+        let (_, cx) = combobox(cx);
+        press(cx, "down");
+        cx.simulate_input("Most Rev. Juan");
+        assert!(cx.debug_bounds("choice-create").is_none());
+        assert!(cx.debug_bounds("choice-none").is_some());
+    }
+
+    #[gpui::test]
+    fn a_combobox_reports_its_collapsed_semantics_and_active_choice(cx: &mut TestAppContext) {
+        use gpui::{Element, accesskit};
+        fn node(element: impl Element) -> accesskit::Node {
+            let mut node = accesskit::Node::new(element.a11y_role().expect("semantic element"));
+            element.write_a11y_info(&mut node);
+            node
+        }
+        let (view, cx) = combobox(cx);
+        press(cx, "down");
+        cx.simulate_input("ceb");
+        cx.update(|window, cx| {
+            let control = Control {
+                id: "semantics".into(),
+                label: "Languages".into(),
+                state: view.read(cx).state.clone(),
+                kind: Kind::Combobox,
+                clearable: true,
+                on_select: None,
+                environment: UiEnvironment::new(
+                    UiPreferences::default(),
+                    ResolvedAppearance::Light,
+                ),
+                surface: 0,
+            };
+            // A collapsed Combobox reports the same ComboBox root a Select
+            // does; what differs is that its trigger is an editable Field.
+            let root = node(control.select_root(cx).render(window, cx).into_element());
+            assert_eq!(root.role(), Role::ComboBox);
+            assert_eq!(root.label(), Some("Languages"));
+            assert_eq!(root.is_expanded(), Some(true));
+            assert_eq!(node(control.list()).role(), Role::ListBox);
+            for i in [0, 3] {
+                let item = node(control.item(i, cx));
+                assert_eq!(item.role(), Role::ListBoxOption);
+                assert_eq!(item.is_selected(), Some(false));
+            }
+            // The choice the arrows rest on is marked as the active descendant
+            // rather than focused, because the caret never leaves the Field.
+            // The pin sets that through interactivity rather than the node, so
+            // it is not visible to an element-node probe; the behavior test
+            // covers it instead.
+        });
+    }
+
+    #[gpui::test]
+    fn a_popup_opened_by_pointer_dismisses_on_the_first_outside_press(cx: &mut TestAppContext) {
+        for kind in [Kind::Menu, Kind::Select, Kind::Combobox] {
+            let (view, cx) = open(cx, kind);
+            let trigger = cx
+                .debug_bounds(match kind {
+                    Kind::Combobox => "field-control",
+                    Kind::Select => "button-Languages: English",
+                    _ => "button-Languages",
+                })
+                .unwrap();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            view.read_with(cx, |v, cx| {
+                assert!(v.state.is_open(cx), "{kind:?} opens from its trigger")
+            });
+            // The press that opened this is spent. Claiming it as the
+            // trigger's would leave it to swallow this dismissal instead.
+            let elsewhere = cx.debug_bounds("button-After").unwrap();
+            cx.simulate_click(elsewhere.center(), gpui::Modifiers::default());
+            view.read_with(cx, |v, cx| {
+                assert!(!v.state.is_open(cx), "{kind:?} dismisses on one press")
             });
         }
     }

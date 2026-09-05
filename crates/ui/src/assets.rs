@@ -30,6 +30,7 @@ pub mod icon {
         GRIP_VERTICAL => "grip-vertical.svg",
         INFO => "info.svg",
         LIBRARY => "library.svg",
+        PLUS => "plus.svg",
         SETTINGS => "settings.svg",
         SWATCH_BOOK => "swatch-book.svg",
         TRIANGLE_ALERT => "triangle-alert.svg",

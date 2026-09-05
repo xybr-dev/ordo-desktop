@@ -128,6 +128,72 @@ provided, but explicit AccessKit relationship edges and full tree shape are
 not claimed by these element-node tests. Live assistive-technology and Windows
 High Contrast checks remain the T0.3 manual gate.
 
+### T0.3.7 editable-Combobox evidence
+
+`primitives::selection` now also owns the editable Combobox. It adds no
+dependency and no third selection implementation: the trigger is the Ordo Field
+from T0.3.5, the popup is the Select's own list, and the root is the same
+qualified `Select`, which is why both collapse to one `ComboBox` node.
+
+The caret and the active choice are independent because focus never leaves the
+Field. The base root would move it into the popup on Up/Down, so those two
+arrive as `SelectUp`/`SelectDown` and are consumed in the capture phase before
+the root's own handler; the active choice is then marked with
+`aria_active_descendant` rather than focused. Enter and Escape need no such
+interception: the pinned single-line input leaves both to propagate, so they
+reach the root's `on_confirm` and `on_dismiss` seams, which commit and revert.
+Tab is not bound in either context and is handled from the trigger's key-down.
+
+Filtering breaks T0.3.6's "collections are fixed for a state's lifetime" only
+for the *visible* subset. A choice is addressed by its index in the whole
+collection everywhere — focus handles, selection, callbacks — and the filtered
+view is derived per frame, so a choice keeps its identity across filters. What
+the operator typed is a filter only while it names no choice; arriving at one
+ends the filter, so the collection opens back up around it.
+
+One rule settles both the selection and the open set: **a Combobox's selection
+is whichever choice its Field names exactly, and none while the text names
+none.** A half-typed value, a cleared one, and a name the collection does not
+contain are all "no selection", so no row is filled, no caller reads a value the
+operator cannot see, and a caller that accepts a new name reads
+`SelectionState::text` and decides for itself. `MVP-PLAN.md` needs exactly that:
+the Presider and Location comboboxes accept a custom name immediately, and the
+Choir selector quick-creates an unmatched one. Enforcing membership is therefore
+the caller's, not the primitive's — the primitive reports `None` and nothing
+else. 
+Reporting `None` is not enough on its own, because a popup that answers an
+unmatched name with "No matches" reads as a refusal when the truth is that the
+name may be kept. `SelectionState::accepting_new_values` therefore ends an
+unmatched filter with an `Add "<typed>"` row. It is a row like any other —
+arrows reach it, Enter takes it, the pointer clicks it — so it is addressed one
+past the collection, and every lookup that can meet that index asks
+`choices.get` instead of indexing. Nothing else hands the index out, and
+`current` derives from labels, so it can never escape as a selection. Taking the
+row commits nothing but the closing: keeping the typed name is what Tab already
+did, and the row exists to say so. What a new name *means* — Choir's normalized
+duplicate check, a Presider who never becomes a parish record — stays with the
+caller, which reads `text`. A collection without that opt-in still states it has
+no match, because a closed collection must not invite a value it will refuse.
+
+Leaving and cancelling are therefore different. Escape cancels: the Field goes
+back to what it held when the popup opened. Tab and a press outside just close,
+keeping what was typed. An empty Combobox is the ordinary **Not assigned** value
+rather than a choice that spells the words, so the collection needs no such
+pseudo-choice; the Clear control inside the Field gives the value up, which is a
+commitment rather than an abandoned filter, and reports `None` through the same
+callback a choice reports through. A filter that matches nothing renders a
+stated empty result rather than an empty popup.
+
+`Element::write_a11y_info` does not carry the active-descendant claim: the pin
+sets it through interactivity and resolves it at paint. The element-node tests
+therefore assert the ComboBox root, its name and expanded state, and the
+ListBox/option roles, and the behavior tests cover which choice is active.
+
+The lab registers `combobox` and drives it through the same 80-combination
+matrix: opening from the Field, filtering to one long multilingual match,
+filtering to none, and reverting on Escape, with window containment asserted at
+both viewports and every scale.
+
 ### Pinned platform limitations
 
 The pinned revision also bounds what T0.3 can automate.
