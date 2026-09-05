@@ -98,7 +98,7 @@ impl Button {
     /// The control itself, without the explanation that may sit under it. This
     /// is the element that carries the accessible name, role, and action, so it
     /// is also what a semantics test inspects.
-    fn control(self) -> gpui_base::Button {
+    pub(crate) fn control(self) -> gpui_base::Button {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let disabled = self.availability.is_disabled();

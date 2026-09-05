@@ -6,7 +6,9 @@
 //! behavior stays a change to one wrapper.
 
 pub mod button;
+pub mod disclosure;
 pub mod field;
+pub mod selection;
 
 use gpui::{
     BoxShadow, IntoElement, ParentElement, SharedString, Styled, div, point, prelude::*, px, rgb,

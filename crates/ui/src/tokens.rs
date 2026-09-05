@@ -162,6 +162,26 @@ pub mod elevation {
     pub const OVERLAY_PREPARATION: &str = "0 18px 48px rgba(39, 35, 31, 0.20)";
     pub const FLOATING_PRESENTER: &str = "0 4px 14px rgba(0, 0, 0, 0.40)";
     pub const OVERLAY_PRESENTER: &str = "0 18px 52px rgba(0, 0, 0, 0.58)";
+
+    /// Executable Floating token for native temporary selection surfaces.
+    pub fn floating(
+        appearance: super::ResolvedAppearance,
+        scale: crate::environment::InterfaceScale,
+    ) -> gpui::BoxShadow {
+        let (color, opacity, blur) = match appearance {
+            super::ResolvedAppearance::Light => (0x27231F, 0.14, 12.0),
+            super::ResolvedAppearance::Dark => (0x000000, 0.40, 14.0),
+        };
+        let mut color = gpui::rgb(color);
+        color.a = opacity;
+        gpui::BoxShadow {
+            color: color.into(),
+            offset: gpui::point(gpui::px(0.0), gpui::px(scale.apply(4.0))),
+            blur_radius: gpui::px(scale.apply(blur)),
+            spread_radius: gpui::px(0.0),
+            inset: false,
+        }
+    }
 }
 
 pub mod icon {
