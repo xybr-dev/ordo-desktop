@@ -729,18 +729,27 @@ mod tests {
         cx: &mut TestAppContext,
         kind: Kind,
     ) -> (Entity<Harness>, &mut gpui::VisualTestContext) {
+        open_with(
+            cx,
+            kind,
+            vec![
+                Choice::new("English"),
+                Choice::new("Disabled").availability(Availability::Disabled),
+                Choice::new("Blocked").availability(Availability::unavailable("Missing")),
+                Choice::new("Cebuano"),
+            ],
+            Some(0),
+        )
+    }
+    fn open_with(
+        cx: &mut TestAppContext,
+        kind: Kind,
+        choices: Vec<Choice>,
+        selected: Option<usize>,
+    ) -> (Entity<Harness>, &mut gpui::VisualTestContext) {
         cx.update(crate::init).unwrap();
         let (view, cx) = cx.add_window_view(move |w, cx| {
-            let state = SelectionState::new(
-                vec![
-                    Choice::new("English"),
-                    Choice::new("Disabled").availability(Availability::Disabled),
-                    Choice::new("Blocked").availability(Availability::unavailable("Missing")),
-                    Choice::new("Cebuano"),
-                ],
-                Some(0),
-                cx,
-            );
+            let state = SelectionState::new(choices, selected, cx);
             if kind == Kind::Tabs {
                 state.0.read(cx).focus[0].clone().focus(w, cx);
             } else {
@@ -961,6 +970,76 @@ mod tests {
                 assert_eq!(view.elsewhere.get(), 1, "{kind:?} click-through activation");
             });
         }
+    }
+
+    #[gpui::test]
+    fn a_collection_with_nothing_eligible_opens_inert(cx: &mut TestAppContext) {
+        for kind in [Kind::Menu, Kind::Select] {
+            let (view, cx) = open_with(
+                cx,
+                kind,
+                vec![
+                    Choice::new("One").availability(Availability::Disabled),
+                    Choice::new("Two").availability(Availability::Disabled),
+                ],
+                Some(0),
+            );
+            // Nothing is eligible, so there is no active choice to focus and
+            // none of the arrow, activation, or dismissal paths may reach for
+            // one.
+            view.read_with(cx, |v, cx| assert_eq!(v.state.0.read(cx).active, None));
+            for key in ["enter", "down", "up", "home", "end", "enter", "space"] {
+                press(cx, key);
+            }
+            cx.update(|w, cx| {
+                let v = view.read(cx);
+                let s = v.state.0.read(cx);
+                assert!(s.open, "{kind:?} still opens");
+                assert_eq!(s.active, None, "{kind:?} keeps no active choice");
+                assert_eq!(s.selected, Some(0), "{kind:?} activates nothing");
+                assert_eq!(v.activations.get(), 0);
+                assert!(s.trigger.is_focused(w), "focus stays where it can act");
+            });
+            press(cx, "escape");
+            view.read_with(cx, |v, cx| assert!(!v.state.is_open(cx)));
+        }
+    }
+
+    #[gpui::test]
+    fn a_disabled_selection_never_becomes_the_active_choice(cx: &mut TestAppContext) {
+        // A caller may hand over a selection that is now Disabled — a Choir
+        // that was archived since the plan was saved. The selection stands,
+        // because it is what the record says, but arrows and Enter start from
+        // a choice they are allowed to act on.
+        let (view, cx) = open_with(
+            cx,
+            Kind::Select,
+            vec![
+                Choice::new("Archived").availability(Availability::Disabled),
+                Choice::new("Blocked").availability(Availability::unavailable("Missing")),
+                Choice::new("Available"),
+            ],
+            Some(0),
+        );
+        view.read_with(cx, |v, cx| {
+            let s = v.state.0.read(cx);
+            assert_eq!(s.selected, Some(0));
+            assert_eq!(s.active, Some(1), "the first choice that may be focused");
+        });
+        // Down opens on that choice rather than advancing past it, and it is
+        // Unavailable, so Enter there commits nothing.
+        press(cx, "down");
+        press(cx, "enter");
+        cx.update(|w, cx| {
+            let s = view.read(cx).state.0.read(cx);
+            assert!(s.open);
+            assert_eq!(s.active, Some(1));
+            assert_eq!(s.selected, Some(0));
+            assert!(s.focus[1].is_focused(w));
+        });
+        press(cx, "down");
+        press(cx, "enter");
+        view.read_with(cx, |v, cx| assert_eq!(v.state.selected(cx), Some(2)));
     }
 
     #[gpui::test]
