@@ -397,6 +397,17 @@ the moment it is posted and only its drawing is timed. An exit ends by
 unmounting rather than by an input, so the host wakes once more while anything
 is still ending, which is the only clock it keeps.
 
+The toasts a new one arrives under ride up rather than being redrawn a row
+higher between two frames. What that costs is a measurement: a toast is as tall
+as its own words and its own controls, and no token says how tall that is. GPUI
+reports it through `on_children_prepainted`, one frame after the fact, so a
+toast that has never been measured is taken out of the flow for that one frame —
+it is at zero opacity anyway — and joins the stack on the next one, by which
+time the toasts above it know exactly how far they are about to be pushed and
+start from where they already were. This is the part of the shadcn toaster's
+stack motion that survives having no transform; the collapsed, scaled stack it
+also draws is the part `ToastStack` was rejected for.
+
 Toasts adopt `ToastManager` and reject the `ToastStack` element, which is
 spring-driven and scales a collapsed stack — both forbidden. The manager is pure
 bookkeeping, and Ordo keys it by the message rather than by a counter, which is

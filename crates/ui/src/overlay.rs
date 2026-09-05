@@ -10,7 +10,7 @@
 //! and so is the Tab policy, because the pin registers a focus trap but leaves
 //! enforcing it to the styled façade this crate rejects.
 
-use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Duration};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, FocusHandle, IntoElement, ParentElement, Role,
@@ -243,12 +243,22 @@ struct Host {
     /// than stacking a second copy of it, and a caller whose failure has been
     /// resolved can take it back by the words it posted.
     toasts: ToastManager<SharedString, Toast>,
-    /// Messages whose entrance has already been seeded, for the same reason
-    /// [`Entry::entered`] exists: `transition` adopts its first target on the
-    /// spot, so a toast whose first frame asked for its resting value would
-    /// simply be there. Rendering is the only place that knows a toast has had
-    /// a frame, and it holds the host by shared reference.
-    seeded: RefCell<HashSet<SharedString>>,
+    /// How tall the stack under each mounted message was the last time it was
+    /// drawn — and, by being present at all, that its entrance has been seeded.
+    ///
+    /// Both exist for the reason [`Entry::entered`] does: `transition` adopts
+    /// its first target on the spot, so a toast whose first frame asked for its
+    /// resting value would simply be there, and a toast that gained a neighbour
+    /// below it would simply be a row higher already. Rendering is the only
+    /// place that knows either happened, and it holds the host by shared
+    /// reference.
+    seeded: RefCell<HashMap<SharedString, f32>>,
+    /// What each mounted toast measured last frame, which is what makes the
+    /// movement above an arriving one exactly as far as the arrival: a toast is
+    /// as tall as its own words and its own controls, and no token says how
+    /// tall that is. A toast with no measurement yet has never been laid out,
+    /// which is what keeps it out of the flow for its first frame.
+    heights: RefCell<HashMap<SharedString, f32>>,
     next: usize,
 }
 
@@ -267,7 +277,8 @@ impl Host {
                 ),
                 ..Default::default()
             }),
-            seeded: RefCell::new(HashSet::new()),
+            seeded: RefCell::new(HashMap::new()),
+            heights: RefCell::new(HashMap::new()),
             next: 0,
         }
     }
@@ -279,6 +290,7 @@ impl Host {
         let advance = self.toasts.advance(now, false);
         for (id, _) in &advance.removed {
             self.seeded.get_mut().remove(id);
+            self.heights.get_mut().remove(id);
         }
         if advance.changed {
             cx.notify();
@@ -825,23 +837,80 @@ impl OverlayHost {
         // as it goes, on the same curves and in the same times as a dialog: this
         // is the same motion the shadcn toaster draws, minus the scale the pin
         // has no transform for. See [`TOAST_RISE`].
+        //
+        // What the arrival must not do is redraw the toasts above it a row
+        // higher between two frames. A toast that has never been measured is
+        // taken out of the flow for that one frame — it is at zero opacity
+        // anyway — so nothing moves while it is measured; from the next frame it
+        // is in the flow, and the toasts above it start exactly the distance it
+        // turned out to occupy and ride up over that.
+        let gap = scale.apply(tokens::spacing::RELATED);
+        let heights = self.0.read(cx).heights.borrow().clone();
+        let measured: Vec<Option<f32>> = toasts
+            .iter()
+            .map(|(toast, _)| heights.get(&toast.message).copied())
+            .collect();
+        let stack_below: Vec<f32> = {
+            let mut below = vec![0.0; measured.len()];
+            let mut running = 0.0;
+            for index in (0..measured.len()).rev() {
+                below[index] = running;
+                if let Some(height) = measured[index] {
+                    running += height + gap;
+                }
+            }
+            below
+        };
         let toasts: Vec<_> = toasts
             .into_iter()
-            .map(|(toast, status)| {
+            .enumerate()
+            .map(|(index, (toast, status))| {
                 let leaving = status == ToastTransitionStatus::Ending;
-                let key = (
-                    ElementId::from(SharedString::from(format!("ordo-toast-{}", toast.message))),
-                    "progress",
-                );
-                if self
+                let key = |property| {
+                    (
+                        ElementId::from(SharedString::from(format!(
+                            "ordo-toast-{}",
+                            toast.message
+                        ))),
+                        property,
+                    )
+                };
+                let arriving = || {
+                    Transition::new(Duration::from_millis(
+                        tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+                    ))
+                    .ease(ease_out_cubic)
+                };
+
+                // The stack below this one is what holds it off the bottom
+                // edge, so a taller one is that much upward movement rather than
+                // the jump the layout would draw on its own.
+                let below = stack_below[index];
+                let previously = self
                     .0
                     .read(cx)
                     .seeded
                     .borrow_mut()
-                    .insert(toast.message.clone())
+                    .insert(toast.message.clone(), below);
+                let mut shift: f32 = transition(key("shift"), 0.0, arriving(), window, cx);
+                if let Some(gained) = previously
+                    .map(|previously| below - previously)
+                    .filter(|gained| *gained > 0.0)
                 {
+                    shift += gained;
                     let _: f32 = transition(
-                        key.clone(),
+                        key("shift"),
+                        shift,
+                        Transition::new(Duration::ZERO),
+                        window,
+                        cx,
+                    );
+                    shift = transition(key("shift"), 0.0, arriving(), window, cx);
+                }
+
+                if previously.is_none() {
+                    let _: f32 = transition(
+                        key("progress"),
                         0.0,
                         Transition::new(Duration::ZERO),
                         window,
@@ -849,7 +918,7 @@ impl OverlayHost {
                     );
                 }
                 let progress: f32 = transition(
-                    key,
+                    key("progress"),
                     if leaving { 0.0 } else { 1.0 },
                     Transition::new(Duration::from_millis(if leaving {
                         tokens::motion::OVERLAY_CLOSE_DURATION_MS.into()
@@ -864,100 +933,116 @@ impl OverlayHost {
                     window,
                     cx,
                 );
-                (toast, progress)
+                (toast, progress, shift, measured[index].is_some())
             })
             .collect();
         let viewport = window.viewport_size();
         let host = self.clone();
-        let items = toasts.into_iter().map(move |(toast, progress)| {
-            let id = toast.message.clone();
-            let dismiss = {
-                let host = host.clone();
-                let id = id.clone();
-                move |_: &mut Window, cx: &mut App| host.dismiss_toast(id.clone(), cx)
-            };
-            div()
-                .id(SharedString::from(format!("ordo-toast-{id}")))
-                .debug_selector({
-                    let message = toast.message.clone();
-                    move || format!("toast-{message}")
-                })
-                .occlude()
-                .relative()
-                .top(px((1.0 - progress) * scale.apply(TOAST_RISE)))
-                .opacity(progress)
-                .flex()
-                .items_center()
-                .gap(px(scale.apply(tokens::spacing::RELATED)))
-                .max_w(px((f32::from(viewport.width)
-                    - 2.0 * scale.apply(tokens::spacing::SECTION))
-                .max(0.0)))
-                .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-                .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
-                .py(px(scale.apply(tokens::spacing::RELATED)))
-                .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                .bg(rgb(palette.surface))
-                .border_1()
-                .border_color(rgb(palette.border_strong))
-                .shadow(vec![tokens::elevation::floating(
-                    environment.appearance(),
-                    scale,
-                )])
-                .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                // A confirmation reports what the operator just did, so it is
-                // polite; a failure is the unexpected event `DESIGN.md` allows
-                // to interrupt.
-                .role(match toast.notice {
-                    Notice::Confirmation => Role::Status,
-                    Notice::Failure => Role::Alert,
-                })
-                .aria_label(toast.message.clone())
-                .child(
-                    gpui::svg()
-                        .flex_none()
-                        .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
-                        .text_color(rgb(match toast.notice {
-                            Notice::Confirmation => palette.text_muted,
-                            Notice::Failure => palette.warning,
-                        }))
-                        .data(
-                            match toast.notice {
-                                Notice::Confirmation => icon::CHECK,
-                                Notice::Failure => icon::TRIANGLE_ALERT,
-                            }
-                            .as_bytes(),
-                        ),
-                )
-                .child(div().min_w_0().child(toast.message.clone()))
-                .children(toast.undo.clone().map(|(label, activate)| {
-                    let dismiss = dismiss.clone();
-                    Button::new(
-                        SharedString::from(format!("toast-undo-{id}")),
-                        label,
-                        environment,
-                    )
-                    .quiet()
-                    .on_surface(palette.surface)
-                    .on_activate(move |window, cx| {
-                        activate(window, cx);
-                        dismiss(window, cx);
+        let order: Vec<SharedString> = toasts
+            .iter()
+            .map(|(toast, ..)| toast.message.clone())
+            .collect();
+        let items = toasts
+            .into_iter()
+            .map(move |(toast, progress, shift, in_flow)| {
+                let id = toast.message.clone();
+                let dismiss = {
+                    let host = host.clone();
+                    let id = id.clone();
+                    move |_: &mut Window, cx: &mut App| host.dismiss_toast(id.clone(), cx)
+                };
+                div()
+                    .id(SharedString::from(format!("ordo-toast-{id}")))
+                    .debug_selector({
+                        let message = toast.message.clone();
+                        move || format!("toast-{message}")
                     })
-                }))
-                // A persistent failure is dismissed deliberately; a
-                // confirmation leaves on its own and needs no control.
-                .children((toast.notice == Notice::Failure).then(|| {
-                    Button::new(
-                        SharedString::from(format!("toast-dismiss-{id}")),
-                        "Dismiss",
-                        environment,
+                    .occlude()
+                    .relative()
+                    // Out of the flow until it has been measured, so that the
+                    // frame it is measured on moves nothing above it. It is at
+                    // zero opacity for that frame, so where it sits is
+                    // immaterial; it only has to measure the size it will keep.
+                    .map(|toast| {
+                        let offset = (1.0 - progress) * scale.apply(TOAST_RISE) + shift;
+                        match in_flow {
+                            true => toast.top(px(offset)),
+                            false => toast.absolute().bottom(px(-offset)),
+                        }
+                    })
+                    .opacity(progress)
+                    .flex()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                    .max_w(px((f32::from(viewport.width)
+                        - 2.0 * scale.apply(tokens::spacing::SECTION))
+                    .max(0.0)))
+                    .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+                    .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                    .py(px(scale.apply(tokens::spacing::RELATED)))
+                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
+                    .bg(rgb(palette.surface))
+                    .border_1()
+                    .border_color(rgb(palette.border_strong))
+                    .shadow(vec![tokens::elevation::floating(
+                        environment.appearance(),
+                        scale,
+                    )])
+                    .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                    // A confirmation reports what the operator just did, so it is
+                    // polite; a failure is the unexpected event `DESIGN.md` allows
+                    // to interrupt.
+                    .role(match toast.notice {
+                        Notice::Confirmation => Role::Status,
+                        Notice::Failure => Role::Alert,
+                    })
+                    .aria_label(toast.message.clone())
+                    .child(
+                        gpui::svg()
+                            .flex_none()
+                            .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                            .text_color(rgb(match toast.notice {
+                                Notice::Confirmation => palette.text_muted,
+                                Notice::Failure => palette.warning,
+                            }))
+                            .data(
+                                match toast.notice {
+                                    Notice::Confirmation => icon::CHECK,
+                                    Notice::Failure => icon::TRIANGLE_ALERT,
+                                }
+                                .as_bytes(),
+                            ),
                     )
-                    .icon(icon::X)
-                    .icon_only()
-                    .quiet()
-                    .on_surface(palette.surface)
-                    .on_activate(move |window, cx| dismiss(window, cx))
-                }))
-        });
+                    .child(div().min_w_0().child(toast.message.clone()))
+                    .children(toast.undo.clone().map(|(label, activate)| {
+                        let dismiss = dismiss.clone();
+                        Button::new(
+                            SharedString::from(format!("toast-undo-{id}")),
+                            label,
+                            environment,
+                        )
+                        .quiet()
+                        .on_surface(palette.surface)
+                        .on_activate(move |window, cx| {
+                            activate(window, cx);
+                            dismiss(window, cx);
+                        })
+                    }))
+                    // A persistent failure is dismissed deliberately; a
+                    // confirmation leaves on its own and needs no control.
+                    .children((toast.notice == Notice::Failure).then(|| {
+                        Button::new(
+                            SharedString::from(format!("toast-dismiss-{id}")),
+                            "Dismiss",
+                            environment,
+                        )
+                        .icon(icon::X)
+                        .icon_only()
+                        .quiet()
+                        .on_surface(palette.surface)
+                        .on_activate(move |window, cx| dismiss(window, cx))
+                    }))
+            });
         Some(
             deferred(
                 gpui::anchored()
@@ -977,7 +1062,21 @@ impl OverlayHost {
                             .justify_end()
                             .items_center()
                             .pb(px(scale.apply(tokens::spacing::SECTION)))
-                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                            .gap(px(gap))
+                            .on_children_prepainted({
+                                let host = self.0.clone();
+                                move |bounds, _, cx| {
+                                    host.update(cx, |host, _| {
+                                        let heights = host.heights.get_mut();
+                                        for (message, bounds) in order.iter().zip(bounds) {
+                                            heights.insert(
+                                                message.clone(),
+                                                f32::from(bounds.size.height),
+                                            );
+                                        }
+                                    });
+                                }
+                            })
                             .children(items),
                     ),
             )
@@ -1458,6 +1557,14 @@ mod tests {
         view.read_with(cx, |view, cx| assert!(view.host.toasts(cx).is_empty()));
     }
 
+    /// A toast is out of the flow for the frame it is measured on, so the
+    /// stack's own geometry is what the frame after that draws.
+    fn mounted(cx: &mut gpui::VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+
     /// A toast arrives from below and leaves the same way, rather than cutting
     /// in and out. See [`TOAST_RISE`].
     #[gpui::test]
@@ -1465,7 +1572,7 @@ mod tests {
         let (view, cx) = open(cx);
         let host = view.read_with(cx, |view, _| view.host.clone());
         cx.update(|_, cx| host.notify(Toast::failure("Congregation display lost."), cx));
-        cx.run_until_parked();
+        mounted(cx);
         let arriving = cx
             .debug_bounds("toast-Congregation display lost.")
             .expect("it is mounted");
@@ -1495,6 +1602,57 @@ mod tests {
                 .y
                 > resting.origin.y,
             "and falls back through on the way out rather than vanishing"
+        );
+    }
+
+    /// The toast a newcomer pushes up rides up rather than being redrawn a row
+    /// higher, which is the only movement in the stack the layout would
+    /// otherwise draw as a cut.
+    #[gpui::test]
+    fn an_earlier_toast_rides_up_for_the_one_that_arrives_under_it(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|_, cx| host.notify(Toast::failure("Congregation display lost."), cx));
+        mounted(cx);
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let alone = cx.debug_bounds("toast-Congregation display lost.").unwrap();
+
+        cx.update(|_, cx| host.notify(Toast::confirmation("Cue removed."), cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("toast-Congregation display lost.")
+                .unwrap()
+                .origin,
+            alone.origin,
+            "the frame the newcomer is measured on leaves the stack alone"
+        );
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("toast-Congregation display lost.")
+                .unwrap()
+                .origin,
+            alone.origin,
+            "and the frame it joins the stack on starts where the earlier toast \
+             already was, rather than a row above it"
+        );
+
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("toast-Congregation display lost.")
+                .unwrap()
+                .origin
+                .y
+                < alone.origin.y,
+            "it rides up over the arrival and comes to rest a row higher"
         );
     }
 
