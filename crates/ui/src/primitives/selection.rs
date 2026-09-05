@@ -295,6 +295,10 @@ impl Control {
     }
 
     fn item(&self, i: usize, cx: &App) -> gpui::Stateful<gpui::Div> {
+        // A tab renders through `tab()`, which carries the Tab role and its
+        // position. Reaching a popup row with `Kind::Tabs` would silently name
+        // it a ListBoxOption instead.
+        debug_assert!(self.kind != Kind::Tabs, "a tab is not a popup choice");
         let state = self.state.0.read(cx);
         let choice = &state.choices[i];
         let palette = tokens::palette(self.environment.appearance());
