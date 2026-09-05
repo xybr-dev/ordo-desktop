@@ -1191,6 +1191,69 @@ mod tests {
         }
     }
 
+    /// A bounded scrolling surface contains its own wheel. GPUI's scroll
+    /// listener never stops propagating, so without containment one wheel over
+    /// the popup moved the popup, the slideover body it sits in, and the lab
+    /// stage behind that, all by the same delta.
+    #[gpui::test]
+    fn a_popup_inside_a_slideover_scrolls_only_itself(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        // A window smaller than the preset, so the stage behind everything
+        // scrolls too and has something to be kept still.
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            assert!(lab.select_scenario("slideover", cx));
+        });
+        cx.run_until_parked();
+
+        let trigger = cx.debug_bounds("button-Inspector").unwrap();
+        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+        let nest = cx.debug_bounds("button-Open Song").unwrap();
+        cx.simulate_click(nest.center(), gpui::Modifiers::default());
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+
+        let select = cx.debug_bounds("button-Language: English").unwrap();
+        cx.simulate_click(select.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+        let popup = cx.debug_bounds("selection-list").expect("the popup opens");
+        let before = (
+            cx.debug_bounds("scroll-indicator-selection-list").unwrap(),
+            cx.debug_bounds("scroll-indicator-overlay-body-Song details")
+                .unwrap(),
+            cx.debug_bounds("lab-stage").unwrap(),
+        );
+
+        cx.simulate_mouse_move(popup.center(), None, gpui::Modifiers::default());
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: popup.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-120.0))),
+            modifiers: gpui::Modifiers::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+
+        let after = (
+            cx.debug_bounds("scroll-indicator-selection-list").unwrap(),
+            cx.debug_bounds("scroll-indicator-overlay-body-Song details")
+                .unwrap(),
+            cx.debug_bounds("lab-stage").unwrap(),
+        );
+        assert!(
+            after.0.origin.y > before.0.origin.y,
+            "the collection under the pointer scrolls"
+        );
+        assert_eq!(
+            after.1.origin.y, before.1.origin.y,
+            "the slideover body it sits in does not"
+        );
+        assert_eq!(
+            after.2.origin.y, before.2.origin.y,
+            "and neither does the stage behind that"
+        );
+    }
+
     /// Toasts sit bottom-center and outlive nothing but their own rules: an
     /// expiring confirmation carries its Undo, an owned failure waits.
     #[gpui::test]

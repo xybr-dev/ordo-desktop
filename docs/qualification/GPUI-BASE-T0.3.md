@@ -388,6 +388,18 @@ confirmation carries Undo and expires; a failure carries Dismiss and waits.
 `Role::Status` and `Role::Alert` are the polite and interrupting halves
 `DESIGN.md` distinguishes.
 
+Two things the pin leaves open are settled by one GPUI mechanism, `occlude`,
+which stops the hit test at a hitbox so nothing behind it is hovered, lends a
+cursor, or is offered the wheel. The scrim uses it because `DESIGN.md` gives it
+the pointer entirely: a control under an overlay that still lit up and still
+showed a pointer cursor would read as something the operator can reach past.
+`ui::scroll::Scroll::bounded` uses it because GPUI's own wheel listener never
+stops propagating — every scrollable ancestor under the pointer scrolls by the
+same delta, so one wheel over a popup inside a slideover body inside the
+workspace moved all three. Every bounded scrolling surface now goes through
+`bounded` rather than repeating `track_scroll`, `overflow_y_scroll`, and
+`occlude`, so none of them can be the one that forgets.
+
 The scrim is Ordo's, drawn in the `blackout` neutral faded by its own surface's
 progress, and only the card occludes. That distinction is load-bearing rather
 than cosmetic: a centring wrapper that took presses would be a second,
@@ -416,7 +428,9 @@ surface's final element node.
 
 `ui::scroll::Scroll::indicator` now takes a `&str` rather than a `&'static
 str`: an overlay body names itself after the surface it belongs to, and two
-bodies can be on screen at once.
+bodies can be on screen at once. `Scroll::bounded` joins it as the other half of
+what a bounded surface asks for, and the Select/Menu/Combobox popup adopts it
+too — it was the surface the containment bug was reported against.
 
 ### Pinned platform limitations
 

@@ -1094,9 +1094,8 @@ impl Control {
             list = list.child(self.no_matches());
         }
 
-        let list = list
-            .track_scroll(scroll.handle())
-            .overflow_y_scroll()
+        let list = scroll
+            .bounded(list)
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .p(px(scale.apply(8.0)))
             .w(px(scale

@@ -542,16 +542,13 @@ impl OverlayHost {
             .flex_col()
             .min_h_0()
             .child(
-                div()
-                    .id(("overlay-body", id))
-                    .debug_selector({
+                scroll
+                    .bounded(div().id(("overlay-body", id)).debug_selector({
                         let title = overlay.title.clone();
                         move || format!("overlay-body-{title}")
-                    })
+                    }))
                     .w_full()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(scroll.handle())
                     .p(px(scale.apply(tokens::spacing::GROUP)))
                     .child((overlay.body)(environment, window, cx)),
             )
@@ -613,9 +610,15 @@ impl OverlayHost {
             })
             .child(card);
 
+        // `DESIGN.md` gives the scrim the first pointer event, and that is not
+        // only about the click: a control under an overlay must not light up
+        // under the pointer or lend it a cursor either, or the surface reads as
+        // something the operator can reach past. `occlude` stops the hit test
+        // here, which settles all three at once.
         let scrim = div()
             .absolute()
             .inset_0()
+            .occlude()
             .bg(tokens::elevation::scrim(progress))
             .into_any_element();
         let sheet = gpui_base::Sheet::new(cx)
@@ -971,7 +974,13 @@ mod tests {
                     move |window, cx| host.open(overlay.clone(), window, cx)
                 }))
                 .child(
+                    // Icon-only, so its tooltip is an observable proxy for the
+                    // hover the scrim has to withhold: the same `is_hovered`
+                    // gates hover styling and the pointer cursor, neither of
+                    // which a test can read back.
                     Button::new("beneath", "Beneath", environment)
+                        .icon(icon::ELLIPSIS)
+                        .icon_only()
                         .on_activate(move |_, _| beneath.set(beneath.get() + 1)),
                 )
                 .child(self.host.layer(environment, window, cx))
@@ -1040,16 +1049,34 @@ mod tests {
         assert!(cx.debug_bounds("button-Open").is_some());
     }
 
-    /// `DESIGN.md` gives the scrim the first pointer event and forbids
-    /// click-through, so a press that dismisses activates nothing beneath.
+    /// `DESIGN.md` gives the scrim the first pointer event, and a control the
+    /// operator cannot reach must not answer the pointer at all: no activation,
+    /// no hover, no cursor of its own.
     #[gpui::test]
-    fn the_scrim_dismisses_without_activating_what_it_covers(cx: &mut TestAppContext) {
+    fn the_scrim_dismisses_and_the_control_it_covers_stops_answering(cx: &mut TestAppContext) {
         let (view, cx) = open(cx);
         let beneath = cx
             .debug_bounds("button-Beneath")
             .expect("the covered control renders")
             .center();
+        // The control answers the pointer while nothing covers it, or the
+        // assertion below would pass for a control that never had a tooltip.
+        cx.simulate_mouse_move(beneath, None, Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("control-tooltip").is_some());
+
         press_invoker(cx);
+        cx.simulate_mouse_move(beneath, None, Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_none(),
+            "a covered control is not hovered, so it neither names itself nor \
+             lends the pointer a cursor"
+        );
 
         cx.simulate_click(beneath, Modifiers::default());
         cx.run_until_parked();
