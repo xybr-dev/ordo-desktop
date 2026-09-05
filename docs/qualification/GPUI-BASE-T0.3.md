@@ -242,7 +242,10 @@ nothing and ships no scrollbar element, so the geometry comes from
 `ScrollHandle::bounds()`, `max_offset()`, and `offset()` and nothing else. The
 Select, Menu, and Combobox popup is its first consumer; PR 9's overlay bodies
 and T0.4's Cue timeline and dense editor lists are the next, and none of them
-reimplements it.
+reimplements it. Because there is only the one implementation, two indicators
+can be on screen at once — an overlay body behind the popup it opened — so the
+surface lends the indicator its own id, and both the element id and the debug
+selector carry it. A test names the indicator it means.
 
 `Scroll` replaces the bare `ScrollHandle` a surface used to own, because the
 indicator needs one thing GPUI's handle does not keep: what the last frame drew.

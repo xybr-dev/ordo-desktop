@@ -1135,8 +1135,16 @@ impl Control {
         // a child would be translated by the scroll offset and slide away with
         // the content it is reporting on.
         let list = div().relative().child(list).children(
-            open.then(|| scroll.indicator(tokens::radius::OVERLAY, window, cx, self.environment))
-                .flatten(),
+            open.then(|| {
+                scroll.indicator(
+                    "selection-list",
+                    tokens::radius::OVERLAY,
+                    window,
+                    cx,
+                    self.environment,
+                )
+            })
+            .flatten(),
         );
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so

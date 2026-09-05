@@ -12,8 +12,8 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{
-    CursorStyle, IntoElement, MouseButton, ScrollHandle, Styled, Window, div, point, prelude::*,
-    px, rgb,
+    CursorStyle, IntoElement, MouseButton, ScrollHandle, SharedString, Styled, Window, div, point,
+    prelude::*, px, rgb,
 };
 
 use crate::{environment::UiEnvironment, tokens};
@@ -131,11 +131,17 @@ impl Scroll {
     /// `relative` wrapper around the scrolling element — a sibling, because a
     /// child of the scrolling element would scroll away with the content.
     ///
+    /// `id` is the surface's own, because every bounded surface uses this one
+    /// implementation and two of them can be on screen at once: an overlay body
+    /// behind the popup it opened. Both the element id and the debug selector
+    /// take it, so a test can say which indicator it means.
+    ///
     /// `corner` is the surface's own radius. The indicator sits on the edge, so
     /// it has to stop where that edge starts curving away from it; a square
     /// surface passes `0`.
     pub fn indicator(
         &self,
+        id: &'static str,
         corner: f32,
         window: &mut Window,
         cx: &mut gpui::App,
@@ -168,9 +174,10 @@ impl Scroll {
         } else {
             THICKNESS
         };
+        let named = |part: &str| SharedString::from(format!("{part}-{id}"));
         let bar = div()
-            .id("scroll-indicator")
-            .debug_selector(|| "scroll-indicator".into())
+            .id(named("scroll-indicator"))
+            .debug_selector(move || format!("scroll-indicator-{id}"))
             .absolute()
             .top(px(bar_geometry.top))
             .right_0()
@@ -215,7 +222,7 @@ impl Scroll {
             });
         Some(
             div()
-                .id("scroll-track")
+                .id(named("scroll-track"))
                 .absolute()
                 .top(px(scale.apply(corner)))
                 .bottom(px(scale.apply(corner)))

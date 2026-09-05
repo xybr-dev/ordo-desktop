@@ -791,7 +791,7 @@ mod tests {
                             let only = cx.debug_bounds("choice-4").unwrap();
                             assert!(cx.debug_bounds("choice-0").is_none());
                             assert!(
-                                cx.debug_bounds("scroll-indicator").is_none(),
+                                cx.debug_bounds("scroll-indicator-selection-list").is_none(),
                                 "one match fits, so the indicator goes away \
                                  ({appearance:?} {scale:?})"
                             );
@@ -845,7 +845,7 @@ mod tests {
                             // popup's bounded height at every scale.
                             let corner = px(scale.apply(tokens::radius::OVERLAY));
                             let top = cx
-                                .debug_bounds("scroll-indicator")
+                                .debug_bounds("scroll-indicator-selection-list")
                                 .expect("a popup taller than its viewport shows the indicator");
                             assert!(
                                 top.origin.y >= popup.origin.y + corner
@@ -862,7 +862,8 @@ mod tests {
                                 last.origin.y >= popup.origin.y && last.bottom() <= popup.bottom(),
                                 "arrow navigation scrolls the long last value into view"
                             );
-                            let bottom = cx.debug_bounds("scroll-indicator").unwrap();
+                            let bottom =
+                                cx.debug_bounds("scroll-indicator-selection-list").unwrap();
                             assert!(
                                 bottom.origin.y > top.origin.y
                                     && bottom.bottom() <= popup.bottom() - corner,
@@ -890,7 +891,7 @@ mod tests {
         let trigger = cx.debug_bounds("button-Language: Not assigned").unwrap();
         cx.simulate_click(trigger.center(), gpui::Modifiers::default());
         let popup = cx.debug_bounds("selection-list").unwrap();
-        let resting = cx.debug_bounds("scroll-indicator").unwrap();
+        let resting = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
         let last = cx.debug_bounds("choice-5").unwrap();
         assert!(
             last.origin.y > popup.bottom(),
@@ -900,7 +901,7 @@ mod tests {
         // Reaching for the edge is enough: the indicator is too thin to aim at
         // while it is only reporting a position.
         cx.simulate_mouse_move(resting.center(), None, gpui::Modifiers::default());
-        let reached = cx.debug_bounds("scroll-indicator").unwrap();
+        let reached = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
         assert!(
             reached.size.width > resting.size.width,
             "the indicator widens to something grabbable"
@@ -934,7 +935,7 @@ mod tests {
             click_count: 1,
         });
 
-        let dragged = cx.debug_bounds("scroll-indicator").unwrap();
+        let dragged = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
         assert!(
             dragged.origin.y > reached.origin.y && dragged.bottom() <= popup.bottom(),
             "the indicator reports where the drag took the surface"
