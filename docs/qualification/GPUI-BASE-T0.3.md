@@ -305,13 +305,18 @@ that sits after scrolling, that an overscrolled offset stays inside its track,
 and that content which fits yields nothing. The lab's existing matrix carries
 the rest, so no scenario was added for it: the Menu and Select popups exceed
 their bounded height at every appearance, scale, and viewport, and assert the
-indicator is a thin overlay inside the popup and that it advances when `End`
-scrolls to the long last value; the Combobox filtered to its one match asserts
-the indicator is gone, and both ends of its travel stay clear of the popup's
-corners. One further test drives the pointer: the indicator widens as it is
-reached for, a real press-move-move-release drags the surface to the end of its
-collection, and the drag is not mistaken for the press outside that dismisses a
-popup.
+indicator is a thin overlay that starts exactly where the popup's corner leaves
+off and advances when `End` scrolls to the long last value; the Combobox
+filtered to its one match asserts the indicator is gone. `End` bounds the far
+end rather than pinning it, because scrolling a choice into view stops at that
+choice and leaves the list's own bottom padding as travel remaining. The far
+end is pinned by the test that drives the pointer instead, where the offset is
+clamped to the surface's maximum: the indicator widens as it is reached for, a
+real press-move-move-release drags the surface to the end of its collection and
+lands the indicator on the end of its track, and the drag is not mistaken for
+the press outside that dismisses a popup. Between them the two assertions check
+the derivation the length and the drag gain both rest on — that the track is the
+surface's own measured bounds inset by its corner at each end.
 
 ### Pinned platform limitations
 

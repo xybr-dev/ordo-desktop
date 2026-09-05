@@ -185,7 +185,10 @@ impl Scroll {
         let named = |part: &str| SharedString::from(format!("{part}-{id}"));
         let bar = div()
             .id(named("scroll-indicator"))
-            .debug_selector(move || format!("scroll-indicator-{id}"))
+            .debug_selector({
+                let name = named("scroll-indicator");
+                move || name.to_string()
+            })
             .absolute()
             .top(px(bar_geometry.top))
             .right_0()
@@ -292,34 +295,42 @@ mod tests {
     /// The track a bounded surface of this height actually offers, which is
     /// what every assertion below is in terms of.
     const TRACK: f32 = 240.0;
-    const MINIMUM: f32 = MINIMUM_LENGTH;
 
     #[test]
     fn content_that_fits_has_no_indicator() {
-        assert_eq!(bar(measured(TRACK, 0.0, 0.0), TRACK, MINIMUM), None);
+        assert_eq!(bar(measured(TRACK, 0.0, 0.0), TRACK, MINIMUM_LENGTH), None);
         // Nothing has been measured yet, which is not the same as fitting, but
-        // there is equally nothing to draw from.
-        assert_eq!(bar(measured(0.0, 0.0, 0.0), 0.0, MINIMUM), None);
+        // there is equally nothing to draw from. The track is what the caller
+        // would compute from an unmeasured surface, which is negative rather
+        // than zero.
+        assert_eq!(
+            bar(
+                measured(0.0, 0.0, 0.0),
+                -2.0 * tokens::radius::OVERLAY,
+                MINIMUM_LENGTH
+            ),
+            None
+        );
     }
 
     #[test]
     fn the_indicator_reports_how_much_is_visible_and_where_it_is() {
         // Three viewports of content: a third of the track is visible.
-        let top = bar(measured(100.0, 200.0, 0.0), 300.0, MINIMUM).unwrap();
+        let top = bar(measured(100.0, 200.0, 0.0), 300.0, MINIMUM_LENGTH).unwrap();
         assert_eq!(top.length, 100.0);
         assert_eq!(top.top, 0.0);
 
         // GPUI counts downward scroll as a negative offset; halfway down puts
         // the indicator halfway through the track it has left to travel.
-        let middle = bar(measured(100.0, 200.0, -100.0), 300.0, MINIMUM).unwrap();
+        let middle = bar(measured(100.0, 200.0, -100.0), 300.0, MINIMUM_LENGTH).unwrap();
         assert_eq!(middle.top, 100.0);
 
-        let bottom = bar(measured(100.0, 200.0, -200.0), 300.0, MINIMUM).unwrap();
+        let bottom = bar(measured(100.0, 200.0, -200.0), 300.0, MINIMUM_LENGTH).unwrap();
         assert_eq!(bottom.top + bottom.length, 300.0);
 
         // An overscrolled offset stays inside the track rather than sliding
         // out of the surface.
-        let overscrolled = bar(measured(100.0, 200.0, -400.0), 300.0, MINIMUM).unwrap();
+        let overscrolled = bar(measured(100.0, 200.0, -400.0), 300.0, MINIMUM_LENGTH).unwrap();
         assert_eq!(overscrolled, bottom);
     }
 
@@ -329,14 +340,14 @@ mod tests {
     #[test]
     fn the_minimum_length_stays_inside_the_track_it_was_applied_in() {
         let collection = measured(TRACK, TRACK * 40.0, 0.0);
-        let visible = bar(collection, TRACK, MINIMUM).unwrap();
+        let visible = bar(collection, TRACK, MINIMUM_LENGTH).unwrap();
         assert_eq!(
-            visible.length, MINIMUM,
+            visible.length, MINIMUM_LENGTH,
             "a collection this long is what binds the minimum"
         );
 
         let travelled = measured(TRACK, TRACK * 40.0, -TRACK * 40.0);
-        let end = bar(travelled, TRACK, MINIMUM).unwrap();
+        let end = bar(travelled, TRACK, MINIMUM_LENGTH).unwrap();
         assert_eq!(
             end.top + end.length,
             TRACK,
@@ -349,7 +360,7 @@ mod tests {
     /// indicator longer than itself.
     #[test]
     fn a_track_shorter_than_the_minimum_holds_the_indicator_anyway() {
-        let short = bar(measured(16.0, 400.0, -400.0), 16.0, MINIMUM).unwrap();
+        let short = bar(measured(16.0, 400.0, -400.0), 16.0, MINIMUM_LENGTH).unwrap();
         assert_eq!(short.length, 16.0);
         assert_eq!(short.top, 0.0);
     }

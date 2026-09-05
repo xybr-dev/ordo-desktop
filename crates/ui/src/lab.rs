@@ -847,13 +847,19 @@ mod tests {
                             let top = cx
                                 .debug_bounds("scroll-indicator-selection-list")
                                 .expect("a popup taller than its viewport shows the indicator");
+                            // At rest the indicator has travelled nothing, so
+                            // it starts exactly where its track does. Asserting
+                            // the equality rather than a bound is the only
+                            // check that the track really is the surface inset
+                            // by its own corner, which the length and the drag
+                            // gain are both computed from.
                             assert!(
-                                top.origin.y >= popup.origin.y + corner
+                                (top.origin.y - (popup.origin.y + corner)).abs() <= px(1.0)
                                     && top.bottom() <= popup.bottom()
                                     && top.right() <= popup.right()
                                     && top.size.height < popup.size.height,
-                                "the indicator is a thin overlay inside the popup, clear of \
-                                 the corner its own edge curves away at \
+                                "the indicator is a thin overlay inside the popup, starting \
+                                 where the corner its own edge curves away at leaves off \
                                  ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("end");
@@ -864,6 +870,13 @@ mod tests {
                             );
                             let bottom =
                                 cx.debug_bounds("scroll-indicator-selection-list").unwrap();
+                            // A bound, not an equality: `End` scrolls the last
+                            // choice into view, which stops at that choice
+                            // rather than at the surface's own maximum offset,
+                            // so the list's bottom padding is travel the
+                            // indicator still has left. Pinning the far end of
+                            // the track needs an offset driven the whole way,
+                            // which the drag test below does.
                             assert!(
                                 bottom.origin.y > top.origin.y
                                     && bottom.bottom() <= popup.bottom() - corner,
@@ -939,6 +952,16 @@ mod tests {
         assert!(
             dragged.origin.y > reached.origin.y && dragged.bottom() <= popup.bottom(),
             "the indicator reports where the drag took the surface"
+        );
+        // Dragged past the end, so the offset is clamped to the surface's
+        // maximum and the indicator is at the far end of its travel. Asserting
+        // where it lands, rather than only that it stays inside, is what checks
+        // that the track really is the surface inset by its own corner — the
+        // derivation the bar's length and the drag's own gain both rest on.
+        let corner = px(tokens::radius::OVERLAY);
+        assert!(
+            (dragged.bottom() - (popup.bottom() - corner)).abs() <= px(1.0),
+            "at the end of its travel the indicator ends where its track does"
         );
         let last = cx.debug_bounds("choice-5").unwrap();
         assert!(
