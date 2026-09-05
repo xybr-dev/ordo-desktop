@@ -141,7 +141,7 @@ impl Scroll {
     /// surface passes `0`.
     pub fn indicator(
         &self,
-        id: &'static str,
+        id: &str,
         corner: f32,
         window: &mut Window,
         cx: &mut gpui::App,
