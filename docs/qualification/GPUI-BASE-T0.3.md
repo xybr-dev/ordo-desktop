@@ -387,6 +387,16 @@ qualification. The `easing` token is a CSS cubic bezier and the pin ships no
 bezier sampler, so `ease_out_cubic` and `ease_in_cubic` stand in for it across
 the enter and the exit.
 
+A toast moves the same way, and for the same reason: it arrives one control
+height below where it rests and falls back through on the way out, in the
+shadcn toaster's own `400ms` and `200ms`, without the scale that toaster
+applies. The manager's exit duration carries it, because that duration is a
+mounting deadline — it is what keeps a leaving toast on screen long enough to
+be seen leaving — while the enter duration stays zero, since a toast is present
+the moment it is posted and only its drawing is timed. An exit ends by
+unmounting rather than by an input, so the host wakes once more while anything
+is still ending, which is the only clock it keeps.
+
 Toasts adopt `ToastManager` and reject the `ToastStack` element, which is
 spring-driven and scales a collapsed stack — both forbidden. The manager is pure
 bookkeeping, and Ordo keys it by the message rather than by a counter, which is

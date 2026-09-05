@@ -1269,6 +1269,9 @@ mod tests {
             cx.simulate_click(trigger.center(), gpui::Modifiers::default());
             cx.run_until_parked();
         }
+        // Both have arrived from below and come to rest; the entrance is what
+        // the overlay tests cover, and this one is about where they rest.
+        settle(cx, crate::tokens::motion::OVERLAY_OPEN_DURATION_MS);
         let confirmation = cx.debug_bounds("toast-Cue removed.").unwrap();
         let failure = cx
             .debug_bounds("toast-Congregation display disconnected. Program is frozen.")
@@ -1298,7 +1301,7 @@ mod tests {
         );
         let dismiss = cx.debug_bounds("button-Dismiss").unwrap();
         cx.simulate_click(dismiss.center(), gpui::Modifiers::default());
-        cx.run_until_parked();
+        settle(cx, crate::tokens::motion::OVERLAY_CLOSE_DURATION_MS);
         assert!(
             cx.debug_bounds("toast-Congregation display disconnected. Program is frozen.")
                 .is_none()

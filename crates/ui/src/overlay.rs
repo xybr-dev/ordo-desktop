@@ -10,14 +10,14 @@
 //! and so is the Tab policy, because the pin registers a focus trap but leaves
 //! enforcing it to the styled façade this crate rejects.
 
-use std::{rc::Rc, time::Duration};
+use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Duration};
 
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, FocusHandle, IntoElement, ParentElement, Role,
     SharedString, Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use gpui_base::{
-    ToastManager, ToastOptions,
+    ToastManager, ToastOptions, ToastTransitionStatus,
     animation::{ease_in_cubic, ease_out_cubic},
     motion::{Transition, transition},
 };
@@ -55,6 +55,13 @@ const DIALOG_RISE: f32 = tokens::spacing::RELATED;
 /// How far a parent slideover slides back under its child. `DESIGN.md` asks for
 /// the parent to recede slightly and for reduced motion to remove it entirely.
 const RECESSION: f32 = tokens::spacing::GROUP;
+
+/// How far below its resting place a toast arrives from, and falls back to.
+///
+/// One control height, which is a toast's own minimum, so it reads as coming
+/// from off the bottom edge the way the shadcn toaster's does. Same limit as
+/// [`DIALOG_RISE`]: the pin has no transform, so this is a relative inset.
+const TOAST_RISE: f32 = tokens::density::DEFAULT_CONTROL;
 
 /// How long an expiring confirmation stays. Long enough to read a sentence and
 /// reach its Undo, short enough not to sit over the timeline.
@@ -236,6 +243,12 @@ struct Host {
     /// than stacking a second copy of it, and a caller whose failure has been
     /// resolved can take it back by the words it posted.
     toasts: ToastManager<SharedString, Toast>,
+    /// Messages whose entrance has already been seeded, for the same reason
+    /// [`Entry::entered`] exists: `transition` adopts its first target on the
+    /// spot, so a toast whose first frame asked for its resting value would
+    /// simply be there. Rendering is the only place that knows a toast has had
+    /// a frame, and it holds the host by shared reference.
+    seeded: RefCell<HashSet<SharedString>>,
     next: usize,
 }
 
@@ -243,16 +256,53 @@ impl Host {
     fn empty() -> Self {
         Self {
             entries: Vec::new(),
-            // Both durations are zero because Ordo animates each surface itself
-            // and a toast is a cut: this manager is here for ordering,
-            // same-message replacement, and expiry, not for motion.
+            // Ordo draws the motion itself, so the enter duration is zero and a
+            // toast is present the moment it is posted. The exit duration is
+            // real, because it is also a mounting deadline: it is what keeps a
+            // leaving toast on screen long enough to be seen leaving.
             toasts: ToastManager::new(gpui_base::ToastMotion {
                 duration: Duration::ZERO,
-                exit_duration: Duration::ZERO,
+                exit_duration: Duration::from_millis(
+                    tokens::motion::OVERLAY_CLOSE_DURATION_MS.into(),
+                ),
                 ..Default::default()
             }),
+            seeded: RefCell::new(HashSet::new()),
             next: 0,
         }
+    }
+
+    /// Move the toast clock, and come back once more while anything is still
+    /// leaving, because an exit ends by unmounting rather than by an input.
+    fn sweep(&mut self, cx: &mut Context<Self>) {
+        let now = cx.background_executor().now();
+        let advance = self.toasts.advance(now, false);
+        for (id, _) in &advance.removed {
+            self.seeded.get_mut().remove(id);
+        }
+        if advance.changed {
+            cx.notify();
+        }
+        if self
+            .toasts
+            .iter()
+            .any(|(_, _, status)| status == ToastTransitionStatus::Ending)
+        {
+            Self::wake_in(
+                Duration::from_millis(tokens::motion::OVERLAY_CLOSE_DURATION_MS.into()),
+                cx,
+            );
+        }
+    }
+
+    /// One wake-up per thing that is actually due, rather than a clock that
+    /// ticks while nothing is waiting on it.
+    fn wake_in(delay: Duration, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |host, cx| host.sweep(cx)).ok();
+        })
+        .detach();
     }
 
     fn remove(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -390,25 +440,13 @@ impl OverlayHost {
             let id = toast.message.clone();
             let now = cx.background_executor().now();
             host.toasts.push(id, toast, ToastOptions { timeout }, now);
-            // Mounting and expiring are two passes of the same clock, and this
-            // manager transitions with zero duration, so the toast is present
-            // by the time its own timer looks at it.
-            host.toasts.advance(now, false);
+            // Mounting and expiring are two passes of the same clock, and the
+            // enter duration is zero, so the toast is present by the time its
+            // own timer looks at it.
+            host.sweep(cx);
             cx.notify();
-            // One wake-up per expiring toast, rather than a clock that ticks
-            // while nothing is waiting on it.
             if let Some(timeout) = timeout {
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(timeout).await;
-                    this.update(cx, |host, cx| {
-                        let now = cx.background_executor().now();
-                        if host.toasts.advance(now, false).changed {
-                            cx.notify();
-                        }
-                    })
-                    .ok();
-                })
-                .detach();
+                Host::wake_in(timeout, cx);
             }
         });
     }
@@ -420,7 +458,9 @@ impl OverlayHost {
         self.0.update(cx, |host, cx| {
             let now = cx.background_executor().now();
             if host.toasts.dismiss(&id, now) {
-                host.toasts.advance(now, false);
+                // Dismissing starts the exit; `sweep` keeps it mounted for the
+                // length of it and takes it away at the end.
+                host.sweep(cx);
                 cx.notify();
             }
         });
@@ -776,14 +816,60 @@ impl OverlayHost {
             .read(cx)
             .toasts
             .iter()
-            .map(|(_, toast, _)| toast.clone())
+            .map(|(_, toast, status)| (toast.clone(), status))
             .collect();
         if toasts.is_empty() {
             return None;
         }
+        // A toast arrives from just below where it rests and falls back through
+        // as it goes, on the same curves and in the same times as a dialog: this
+        // is the same motion the shadcn toaster draws, minus the scale the pin
+        // has no transform for. See [`TOAST_RISE`].
+        let toasts: Vec<_> = toasts
+            .into_iter()
+            .map(|(toast, status)| {
+                let leaving = status == ToastTransitionStatus::Ending;
+                let key = (
+                    ElementId::from(SharedString::from(format!("ordo-toast-{}", toast.message))),
+                    "progress",
+                );
+                if self
+                    .0
+                    .read(cx)
+                    .seeded
+                    .borrow_mut()
+                    .insert(toast.message.clone())
+                {
+                    let _: f32 = transition(
+                        key.clone(),
+                        0.0,
+                        Transition::new(Duration::ZERO),
+                        window,
+                        cx,
+                    );
+                }
+                let progress: f32 = transition(
+                    key,
+                    if leaving { 0.0 } else { 1.0 },
+                    Transition::new(Duration::from_millis(if leaving {
+                        tokens::motion::OVERLAY_CLOSE_DURATION_MS.into()
+                    } else {
+                        tokens::motion::OVERLAY_OPEN_DURATION_MS.into()
+                    }))
+                    .ease(if leaving {
+                        ease_in_cubic
+                    } else {
+                        ease_out_cubic
+                    }),
+                    window,
+                    cx,
+                );
+                (toast, progress)
+            })
+            .collect();
         let viewport = window.viewport_size();
         let host = self.clone();
-        let items = toasts.into_iter().map(move |toast| {
+        let items = toasts.into_iter().map(move |(toast, progress)| {
             let id = toast.message.clone();
             let dismiss = {
                 let host = host.clone();
@@ -797,6 +883,9 @@ impl OverlayHost {
                     move || format!("toast-{message}")
                 })
                 .occlude()
+                .relative()
+                .top(px((1.0 - progress) * scale.apply(TOAST_RISE)))
+                .opacity(progress)
                 .flex()
                 .items_center()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
@@ -1358,7 +1447,55 @@ mod tests {
 
         cx.update(|_, cx| host.dismiss_toast("Congregation display disconnected.", cx));
         cx.run_until_parked();
+        view.read_with(cx, |view, cx| {
+            assert_eq!(
+                view.host.toasts(cx).len(),
+                1,
+                "a dismissed toast is still on screen for the length of its exit"
+            );
+        });
+        settle(cx);
         view.read_with(cx, |view, cx| assert!(view.host.toasts(cx).is_empty()));
+    }
+
+    /// A toast arrives from below and leaves the same way, rather than cutting
+    /// in and out. See [`TOAST_RISE`].
+    #[gpui::test]
+    fn a_toast_arrives_from_below_and_falls_back_out(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|_, cx| host.notify(Toast::failure("Congregation display lost."), cx));
+        cx.run_until_parked();
+        let arriving = cx
+            .debug_bounds("toast-Congregation display lost.")
+            .expect("it is mounted");
+
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let resting = cx.debug_bounds("toast-Congregation display lost.").unwrap();
+        assert_eq!(
+            arriving.origin.y - resting.origin.y,
+            px(TOAST_RISE),
+            "it arrives one control height below where it rests"
+        );
+
+        cx.update(|_, cx| host.dismiss_toast("Congregation display lost.", cx));
+        cx.executor().advance_clock(Duration::from_millis(
+            (tokens::motion::OVERLAY_CLOSE_DURATION_MS / 2).into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("toast-Congregation display lost.")
+                .unwrap()
+                .origin
+                .y
+                > resting.origin.y,
+            "and falls back through on the way out rather than vanishing"
+        );
     }
 
     /// The final node the operator's assistive technology reads, captured from
