@@ -345,10 +345,10 @@ taller than its bounded owner gives no sign that more content exists below the
 fold. Ordo therefore owns one thin overlay indicator, `ui::scroll`, drawn from
 the handle's bounds, maximum offset, and offset and dragging through
 `set_offset`, shared by every bounded scrolling surface rather than
-reimplemented per list. It also has to own the
-repaint: the pin measures a surface during prepaint and refuses to dirty a
-window mid-draw, so the indicator would otherwise be a frame behind whatever it
-reports. Adopting a base scrollbar later reruns this qualification.
+reimplemented per list. It also has to own the repaint: the pin measures a
+surface during prepaint and refuses to dirty a window mid-draw, so the indicator
+would otherwise be a frame behind whatever it reports. Adopting a base scrollbar
+later reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no
