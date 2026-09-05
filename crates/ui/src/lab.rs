@@ -765,7 +765,8 @@ mod tests {
                                 "the offered name is truncated inside the popup \
                                  ({appearance:?} {scale:?})"
                             );
-                            cx.simulate_keystrokes("escape");
+                            // Taken the way an operator reaches for it.
+                            cx.simulate_click(create.center(), gpui::Modifiers::default());
                             assert!(cx.debug_bounds("selection-list").is_none());
                         }
                         if scenario == "combobox" {

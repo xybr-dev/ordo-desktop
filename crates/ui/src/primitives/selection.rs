@@ -336,8 +336,11 @@ impl SelectionState {
     /// Restore a local tab set's last meaningful target.
     pub fn focus_active(&self, window: &mut Window, cx: &mut App) {
         let state = self.0.read(cx);
-        if let Some(i) = state.active {
-            state.focus[i].clone().focus(window, cx);
+        // `active` can be the offered name's index, which has no handle. No
+        // Combobox calls this — it restores a tab set — but the state is
+        // shared, so the lookup asks like the rest.
+        if let Some(handle) = state.active.and_then(|i| state.focus.get(i)) {
+            handle.clone().focus(window, cx);
         }
     }
 }
@@ -463,8 +466,14 @@ impl Control {
         let state = self.state.clone();
         move |event, window, cx| {
             state.0.update(cx, |state, cx| {
+                // The offered name is one past the collection, so this asks
+                // rather than indexes, as every other lookup that can meet it
+                // does. It is always eligible: there is nothing to disable.
                 if event.button == gpui::MouseButton::Left
-                    && !state.choices[i].availability.is_disabled()
+                    && state
+                        .choices
+                        .get(i)
+                        .is_none_or(|c| !c.availability.is_disabled())
                 {
                     state.active = Some(i);
                     state.focus_active(window, cx);
@@ -1739,13 +1748,23 @@ mod tests {
             let state = view.read(cx).state.0.read(cx);
             assert_eq!(state.active_choice(cx), Some(4), "one past the collection");
         });
+        // The pointer reaches the row the same way it reaches any other.
+        let offered = cx.debug_bounds("choice-create").unwrap();
+        cx.simulate_click(offered.center(), gpui::Modifiers::default());
+        view.read_with(cx, |v, cx| {
+            assert!(!v.state.is_open(cx));
+            assert_eq!(v.state.text(cx), Some("Most Rev. Juan".into()));
+            assert_eq!(v.cleared.get(), 1);
+        });
+        // And the keyboard reaches it the same way.
+        press(cx, "down");
         press(cx, "enter");
         cx.update(|window, cx| {
             let v = view.read(cx);
             assert!(!v.state.is_open(cx));
             assert_eq!(v.state.text(cx), Some("Most Rev. Juan".into()));
             assert_eq!(v.state.selected(cx), None, "a new name is not a choice");
-            assert_eq!(v.cleared.get(), 1, "and the caller is told to look");
+            assert_eq!(v.cleared.get(), 2, "and the caller is told to look");
             assert!(v.state.0.read(cx).trigger.is_focused(window));
         });
 
