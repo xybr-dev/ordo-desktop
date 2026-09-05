@@ -187,6 +187,11 @@ control. Limit icon-only controls to familiar compact actions such as Close,
 More, disclosure chevrons, and drag handles; every icon-only action has an
 accessible name and a pointer tooltip that repeats that name.
 
+An icon that describes its action leads the label. An icon that says a surface
+opens from this control — a Select or Menu chevron — trails it, pointing where
+that surface appears. A disclosure chevron is the exception: it maps to nesting
+rather than to a popup, so it keeps the leading edge beside the indent.
+
 Ordinary icons remain outlined. Filled shapes are reserved for status markers
 whose shape is part of the non-color state cue. A custom SVG is permitted only
 when an Ordo-specific concept cannot be expressed clearly with Lucide; it must
