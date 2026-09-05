@@ -117,7 +117,7 @@ matrix renders all four at both appearances, five scales, and both viewport
 presets (80 combinations), opens both popup kinds, asserts window containment,
 and scrolls the last multilingual value into view with End. The popup body
 uses a bounded native scroll container and Floating elevation. The shared
-application overlay host remains PR 7 work.
+application overlay host remains PR 9 work.
 
 Collections are fixed for a state's lifetime; callers recreate state when
 membership changes. Tabs expose local selection and a callback; the owning
