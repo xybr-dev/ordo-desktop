@@ -1135,7 +1135,7 @@ impl Control {
         // a child would be translated by the scroll offset and slide away with
         // the content it is reporting on.
         let list = div().relative().child(list).children(
-            open.then(|| scroll.indicator(window, cx, self.environment))
+            open.then(|| scroll.indicator(tokens::radius::OVERLAY, window, cx, self.environment))
                 .flatten(),
         );
         let popup = gpui::deferred(

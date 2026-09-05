@@ -257,10 +257,35 @@ filtering shrinks the content back inside its box.
 The indicator is a sibling of the scrolling element inside a `relative` wrapper,
 never its child: a child is translated by the scroll offset and would slide away
 with the content it reports on. It is drawn in the strong border token over the
-scrolled content with no reserved gutter, is absent whenever the content fits,
-and is not a control — wheel, keyboard, and `scroll_to_item` behavior are
-untouched, and it carries no AccessKit node, because a scroll position is not
-something to announce.
+scrolled content, half a spacing step off the edge and with no reserved gutter.
+Sitting on the edge means it has to stop where that edge curves away from it, so
+its track is inset by the surface's own radius at both ends and the surface says
+what that radius is — the popup's is `OVERLAY`, and a square pane passes `0`.
+It is also never taller than that track, which is what a very short surface
+would otherwise do to the minimum length.
+
+It is draggable, which `DESIGN.md` allows: the rule is that it is never the
+*only* way to scroll, and wheel, keyboard, and `scroll_to_item` behavior are
+untouched. Reconciling a grabbable control with a bar thin enough to sit over
+content takes two elements. A pointer-detecting strip along the edge widens the
+bar to a grabbable width when the pointer comes near it; only the bar itself
+blocks a press, so a row underneath loses nothing but the few pixels the bar
+actually covers. Hover is counted on both, because the bar occludes the strip
+beneath itself and a single flag would drop — and the bar shrink out from under
+the pointer — at the moment the pointer arrived on it.
+
+The drag is delta-based from where it took hold, so the indicator keeps the
+point it was grabbed by rather than jumping its middle to the pointer, and the
+pointer covers the track the bar has left to travel rather than the whole track,
+so a drag to the bottom lands on the bottom of the content. GPUI only reports
+moves outside an element's own bounds while a drag payload is active, which is
+what `on_drag` is for here — the pointer leaves a four-pixel bar immediately and
+has to keep dragging it anyway. The pointer says as much: the bar is an open
+hand until it is taken hold of and a closed one while it is being dragged.
+
+The indicator carries no AccessKit node: a scroll position is not something to
+announce, and it adds no keyboard obligation because it adds no keyboard
+behavior.
 
 Its proportions are asserted directly: how much of the content is visible, where
 that sits after scrolling, that an overscrolled offset stays inside its track,
@@ -269,7 +294,11 @@ the rest, so no scenario was added for it: the Menu and Select popups exceed
 their bounded height at every appearance, scale, and viewport, and assert the
 indicator is a thin overlay inside the popup and that it advances when `End`
 scrolls to the long last value; the Combobox filtered to its one match asserts
-the indicator is gone.
+the indicator is gone, and both ends of its travel stay clear of the popup's
+corners. One further test drives the pointer: the indicator widens as it is
+reached for, a real press-move-move-release drags the surface to the end of its
+collection, and the drag is not mistaken for the press outside that dismisses a
+popup.
 
 ### Pinned platform limitations
 
@@ -301,8 +330,9 @@ The pin supplies no scroll indicator. `overflow_y_scroll` scrolls from wheel
 and keyboard but paints nothing, and GPUI ships no scrollbar element, so a list
 taller than its bounded owner gives no sign that more content exists below the
 fold. Ordo therefore owns one thin overlay indicator, `ui::scroll`, drawn from
-the handle's bounds, maximum offset, and offset, shared by every bounded
-scrolling surface rather than reimplemented per list. It also has to own the
+the handle's bounds, maximum offset, and offset and dragging through
+`set_offset`, shared by every bounded scrolling surface rather than
+reimplemented per list. It also has to own the
 repaint: the pin measures a surface during prepaint and refuses to dirty a
 window mid-draw, so the indicator would otherwise be a frame behind whatever it
 reports. Adopting a base scrollbar later reruns this qualification.

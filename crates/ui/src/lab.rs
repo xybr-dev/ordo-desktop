@@ -843,15 +843,17 @@ mod tests {
                             );
                             // Six choices, one of them a paragraph, exceed the
                             // popup's bounded height at every scale.
+                            let corner = px(scale.apply(tokens::radius::OVERLAY));
                             let top = cx
                                 .debug_bounds("scroll-indicator")
                                 .expect("a popup taller than its viewport shows the indicator");
                             assert!(
-                                top.origin.y >= popup.origin.y
+                                top.origin.y >= popup.origin.y + corner
                                     && top.bottom() <= popup.bottom()
                                     && top.right() <= popup.right()
                                     && top.size.height < popup.size.height,
-                                "the indicator is a thin overlay inside the popup \
+                                "the indicator is a thin overlay inside the popup, clear of \
+                                 the corner its own edge curves away at \
                                  ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("end");
@@ -862,8 +864,10 @@ mod tests {
                             );
                             let bottom = cx.debug_bounds("scroll-indicator").unwrap();
                             assert!(
-                                bottom.origin.y > top.origin.y && bottom.bottom() <= popup.bottom(),
-                                "the indicator reports the position scrolling reached \
+                                bottom.origin.y > top.origin.y
+                                    && bottom.bottom() <= popup.bottom() - corner,
+                                "the indicator reports the position scrolling reached, and \
+                                 stops clear of the far corner too \
                                  ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("escape");
@@ -873,6 +877,77 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The indicator is also a control. `DESIGN.md` only forbids it being the
+    /// *only* way to scroll, so it stays out of the way until the pointer comes
+    /// for it and then takes the surface with it.
+    #[gpui::test]
+    fn the_scroll_indicator_widens_for_the_pointer_and_drags_the_surface(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        lab.update(cx, |lab, cx| assert!(lab.select_scenario("select", cx)));
+        cx.run_until_parked();
+        let trigger = cx.debug_bounds("button-Language: Not assigned").unwrap();
+        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+        let popup = cx.debug_bounds("selection-list").unwrap();
+        let resting = cx.debug_bounds("scroll-indicator").unwrap();
+        let last = cx.debug_bounds("choice-5").unwrap();
+        assert!(
+            last.origin.y > popup.bottom(),
+            "the collection starts taller than the popup, or there is nothing to drag"
+        );
+
+        // Reaching for the edge is enough: the indicator is too thin to aim at
+        // while it is only reporting a position.
+        cx.simulate_mouse_move(resting.center(), None, gpui::Modifiers::default());
+        let reached = cx.debug_bounds("scroll-indicator").unwrap();
+        assert!(
+            reached.size.width > resting.size.width,
+            "the indicator widens to something grabbable"
+        );
+
+        // Pulled the whole way down, by a pointer that leaves the indicator's
+        // own few pixels immediately.
+        cx.simulate_event(gpui::MouseDownEvent {
+            position: reached.center(),
+            modifiers: gpui::Modifiers::default(),
+            button: gpui::MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        // The first move past the threshold is what takes hold; GPUI reports a
+        // drag to the moves after it.
+        cx.simulate_mouse_move(
+            gpui::point(reached.center().x, reached.center().y + px(24.0)),
+            gpui::MouseButton::Left,
+            gpui::Modifiers::default(),
+        );
+        cx.simulate_mouse_move(
+            gpui::point(reached.center().x, popup.bottom() + px(200.0)),
+            gpui::MouseButton::Left,
+            gpui::Modifiers::default(),
+        );
+        cx.simulate_event(gpui::MouseUpEvent {
+            position: gpui::point(reached.center().x, popup.bottom() + px(200.0)),
+            modifiers: gpui::Modifiers::default(),
+            button: gpui::MouseButton::Left,
+            click_count: 1,
+        });
+
+        let dragged = cx.debug_bounds("scroll-indicator").unwrap();
+        assert!(
+            dragged.origin.y > reached.origin.y && dragged.bottom() <= popup.bottom(),
+            "the indicator reports where the drag took the surface"
+        );
+        let last = cx.debug_bounds("choice-5").unwrap();
+        assert!(
+            last.bottom() <= popup.bottom() && last.origin.y >= popup.origin.y,
+            "the end of the collection is what the drag arrived at"
+        );
+        assert!(
+            cx.debug_bounds("selection-list").is_some(),
+            "dragging the indicator is not a press outside the popup"
+        );
     }
 
     #[gpui::test]
