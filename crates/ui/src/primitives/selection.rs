@@ -472,7 +472,10 @@ impl Control {
             // with the [MANUAL] check until a harness can measure text.
             .truncate()
             .on_surface(self.surface)
+            // The chevron says a popup opens below, so it points at where the
+            // popup appears rather than leading the label.
             .icon(crate::assets::icon::CHEVRON_DOWN)
+            .icon_trailing()
             .on_activate({
                 let state = self.state.clone();
                 move |w, cx| {

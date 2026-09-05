@@ -34,6 +34,7 @@ pub struct Button {
     name: Option<SharedString>,
     truncate: bool,
     icon: Option<&'static str>,
+    icon_trailing: bool,
     icon_only: bool,
     tooltip: Option<SharedString>,
     availability: Availability,
@@ -54,6 +55,7 @@ impl Button {
             name: None,
             truncate: false,
             icon: None,
+            icon_trailing: false,
             icon_only: false,
             tooltip: None,
             availability: Availability::default(),
@@ -83,6 +85,15 @@ impl Button {
     /// One bundled Lucide icon, from [`crate::assets::icon`].
     pub fn icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Places the icon after the label. An icon that describes the action
+    /// leads; an icon that says a surface opens below this control — a Select
+    /// or Menu chevron — trails, pointing where the popup appears. A
+    /// Disclosure's chevron is a twisty and keeps the leading edge.
+    pub fn icon_trailing(mut self) -> Self {
+        self.icon_trailing = true;
         self
     }
 
@@ -156,6 +167,40 @@ impl Button {
             .then_some(self.on_activate)
             .flatten();
 
+        let glyph = self.icon.map(|icon| {
+            svg()
+                .debug_selector({
+                    let label = label.clone();
+                    move || format!("icon-{label}")
+                })
+                .flex_none()
+                .size(px(icon_size))
+                .text_color(rgb(if disabled {
+                    palette.text_muted
+                } else {
+                    palette.text
+                }))
+                .data(icon.as_bytes())
+                .into_any_element()
+        });
+        let text = (!icon_only).then({
+            let label = label.clone();
+            move || {
+                if self.truncate {
+                    // The row clips and the label ellipsizes: without both, a
+                    // bare text child ignores `max_w` and paints past the box.
+                    div().min_w_0().truncate().child(label).into_any_element()
+                } else {
+                    label.into_any_element()
+                }
+            }
+        });
+        let icon_and_label = if self.icon_trailing {
+            [text, glyph]
+        } else {
+            [glyph, text]
+        };
+
         gpui_base::Button::new(self.id)
             .debug_selector({
                 let label = label.clone();
@@ -217,30 +262,8 @@ impl Button {
                 palette.text
             }))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-            .when_some(self.icon, |control, icon| {
-                control.child(
-                    svg()
-                        .flex_none()
-                        .size(px(icon_size))
-                        .text_color(rgb(if disabled {
-                            palette.text_muted
-                        } else {
-                            palette.text
-                        }))
-                        .data(icon.as_bytes()),
-                )
-            })
-            .when(!icon_only, |control| {
-                if self.truncate {
-                    // The row clips and the label ellipsizes: without both, a
-                    // bare text child ignores `max_w` and paints past the box.
-                    control
-                        .overflow_hidden()
-                        .child(div().min_w_0().truncate().child(label))
-                } else {
-                    control.child(label)
-                }
-            })
+            .when(self.truncate, |control| control.overflow_hidden())
+            .children(icon_and_label.into_iter().flatten())
     }
 }
 
@@ -355,6 +378,34 @@ mod tests {
             prefer_character_input: false,
         });
         cx.simulate_event(KeyUpEvent { keystroke });
+    }
+
+    #[gpui::test]
+    fn a_popup_chevron_trails_its_label_and_an_action_icon_leads(cx: &mut TestAppContext) {
+        for trailing in [false, true] {
+            let cx = open(cx, move |environment| {
+                let button =
+                    Button::new("open", "Language", environment).icon(assets::icon::CHEVRON_DOWN);
+                if trailing {
+                    button.icon_trailing()
+                } else {
+                    button
+                }
+            });
+            let control = cx.debug_bounds("button-Language").expect("the button");
+            let icon = cx.debug_bounds("icon-Language").expect("the icon");
+            if trailing {
+                assert!(
+                    icon.origin.x > control.center().x,
+                    "a popup chevron points at where the popup opens"
+                );
+            } else {
+                assert!(
+                    icon.origin.x < control.center().x,
+                    "an icon that describes the action leads its label"
+                );
+            }
+        }
     }
 
     #[gpui::test]
