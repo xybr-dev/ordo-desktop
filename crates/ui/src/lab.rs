@@ -19,7 +19,7 @@ use crate::{
         button::Button,
         disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
-        selection::{Choice, Combobox, Menu, SelectionState, Tabs},
+        selection::{Choice, Menu, Select, SelectionState, Tabs},
     },
     resolved_appearance, tokens,
 };
@@ -116,8 +116,8 @@ static SCENARIOS: &[Scenario] = &[
         render: render_menu,
     },
     Scenario {
-        name: "combobox",
-        render: render_combobox,
+        name: "select",
+        render: render_select,
     },
     Scenario {
         name: "tabs",
@@ -149,11 +149,11 @@ fn render_menu(environment: UiEnvironment, window: &mut Window, cx: &mut App) ->
         )
         .into_any_element()
 }
-fn render_combobox(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
-    let state = SelectionState::keyed("lab-combobox", choices(), Some(0), window, cx);
-    row("scenario-combobox", environment)
+fn render_select(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = SelectionState::keyed("lab-select", choices(), Some(0), window, cx);
+    row("scenario-select", environment)
         .child(
-            Combobox::new("combobox", "Language", &state, environment)
+            Select::new("select", "Language", &state, environment)
                 .on_surface(tokens::palette(environment.appearance()).surface),
         )
         .into_any_element()
@@ -188,19 +188,55 @@ fn render_tabs(environment: UiEnvironment, window: &mut Window, cx: &mut App) ->
         .into_any_element()
 }
 fn render_disclosure(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
-    let state = DisclosureState::keyed("lab-disclosure", window, cx);
+    let scale = environment.preferences().scale;
+    let stage = tokens::palette(environment.appearance()).surface;
+    let details = DisclosureState::keyed("lab-disclosure", window, cx);
+    let overflow = DisclosureState::keyed("lab-disclosure-overflow", window, cx);
+    let detail = |label: &'static str, value: &'static str| {
+        div()
+            .flex()
+            .gap(px(scale.apply(tokens::spacing::RELATED)))
+            .child(
+                div()
+                    .text_color(gpui::rgb(
+                        tokens::palette(environment.appearance()).text_muted,
+                    ))
+                    .child(label),
+            )
+            .child(value)
+    };
     row("scenario-disclosure", environment)
+        .flex_col()
+        // What the primitive is for: structured secondary detail kept on
+        // screen and reachable without a card or an overlay.
         .child(
             Disclosure::new(
                 "disclosure",
                 "Details",
-                &state,
+                &details,
                 environment,
                 div()
-                    .child(fixtures::LONG_MULTILINGUAL_BODY)
-                    .child(Button::new("inspect", "Inspect", environment)),
+                    .flex()
+                    .flex_col()
+                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                    .child(detail("Presider", "Fr. Antonio Reyes"))
+                    .child(detail("Choir", "San Nicolas Parish Choir"))
+                    .child(detail("Language", "Cebuano"))
+                    .child(Button::new("inspect", "Inspect", environment).on_surface(stage)),
             )
-            .on_surface(tokens::palette(environment.appearance()).surface),
+            .on_surface(stage),
+        )
+        // The same primitive holding prose that has to wrap inside its region
+        // rather than run off the window.
+        .child(
+            Disclosure::new(
+                "disclosure-overflow",
+                "Notes",
+                &overflow,
+                environment,
+                div().child(fixtures::LONG_MULTILINGUAL_BODY),
+            )
+            .on_surface(stage),
         )
         .into_any_element()
 }
@@ -608,7 +644,7 @@ mod tests {
                 for viewport in ViewportPreset::ALL {
                     let (width, height) = viewport.size();
                     cx.simulate_resize(size(px(width), px(height)));
-                    for scenario in ["menu", "combobox", "tabs", "disclosure"] {
+                    for scenario in ["menu", "select", "tabs", "disclosure"] {
                         lab.update(cx, |lab, cx| {
                             lab.change(
                                 EnvironmentChange::SetPreferences(UiPreferences {
@@ -622,12 +658,12 @@ mod tests {
                         });
                         let selector = match scenario {
                             "menu" => "scenario-menu",
-                            "combobox" => "scenario-combobox",
+                            "select" => "scenario-select",
                             "tabs" => "scenario-tabs",
                             _ => "scenario-disclosure",
                         };
                         assert!(cx.debug_bounds(selector).is_some());
-                        if matches!(scenario, "menu" | "combobox") {
+                        if matches!(scenario, "menu" | "select") {
                             let label = if scenario == "menu" {
                                 "button-More actions"
                             } else {
@@ -640,6 +676,23 @@ mod tests {
                             assert!(
                                 popup.right() <= px(width) && popup.bottom() <= px(height),
                                 "{scenario} {appearance:?} {scale:?}"
+                            );
+                            // Containment alone passes for a popup rendered
+                            // anywhere that fits, which is how a whole
+                            // control-height of dead space survived this matrix.
+                            assert!(
+                                popup.origin.y >= trigger.bottom()
+                                    && popup.origin.y - trigger.bottom()
+                                        <= px(scale.apply(tokens::spacing::RELATED_TIGHT)),
+                                "the popup opens directly under its trigger \
+                                 ({scenario} {appearance:?} {scale:?})"
+                            );
+                            assert!(
+                                popup.origin.x == trigger.origin.x
+                                    || popup.right() >= px(width) - px(16.0),
+                                "the popup aligns to the trigger's leading edge \
+                                 unless the window snapped it \
+                                 ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("end");
                             let last = cx.debug_bounds("choice-5").unwrap();

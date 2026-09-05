@@ -36,12 +36,13 @@ impl DisclosureState {
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.0.read(cx).trigger.clone().focus(window, cx);
     }
-    pub fn set_expanded(&self, expanded: bool, window: &mut Window, cx: &mut App) {
+    /// A pure state setter. Focus return belongs to the invoker's own
+    /// activation, not to a caller collapsing a section for its own reasons —
+    /// a changed selection, restored layout, or the constrained-layout rules —
+    /// with the operator's focus somewhere else entirely.
+    pub fn set_expanded(&self, expanded: bool, cx: &mut App) {
         self.0.update(cx, |s, cx| {
             s.expanded = expanded;
-            if !expanded {
-                s.trigger.focus(window, cx);
-            }
             cx.notify();
         });
     }
@@ -87,7 +88,15 @@ impl Disclosure {
             } else {
                 crate::assets::icon::CHEVRON_RIGHT
             })
-            .on_activate(move |w, cx| state.set_expanded(!state.expanded(cx), w, cx))
+            .on_activate(move |w, cx| {
+                let expanded = !state.expanded(cx);
+                state.set_expanded(expanded, cx);
+                // Collapsing removes the content the operator was in, so the
+                // invoker they used takes focus back.
+                if !expanded {
+                    state.focus(w, cx);
+                }
+            })
             .control()
             .track_focus(&focus)
             .aria_expanded(expanded)
@@ -102,6 +111,9 @@ impl RenderOnce for Disclosure {
                 .open(expanded)
                 .flex()
                 .flex_col()
+                // A disclosure invoker is intrinsically sized. Stretching it
+                // makes a full-width bar with its label marooned in the middle.
+                .items_start()
                 .gap(px(self
                     .environment
                     .preferences()
@@ -111,6 +123,11 @@ impl RenderOnce for Disclosure {
                 .content(
                     div()
                         .id("region")
+                        // A flex item's `min-width: auto` lets a long unbroken
+                        // run size the line instead of wrapping into it, so the
+                        // region needs both to fill its owner and to shrink.
+                        .w_full()
+                        .min_w_0()
                         .role(Role::Region)
                         .aria_label(self.label)
                         .debug_selector(|| "disclosure-content".into())
@@ -167,10 +184,26 @@ mod tests {
             assert_eq!(node.label(), Some("Details"));
             assert_eq!(node.is_expanded(), Some(true));
             assert!(node.supports_action(gpui::accesskit::Action::Click));
-            state.set_expanded(false, w, cx);
+            // A caller collapsing for its own reasons only changes state.
+            state.set_expanded(false, cx);
+            assert!(!state.expanded(cx));
+            state.set_expanded(true, cx);
+        });
+        assert!(cx.debug_bounds("disclosure-content").is_some());
+
+        // Collapsing from the invoker does return focus to it.
+        let keystroke = gpui::Keystroke::parse("enter").unwrap();
+        cx.simulate_event(gpui::KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(gpui::KeyUpEvent { keystroke });
+        assert!(cx.debug_bounds("disclosure-content").is_none());
+        cx.update(|w, cx| {
+            let state = view.read(cx).0.clone();
             assert!(!state.expanded(cx));
             assert!(state.0.read(cx).trigger.is_focused(w));
         });
-        assert!(cx.debug_bounds("disclosure-content").is_none());
     }
 }

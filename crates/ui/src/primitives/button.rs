@@ -31,6 +31,8 @@ pub const TOOLTIP_SHOW_DELAY: std::time::Duration = std::time::Duration::from_mi
 pub struct Button {
     id: ElementId,
     label: SharedString,
+    name: Option<SharedString>,
+    truncate: bool,
     icon: Option<&'static str>,
     icon_only: bool,
     tooltip: Option<SharedString>,
@@ -49,6 +51,8 @@ impl Button {
         Self {
             id: id.into(),
             label: label.into(),
+            name: None,
+            truncate: false,
             icon: None,
             icon_only: false,
             tooltip: None,
@@ -57,6 +61,23 @@ impl Button {
             surface: tokens::palette(environment.appearance()).background,
             on_activate: None,
         }
+    }
+
+    /// The accessible name, when the visible label carries more than the
+    /// control's identity. A Select trigger shows `"Language: Cebuano"` but is
+    /// named `"Language"`, so its value is announced once, by `aria_value`.
+    pub fn name(mut self, name: impl Into<SharedString>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Ellipsizes the visible label instead of letting it paint outside the
+    /// control. Truncation is per-context — a title, a file name, and a value
+    /// do not shorten the same way — so the owning control asks for it and
+    /// bounds the width itself. The accessible name keeps the full text.
+    pub fn truncate(mut self) -> Self {
+        self.truncate = true;
+        self
     }
 
     /// One bundled Lucide icon, from [`crate::assets::icon`].
@@ -108,6 +129,7 @@ impl Button {
         let height = scale.apply(tokens::density::DEFAULT_CONTROL);
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
+        let name = self.name.clone().unwrap_or_else(|| label.clone());
         // A tooltip may repeat the reason but never carry it alone, so the
         // Unavailable Cue below the control stays the real explanation. An
         // icon-only control also needs its name here, since nothing on screen
@@ -117,12 +139,12 @@ impl Button {
                 .clone()
                 .or_else(|| match (self.availability.reason(), icon_only) {
                     (Some(reason), true) => {
-                        Some(format!("{label}. {}. {reason}", Availability::UNAVAILABLE).into())
+                        Some(format!("{name}. {}. {reason}", Availability::UNAVAILABLE).into())
                     }
                     (Some(reason), false) => {
                         Some(format!("{}. {reason}", Availability::UNAVAILABLE).into())
                     }
-                    (None, true) => Some(label.clone()),
+                    (None, true) => Some(name.clone()),
                     (None, false) => None,
                 });
         // Activation is dropped rather than intercepted for both blocked
@@ -140,7 +162,7 @@ impl Button {
                 move || format!("button-{label}")
             })
             .disabled(disabled)
-            .accessibility_label(label.clone())
+            .accessibility_label(name)
             // ponytail: the pinned GPUI exposes no disabled flag to AccessKit
             // (see docs/qualification/GPUI-BASE-T0.3.md), so the blocked state
             // rides the description. Move it to the flag when a revision has one.
@@ -208,7 +230,17 @@ impl Button {
                         .data(icon.as_bytes()),
                 )
             })
-            .when(!icon_only, |control| control.child(label))
+            .when(!icon_only, |control| {
+                if self.truncate {
+                    // The row clips and the label ellipsizes: without both, a
+                    // bare text child ignores `max_w` and paints past the box.
+                    control
+                        .overflow_hidden()
+                        .child(div().min_w_0().truncate().child(label))
+                } else {
+                    control.child(label)
+                }
+            })
     }
 }
 

@@ -1,4 +1,6 @@
-//! Menu actions, select-only Combobox values, and local-view Tabs.
+//! Menu actions, Select values, and local-view Tabs.
+//! A Select is a button trigger plus a popup list. The editable Combobox that
+//! `DESIGN.md` distinguishes from it is a separate later primitive.
 //! Collections are fixed for the lifetime of their state; recreate state when
 //! membership changes. Labels and availability belong to each owning caller.
 
@@ -73,9 +75,19 @@ impl State {
         cx.notify();
     }
 
+    /// Closes and returns focus to the trigger. `DESIGN.md` (Focus Navigation)
+    /// asks for that when a *focused* surface closes: Escape, Tab, selection.
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = false;
         self.trigger.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Closes without touching focus, for the operator who pointed somewhere
+    /// else. Focusing the trigger here would round-trip focus off whatever
+    /// they actually clicked.
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        self.open = false;
         cx.notify();
     }
 
@@ -146,10 +158,10 @@ impl SelectionState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     Menu,
-    Combobox,
+    Select,
     Tabs,
 }
-type Select = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+type OnSelect = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
 struct Control {
     id: ElementId,
@@ -158,7 +170,7 @@ struct Control {
     environment: UiEnvironment,
     surface: u32,
     kind: Kind,
-    on_select: Option<Select>,
+    on_select: Option<OnSelect>,
 }
 
 macro_rules! control {
@@ -209,9 +221,9 @@ control!(
     "A popup collection of actions; selection invokes an action and returns focus."
 );
 control!(
-    Combobox,
-    Combobox,
-    "A select-only Combobox. Arrow focus is provisional until Enter or pointer selection."
+    Select,
+    Select,
+    "A button trigger plus a popup list. Arrow focus is provisional until Enter or pointer selection."
 );
 control!(
     Tabs,
@@ -247,7 +259,7 @@ impl Control {
                 .scale
                 .apply(tokens::typography::LABEL.size)))
     }
-    fn combobox(&self, cx: &App) -> gpui_base::Select {
+    fn select_root(&self, cx: &App) -> gpui_base::Select {
         let current = self.state.0.read(cx);
         let state = self.state.clone();
         gpui_base::Select::new(self.id.clone())
@@ -326,6 +338,19 @@ impl Control {
             .when(state.selected == Some(i) && self.kind != Kind::Menu, |d| {
                 d.bg(rgb(palette.selection))
             })
+            // An Unavailable choice stays focusable and inspectable but must
+            // not advertise itself as clickable, so it gets neither. The
+            // hover fill is withheld from the selected row so hovering it
+            // cannot flatten the selection it is painted over.
+            //
+            // ponytail: DESIGN.md asks for a 120ms transition; GPUI has no
+            // declarative transition at the pin, as on the Button styles.
+            .when(choice.availability.is_available(), |d| {
+                d.cursor_pointer().when(
+                    !(state.selected == Some(i) && self.kind != Kind::Menu),
+                    |d| d.hover(|style| style.bg(rgb(palette.surface_secondary))),
+                )
+            })
             .child(choice.label.clone())
             .when_some(description, |d, text| {
                 d.child(super::note(
@@ -366,6 +391,11 @@ impl Control {
             .px(px(scale.apply(12.0)))
             .py(px(scale.apply(8.0)))
             .when(state.selected == Some(i), |t| t.bg(rgb(palette.selection)))
+            .when(choice.availability.is_available(), |t| {
+                t.cursor_pointer().when(state.selected != Some(i), |t| {
+                    t.hover(|style| style.bg(rgb(palette.surface_secondary)))
+                })
+            })
             .text_color(rgb(if choice.availability.is_disabled() {
                 palette.text_muted
             } else {
@@ -384,7 +414,60 @@ impl Control {
         focus_visible(tab, self.environment, self.surface)
     }
 
-    fn select(&self) -> Select {
+    /// The trigger, which is what carries the accessible name, expanded state,
+    /// and value, so it is also what a semantics test inspects.
+    fn trigger(&self, window: &Window, cx: &App) -> gpui_base::Button {
+        let state = self.state.0.read(cx);
+        let (open, handle) = (state.open, state.trigger.clone());
+        let value = state
+            .selected
+            .map(|i| state.choices[i].label.clone())
+            // ponytail: a bare literal until a caller needs another word.
+            // DESIGN.md makes Not assigned the state word, so it is the right
+            // default; a `placeholder(..)` builder is the seam when one does.
+            .unwrap_or_else(|| "Not assigned".into());
+        let scale = self.environment.preferences().scale;
+        // The value is the visible text but not the name: `aria_value` already
+        // announces it, and a name of "Language: Cebuano" would say it twice.
+        let text = if self.kind == Kind::Select {
+            format!("{}: {}", self.label, value)
+        } else {
+            self.label.to_string()
+        };
+        Button::new("trigger", text, self.environment)
+            .name(self.label.clone())
+            // ponytail: `debug_bounds` measures the box, not the glyphs, so no
+            // test here can see a label painting outside it — the box was 320px
+            // wide while the text ran past both edges. The visible half stays
+            // with the [MANUAL] check until a harness can measure text.
+            .truncate()
+            .on_surface(self.surface)
+            .icon(crate::assets::icon::CHEVRON_DOWN)
+            .on_activate({
+                let state = self.state.clone();
+                move |w, cx| {
+                    state.0.update(cx, |s, cx| {
+                        if s.open {
+                            s.close(w, cx);
+                        } else {
+                            s.open(w, cx);
+                        }
+                    })
+                }
+            })
+            .control()
+            .track_focus(&handle)
+            .aria_expanded(open)
+            .when(self.kind == Kind::Select, |b| b.aria_value(value))
+            .h_auto()
+            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+            .max_w(px(scale
+                .apply(320.0)
+                .min(f32::from(window.viewport_size().width) - 32.0)
+                .max(0.0)))
+    }
+
+    fn select(&self) -> OnSelect {
         let state = self.state.clone();
         let kind = self.kind;
         let callback = self.on_select.clone();
@@ -419,12 +502,7 @@ impl Control {
     fn render(self, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
         let state = self.state.0.read(cx);
         let open = state.open;
-        let selected = state.selected;
-        let trigger = state.trigger.clone();
         let choice_count = state.choices.len();
-        let value = selected
-            .map(|i| state.choices[i].label.clone())
-            .unwrap_or_else(|| "Not assigned".into());
         let scroll = state.scroll.clone();
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
@@ -500,56 +578,29 @@ impl Control {
             )])
             .on_mouse_down_out({
                 let state = self.state.clone();
-                move |_, w, cx| {
-                    state.0.update(cx, |s, cx| s.close(w, cx));
+                move |_, _, cx| {
+                    state.0.update(cx, |s, cx| s.dismiss(cx));
                     cx.stop_propagation();
                 }
             });
         let popup = gpui::deferred(
+            // `Anchored` is already positioned at the trigger's bottom-left, so
+            // this offset is the deliberate gap, not the trigger's own height.
             gpui::anchored()
                 .offset(gpui::point(
                     px(0.0),
-                    px(scale.apply(tokens::density::DEFAULT_CONTROL)),
+                    px(scale.apply(tokens::spacing::RELATED_TIGHT)),
                 ))
                 .snap_to_window_with_margin(px(16.0))
                 .child(list),
         )
         .with_priority(1);
-        let text = if kind == Kind::Combobox {
-            format!("{}: {}", self.label, value)
-        } else {
-            self.label.to_string()
-        };
-        let button = Button::new("trigger", text, self.environment)
-            .on_surface(self.surface)
-            .icon(crate::assets::icon::CHEVRON_DOWN)
-            .on_activate({
-                let state = self.state.clone();
-                move |w, cx| {
-                    state.0.update(cx, |s, cx| {
-                        if s.open {
-                            s.close(w, cx);
-                        } else {
-                            s.open(w, cx);
-                        }
-                    })
-                }
-            })
-            .control()
-            .track_focus(&trigger)
-            .aria_expanded(open)
-            .when(kind == Kind::Combobox, |b| b.aria_value(value))
-            .h_auto()
-            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-            .max_w(px(scale
-                .apply(320.0)
-                .min(f32::from(window.viewport_size().width) - 32.0)
-                .max(0.0)));
-        let trigger_element = focus_visible(button, self.environment, self.surface);
-        if kind == Kind::Combobox {
-            // Select is the qualified, named Combobox root. Popup key handling
+        let trigger_element =
+            focus_visible(self.trigger(window, cx), self.environment, self.surface);
+        if kind == Kind::Select {
+            // The base Select is the qualified popup root. Popup key handling
             // consumes Confirm before base can refocus a now-closed option.
-            self.combobox(cx)
+            self.select_root(cx)
                 .child(trigger_element)
                 .when(open, |s| s.child(popup))
                 .into_any_element()
@@ -664,7 +715,7 @@ mod tests {
 
     #[gpui::test]
     fn popup_keyboard_selection_escape_and_focus_return(cx: &mut TestAppContext) {
-        for kind in [Kind::Menu, Kind::Combobox] {
+        for kind in [Kind::Menu, Kind::Select] {
             let (view, cx) = open(cx, kind);
             for key in ["enter", "space"] {
                 press(cx, key);
@@ -696,7 +747,7 @@ mod tests {
                 assert!(s.0.read(cx).trigger.is_focused(w));
                 assert_eq!(
                     s.selected(cx),
-                    Some(if kind == Kind::Combobox { 3 } else { 0 })
+                    Some(if kind == Kind::Select { 3 } else { 0 })
                 );
             });
             press(cx, "down");
@@ -708,7 +759,7 @@ mod tests {
                 assert!(s.0.read(cx).trigger.is_focused(w));
                 assert_eq!(
                     s.selected(cx),
-                    Some(if kind == Kind::Combobox { 3 } else { 0 })
+                    Some(if kind == Kind::Select { 3 } else { 0 })
                 );
             });
         }
@@ -758,7 +809,7 @@ mod tests {
                 surface: 0,
             };
             assert_eq!(node(control.list()).role(), Role::Menu);
-            for kind in [Kind::Menu, Kind::Combobox, Kind::Tabs] {
+            for kind in [Kind::Menu, Kind::Select, Kind::Tabs] {
                 control.kind = kind;
                 for i in 0..4 {
                     let item = if kind == Kind::Tabs {
@@ -770,7 +821,7 @@ mod tests {
                         item.role(),
                         match kind {
                             Kind::Menu => Role::MenuItem,
-                            Kind::Combobox => Role::ListBoxOption,
+                            Kind::Select => Role::ListBoxOption,
                             Kind::Tabs => Role::Tab,
                         }
                     );
@@ -789,8 +840,20 @@ mod tests {
                     }
                 }
             }
-            control.kind = Kind::Combobox;
-            let root = node(control.combobox(cx).render(w, cx).into_element());
+            control.kind = Kind::Select;
+            // The trigger names the control and carries the value once. A name
+            // of "Languages: English" would have a screen reader read the
+            // value twice on the collapsed control.
+            let trigger = node(control.trigger(w, cx).render(w, cx).into_element());
+            assert_eq!(trigger.label(), Some("Languages"));
+            assert_eq!(trigger.value(), Some("English"));
+            control.kind = Kind::Menu;
+            assert_eq!(
+                node(control.trigger(w, cx).render(w, cx).into_element()).value(),
+                None
+            );
+            control.kind = Kind::Select;
+            let root = node(control.select_root(cx).render(w, cx).into_element());
             assert_eq!(root.role(), Role::ComboBox);
             assert_eq!(root.label(), Some("Languages"));
             assert_eq!(root.is_expanded(), Some(false));
@@ -803,7 +866,7 @@ mod tests {
 
     #[gpui::test]
     fn popup_tab_exits_and_pointer_selection_invokes_once(cx: &mut TestAppContext) {
-        for kind in [Kind::Menu, Kind::Combobox] {
+        for kind in [Kind::Menu, Kind::Select] {
             let (view, cx) = open(cx, kind);
             press(cx, "down");
             press(cx, "tab");
@@ -819,7 +882,7 @@ mod tests {
             view.read_with(cx, |v, cx| {
                 assert!(!v.state.is_open(cx));
                 assert_eq!(v.activations.get(), 1);
-                if kind == Kind::Combobox {
+                if kind == Kind::Select {
                     assert_eq!(v.state.selected(cx), Some(3));
                 }
             });
@@ -827,8 +890,27 @@ mod tests {
     }
 
     #[gpui::test]
+    fn pointer_dismissal_leaves_focus_where_the_operator_put_it(cx: &mut TestAppContext) {
+        for kind in [Kind::Menu, Kind::Select] {
+            let (view, cx) = open(cx, kind);
+            press(cx, "down");
+            view.read_with(cx, |v, cx| assert!(v.state.is_open(cx)));
+            let elsewhere = cx.debug_bounds("button-After").unwrap();
+            cx.simulate_click(elsewhere.center(), gpui::Modifiers::default());
+            cx.update(|w, cx| {
+                let s = view.read(cx).state.0.read(cx);
+                assert!(!s.open, "{kind:?} dismisses");
+                assert!(
+                    !s.trigger.is_focused(w),
+                    "{kind:?} does not pull focus back off the clicked control"
+                );
+            });
+        }
+    }
+
+    #[gpui::test]
     fn pointer_focus_on_unavailable_items_becomes_the_arrow_origin(cx: &mut TestAppContext) {
-        for kind in [Kind::Menu, Kind::Combobox, Kind::Tabs] {
+        for kind in [Kind::Menu, Kind::Select, Kind::Tabs] {
             let (view, cx) = open(cx, kind);
             if kind != Kind::Tabs {
                 press(cx, "down");
