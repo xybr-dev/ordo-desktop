@@ -17,7 +17,9 @@ use crate::{
     primitives::{
         Availability,
         button::Button,
+        disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
+        selection::{Choice, Combobox, Menu, SelectionState, Tabs},
     },
     resolved_appearance, tokens,
 };
@@ -109,7 +111,99 @@ static SCENARIOS: &[Scenario] = &[
         name: "fields",
         render: render_fields,
     },
+    Scenario {
+        name: "menu",
+        render: render_menu,
+    },
+    Scenario {
+        name: "combobox",
+        render: render_combobox,
+    },
+    Scenario {
+        name: "tabs",
+        render: render_tabs,
+    },
+    Scenario {
+        name: "disclosure",
+        render: render_disclosure,
+    },
 ];
+
+fn choices() -> Vec<Choice> {
+    vec![
+        Choice::new("Not assigned"),
+        Choice::new("English"),
+        Choice::new("Cebuano").availability(Availability::Disabled),
+        Choice::new("Filipino").availability(Availability::unavailable("The resource is missing")),
+        Choice::new(fixtures::LONG_CEBUANO_TITLE),
+        Choice::new(fixtures::LONG_MULTILINGUAL_BODY),
+    ]
+}
+
+fn render_menu(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = SelectionState::keyed("lab-menu", choices(), None, window, cx);
+    row("scenario-menu", environment)
+        .child(
+            Menu::new("menu", "More actions", &state, environment)
+                .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
+fn render_combobox(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = SelectionState::keyed("lab-combobox", choices(), Some(0), window, cx);
+    row("scenario-combobox", environment)
+        .child(
+            Combobox::new("combobox", "Language", &state, environment)
+                .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
+fn render_tabs(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = SelectionState::keyed(
+        "lab-tabs",
+        vec![
+            Choice::new("Upcoming"),
+            Choice::new("History"),
+            Choice::new("Archive"),
+            Choice::new("Templates"),
+        ],
+        Some(0),
+        window,
+        cx,
+    );
+    let label = ["Upcoming", "History", "Archive", "Templates"][state.selected(cx).unwrap_or(0)];
+    row("scenario-tabs", environment)
+        .flex_col()
+        .child(
+            Tabs::new("tabs", "Mass views", &state, environment)
+                .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .child(
+            div()
+                .id("local-view")
+                .role(gpui::Role::TabPanel)
+                .aria_label(label)
+                .child(label),
+        )
+        .into_any_element()
+}
+fn render_disclosure(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = DisclosureState::keyed("lab-disclosure", window, cx);
+    row("scenario-disclosure", environment)
+        .child(
+            Disclosure::new(
+                "disclosure",
+                "Details",
+                &state,
+                environment,
+                div()
+                    .child(fixtures::LONG_MULTILINGUAL_BODY)
+                    .child(Button::new("inspect", "Inspect", environment)),
+            )
+            .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
 
 pub fn scenarios() -> &'static [Scenario] {
     SCENARIOS
@@ -497,6 +591,68 @@ mod tests {
                 cx.debug_bounds("field-read-only").is_some(),
                 "the Read-only reason stays visible under {appearance:?}"
             );
+        }
+    }
+
+    #[gpui::test]
+    fn composite_scenarios_cover_the_appearance_scale_viewport_matrix(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        for appearance in [PreparationAppearance::Light, PreparationAppearance::Dark] {
+            for scale in [
+                crate::environment::InterfaceScale::Percent100,
+                crate::environment::InterfaceScale::Percent125,
+                crate::environment::InterfaceScale::Percent150,
+                crate::environment::InterfaceScale::Percent175,
+                crate::environment::InterfaceScale::Percent200,
+            ] {
+                for viewport in ViewportPreset::ALL {
+                    let (width, height) = viewport.size();
+                    cx.simulate_resize(size(px(width), px(height)));
+                    for scenario in ["menu", "combobox", "tabs", "disclosure"] {
+                        lab.update(cx, |lab, cx| {
+                            lab.change(
+                                EnvironmentChange::SetPreferences(UiPreferences {
+                                    appearance,
+                                    scale,
+                                }),
+                                cx,
+                            );
+                            lab.set_viewport(viewport, cx);
+                            assert!(lab.select_scenario(scenario, cx));
+                        });
+                        let selector = match scenario {
+                            "menu" => "scenario-menu",
+                            "combobox" => "scenario-combobox",
+                            "tabs" => "scenario-tabs",
+                            _ => "scenario-disclosure",
+                        };
+                        assert!(cx.debug_bounds(selector).is_some());
+                        if matches!(scenario, "menu" | "combobox") {
+                            let label = if scenario == "menu" {
+                                "button-More actions"
+                            } else {
+                                "button-Language: Not assigned"
+                            };
+                            let trigger = cx.debug_bounds(label).unwrap();
+                            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+                            let popup = cx.debug_bounds("selection-list").unwrap();
+                            assert!(popup.origin.x >= px(0.0) && popup.origin.y >= px(0.0));
+                            assert!(
+                                popup.right() <= px(width) && popup.bottom() <= px(height),
+                                "{scenario} {appearance:?} {scale:?}"
+                            );
+                            cx.simulate_keystrokes("end");
+                            let last = cx.debug_bounds("choice-5").unwrap();
+                            assert!(
+                                last.origin.y >= popup.origin.y && last.bottom() <= popup.bottom(),
+                                "arrow navigation scrolls the long last value into view"
+                            );
+                            cx.simulate_keystrokes("escape");
+                            assert!(cx.debug_bounds("selection-list").is_none());
+                        }
+                    }
+                }
+            }
         }
     }
 
