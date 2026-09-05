@@ -10,7 +10,12 @@
 //! and so is the Tab policy, because the pin registers a focus trap but leaves
 //! enforcing it to the styled façade this crate rejects.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    time::Duration,
+};
 
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, FocusHandle, IntoElement, ParentElement, Role,
@@ -67,8 +72,10 @@ const TOAST_RISE: f32 = tokens::density::DEFAULT_CONTROL;
 /// reach its Undo, short enough not to sit over the timeline.
 pub const TOAST_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// Cycling Tab inside a trap walks the whole window in the worst case; this
-/// only has to be larger than any real focus order.
+/// Cycling Tab inside a trap walks the whole window in the worst case. This is
+/// a backstop for a walk that never comes back around to where it started, not
+/// a bound on the focus order: giving up puts focus on the surface itself, so
+/// containment holds whatever the walk found.
 const CONTAINMENT_LIMIT: usize = 100;
 
 /// Which temporary surface a request is. Both are modal and both are rendered
@@ -252,6 +259,9 @@ struct Host {
     /// below it would simply be a row higher already. Rendering is the only
     /// place that knows either happened, and it holds the host by shared
     /// reference.
+    /// Whether the one scrim is currently drawn, which is what tells the frame
+    /// that draws it first to seed its fade rather than adopt it.
+    dimmed: Cell<bool>,
     seeded: RefCell<HashMap<SharedString, f32>>,
     /// What each mounted toast measured last frame, which is what makes the
     /// movement above an arriving one exactly as far as the arrival: a toast is
@@ -277,6 +287,7 @@ impl Host {
                 ),
                 ..Default::default()
             }),
+            dimmed: Cell::new(false),
             seeded: RefCell::new(HashMap::new()),
             heights: RefCell::new(HashMap::new()),
             next: 0,
@@ -317,7 +328,7 @@ impl Host {
         .detach();
     }
 
-    fn remove(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn remove(&mut self, id: usize, cx: &mut Context<Self>) {
         let Some(index) = self
             .entries
             .iter()
@@ -325,13 +336,7 @@ impl Host {
         else {
             return;
         };
-        let entry = self.entries.remove(index);
-        // `DESIGN.md`: a closed overlay restores focus to its invoker or the
-        // nearest surviving relevant entity, which for a nested slideover is
-        // the parent that opened it.
-        if let Some(invoker) = entry.invoker {
-            invoker.focus(window, cx);
-        }
+        self.entries.remove(index);
         cx.notify();
     }
 }
@@ -417,11 +422,19 @@ impl OverlayHost {
                 .find(|entry| entry.id == id && !entry.closing)?;
             entry.closing = true;
             cx.notify();
-            Some(entry.overlay.on_close.clone())
+            Some((entry.overlay.on_close.clone(), entry.invoker.clone()))
         });
-        let Some(on_close) = closed else {
+        let Some((on_close, invoker)) = closed else {
             return;
         };
+        // `DESIGN.md`: a closed overlay restores focus to its invoker or the
+        // nearest surviving relevant entity, which for a nested slideover is
+        // the parent that opened it. That happens here rather than at unmount,
+        // because this is where the surface stops being the operator's: the
+        // window may not spend the exit answering to a surface that is leaving.
+        if let Some(invoker) = invoker {
+            invoker.focus(window, cx);
+        }
         if let Some(on_close) = on_close {
             on_close(window, cx);
         }
@@ -436,8 +449,8 @@ impl OverlayHost {
         window
             .spawn(cx, async move |cx| {
                 cx.background_executor().timer(after).await;
-                cx.update(|window, cx| {
-                    host.update(cx, |host, cx| host.remove(id, window, cx));
+                cx.update(|_, cx| {
+                    host.update(cx, |host, cx| host.remove(id, cx));
                 })
                 .ok();
             })
@@ -500,17 +513,22 @@ impl OverlayHost {
             .read(cx)
             .entries
             .iter()
-            .map(|entry| entry.id)
+            .map(|entry| (entry.id, entry.closing))
             .collect();
-        let last = entries.len().saturating_sub(1);
+        // The surface that owns the operator is the topmost one that is not
+        // already leaving. A surface playing its exit owns nothing: it holds no
+        // scrim, traps no focus, and answers no key, because `DESIGN.md` will
+        // not let motion delay the next input.
+        let open = entries.iter().rposition(|(_, closing)| !closing);
         let surfaces: Vec<_> = entries
             .iter()
             .enumerate()
-            .filter_map(|(index, &id)| {
-                self.surface(id, index, index == last, environment, window, cx)
+            .filter_map(|(index, &(id, _))| {
+                self.surface(id, index, Some(index) == open, environment, window, cx)
             })
             .collect();
         div()
+            .children(self.scrim(open, environment, window, cx))
             .children(surfaces)
             .children(self.toast_stack(environment, window, cx))
     }
@@ -526,6 +544,9 @@ impl OverlayHost {
     ) -> Option<AnyElement> {
         let host = self.0.read(cx);
         let entry = host.entries.iter().find(|entry| entry.id == id)?;
+        // A surface with an open surface above it is the one that recedes; a
+        // surface with only a leaving one above it has the operator back.
+        let covered = host.entries[index + 1..].iter().any(|entry| !entry.closing);
         let (overlay, focus, scroll, closing) = (
             entry.overlay.clone(),
             entry.focus.clone(),
@@ -580,7 +601,7 @@ impl OverlayHost {
         } else {
             transition(
                 (ElementId::from(("ordo-overlay", id)), "recession"),
-                if top { 0.0 } else { scale.apply(RECESSION) },
+                if covered { scale.apply(RECESSION) } else { 0.0 },
                 Transition::new(Duration::from_millis(
                     tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
                 )),
@@ -631,7 +652,7 @@ impl OverlayHost {
         // The card is the only occluding part: a centring wrapper that took
         // presses would be a second, invisible scrim covering the whole
         // viewport, and the real one would never see the press that dismisses.
-        let card = semantics(&overlay, id)
+        let card = semantics(&overlay, id, !closing)
             .flex()
             .flex_col()
             .w(px(width))
@@ -681,21 +702,26 @@ impl OverlayHost {
             })
             .child(card);
 
-        // `DESIGN.md` gives the scrim the first pointer event, and that is not
-        // only about the click: a control under an overlay must not light up
-        // under the pointer or lend it a cursor either, or the surface reads as
-        // something the operator can reach past. `occlude` stops the hit test
-        // here, which settles all three at once.
-        let scrim = div()
-            .absolute()
-            .inset_0()
-            .occlude()
-            .bg(tokens::elevation::scrim(progress))
-            .into_any_element();
+        // Only the surface that owns the operator is a modal: it is the one that
+        // takes the press landing outside it and the one that holds the pointer
+        // away from everything behind. A surface under one of those, or playing
+        // its own exit, keeps its shape and its element identity — the controls
+        // inside it hold their state, and their focus handles with it — and
+        // gives up every claim on the window.
         let sheet = gpui_base::Sheet::new(cx)
             .focus_handle(focus.clone())
-            .overlay_closable(top && !closing)
-            .overlay(scrim)
+            .overlay_closable(top)
+            .overlay_interactive(top)
+            // The dim is the layer's, drawn once for the whole stack; what this
+            // one adds is the capture that stops a press outside the surface
+            // before it reaches whatever it landed on.
+            .overlay(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .when(top, |capture| capture.occlude())
+                    .into_any_element(),
+            )
             .on_close({
                 let close = close.clone();
                 move |_, window, cx| close(window, cx)
@@ -712,8 +738,78 @@ impl OverlayHost {
                     move |_: &FocusNext, window, cx| contain(&focus, false, window, cx)
                 })
                 .on_action(move |_: &FocusPrevious, window, cx| contain(&focus, true, window, cx))
-                .child(deferred(sheet).with_priority(OVERLAY_PRIORITY + index))
+                .child(deferred(sheet).with_priority(card_priority(index)))
                 .into_any_element(),
+        )
+    }
+
+    /// The one dim, for the whole stack.
+    ///
+    /// `DESIGN.md` gives every overlay and its scrim one application-owned
+    /// layer and says surfaces do not grow more dramatic with nesting, so the
+    /// dim is drawn once rather than once per surface: three nested slideovers
+    /// are behind the same `0.45`, not behind `0.83` of it. It fades in when
+    /// the first surface opens and out when the last one leaves, which is why
+    /// it is the layer's and not any one surface's.
+    ///
+    /// It gives the scrim the first pointer event too, and that is not only
+    /// about the click: a control under an overlay must not light up under the
+    /// pointer or lend it a cursor either, or the surface reads as something
+    /// the operator can reach past. `occlude` stops the hit test, which settles
+    /// all three at once — and it is dropped the moment the last surface starts
+    /// leaving, because a dim that is on its way out may not hold the window.
+    fn scrim(
+        &self,
+        open: Option<usize>,
+        environment: UiEnvironment,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        let host = self.0.read(cx);
+        if host.entries.is_empty() {
+            host.dimmed.set(false);
+            return None;
+        }
+        // The same first-frame seed every surface needs: `transition` adopts
+        // its first target on the spot, so a dim that asked for 0.45 first
+        // would simply be there.
+        if !host.dimmed.replace(true) {
+            let _: f32 = transition(
+                "ordo-overlay-scrim",
+                0.0,
+                Transition::new(Duration::ZERO),
+                window,
+                cx,
+            );
+        }
+        let progress: f32 = transition(
+            "ordo-overlay-scrim",
+            if open.is_some() { 1.0 } else { 0.0 },
+            Transition::new(Duration::from_millis(if open.is_some() {
+                tokens::motion::OVERLAY_OPEN_DURATION_MS.into()
+            } else {
+                tokens::motion::OVERLAY_CLOSE_DURATION_MS.into()
+            }))
+            .ease(if open.is_some() {
+                ease_out_cubic
+            } else {
+                ease_in_cubic
+            }),
+            window,
+            cx,
+        );
+        let _ = environment;
+        Some(
+            deferred(anchor(
+                window_box(window)
+                    .debug_selector(|| "overlay-scrim".into())
+                    .when(open.is_some(), |scrim| scrim.occlude())
+                    .bg(tokens::elevation::scrim(progress)),
+            ))
+            // Directly under the surface that owns the operator, and over every
+            // surface behind it.
+            .with_priority(OVERLAY_PRIORITY + 2 * open.unwrap_or(0))
+            .into_any_element(),
         )
     }
 
@@ -838,79 +934,33 @@ impl OverlayHost {
         // is the same motion the shadcn toaster draws, minus the scale the pin
         // has no transform for. See [`TOAST_RISE`].
         //
-        // What the arrival must not do is redraw the toasts above it a row
-        // higher between two frames. A toast that has never been measured is
-        // taken out of the flow for that one frame — it is at zero opacity
-        // anyway — so nothing moves while it is measured; from the next frame it
-        // is in the flow, and the toasts above it start exactly the distance it
-        // turned out to occupy and ride up over that.
+        // The stack it arrives into and leaves from moves too, and neither
+        // direction may be a jump. A toast that has never been measured is taken
+        // out of the flow for the one frame it is measured on — it is at zero
+        // opacity anyway — so nothing moves while it is measured; from the next
+        // frame it is in the flow, and the toasts above it start exactly the
+        // distance it turned out to occupy and ride up over that. A leaving one
+        // gives its row back the other way, by taking the space above it away as
+        // it fades, so the toasts above ride down over the whole exit instead of
+        // dropping when it unmounts.
         let gap = scale.apply(tokens::spacing::RELATED);
         let heights = self.0.read(cx).heights.borrow().clone();
-        let measured: Vec<Option<f32>> = toasts
-            .iter()
-            .map(|(toast, _)| heights.get(&toast.message).copied())
-            .collect();
-        let stack_below: Vec<f32> = {
-            let mut below = vec![0.0; measured.len()];
-            let mut running = 0.0;
-            for index in (0..measured.len()).rev() {
-                below[index] = running;
-                if let Some(height) = measured[index] {
-                    running += height + gap;
-                }
-            }
-            below
-        };
         let toasts: Vec<_> = toasts
             .into_iter()
-            .enumerate()
-            .map(|(index, (toast, status))| {
+            .map(|(toast, status)| {
                 let leaving = status == ToastTransitionStatus::Ending;
-                let key = |property| {
-                    (
-                        ElementId::from(SharedString::from(format!(
-                            "ordo-toast-{}",
-                            toast.message
-                        ))),
-                        property,
-                    )
-                };
-                let arriving = || {
-                    Transition::new(Duration::from_millis(
-                        tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
-                    ))
-                    .ease(ease_out_cubic)
-                };
-
-                // The stack below this one is what holds it off the bottom
-                // edge, so a taller one is that much upward movement rather than
-                // the jump the layout would draw on its own.
-                let below = stack_below[index];
-                let previously = self
-                    .0
-                    .read(cx)
-                    .seeded
-                    .borrow_mut()
-                    .insert(toast.message.clone(), below);
-                let mut shift: f32 = transition(key("shift"), 0.0, arriving(), window, cx);
-                if let Some(gained) = previously
-                    .map(|previously| below - previously)
-                    .filter(|gained| *gained > 0.0)
-                {
-                    shift += gained;
+                let key = (
+                    ElementId::from(SharedString::from(format!("ordo-toast-{}", toast.message))),
+                    "progress",
+                );
+                // A toast with no measurement has never been laid out, which is
+                // exactly the frame whose transition has to be seeded: it adopts
+                // its first target on the spot, so one that asked for its
+                // resting value first would simply be there.
+                let measured = heights.get(&toast.message).copied();
+                if measured.is_none() {
                     let _: f32 = transition(
-                        key("shift"),
-                        shift,
-                        Transition::new(Duration::ZERO),
-                        window,
-                        cx,
-                    );
-                    shift = transition(key("shift"), 0.0, arriving(), window, cx);
-                }
-
-                if previously.is_none() {
-                    let _: f32 = transition(
-                        key("progress"),
+                        key.clone(),
                         0.0,
                         Transition::new(Duration::ZERO),
                         window,
@@ -918,7 +968,7 @@ impl OverlayHost {
                     );
                 }
                 let progress: f32 = transition(
-                    key("progress"),
+                    key,
                     if leaving { 0.0 } else { 1.0 },
                     Transition::new(Duration::from_millis(if leaving {
                         tokens::motion::OVERLAY_CLOSE_DURATION_MS.into()
@@ -933,7 +983,65 @@ impl OverlayHost {
                     window,
                     cx,
                 );
-                (toast, progress, shift, measured[index].is_some())
+                (toast, leaving, progress, measured)
+            })
+            .collect();
+        // What each toast is holding the ones above it off the bottom edge by,
+        // which for a leaving one is only what it has not yet given back.
+        let stack_below: Vec<f32> = {
+            let mut below = vec![0.0; toasts.len()];
+            let mut running = 0.0;
+            for (index, (_, leaving, progress, measured)) in toasts.iter().enumerate().rev() {
+                below[index] = running;
+                if let Some(height) = measured {
+                    running += (height + gap) * if *leaving { *progress } else { 1.0 };
+                }
+            }
+            below
+        };
+        let toasts: Vec<_> = toasts
+            .into_iter()
+            .enumerate()
+            .map(|(index, (toast, leaving, progress, measured))| {
+                let key = (
+                    ElementId::from(SharedString::from(format!("ordo-toast-{}", toast.message))),
+                    "shift",
+                );
+                let riding = || {
+                    Transition::new(Duration::from_millis(
+                        tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+                    ))
+                    .ease(ease_out_cubic)
+                };
+                // A stack that grew under this toast moved it a row up between
+                // two frames; starting from where it already was and riding up
+                // over the arrival is what makes that a movement rather than a
+                // jump. A stack that shrank needs none of this: the leaving
+                // toast gives its row back continuously, so the layout is
+                // already drawing the ride down.
+                let below = stack_below[index];
+                let previously = self
+                    .0
+                    .read(cx)
+                    .seeded
+                    .borrow_mut()
+                    .insert(toast.message.clone(), below);
+                let mut shift: f32 = transition(key.clone(), 0.0, riding(), window, cx);
+                if let Some(gained) = previously
+                    .map(|previously| below - previously)
+                    .filter(|gained| *gained > 0.0)
+                {
+                    shift += gained;
+                    let _: f32 = transition(
+                        key.clone(),
+                        shift,
+                        Transition::new(Duration::ZERO),
+                        window,
+                        cx,
+                    );
+                    shift = transition(key, 0.0, riding(), window, cx);
+                }
+                (toast, progress, shift, measured, leaving)
             })
             .collect();
         let viewport = window.viewport_size();
@@ -944,7 +1052,7 @@ impl OverlayHost {
             .collect();
         let items = toasts
             .into_iter()
-            .map(move |(toast, progress, shift, in_flow)| {
+            .map(move |(toast, progress, shift, measured, leaving)| {
                 let id = toast.message.clone();
                 let dismiss = {
                     let host = host.clone();
@@ -965,10 +1073,17 @@ impl OverlayHost {
                     // immaterial; it only has to measure the size it will keep.
                     .map(|toast| {
                         let offset = (1.0 - progress) * scale.apply(TOAST_RISE) + shift;
-                        match in_flow {
-                            true => toast.top(px(offset)),
-                            false => toast.absolute().bottom(px(-offset)),
+                        match measured {
+                            Some(_) => toast.top(px(offset)),
+                            None => toast.absolute().bottom(px(-offset)),
                         }
+                    })
+                    // Leaving, it gives its own row back as it fades: the space
+                    // above it is what the stack is packed against, so taking
+                    // that away rides everything above it down over the exit
+                    // rather than at the end of it.
+                    .when_some(measured.filter(|_| leaving), |toast, height| {
+                        toast.mt(px(-(height + gap) * (1.0 - progress)))
                     })
                     .opacity(progress)
                     .flex()
@@ -1085,17 +1200,48 @@ impl OverlayHost {
     }
 }
 
+/// The window, as a box to place a deferred layer in. An anchored child is
+/// placed at its own size, so a surface bounded to the viewport needs the
+/// viewport to be a box first; `Sheet` builds itself the same one.
+fn window_box(window: &Window) -> gpui::Div {
+    let viewport = window.viewport_size();
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(viewport.width)
+        .h(viewport.height)
+}
+
+/// Places a layer at the window's own origin rather than wherever the element
+/// that rendered it happens to sit.
+fn anchor(child: impl IntoElement) -> gpui::Anchored {
+    gpui::anchored()
+        .position(gpui::point(px(0.0), px(0.0)))
+        .child(child)
+}
+
+/// Where a surface's card sits among the deferred layers. Odd, so that the one
+/// scrim can sit at the even priority directly beneath the surface it belongs
+/// to and still be above the card under that one.
+fn card_priority(index: usize) -> usize {
+    OVERLAY_PRIORITY + 2 * index + 1
+}
+
 /// The node an operator's assistive technology reads. The base sheet carries no
 /// role of its own, so the whole of it — role, name, and description — is
 /// Ordo's, which is also what makes it probeable on its own.
-fn semantics(overlay: &Overlay, id: usize) -> gpui::Stateful<gpui::Div> {
+fn semantics(overlay: &Overlay, id: usize, holding: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(("overlay-surface", id))
         .debug_selector({
             let title = overlay.title.clone();
             move || format!("overlay-{title}")
         })
-        .occlude()
+        // A card playing its exit is a picture of a surface: it stops taking the
+        // pointer the moment it stops being the operator's, so nothing it still
+        // covers has to wait out the fade.
+        .when(holding, |card| card.occlude())
         .role(Role::Dialog)
         .aria_label(overlay.title.clone())
         .when_some(overlay.description.clone(), |d, text| {
@@ -1123,6 +1269,12 @@ fn contain(trap: &FocusHandle, backwards: bool, window: &mut Window, cx: &mut Ap
         if window.focused(cx) == before {
             break;
         }
+    }
+    // Whatever the walk found, focus ends up inside the surface: giving up on
+    // the step that left it outside would be a modal that leaks Tab in exactly
+    // the case it exists for.
+    if !trap.contains_focused(window, cx) {
+        trap.focus(window, cx);
     }
 }
 
@@ -1361,6 +1513,10 @@ mod tests {
             assert_eq!(view.host.top(cx).as_deref(), Some("Song details"));
         });
         assert!(cx.debug_bounds("overlay-Inspector").is_some());
+        // `DESIGN.md` gives every overlay and its scrim one layer, and says
+        // surfaces do not grow more dramatic with nesting. The dim belongs to
+        // the layer, so three surfaces are behind one of it rather than three.
+        assert!(cx.debug_bounds("overlay-scrim").is_some());
 
         cx.simulate_keystrokes("escape");
         settle(cx);
@@ -1449,6 +1605,58 @@ mod tests {
             leaving.origin.y > resting.origin.y,
             "and falls back through on the way out"
         );
+        settle(cx);
+        view.read_with(cx, |view, cx| assert_eq!(view.host.depth(cx), 0));
+    }
+
+    /// `DESIGN.md` will not let motion delay the next input, and an exit is
+    /// motion: a surface stops being the operator's when it starts leaving, not
+    /// when it finishes leaving.
+    #[gpui::test]
+    fn a_surface_gives_the_window_back_the_moment_it_starts_leaving(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let beneath = cx
+            .debug_bounds("button-Beneath")
+            .expect("the covered control renders")
+            .center();
+        press_invoker(cx);
+        let invoker = view.read_with(cx, |view, cx| {
+            view.host.0.read(cx).entries[0]
+                .invoker
+                .clone()
+                .expect("the press that opened it had focus")
+        });
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("overlay-Delete this Mass?").is_some(),
+            "the exit is still playing, which is what makes the rest of this a test"
+        );
+        cx.update(|window, cx| {
+            assert!(
+                invoker.contains_focused(window, cx),
+                "focus is already back with whatever opened it"
+            );
+        });
+
+        cx.simulate_mouse_move(beneath, None, Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_some(),
+            "a control the leaving surface covered answers the pointer again"
+        );
+        cx.simulate_click(beneath, Modifiers::default());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.beneath.get(),
+                1,
+                "and the press reaches it rather than dying in the exit"
+            );
+        });
         settle(cx);
         view.read_with(cx, |view, cx| assert_eq!(view.host.depth(cx), 0));
     }
@@ -1656,6 +1864,53 @@ mod tests {
         );
     }
 
+    /// And the toast a leaving one was holding up rides back down over that
+    /// exit, rather than dropping the moment it unmounts.
+    #[gpui::test]
+    fn a_toast_rides_back_down_as_the_one_under_it_leaves(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let rest = |cx: &mut gpui::VisualTestContext| {
+            cx.executor().advance_clock(Duration::from_millis(
+                tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+            ));
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        };
+        cx.update(|_, cx| host.notify(Toast::failure("Congregation display lost."), cx));
+        mounted(cx);
+        rest(cx);
+        let alone = cx.debug_bounds("toast-Congregation display lost.").unwrap();
+
+        cx.update(|_, cx| host.notify(Toast::confirmation("Cue removed."), cx));
+        mounted(cx);
+        rest(cx);
+        let stacked = cx.debug_bounds("toast-Congregation display lost.").unwrap();
+        assert!(stacked.origin.y < alone.origin.y, "it was pushed up");
+
+        cx.update(|_, cx| host.dismiss_toast("Cue removed.", cx));
+        cx.executor().advance_clock(Duration::from_millis(
+            (tokens::motion::OVERLAY_CLOSE_DURATION_MS / 2).into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let riding = cx.debug_bounds("toast-Congregation display lost.").unwrap();
+        assert!(
+            riding.origin.y > stacked.origin.y && riding.origin.y < alone.origin.y,
+            "it is on its way back down while the one under it is still leaving"
+        );
+
+        settle(cx);
+        assert!(cx.debug_bounds("toast-Cue removed.").is_none());
+        assert_eq!(
+            cx.debug_bounds("toast-Congregation display lost.")
+                .unwrap()
+                .origin,
+            alone.origin,
+            "and arrives where it started, without a drop at the end"
+        );
+    }
+
     /// The final node the operator's assistive technology reads, captured from
     /// the element because the test platform activates no tree; see
     /// `docs/qualification/GPUI-BASE-T0.3.md`.
@@ -1664,7 +1919,7 @@ mod tests {
         use gpui::{Element, accesskit};
         let (view, cx) = open(cx);
         let overlay = view.read_with(cx, |view, _| view.overlay(Surface::Slideover));
-        let element = semantics(&overlay, 0);
+        let element = semantics(&overlay, 0, true);
         let mut node = accesskit::Node::new(element.a11y_role().expect("a semantic element"));
         element.write_a11y_info(&mut node);
 

@@ -225,8 +225,9 @@ moment requires, and it stops clear of the surface's own corner radius at
 both ends rather than riding out over it. Wheel and keyboard scrolling
 are unchanged by it. A bounded scrolling surface also contains the wheel it
 handles: pointing at a popup list inside a slideover body scrolls that list
-alone, never the body behind it or the workspace behind that. A nested slide-over advances from the right while
-its parent recedes slightly and returns without losing parent state.
+alone, never the body behind it or the workspace behind that. A nested
+slide-over advances from the right while its parent recedes slightly and
+returns without losing parent state.
 
 Responsive layouts are qualified at `1366x768` and `1920x1080`. Resizing may
 change information density, column count, or disclosure, but it must never

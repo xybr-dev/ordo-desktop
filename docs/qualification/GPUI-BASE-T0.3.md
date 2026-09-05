@@ -344,6 +344,19 @@ anyway. A Select opened *inside* an overlay body has to paint over the surface
 that owns it, so overlays sit below `POPUP_PRIORITY` and toasts between them,
 above the surface a toast reports on and below a live control.
 
+One `Sheet` is mounted per surface, and only the topmost surface that is not
+already leaving is a modal: the others keep their shape but give up the press
+that lands outside them and the capture that holds the pointer away from
+everything behind, through `overlay_closable` and `overlay_interactive`. They
+are made inert rather than unwrapped, because unwrapping moves the controls
+inside a surface to a different place in the element tree, and at this pin an
+element's identity is its path — a control that moves loses its keyed state and
+the focus handle with it, which showed up as focus landing nowhere the moment a
+nested slideover started to leave. A surface stops being the operator's when it
+starts leaving, not when it finishes: focus goes back to the invoker at that
+moment, and the card stops occluding, because `DESIGN.md` will not let motion
+delay the next input and an exit is motion.
+
 Tab is the half of a focus trap the pin does not implement. `focus_trap`
 registers the container with a global manager and stops there; the only code
 that reads that manager and cycles focus back inside is the styled façade's
@@ -351,7 +364,9 @@ that reads that manager and cycles focus back inside is the styled façade's
 and the pin binds `tab` only in the input context, where a single-line Field
 propagates it straight back out. `ui::init` therefore binds both to Ordo
 actions, and the overlay layer answers them by stepping normally and then
-continuing to step until focus is back inside its own trap. That is why the
+continuing to step until focus is back inside its own trap, ending on the
+surface itself if the walk never found its way back — a walk that gave up
+where it stood would be a modal that leaks Tab in the one case it exists for. That is why the
 binding lives in `ui` rather than in either root view: a modal that cannot hold
 Tab is not a modal, so it could not wait for T0.3.10's region registry.
 
@@ -387,6 +402,14 @@ qualification. The `easing` token is a CSS cubic bezier and the pin ships no
 bezier sampler, so `ease_out_cubic` and `ease_in_cubic` stand in for it across
 the enter and the exit.
 
+The dim is the layer's rather than each surface's. `DESIGN.md` gives every
+overlay and its scrim one application-owned layer and says surfaces do not grow
+more dramatic with nesting; a scrim per `Sheet` would put three nested
+slideovers behind `0.83` of a `0.45` dim. One scrim, drawn directly under the
+topmost open surface, fades in when the first surface opens and out when the
+last one leaves, and stops taking the pointer as soon as everything on screen
+is leaving.
+
 A toast moves the same way, and for the same reason: it arrives one control
 height below where it rests and falls back through on the way out, in the
 shadcn toaster's own `400ms` and `200ms`, without the scale that toaster
@@ -404,7 +427,10 @@ reports it through `on_children_prepainted`, one frame after the fact, so a
 toast that has never been measured is taken out of the flow for that one frame —
 it is at zero opacity anyway — and joins the stack on the next one, by which
 time the toasts above it know exactly how far they are about to be pushed and
-start from where they already were. This is the part of the shadcn toaster's
+start from where they already were. A leaving toast gives that row back the
+other way, by taking the space above it away as it fades, so the toasts it was
+holding up ride down over the whole exit instead of dropping when it unmounts.
+This is the part of the shadcn toaster's
 stack motion that survives having no transform; the collapsed, scaled stack it
 also draws is the part `ToastStack` was rejected for.
 
