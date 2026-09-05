@@ -5,13 +5,19 @@ use gpui::{
     Styled, Window, div, prelude::*, px, rgb,
 };
 use gpui_base::input::{Input, InputEditorStyle, InputState};
+use std::rc::Rc;
 
 use crate::{
     assets,
     environment::UiEnvironment,
-    primitives::{Availability, focus_rings, note},
+    primitives::{Availability, button::Button, focus_rings, focus_visible, note},
     tokens,
 };
+
+/// What the Field's Clear control runs. What clearing means belongs to the
+/// caller: emptying the text is all a plain field owes, while a Combobox also
+/// has a selection to give up.
+type Clear = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// The value, caret, selection, and edit history behind a [`Field`].
 ///
@@ -77,6 +83,7 @@ pub struct Field {
     availability: Availability,
     read_only: Option<SharedString>,
     not_assigned: bool,
+    on_clear: Option<Clear>,
     environment: UiEnvironment,
     surface: u32,
 }
@@ -99,6 +106,7 @@ impl Field {
             availability: Availability::default(),
             read_only: None,
             not_assigned: false,
+            on_clear: None,
             environment,
             surface: tokens::palette(environment.appearance()).background,
         }
@@ -122,9 +130,43 @@ impl Field {
         self
     }
 
+    /// Shows a quiet Clear control inside the field while it holds a value it
+    /// can still edit, and runs this when the operator uses it.
+    pub fn on_clear(mut self, on_clear: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_clear = Some(Rc::new(on_clear));
+        self
+    }
+
     pub fn on_surface(mut self, surface: u32) -> Self {
         self.surface = surface;
         self
+    }
+
+    /// The Clear control, when there is something to clear and the field is
+    /// allowed to clear it. A Read-only or Unavailable value stays inspectable,
+    /// and emptying it is an edit like any other.
+    fn clear_control(
+        &self,
+        disabled: bool,
+        read_only: bool,
+        cx: &App,
+    ) -> Option<impl IntoElement + use<>> {
+        let on_clear = self.on_clear.clone()?;
+        let scale = self.environment.preferences().scale;
+        (!disabled && !read_only && !self.state.value(cx).is_empty()).then(|| {
+            focus_visible(
+                Button::new("clear", "Clear", self.environment)
+                    .icon(assets::icon::X)
+                    .icon_only()
+                    .quiet()
+                    .on_activate(move |window, cx| on_clear(window, cx))
+                    .control()
+                    .flex_none()
+                    .size(px(scale.apply(tokens::density::COMPACT_CONTROL))),
+                self.environment,
+                tokens::palette(self.environment.appearance()).surface,
+            )
+        })
     }
 }
 
@@ -179,6 +221,7 @@ impl RenderOnce for Field {
                 reason,
                 placeholder,
                 palette,
+                self.clear_control(disabled, read_only, cx),
                 window,
                 cx,
             ))
@@ -217,6 +260,7 @@ impl Field {
         reason: Option<String>,
         placeholder: SharedString,
         palette: tokens::Palette,
+        clear: Option<impl IntoElement>,
         window: &mut Window,
         cx: &mut App,
     ) -> gpui_base::input::InputBase {
@@ -289,6 +333,13 @@ impl Field {
                 frame.shadow(focus_rings(self.environment, self.surface))
             })
             .child(Input::new(&self.state.input))
+            .when_some(clear, |frame, clear| {
+                // The control sits inside the box, so it takes the inset the
+                // text would have had rather than adding one of its own.
+                frame
+                    .pr(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .child(clear)
+            })
     }
 }
 
@@ -300,25 +351,23 @@ mod tests {
 
     struct Harness {
         state: FieldState,
-        field: fn(Field) -> Field,
+        field: fn(Field, &FieldState) -> Field,
     }
 
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             let environment =
                 UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
-            div().size_full().child((self.field)(Field::new(
-                "title",
-                "Title",
+            div().size_full().child((self.field)(
+                Field::new("title", "Title", &self.state, environment),
                 &self.state,
-                environment,
-            )))
+            ))
         }
     }
 
     fn open(
         cx: &mut TestAppContext,
-        field: fn(Field) -> Field,
+        field: fn(Field, &FieldState) -> Field,
     ) -> (FieldState, &mut gpui::VisualTestContext) {
         cx.update(crate::init).unwrap();
         let (harness, cx) = cx.add_window_view(move |window, cx| Harness {
@@ -333,7 +382,7 @@ mod tests {
 
     #[gpui::test]
     fn typing_edits_the_value_and_the_field_reports_it(cx: &mut TestAppContext) {
-        let (state, cx) = open(cx, |field| field);
+        let (state, cx) = open(cx, |field, _| field);
 
         cx.simulate_input("Kyrie");
 
@@ -343,7 +392,7 @@ mod tests {
 
     #[gpui::test]
     fn a_read_only_field_stays_selectable_and_copyable_and_says_why(cx: &mut TestAppContext) {
-        let (state, cx) = open(cx, |field| {
+        let (state, cx) = open(cx, |field, _| {
             field.read_only("The Mass has already been celebrated")
         });
         cx.update(|window, cx| state.set_value("Gloria", window, cx));
@@ -383,7 +432,7 @@ mod tests {
 
     #[gpui::test]
     fn not_assigned_is_an_ordinary_empty_value_not_an_unavailable_one(cx: &mut TestAppContext) {
-        let (state, cx) = open(cx, Field::not_assigned);
+        let (state, cx) = open(cx, |field, _| field.not_assigned());
 
         assert_eq!(cx.update(|_, cx| state.value(cx)), "");
         assert!(
@@ -400,8 +449,43 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_clear_control_appears_only_where_there_is_a_value_it_may_empty(cx: &mut TestAppContext) {
+        let clearable = |field: Field, state: &FieldState| {
+            let state = state.clone();
+            field.on_clear(move |window, cx| state.set_value("", window, cx))
+        };
+        let (state, cx) = open(cx, clearable);
+        assert!(
+            cx.debug_bounds("button-Clear").is_none(),
+            "an empty field has nothing to clear"
+        );
+
+        cx.simulate_input("Gloria");
+        let clear = cx
+            .debug_bounds("button-Clear")
+            .expect("a value may be cleared");
+        cx.simulate_click(clear.center(), gpui::Modifiers::default());
+        assert_eq!(cx.update(|_, cx| state.value(cx)), "");
+        assert!(cx.debug_bounds("button-Clear").is_none());
+
+        // Read-only and Unavailable stay inspectable, and emptying a value is
+        // an edit like any other, so neither offers the control.
+        let (state, cx) = open(cx, clearable_read_only);
+        cx.update(|window, cx| state.set_value("Gloria", window, cx));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("button-Clear").is_none());
+    }
+
+    fn clearable_read_only(field: Field, state: &FieldState) -> Field {
+        let state = state.clone();
+        field
+            .on_clear(move |window, cx| state.set_value("", window, cx))
+            .read_only("The Mass has already been celebrated")
+    }
+
+    #[gpui::test]
     fn an_unavailable_field_blocks_editing_and_explains_itself(cx: &mut TestAppContext) {
-        let (state, cx) = open(cx, |field| {
+        let (state, cx) = open(cx, |field, _| {
             field.availability(Availability::unavailable("The Song file is missing"))
         });
 

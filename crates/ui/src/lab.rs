@@ -315,7 +315,14 @@ fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
     );
     let stage = tokens::palette(environment.appearance()).surface;
     row("scenario-fields", environment)
-        .child(Field::new("title", "Title", &title, environment).on_surface(stage))
+        .child(
+            Field::new("title", "Title", &title, environment)
+                .on_clear({
+                    let title = title.clone();
+                    move |window, cx| title.set_value("", window, cx)
+                })
+                .on_surface(stage),
+        )
         .child(
             Field::new("celebration", "Celebration", &celebration, environment)
                 .not_assigned()

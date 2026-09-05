@@ -36,6 +36,7 @@ pub struct Button {
     icon: Option<&'static str>,
     icon_trailing: bool,
     icon_only: bool,
+    quiet: bool,
     tooltip: Option<SharedString>,
     availability: Availability,
     environment: UiEnvironment,
@@ -57,6 +58,7 @@ impl Button {
             icon: None,
             icon_trailing: false,
             icon_only: false,
+            quiet: false,
             tooltip: None,
             availability: Availability::default(),
             environment,
@@ -101,6 +103,16 @@ impl Button {
     /// the tooltip, so the control is never nameless.
     pub fn icon_only(mut self) -> Self {
         self.icon_only = true;
+        self
+    }
+
+    /// Subordinate treatment, for an action that sits inside another control
+    /// or beside a primary one: no border and no fill of its own, so it cannot
+    /// double an edge its surroundings already draw. `DESIGN.md` keeps a quiet
+    /// action subordinate without making it undiscoverable, so hover and press
+    /// still answer with the tonal fill.
+    pub fn quiet(mut self) -> Self {
+        self.quiet = true;
         self
     }
 
@@ -233,9 +245,12 @@ impl Button {
                 control.px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             })
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
-            .border(px(tokens::border::SEPARATOR))
-            .border_color(rgb(palette.border))
-            .bg(rgb(palette.surface_secondary))
+            .when(!self.quiet, |control| {
+                control
+                    .border(px(tokens::border::SEPARATOR))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.surface_secondary))
+            })
             // Only a usable control reacts to the pointer, so hover is itself
             // the cheapest signal that an action is live. Hover strengthens the
             // border and pressing steps the fill to `border`, which is darker
@@ -246,13 +261,25 @@ impl Button {
             // no declarative transition, so these are instant until the motion
             // work in PR 7 gives Ordo somewhere to put one.
             .when(self.availability.is_available(), |control| {
+                let quiet = self.quiet;
                 control
                     .cursor_pointer()
-                    .hover(|style| style.border_color(rgb(palette.border_strong)))
-                    .active(|style| {
-                        style
-                            .border_color(rgb(palette.border_strong))
-                            .bg(rgb(palette.border))
+                    // A quiet control has no border to strengthen, so the fill
+                    // it does not otherwise have is what answers the pointer.
+                    .hover(move |style| {
+                        if quiet {
+                            style.bg(rgb(palette.surface_secondary))
+                        } else {
+                            style.border_color(rgb(palette.border_strong))
+                        }
+                    })
+                    .active(move |style| {
+                        let style = style.bg(rgb(palette.border));
+                        if quiet {
+                            style
+                        } else {
+                            style.border_color(rgb(palette.border_strong))
+                        }
                     })
             })
             // Disabled is neutral and subdued: never warning or danger color.
