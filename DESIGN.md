@@ -209,7 +209,11 @@ visible and spatially stable.
 Dialogs and slide-overs are bounded to the visible application viewport,
 including the application header. Preserve exterior gutters. If content exceeds
 the viewport, keep the overlay header and footer actions reachable while only
-the body scrolls. A nested slide-over advances from the right while its parent
+the body scrolls. Any bounded surface that scrolls shows a thin overlay scroll
+indicator while its content exceeds its viewport, using the strong border token
+over the scrolled content rather than reserving a gutter. It is an indication of
+position, never the only way to scroll, and it never appears on a surface whose
+content fits. A nested slide-over advances from the right while its parent
 recedes slightly and returns without losing parent state.
 
 Responsive layouts are qualified at `1366x768` and `1920x1080`. Resizing may
@@ -362,6 +366,12 @@ visual language.
   navigation.
 - Use bordered rows and disclosures for structured information before reaching
   for cards.
+- Use a **Select** — a button trigger plus a popup list — to choose from a
+  fixed set the operator can read. Use a **Combobox** — an editable field
+  trigger plus a filtered popup list — only where typing is genuinely useful:
+  a long or open set, or one that accepts a name outside it. Both collapse to
+  their current value; neither is a substitute for the other, and a Select
+  never shows a caret.
 - Keep high-stakes Presenter controls labeled and stationary.
 - Place operator-only toasts at bottom-center. Use transient toasts for
   confirmations and Undo; persistent failures and hazards remain visibly owned

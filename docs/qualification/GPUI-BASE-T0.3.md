@@ -23,7 +23,8 @@ removal review before adoption.
 | Button | `Button` | Adopt interaction, focus, keyboard activation, and base Button semantics behind an Ordo Button. Ordo owns every visual and semantic-state variant. |
 | Field | `Input` and `InputBaseState` | Adopt native editing, selection, clipboard, keyboard, and focus behavior behind an Ordo Field. Reject the full code-oriented `Editor` for ordinary fields. |
 | Tooltip | `Tooltip`, `TooltipOverlay`, `TooltipPositioner` | Adopt positioning and Tooltip role behind an Ordo Tooltip; the wrapper owns trigger association, wording, delay, and appearance. |
-| Combobox | `Combobox`/`Select` | Adopt controlled open state, trigger/content focus transfer, and Up/Down/Enter/Escape dispatch. Ordo owns popup content, selection state, naming, and styling. |
+| Select | `Combobox`/`Select` | Adopt controlled open state, trigger/content focus transfer, and Up/Down/Enter/Escape dispatch. Ordo owns popup content, selection state, naming, and styling. |
+| Combobox | the same `Combobox`/`Select` behavior plus the adopted `Input` | Adopt the same open/focus/dispatch behavior with an Ordo Field as the trigger. Ordo owns filtering, the caret/active-choice split, commit rules, and the changing visible choice set. |
 | Disclosure | `Collapsible` | Adopt conditional content rendering only. Ordo supplies the Button trigger, expanded state, relationships, focus, and region semantics. |
 | Tabs | `Tab` and `Tabs` | Adopt Tab/TabList roles, selected state, position metadata, and activation. Ordo owns roving focus, arrow keys, labels, and local-view styling. |
 | Menu | none as a complete primitive | Reject `Popover` as the Menu root because it exposes a Dialog role. Build Ordo Menu semantics with direct GPUI; use base positioning only if it can remain an internal detail. |
@@ -33,6 +34,14 @@ removal review before adoption.
 | Focus treatment | direct GPUI | Reject base visual focus styling. Ordo owns the two-layer, keyboard-modality-aware focus treatment and the High Contrast escape hatch. |
 | Motion | GPUI/native plus Ordo tokens | Reject base spring motion for T0.3 overlays; the design contract forbids spring, bounce, and overshoot. |
 | Theme/styling | direct GPUI plus Ordo tokens | Reject `Theme`, `StyledExt` visual helpers, and the styled `gpui-component` façade as product vocabulary. |
+
+The base package names its button-triggered popup list `Combobox`/`Select`
+interchangeably. Ordo does not: an Ordo **Select** is a button trigger plus a
+popup list, and an Ordo **Combobox** is an editable Field trigger plus a
+filtered popup list. Both wrap the same base behavior, and both keep the
+`ComboBox` AccessKit role the base root already exposes, which is correct for a
+collapsed select either way. Base type names below are the package's, not
+Ordo's.
 
 Calling `gpui_base::init` is permitted only as infrastructure required by an
 adopted behavior. It does not authorize another exported component or base
@@ -45,8 +54,8 @@ Inspection of the pinned source and its tests established:
 - `Button` owns focus and keyboard activation.
 - `InputBaseState` uses a tab-stop `FocusHandle` and registers the native text
   editing, selection, clipboard, Undo/Redo, and navigation bindings.
-- `Combobox` transfers focus between its trigger and content and binds
-  Up/Down/Enter/Escape.
+- `Combobox`/`Select` transfers focus between its trigger and content and binds
+  Up/Down/Enter/Escape, which backs both Ordo's Select and its Combobox.
 - `Dialog` and `Sheet` install focus traps and handle Escape; `Sheet` stops the
   outside pointer event before requesting dismissal.
 - `Tabs` does not supply Ordo's required roving-focus/arrow policy, so the Ordo
@@ -64,7 +73,8 @@ The pinned implementation supplies these useful semantics:
 - `Button` writes a Button role, accessible label, and Click action only while
   enabled.
 - `InputBase` defaults to TextInput semantics.
-- `Select` exposes ComboBox semantics and accepts an application-owned name.
+- The base `Select` exposes ComboBox semantics and accepts an application-owned
+  name.
 - `Tab`/`Tabs` expose Tab and TabList roles, selected state, set position, and
   activation.
 - `Tooltip` exposes a Tooltip role; `Dialog` exposes Dialog semantics; `Toast`
@@ -109,6 +119,14 @@ resolved-appearance mapping, and the `SystemAppearanceChanged` transition — an
 covers live following by the `[MANUAL]` check recorded in T0.3. Closing the gap
 needs a revision that exposes its test window, which reruns this qualification
 anyway.
+
+The pin supplies no scroll indicator. `overflow_y_scroll` scrolls from wheel
+and keyboard but paints nothing, and GPUI ships no scrollbar element, so a list
+taller than its bounded owner gives no sign that more content exists below the
+fold. Ordo therefore owns one thin overlay indicator drawn from
+`ScrollHandle::offset()` and the content-versus-viewport height, shared by every
+bounded scrolling surface rather than reimplemented per list. Adopting a base
+scrollbar later reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no
