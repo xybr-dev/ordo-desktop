@@ -205,9 +205,11 @@ and responsive chrome before feature pages depend on them.
       installation preference, and never reflow canonical Slide content.
 - [ ] `[UI-AUTO]` The active destination remains non-color-only and survives
       opening and returning from a focused editor.
-- [ ] `[AUTO]` Buttons, fields, menus, tooltips, comboboxes, disclosures, tabs,
-      dialogs, and nested slideovers are Ordo-owned GPUI primitives with typed
-      state and one application overlay layer.
+- [ ] `[AUTO]` Buttons, fields, menus, tooltips, selects, comboboxes,
+      disclosures, tabs, dialogs, and nested slideovers are Ordo-owned GPUI
+      primitives with typed state and one application overlay layer. A Select
+      is a button trigger plus a popup list; a Combobox is an editable Field
+      trigger plus a filtered popup list. They are separate primitives.
 - [ ] `[UI-AUTO]` Dialogs, ordinary slideovers, and unpinned Presenter Ordo use
       one input-capturing dim scrim with no click-through; bottom-center toasts
       distinguish expiring confirmation/Undo from owned persistent failures.
@@ -232,6 +234,10 @@ and responsive chrome before feature pages depend on them.
       seam qualified before it becomes a dependency.
 - [ ] `[UI-AUTO]` Every overlay remains within the visible app viewport; its
       body scrolls internally while header and actions remain reachable.
+- [ ] `[UI-AUTO]` Every bounded scrolling surface shows an Ordo-owned scroll
+      indicator whenever its content exceeds its viewport, from one shared
+      implementation; the pinned GPUI paints none of its own, see
+      `docs/qualification/GPUI-BASE-T0.3.md`.
 - [ ] `[UI-AUTO]` `Tab` follows visible reading order through GPUI focus handles;
       `F6`/`Shift+F6` cycle only visible registered regions and restore the last
       meaningful target.
@@ -241,9 +247,9 @@ and responsive chrome before feature pages depend on them.
 - [ ] `[MANUAL]` Keyboard-only and Windows High Contrast checks preserve the
       two-layer focus treatment and distinguish focus from selection.
 
-**E2E** `[UI-AUTO]` — Open `ui-lab`, exercise the field, combobox, dialog, and
-nested-slideover scenarios using only the keyboard, change from 1920×1080/100%
-to 1366×768/200%, and verify state, focus return, and viewport containment.
+**E2E** `[UI-AUTO]` — Open `ui-lab`, exercise the field, select, combobox,
+dialog, and nested-slideover scenarios using only the keyboard, change from
+1920×1080/100% to 1366×768/200%, and verify state, focus return, and viewport containment.
 Then launch `ordo`, navigate from the expanded Masses rail to Library/Songs and its
 local views, and verify that the same primitive behavior holds in the shell
 without whole-workspace horizontal scroll.

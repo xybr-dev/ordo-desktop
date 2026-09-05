@@ -304,9 +304,9 @@ updated before implementation begins.
 
 - Build the internal `ui` Module on GPUI, using a pinned and qualified
   `gpui-base` for useful unstyled behavior. It supplies buttons, fields, menus,
-  tooltips, popovers, comboboxes, disclosures, tabs, dialogs, nested slideovers,
-  focus treatment, virtualized collections, and semantic state without
-  becoming Ordo's visible product vocabulary.
+  tooltips, popovers, selects, comboboxes, disclosures, tabs, dialogs,
+  nested slideovers, focus treatment, virtualized collections, and semantic
+  state without becoming Ordo's visible product vocabulary.
 - Translate approved HTML references and `DESIGN.md` tokens conceptually into GPUI layout/style code. HTML, CSS, Tailwind classes, React components, shadcn, and Base UI are reference material only and are not production dependencies.
 - Qualify `gpui-base` in Phase 0, pin its exact compatible revision with GPUI,
   review its license and dependency tree, and contain it inside `ui`. Do not
