@@ -369,6 +369,16 @@ shapes the code: it adopts its first target on the spot, so a surface whose
 first frame asked for its resting value would simply be there. The frame that
 opens a surface seeds the transition at zero first.
 
+A dialog also rises one spacing step into its fade and falls back through it on
+the way out, which is the pin's answer to the scale a web dialog grows through.
+GPUI's `Style` carries opacity but no transform: the only transformation on the
+pin is `svg`'s, and the base's own effect vocabulary — slide, fade, width, height
+— is that same limit written down. Animating width and height would be a real
+scale and would rewrap every line of the body on every frame of it, which costs
+more than the flourish returns. The rise is a relative inset, a correction
+applied after layout, so it moves nothing else and reflows nothing; it rides
+`progress` itself, so the fade and the movement cannot drift apart.
+
 `App::reduce_motion` is settable and readable but has no platform source at the
 pin: nothing maps an operating-system `prefers-reduced-motion` onto it. Ordo
 honors the flag wherever motion is drawn, and following the platform setting

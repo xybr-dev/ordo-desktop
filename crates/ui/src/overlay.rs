@@ -39,6 +39,19 @@ const TOAST_PRIORITY: usize = 50;
 const DIALOG_WIDTH: f32 = 480.0;
 const SLIDEOVER_WIDTH: f32 = 360.0;
 
+/// How far a dialog sits below its resting place before it settles into the
+/// fade, and falls back through on the way out.
+///
+/// A dialog would rather grow into its fade the way a web one does, and the pin
+/// cannot: GPUI's `Style` carries opacity but no transform, and the base's own
+/// effect vocabulary is slide, fade, width, and height for the same reason. A
+/// width and height animation would be a real scale, and would also rewrap every
+/// line of the body on every frame of it, which is a worse artifact than the
+/// flourish is worth. One spacing step of rise is centred, costs the layout
+/// nothing — a relative inset is a correction applied after layout — and lands in
+/// the same `400ms` on the same easing.
+const DIALOG_RISE: f32 = tokens::spacing::RELATED;
+
 /// How far a parent slideover slides back under its child. `DESIGN.md` asks for
 /// the parent to recede slightly and for reduced motion to remove it entirely.
 const RECESSION: f32 = tokens::spacing::GROUP;
@@ -581,14 +594,20 @@ impl OverlayHost {
                 environment.appearance(),
                 scale,
             )])
+            // A dialog rises into place as it fades in and falls back through as
+            // it fades out; the easing either way is `progress`'s own, so the two
+            // halves cannot drift apart. See [`DIALOG_RISE`].
+            .when(overlay.kind == Surface::Dialog, |d| {
+                d.top(px((1.0 - progress) * scale.apply(DIALOG_RISE)))
+            })
             .child(self.header(&overlay, id, environment))
             .child(body)
             .children(self.footer(&overlay, id, environment));
         let surface = div()
             .absolute()
             .map(|d| match overlay.kind {
-                // Centred, and fading rather than moving: `DESIGN.md` asks a dialog
-                // for timing, not for a direction.
+                // Centred; the card inside carries the rise, so the box it is
+                // centred in never moves.
                 Surface::Dialog => d
                     .top(px(gutter))
                     .bottom(px(gutter))
@@ -1203,6 +1222,47 @@ mod tests {
                     <= px(tokens::density::WORKSPACE_GUTTER_WIDE + 1.0),
             "and comes to rest one exterior gutter from the edge"
         );
+    }
+
+    /// A dialog rises into its fade and falls back through it, because the pin
+    /// has no transform to grow one with. See [`DIALOG_RISE`].
+    #[gpui::test]
+    fn a_dialog_rises_into_its_fade_and_falls_back_out_of_it(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        press_invoker(cx);
+        let entering = cx
+            .debug_bounds("overlay-Delete this Mass?")
+            .expect("it is mounted");
+
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let resting = cx.debug_bounds("overlay-Delete this Mass?").unwrap();
+        assert_eq!(
+            entering.origin.y - resting.origin.y,
+            px(DIALOG_RISE),
+            "it starts one spacing step low and rises exactly that far"
+        );
+        assert_eq!(
+            entering.size, resting.size,
+            "the rise is a correction after layout, so nothing reflows with it"
+        );
+
+        cx.simulate_keystrokes("escape");
+        cx.executor().advance_clock(Duration::from_millis(
+            (tokens::motion::OVERLAY_CLOSE_DURATION_MS / 2).into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let leaving = cx.debug_bounds("overlay-Delete this Mass?").unwrap();
+        assert!(
+            leaving.origin.y > resting.origin.y,
+            "and falls back through on the way out"
+        );
+        settle(cx);
+        view.read_with(cx, |view, cx| assert_eq!(view.host.depth(cx), 0));
     }
 
     /// Motion may never delay the next input: a surface still playing its exit
