@@ -326,6 +326,12 @@ impl Control {
             .when(choice.availability.is_available(), |d| {
                 d.on_click(move |_, w, cx| choose(i, w, cx))
             })
+            // A block div pins its children to the top, so `min_h` left the
+            // label riding high in the row and its hover fill. Column flex
+            // centres the label and keeps an Unavailable note beneath it.
+            .flex()
+            .flex_col()
+            .justify_center()
             .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
             .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .py(px(scale.apply(4.0)))
