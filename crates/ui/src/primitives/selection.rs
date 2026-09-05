@@ -435,6 +435,11 @@ impl Control {
         let scale = self.environment.preferences().scale;
         // The value is the visible text but not the name: `aria_value` already
         // announces it, and a name of "Language: Cebuano" would say it twice.
+        //
+        // ponytail: a second untranslatable literal, and it bakes the label
+        // into the trigger, so a Select cannot yet sit under a separate visible
+        // label the way a Field does. Same seam as the placeholder above: give
+        // the caller the composition when one needs either.
         let text = if self.kind == Kind::Select {
             format!("{}: {}", self.label, value)
         } else {
