@@ -790,6 +790,11 @@ mod tests {
                             assert!(cx.debug_bounds("button-Clear").is_some());
                             let only = cx.debug_bounds("choice-4").unwrap();
                             assert!(cx.debug_bounds("choice-0").is_none());
+                            assert!(
+                                cx.debug_bounds("scroll-indicator-selection-list").is_none(),
+                                "one match fits, so the indicator goes away \
+                                 ({appearance:?} {scale:?})"
+                            );
                             let popup = cx.debug_bounds("selection-list").unwrap();
                             assert!(
                                 only.origin.y >= popup.origin.y
@@ -836,11 +841,48 @@ mod tests {
                                  unless the window snapped it \
                                  ({scenario} {appearance:?} {scale:?})"
                             );
+                            // Six choices, one of them a paragraph, exceed the
+                            // popup's bounded height at every scale.
+                            let corner = px(scale.apply(tokens::radius::OVERLAY));
+                            let top = cx
+                                .debug_bounds("scroll-indicator-selection-list")
+                                .expect("a popup taller than its viewport shows the indicator");
+                            // At rest the indicator has travelled nothing, so
+                            // it starts exactly where its track does. Asserting
+                            // the equality rather than a bound is the only
+                            // check that the track really is the surface inset
+                            // by its own corner, which the length and the drag
+                            // gain are both computed from.
+                            assert!(
+                                (top.origin.y - (popup.origin.y + corner)).abs() <= px(1.0)
+                                    && top.bottom() <= popup.bottom()
+                                    && top.right() <= popup.right()
+                                    && top.size.height < popup.size.height,
+                                "the indicator is a thin overlay inside the popup, starting \
+                                 where the corner its own edge curves away at leaves off \
+                                 ({scenario} {appearance:?} {scale:?})"
+                            );
                             cx.simulate_keystrokes("end");
                             let last = cx.debug_bounds("choice-5").unwrap();
                             assert!(
                                 last.origin.y >= popup.origin.y && last.bottom() <= popup.bottom(),
                                 "arrow navigation scrolls the long last value into view"
+                            );
+                            let bottom =
+                                cx.debug_bounds("scroll-indicator-selection-list").unwrap();
+                            // A bound, not an equality: `End` scrolls the last
+                            // choice into view, which stops at that choice
+                            // rather than at the surface's own maximum offset,
+                            // so the list's bottom padding is travel the
+                            // indicator still has left. Pinning the far end of
+                            // the track needs an offset driven the whole way,
+                            // which the drag test below does.
+                            assert!(
+                                bottom.origin.y > top.origin.y
+                                    && bottom.bottom() <= popup.bottom() - corner,
+                                "the indicator reports the position scrolling reached, and \
+                                 stops clear of the far corner too \
+                                 ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("escape");
                             assert!(cx.debug_bounds("selection-list").is_none());
@@ -849,6 +891,87 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The indicator is also a control. `DESIGN.md` only forbids it being the
+    /// *only* way to scroll, so it stays out of the way until the pointer comes
+    /// for it and then takes the surface with it.
+    #[gpui::test]
+    fn the_scroll_indicator_widens_for_the_pointer_and_drags_the_surface(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        lab.update(cx, |lab, cx| assert!(lab.select_scenario("select", cx)));
+        cx.run_until_parked();
+        let trigger = cx.debug_bounds("button-Language: Not assigned").unwrap();
+        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+        let popup = cx.debug_bounds("selection-list").unwrap();
+        let resting = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
+        let last = cx.debug_bounds("choice-5").unwrap();
+        assert!(
+            last.origin.y > popup.bottom(),
+            "the collection starts taller than the popup, or there is nothing to drag"
+        );
+
+        // Reaching for the edge is enough: the indicator is too thin to aim at
+        // while it is only reporting a position.
+        cx.simulate_mouse_move(resting.center(), None, gpui::Modifiers::default());
+        let reached = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
+        assert!(
+            reached.size.width > resting.size.width,
+            "the indicator widens to something grabbable"
+        );
+
+        // Pulled the whole way down, by a pointer that leaves the indicator's
+        // own few pixels immediately.
+        cx.simulate_event(gpui::MouseDownEvent {
+            position: reached.center(),
+            modifiers: gpui::Modifiers::default(),
+            button: gpui::MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        // The first move past the threshold is what takes hold; GPUI reports a
+        // drag to the moves after it.
+        cx.simulate_mouse_move(
+            gpui::point(reached.center().x, reached.center().y + px(24.0)),
+            gpui::MouseButton::Left,
+            gpui::Modifiers::default(),
+        );
+        cx.simulate_mouse_move(
+            gpui::point(reached.center().x, popup.bottom() + px(200.0)),
+            gpui::MouseButton::Left,
+            gpui::Modifiers::default(),
+        );
+        cx.simulate_event(gpui::MouseUpEvent {
+            position: gpui::point(reached.center().x, popup.bottom() + px(200.0)),
+            modifiers: gpui::Modifiers::default(),
+            button: gpui::MouseButton::Left,
+            click_count: 1,
+        });
+
+        let dragged = cx.debug_bounds("scroll-indicator-selection-list").unwrap();
+        assert!(
+            dragged.origin.y > reached.origin.y && dragged.bottom() <= popup.bottom(),
+            "the indicator reports where the drag took the surface"
+        );
+        // Dragged past the end, so the offset is clamped to the surface's
+        // maximum and the indicator is at the far end of its travel. Asserting
+        // where it lands, rather than only that it stays inside, is what checks
+        // that the track really is the surface inset by its own corner — the
+        // derivation the bar's length and the drag's own gain both rest on.
+        let corner = px(tokens::radius::OVERLAY);
+        assert!(
+            (dragged.bottom() - (popup.bottom() - corner)).abs() <= px(1.0),
+            "at the end of its travel the indicator ends where its track does"
+        );
+        let last = cx.debug_bounds("choice-5").unwrap();
+        assert!(
+            last.bottom() <= popup.bottom() && last.origin.y >= popup.origin.y,
+            "the end of the collection is what the drag arrived at"
+        );
+        assert!(
+            cx.debug_bounds("selection-list").is_some(),
+            "dragging the indicator is not a press outside the popup"
+        );
     }
 
     #[gpui::test]

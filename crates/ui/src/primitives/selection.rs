@@ -14,11 +14,12 @@ use crate::{
         field::{Field, FieldState},
         focus_visible,
     },
+    scroll::Scroll,
     tokens,
 };
 use gpui::{
     App, Context, ElementId, Entity, FocusHandle, IntoElement, ParentElement, RenderOnce, Role,
-    ScrollHandle, SharedString, Styled, Window, div, prelude::*, px, rgb,
+    SharedString, Styled, Window, div, prelude::*, px, rgb,
 };
 use std::rc::Rc;
 
@@ -52,7 +53,7 @@ struct State {
     open: bool,
     trigger: FocusHandle,
     focus: Vec<FocusHandle>,
-    scroll: ScrollHandle,
+    scroll: Scroll,
     /// The editable trigger a Combobox renders in place of a Button. Its text
     /// is the visible value, and while it differs from the committed one it is
     /// also the filter. `None` for every other kind.
@@ -93,7 +94,7 @@ impl State {
                 Some(field) => field.focus_handle(cx),
                 None => cx.focus_handle().tab_stop(true),
             },
-            scroll: ScrollHandle::new(),
+            scroll: Scroll::new(),
             field,
             restore_to: SharedString::default(),
             creatable: false,
@@ -254,7 +255,7 @@ impl State {
             self.focus[i].focus(window, cx);
         }
         if let Some(position) = self.visible(cx).iter().position(|&visible| visible == i) {
-            self.scroll.scroll_to_item(position);
+            self.scroll.handle().scroll_to_item(position);
         }
     }
 
@@ -1094,7 +1095,7 @@ impl Control {
         }
 
         let list = list
-            .track_scroll(&scroll)
+            .track_scroll(scroll.handle())
             .overflow_y_scroll()
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .p(px(scale.apply(8.0)))
@@ -1130,6 +1131,21 @@ impl Control {
                     })
                 }
             });
+        // The indicator is a sibling of the scrolling element, not a child:
+        // a child would be translated by the scroll offset and slide away with
+        // the content it is reporting on.
+        let list = div().relative().child(list).children(
+            open.then(|| {
+                scroll.indicator(
+                    "selection-list",
+                    tokens::radius::OVERLAY,
+                    window,
+                    cx,
+                    self.environment,
+                )
+            })
+            .flatten(),
+        );
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so
             // this offset is the deliberate gap, not the trigger's own height.

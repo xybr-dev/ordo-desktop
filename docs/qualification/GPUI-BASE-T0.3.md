@@ -222,12 +222,10 @@ therefore assert the ComboBox root, its name and expanded state, and the
 ListBox/option roles, and the behavior tests cover which choice is active.
 
 The popup is the second bounded scrolling surface Ordo owns, after T0.3.6's,
-and the scroll indicator `MILESTONES.md` requires still does not exist — the pin
-paints none, as recorded above, and no shared implementation has landed. This
-work is what makes the popup routinely taller than its box, since a filtered
-Presider or Song collection is exactly that case, so the debt is named here
-rather than left to pass unremarked: it closes with the shared indicator, which
-is PR 8's, not with this primitive.
+and the scroll indicator `MILESTONES.md` requires did not exist when this
+primitive landed — the pin paints none, as recorded above. T0.3.8 closes that
+debt with the shared implementation described below, which the popup now
+carries.
 
 The lab registers both halves — `combobox`, a closed Language set, and
 `combobox-new`, an open Presider set — bringing the same matrix to 120
@@ -236,6 +234,89 @@ long multilingual match, filtering to none, the offered name and taking it with
 the pointer, and cancelling with Escape, with window containment asserted at
 both viewports and every scale. `ui-lab <scenario>` opens one by name, because
 reviewing a control by hand should not mean cycling `F2` to reach it.
+
+### T0.3.8 shared scroll-indicator evidence
+
+`ui::scroll` owns the one indicator. It adds no dependency: the pin paints
+nothing and ships no scrollbar element, so the geometry comes from
+`ScrollHandle::bounds()`, `max_offset()`, and `offset()` and nothing else. The
+Select, Menu, and Combobox popup is its first consumer; PR 9's overlay bodies
+and T0.4's Cue timeline and dense editor lists are the next, and none of them
+reimplements it. Because there is only the one implementation, two indicators
+can be on screen at once — an overlay body behind the popup it opened — so the
+surface lends the indicator its own id, and both the element id and the debug
+selector carry it. A test names the indicator it means.
+
+`Scroll` replaces the bare `ScrollHandle` a surface used to own, because the
+indicator needs one thing GPUI's handle does not keep: what the last frame drew.
+A surface is measured during prepaint, after every render has run, so the frame
+that opens a popup renders before its own geometry exists, and GPUI refuses to
+dirty a window mid-draw. The surface therefore checks itself once the frame is
+over and asks for one more only when the measurement moved under it. That
+converges in a single extra frame, leaves an idle surface idle, and — this is
+the half a first-frame-only fix would miss — takes the indicator away again when
+filtering shrinks the content back inside its box.
+
+The check waits on a task rather than `Window::on_next_frame`, which is the same
+shape and would be cheaper per frame. `on_next_frame` wakes the platform frame
+source to deliver its callback, so registering one every render asks for the
+next frame unconditionally and an open popup repaints forever — losing the
+idleness the check exists to keep.
+
+The indicator is a sibling of the scrolling element inside a `relative` wrapper,
+never its child: a child is translated by the scroll offset and would slide away
+with the content it reports on. It is drawn in the strong border token over the
+scrolled content, half a spacing step off the edge and with no reserved gutter.
+Sitting on the edge means it has to stop where that edge curves away from it, so
+its track is inset by the surface's own radius at both ends and the surface says
+what that radius is — the popup's is `OVERLAY`, and a square pane passes `0`.
+Position and length are both resolved in that track's own pixels. Keeping them
+in one space is what makes staying inside it true rather than usually true: a
+collection long enough to bind the minimum length, which the popup's six choices
+never are and T0.4's Cue timeline easily will be, was otherwise positioned as
+its unclamped fraction and ended up below the track by exactly what the minimum
+had added. A track shorter than the minimum holds the indicator anyway.
+
+It is draggable, which `DESIGN.md` allows: the rule is that it is never the
+*only* way to scroll, and wheel, keyboard, and `scroll_to_item` behavior are
+untouched. Reconciling a grabbable control with a bar thin enough to sit over
+content takes two elements. A pointer-detecting strip along the edge widens the
+bar to a grabbable width when the pointer comes near it; only the bar itself
+blocks a press, so a row underneath loses nothing but the few pixels the bar
+actually covers. Hover is counted on both, because the bar occludes the strip
+beneath itself and a single flag would drop — and the bar shrink out from under
+the pointer — at the moment the pointer arrived on it.
+
+The drag is delta-based from where it took hold, so the indicator keeps the
+point it was grabbed by rather than jumping its middle to the pointer, and the
+pointer covers the track the bar has left to travel rather than the whole track,
+so a drag to the bottom lands on the bottom of the content. GPUI only reports
+moves outside an element's own bounds while a drag payload is active, which is
+what `on_drag` is for here — the pointer leaves a four-pixel bar immediately and
+has to keep dragging it anyway. The pointer says as much: the bar is an open
+hand until it is taken hold of and a closed one while it is being dragged.
+
+The indicator carries no AccessKit node: a scroll position is not something to
+announce, and it adds no keyboard obligation because it adds no keyboard
+behavior.
+
+Its proportions are asserted directly: how much of the content is visible, where
+that sits after scrolling, that an overscrolled offset stays inside its track,
+and that content which fits yields nothing. The lab's existing matrix carries
+the rest, so no scenario was added for it: the Menu and Select popups exceed
+their bounded height at every appearance, scale, and viewport, and assert the
+indicator is a thin overlay that starts exactly where the popup's corner leaves
+off and advances when `End` scrolls to the long last value; the Combobox
+filtered to its one match asserts the indicator is gone. `End` bounds the far
+end rather than pinning it, because scrolling a choice into view stops at that
+choice and leaves the list's own bottom padding as travel remaining. The far
+end is pinned by the test that drives the pointer instead, where the offset is
+clamped to the surface's maximum: the indicator widens as it is reached for, a
+real press-move-move-release drags the surface to the end of its collection and
+lands the indicator on the end of its track, and the drag is not mistaken for
+the press outside that dismisses a popup. Between them the two assertions check
+the derivation the length and the drag gain both rest on — that the track is the
+surface's own measured bounds inset by its corner at each end.
 
 ### Pinned platform limitations
 
@@ -266,10 +347,13 @@ anyway.
 The pin supplies no scroll indicator. `overflow_y_scroll` scrolls from wheel
 and keyboard but paints nothing, and GPUI ships no scrollbar element, so a list
 taller than its bounded owner gives no sign that more content exists below the
-fold. Ordo therefore owns one thin overlay indicator drawn from
-`ScrollHandle::offset()` and the content-versus-viewport height, shared by every
-bounded scrolling surface rather than reimplemented per list. Adopting a base
-scrollbar later reruns this qualification.
+fold. Ordo therefore owns one thin overlay indicator, `ui::scroll`, drawn from
+the handle's bounds, maximum offset, and offset and dragging through
+`set_offset`, shared by every bounded scrolling surface rather than
+reimplemented per list. It also has to own the repaint: the pin measures a
+surface during prepaint and refuses to dirty a window mid-draw, so the indicator
+would otherwise be a frame behind whatever it reports. Adopting a base scrollbar
+later reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no

@@ -218,8 +218,13 @@ the body scrolls. Any bounded surface that scrolls shows a thin overlay scroll
 indicator while its content exceeds its viewport, using the strong border token
 over the scrolled content rather than reserving a gutter. It is an indication of
 position, never the only way to scroll, and it never appears on a surface whose
-content fits. A nested slide-over advances from the right while its parent
-recedes slightly and returns without losing parent state.
+content fits. It may also be dragged: it stays thin while it is only
+reporting a position and widens to a grabbable width when the pointer
+reaches for the edge, so it never covers more of the content than the
+moment requires, and it stops clear of the surface's own corner radius at
+both ends rather than riding out over it. Wheel and keyboard scrolling
+are unchanged by it. A nested slide-over advances from the right while
+its parent recedes slightly and returns without losing parent state.
 
 Responsive layouts are qualified at `1366x768` and `1920x1080`. Resizing may
 change information density, column count, or disclosure, but it must never

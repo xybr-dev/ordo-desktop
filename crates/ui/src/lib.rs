@@ -6,6 +6,7 @@ pub mod environment;
 #[cfg(any(test, feature = "lab"))]
 pub mod lab;
 pub mod primitives;
+pub mod scroll;
 pub mod tokens;
 
 use std::{borrow::Cow, mem, rc::Rc};
