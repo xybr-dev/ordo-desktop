@@ -257,6 +257,12 @@ converges in a single extra frame, leaves an idle surface idle, and — this is
 the half a first-frame-only fix would miss — takes the indicator away again when
 filtering shrinks the content back inside its box.
 
+The check waits on a task rather than `Window::on_next_frame`, which is the same
+shape and would be cheaper per frame. `on_next_frame` wakes the platform frame
+source to deliver its callback, so registering one every render asks for the
+next frame unconditionally and an open popup repaints forever — losing the
+idleness the check exists to keep.
+
 The indicator is a sibling of the scrolling element inside a `relative` wrapper,
 never its child: a child is translated by the scroll offset and would slide away
 with the content it reports on. It is drawn in the strong border token over the

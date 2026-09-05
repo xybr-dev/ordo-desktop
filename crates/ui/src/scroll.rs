@@ -95,6 +95,14 @@ struct Bar {
 /// the minimum was positioned as if the indicator were still its unclamped
 /// fraction, so at full travel it ended up below the track by exactly what the
 /// minimum had added — riding out over the corner the track is inset to clear.
+fn measure(handle: &ScrollHandle) -> Measurement {
+    Measurement {
+        viewport: f32::from(handle.bounds().size.height),
+        max_offset: f32::from(handle.max_offset().y),
+        offset: f32::from(handle.offset().y),
+    }
+}
+
 fn bar(measured: Measurement, track: f32, minimum: f32) -> Option<Bar> {
     if track <= 0.0 || measured.max_offset <= 0.0 {
         return None;
@@ -111,14 +119,6 @@ fn bar(measured: Measurement, track: f32, minimum: f32) -> Option<Bar> {
 impl Scroll {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    fn measure(&self) -> Measurement {
-        Measurement {
-            viewport: f32::from(self.handle.bounds().size.height),
-            max_offset: f32::from(self.handle.max_offset().y),
-            offset: f32::from(self.handle.offset().y),
-        }
     }
 
     /// For `track_scroll` and `scroll_to_item`: this type replaces the handle as
@@ -147,7 +147,7 @@ impl Scroll {
         cx: &mut gpui::App,
         environment: UiEnvironment,
     ) -> Option<impl IntoElement + use<>> {
-        let measured = self.measure();
+        let measured = measure(&self.handle);
         self.drawn.set(Some(measured));
         // What this frame draws from is the *previous* frame's measurement:
         // GPUI writes the surface's bounds and clamps its offset during
@@ -155,10 +155,18 @@ impl Scroll {
         // window mid-draw. So the frame is checked once it is over and asked
         // for again only when the surface moved under it, which converges in
         // one extra frame and leaves an idle surface idle.
-        let scroll = self.clone();
+        //
+        // `Window::on_next_frame` is the same shape and is not used, because it
+        // wakes the platform frame source to deliver its callback. Registering
+        // one every render would ask for the next frame unconditionally, and an
+        // open popup would repaint forever — losing exactly the idleness this
+        // check exists to keep. A task costs one future per frame of a surface
+        // that is already drawing itself.
+        let handle = self.handle.clone();
+        let drawn = self.drawn.clone();
         window
             .spawn(cx, async move |cx| {
-                if scroll.drawn.get() != Some(scroll.measure()) {
+                if drawn.get() != Some(measure(&handle)) {
                     cx.update(|window, _| window.refresh()).ok();
                 }
             })
@@ -198,9 +206,10 @@ impl Scroll {
             .on_mouse_down(MouseButton::Left, {
                 let scroll = self.clone();
                 move |event, _, _| {
-                    scroll
-                        .grab
-                        .set(Some((f32::from(event.position.y), scroll.measure().offset)));
+                    scroll.grab.set(Some((
+                        f32::from(event.position.y),
+                        measure(&scroll.handle).offset,
+                    )));
                 }
             })
             .on_drag(Grab, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
@@ -244,7 +253,7 @@ impl Scroll {
                         let Some((from, offset)) = scroll.grab.get() else {
                             return;
                         };
-                        let measured = scroll.measure();
+                        let measured = measure(&scroll.handle);
                         // The pointer covers the track the indicator has left
                         // to travel, not the whole track, so a drag to the
                         // bottom of the surface lands on the bottom of the
