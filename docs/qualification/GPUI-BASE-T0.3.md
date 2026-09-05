@@ -96,6 +96,40 @@ is sufficient.
 
 ## Test-harness gaps
 
+### T0.3.6 composite-control evidence
+
+`primitives::selection` owns Menu, select-only Combobox, and local-view Tabs;
+`primitives::disclosure` owns Disclosure. No new dependency is adopted. The
+Combobox uses the qualified `Select` root because it accepts the visible name;
+popup key handling consumes confirmation before the base handler can return
+focus to an option that selection has just closed.
+
+The primitive tests drive real key-down/key-up and pointer events. They cover
+provisional versus committed selection, skipped Disabled choices, focusable
+but inert Unavailable choices, Home/End and wrapping arrows, Escape and Tab
+dismissal, disclosure collapse, callback counts, and invoker focus return.
+Final element-node probes assert Menu/MenuItem, ComboBox/ListBox/option,
+TabList/Tab, and disclosure Button roles, labels, selected/expanded state, and
+available versus blocked Click actions.
+
+The lab registers `menu`, `combobox`, `tabs`, and `disclosure`. Its automated
+matrix renders all four at both appearances, five scales, and both viewport
+presets (80 combinations), opens both popup kinds, asserts window containment,
+and scrolls the last multilingual value into view with End. The popup body
+uses a bounded native scroll container and Floating elevation. The shared
+application overlay host remains PR 7 work.
+
+Collections are fixed for a state's lifetime; callers recreate state when
+membership changes. Tabs expose local selection and a callback; the owning
+view renders its named TabPanel (as the lab does). Disclosure renders a named
+Region below its expanded Button. The pin has no public `aria_controls` or
+`aria_labelled_by` relationship setters: matching names and nesting are
+provided, but explicit AccessKit relationship edges and full tree shape are
+not claimed by these element-node tests. Live assistive-technology and Windows
+High Contrast checks remain the T0.3 manual gate.
+
+### Pinned platform limitations
+
 The pinned revision also bounds what T0.3 can automate.
 
 `observe_window_appearance` is the supported way to follow operating-system

@@ -31,7 +31,10 @@ pub const TOOLTIP_SHOW_DELAY: std::time::Duration = std::time::Duration::from_mi
 pub struct Button {
     id: ElementId,
     label: SharedString,
+    name: Option<SharedString>,
+    truncate: bool,
     icon: Option<&'static str>,
+    icon_trailing: bool,
     icon_only: bool,
     tooltip: Option<SharedString>,
     availability: Availability,
@@ -49,7 +52,10 @@ impl Button {
         Self {
             id: id.into(),
             label: label.into(),
+            name: None,
+            truncate: false,
             icon: None,
+            icon_trailing: false,
             icon_only: false,
             tooltip: None,
             availability: Availability::default(),
@@ -59,9 +65,35 @@ impl Button {
         }
     }
 
+    /// The accessible name, when the visible label carries more than the
+    /// control's identity. A Select trigger shows `"Language: Cebuano"` but is
+    /// named `"Language"`, so its value is announced once, by `aria_value`.
+    pub fn name(mut self, name: impl Into<SharedString>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Ellipsizes the visible label instead of letting it paint outside the
+    /// control. Truncation is per-context — a title, a file name, and a value
+    /// do not shorten the same way — so the owning control asks for it and
+    /// bounds the width itself. The accessible name keeps the full text.
+    pub fn truncate(mut self) -> Self {
+        self.truncate = true;
+        self
+    }
+
     /// One bundled Lucide icon, from [`crate::assets::icon`].
     pub fn icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Places the icon after the label. An icon that describes the action
+    /// leads; an icon that says a surface opens below this control — a Select
+    /// or Menu chevron — trails, pointing where the popup appears. A
+    /// Disclosure's chevron is a twisty and keeps the leading edge.
+    pub fn icon_trailing(mut self) -> Self {
+        self.icon_trailing = true;
         self
     }
 
@@ -98,7 +130,7 @@ impl Button {
     /// The control itself, without the explanation that may sit under it. This
     /// is the element that carries the accessible name, role, and action, so it
     /// is also what a semantics test inspects.
-    fn control(self) -> gpui_base::Button {
+    pub(crate) fn control(self) -> gpui_base::Button {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let disabled = self.availability.is_disabled();
@@ -108,6 +140,7 @@ impl Button {
         let height = scale.apply(tokens::density::DEFAULT_CONTROL);
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
+        let name = self.name.clone().unwrap_or_else(|| label.clone());
         // A tooltip may repeat the reason but never carry it alone, so the
         // Unavailable Cue below the control stays the real explanation. An
         // icon-only control also needs its name here, since nothing on screen
@@ -117,12 +150,12 @@ impl Button {
                 .clone()
                 .or_else(|| match (self.availability.reason(), icon_only) {
                     (Some(reason), true) => {
-                        Some(format!("{label}. {}. {reason}", Availability::UNAVAILABLE).into())
+                        Some(format!("{name}. {}. {reason}", Availability::UNAVAILABLE).into())
                     }
                     (Some(reason), false) => {
                         Some(format!("{}. {reason}", Availability::UNAVAILABLE).into())
                     }
-                    (None, true) => Some(label.clone()),
+                    (None, true) => Some(name.clone()),
                     (None, false) => None,
                 });
         // Activation is dropped rather than intercepted for both blocked
@@ -134,13 +167,47 @@ impl Button {
             .then_some(self.on_activate)
             .flatten();
 
+        let glyph = self.icon.map(|icon| {
+            svg()
+                .debug_selector({
+                    let label = label.clone();
+                    move || format!("icon-{label}")
+                })
+                .flex_none()
+                .size(px(icon_size))
+                .text_color(rgb(if disabled {
+                    palette.text_muted
+                } else {
+                    palette.text
+                }))
+                .data(icon.as_bytes())
+                .into_any_element()
+        });
+        let text = (!icon_only).then({
+            let label = label.clone();
+            move || {
+                if self.truncate {
+                    // The row clips and the label ellipsizes: without both, a
+                    // bare text child ignores `max_w` and paints past the box.
+                    div().min_w_0().truncate().child(label).into_any_element()
+                } else {
+                    label.into_any_element()
+                }
+            }
+        });
+        let icon_and_label = if self.icon_trailing {
+            [text, glyph]
+        } else {
+            [glyph, text]
+        };
+
         gpui_base::Button::new(self.id)
             .debug_selector({
                 let label = label.clone();
                 move || format!("button-{label}")
             })
             .disabled(disabled)
-            .accessibility_label(label.clone())
+            .accessibility_label(name)
             // ponytail: the pinned GPUI exposes no disabled flag to AccessKit
             // (see docs/qualification/GPUI-BASE-T0.3.md), so the blocked state
             // rides the description. Move it to the flag when a revision has one.
@@ -180,6 +247,7 @@ impl Button {
             // work in PR 7 gives Ordo somewhere to put one.
             .when(self.availability.is_available(), |control| {
                 control
+                    .cursor_pointer()
                     .hover(|style| style.border_color(rgb(palette.border_strong)))
                     .active(|style| {
                         style
@@ -194,20 +262,8 @@ impl Button {
                 palette.text
             }))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-            .when_some(self.icon, |control, icon| {
-                control.child(
-                    svg()
-                        .flex_none()
-                        .size(px(icon_size))
-                        .text_color(rgb(if disabled {
-                            palette.text_muted
-                        } else {
-                            palette.text
-                        }))
-                        .data(icon.as_bytes()),
-                )
-            })
-            .when(!icon_only, |control| control.child(label))
+            .when(self.truncate, |control| control.overflow_hidden())
+            .children(icon_and_label.into_iter().flatten())
     }
 }
 
@@ -322,6 +378,34 @@ mod tests {
             prefer_character_input: false,
         });
         cx.simulate_event(KeyUpEvent { keystroke });
+    }
+
+    #[gpui::test]
+    fn a_popup_chevron_trails_its_label_and_an_action_icon_leads(cx: &mut TestAppContext) {
+        for trailing in [false, true] {
+            let cx = open(cx, move |environment| {
+                let button =
+                    Button::new("open", "Language", environment).icon(assets::icon::CHEVRON_DOWN);
+                if trailing {
+                    button.icon_trailing()
+                } else {
+                    button
+                }
+            });
+            let control = cx.debug_bounds("button-Language").expect("the button");
+            let icon = cx.debug_bounds("icon-Language").expect("the icon");
+            if trailing {
+                assert!(
+                    icon.origin.x > control.center().x,
+                    "a popup chevron points at where the popup opens"
+                );
+            } else {
+                assert!(
+                    icon.origin.x < control.center().x,
+                    "an icon that describes the action leads its label"
+                );
+            }
+        }
     }
 
     #[gpui::test]
