@@ -181,6 +181,15 @@ duplicate check, a Presider who never becomes a parish record — stays with the
 caller, which reads `text`. A collection without that opt-in still states it has
 no match, because a closed collection must not invite a value it will refuse.
 
+That rule is also what makes the selection callback partial. `on_select`
+reports a selection made *through the control* — a choice taken from the popup,
+or Clear — while typing a name whole, and leaving with Tab or a press outside,
+change the value without passing through it. Reading `selected` and `text` while
+rendering is the authoritative path, and the state notifies, so an owning view
+already redraws; the callback is for the side effects a deliberate pick should
+have. Settling that now matters because T3.10's Choir selector and the
+Presider/Location fields would otherwise each answer it differently.
+
 Leaving and cancelling are therefore different. Escape cancels: the Field goes
 back to what it held when the popup opened. Tab and a press outside just close,
 keeping what was typed. An empty Combobox is the ordinary **Not assigned** value
@@ -195,10 +204,21 @@ sets it through interactivity and resolves it at paint. The element-node tests
 therefore assert the ComboBox root, its name and expanded state, and the
 ListBox/option roles, and the behavior tests cover which choice is active.
 
-The lab registers `combobox` and drives it through the same 80-combination
-matrix: opening from the Field, filtering to one long multilingual match,
-filtering to none, and reverting on Escape, with window containment asserted at
-both viewports and every scale.
+The popup is the second bounded scrolling surface Ordo owns, after T0.3.6's,
+and the scroll indicator `MILESTONES.md` requires still does not exist — the pin
+paints none, as recorded above, and no shared implementation has landed. This
+work is what makes the popup routinely taller than its box, since a filtered
+Presider or Song collection is exactly that case, so the debt is named here
+rather than left to pass unremarked: it closes with the shared indicator, which
+is PR 8's, not with this primitive.
+
+The lab registers both halves — `combobox`, a closed Language set, and
+`combobox-new`, an open Presider set — bringing the same matrix to 120
+combinations. Between them they cover opening from the Field, filtering to one
+long multilingual match, filtering to none, the offered name and taking it with
+the pointer, and cancelling with Escape, with window containment asserted at
+both viewports and every scale. `ui-lab <scenario>` opens one by name, because
+reviewing a control by hand should not mean cycling `F2` to reach it.
 
 ### Pinned platform limitations
 

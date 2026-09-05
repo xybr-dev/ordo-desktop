@@ -396,6 +396,8 @@ enum Kind {
 }
 /// Reports the selection a choice or the Clear control just produced. A Menu
 /// only ever invokes an action, so it only ever reports `Some`.
+///
+/// It is not a change notification on a Combobox. See [`Control::on_select`].
 type OnSelect = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
 /// Commits one choice, the only path that both changes the value and tells the
 /// caller. Clearing is the other, and reports `None`.
@@ -439,6 +441,17 @@ macro_rules! control {
                 self.0.surface = surface;
                 self
             }
+            /// Reports a selection the operator made *through this control*:
+            /// a choice taken from the popup, or the Clear control.
+            ///
+            /// On a Combobox that is less than every change. Its value is
+            /// derived from the Field, so typing a name whole selects that
+            /// choice, and Tab or a press outside leaves with whatever was
+            /// typed — none of which passes through here. Reading
+            /// `SelectionState::selected` and `SelectionState::text` while
+            /// rendering is the authoritative path, and the state notifies, so
+            /// an owning view already redraws. Use this for the side effects a
+            /// deliberate pick should have, not to learn the value.
             pub fn on_select(
                 mut self,
                 callback: impl Fn(Option<usize>, &mut Window, &mut App) + 'static,
