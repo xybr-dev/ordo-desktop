@@ -582,12 +582,13 @@ impl Control {
                 self.environment.appearance(),
                 scale,
             )])
+            // The click reaches whatever it was aimed at. `DESIGN.md` gives
+            // pointer capture to the scrim, and a Floating popup has none, so
+            // swallowing the click would leave no visible reason it did
+            // nothing.
             .on_mouse_down_out({
                 let state = self.state.clone();
-                move |_, _, cx| {
-                    state.0.update(cx, |s, cx| s.dismiss(cx));
-                    cx.stop_propagation();
-                }
+                move |_, _, cx| state.0.update(cx, |s, cx| s.dismiss(cx))
             });
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so
@@ -649,6 +650,7 @@ mod tests {
         state: SelectionState,
         kind: Kind,
         activations: Rc<std::cell::Cell<usize>>,
+        elsewhere: Rc<std::cell::Cell<usize>>,
     }
     impl Render for Harness {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -672,11 +674,17 @@ mod tests {
                     }
                     .render(window, cx),
                 )
-                .child(Button::new(
-                    "after",
-                    "After",
-                    UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light),
-                ))
+                .child(
+                    Button::new(
+                        "after",
+                        "After",
+                        UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light),
+                    )
+                    .on_activate({
+                        let elsewhere = self.elsewhere.clone();
+                        move |_, _| elsewhere.set(elsewhere.get() + 1)
+                    }),
+                )
         }
     }
     fn open(
@@ -704,6 +712,7 @@ mod tests {
                 state,
                 kind,
                 activations: Rc::new(std::cell::Cell::new(0)),
+                elsewhere: Rc::new(std::cell::Cell::new(0)),
             }
         });
         cx.update(|w, cx| w.draw(cx).clear(cx));
@@ -896,7 +905,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn pointer_dismissal_leaves_focus_where_the_operator_put_it(cx: &mut TestAppContext) {
+    fn pointer_dismissal_reaches_the_control_the_operator_aimed_at(cx: &mut TestAppContext) {
         for kind in [Kind::Menu, Kind::Select] {
             let (view, cx) = open(cx, kind);
             press(cx, "down");
@@ -904,12 +913,14 @@ mod tests {
             let elsewhere = cx.debug_bounds("button-After").unwrap();
             cx.simulate_click(elsewhere.center(), gpui::Modifiers::default());
             cx.update(|w, cx| {
-                let s = view.read(cx).state.0.read(cx);
+                let view = view.read(cx);
+                let s = view.state.0.read(cx);
                 assert!(!s.open, "{kind:?} dismisses");
                 assert!(
                     !s.trigger.is_focused(w),
                     "{kind:?} does not pull focus back off the clicked control"
                 );
+                assert_eq!(view.elsewhere.get(), 1, "{kind:?} click-through activation");
             });
         }
     }
