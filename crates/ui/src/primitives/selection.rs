@@ -1094,9 +1094,8 @@ impl Control {
             list = list.child(self.no_matches());
         }
 
-        let list = list
-            .track_scroll(scroll.handle())
-            .overflow_y_scroll()
+        let list = scroll
+            .bounded(list)
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .p(px(scale.apply(8.0)))
             .w(px(scale
@@ -1157,7 +1156,10 @@ impl Control {
                 .snap_to_window_with_margin(px(16.0))
                 .child(list),
         )
-        .with_priority(1);
+        // Above every overlay layer: a popup opened from inside an overlay body
+        // has to paint over the surface that owns it, and only the topmost
+        // surface can be reached anyway. Base's own popups sit here too.
+        .with_priority(gpui_base::POPUP_PRIORITY);
         let trigger_element = if kind == Kind::Combobox {
             self.field_trigger(cx).into_any_element()
         } else {

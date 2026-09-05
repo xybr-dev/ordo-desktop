@@ -223,8 +223,11 @@ reporting a position and widens to a grabbable width when the pointer
 reaches for the edge, so it never covers more of the content than the
 moment requires, and it stops clear of the surface's own corner radius at
 both ends rather than riding out over it. Wheel and keyboard scrolling
-are unchanged by it. A nested slide-over advances from the right while
-its parent recedes slightly and returns without losing parent state.
+are unchanged by it. A bounded scrolling surface also contains the wheel it
+handles: pointing at a popup list inside a slideover body scrolls that list
+alone, never the body behind it or the workspace behind that. A nested
+slide-over advances from the right while its parent recedes slightly and
+returns without losing parent state.
 
 Responsive layouts are qualified at `1366x768` and `1920x1080`. Resizing may
 change information density, column count, or disclosure, but it must never
@@ -322,8 +325,10 @@ adopted neutral border so the edge remains legible without depending upon the
 shadow alone.
 
 Dialogs, ordinary slideovers, and unpinned Presenter Ordo use the same visible
-dim scrim. It captures pointer input: clicking the scrim dismisses the temporary
-surface without activating anything beneath it. Pinning Ordo removes the scrim
+dim scrim. It captures pointer input entirely: clicking the scrim dismisses the
+temporary surface without activating anything beneath it, and a control the
+scrim covers does not respond to the pointer at all — no hover treatment, no
+pointer cursor, no tooltip. Pinning Ordo removes the scrim
 and converts it to a fixed pane. Every overlay and its scrim share one
 application-owned stacking layer so background controls cannot receive stray
 events.

@@ -14,6 +14,7 @@ use crate::{
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
     },
+    overlay::{Overlay, OverlayHost, Toast},
     primitives::{
         Availability,
         button::Button,
@@ -131,6 +132,18 @@ static SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "combobox-new",
         render: render_combobox_new,
+    },
+    Scenario {
+        name: "dialog",
+        render: render_dialog,
+    },
+    Scenario {
+        name: "slideover",
+        render: render_slideover,
+    },
+    Scenario {
+        name: "toasts",
+        render: render_toasts,
     },
     Scenario {
         name: "tabs",
@@ -294,6 +307,152 @@ fn render_disclosure(environment: UiEnvironment, window: &mut Window, cx: &mut A
                 div().child(fixtures::LONG_MULTILINGUAL_BODY),
             )
             .on_surface(stage),
+        )
+        .into_any_element()
+}
+
+/// The one host every scenario and the lab frame share. Keyed state, so the
+/// content that opens a surface and the view that paints the layer reach the
+/// same host without either being handed the other.
+pub(crate) fn overlays(window: &mut Window, cx: &mut App) -> OverlayHost {
+    OverlayHost::keyed("ordo-overlays", window, cx)
+}
+
+/// Enough body to exceed a bounded overlay at every scale, so the scroll
+/// indicator and the fixed header/footer have something to prove.
+fn long_body(environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(scale.apply(tokens::spacing::GROUP)))
+        .children((0..8).map(|_| div().child(fixtures::LONG_MULTILINGUAL_BODY)))
+        .into_any_element()
+}
+
+fn render_dialog(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let host = overlays(window, cx);
+    let stage = tokens::palette(environment.appearance()).surface;
+    row("scenario-dialog", environment)
+        .child(
+            Button::new("open-dialog", "Delete Mass", environment)
+                .on_surface(stage)
+                .on_activate({
+                    let host = host.clone();
+                    move |window, cx| {
+                        let host = host.clone();
+                        host.clone().open(
+                            Overlay::dialog("Delete this Mass?")
+                                .description(fixtures::LONG_CEBUANO_TITLE)
+                                .body(|environment, _, _| long_body(environment))
+                                .secondary("Keep", |_, _| {})
+                                .primary("Delete", move |_, cx| {
+                                    host.notify(Toast::confirmation("Mass deleted."), cx)
+                                }),
+                            window,
+                            cx,
+                        )
+                    }
+                }),
+        )
+        .into_any_element()
+}
+
+fn render_slideover(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let host = overlays(window, cx);
+    let stage = tokens::palette(environment.appearance()).surface;
+    // The nested request, built where the parent's own body can reach it.
+    fn child() -> Overlay {
+        Overlay::slideover("Song details").body(move |environment, window, cx| {
+            let stage = tokens::palette(environment.appearance()).surface;
+            let state =
+                SelectionState::keyed("lab-slideover-select", choices(), Some(1), window, cx);
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(environment
+                    .preferences()
+                    .scale
+                    .apply(tokens::spacing::GROUP)))
+                // A popup opened inside an overlay body has to paint over the
+                // surface that owns it, which is what the layer's priorities
+                // are for.
+                .child(
+                    Select::new("nested-select", "Language", &state, environment).on_surface(stage),
+                )
+                .child(long_body(environment))
+                .into_any_element()
+        })
+    }
+    row("scenario-slideover", environment)
+        .child(
+            Button::new("open-slideover", "Inspector", environment)
+                .on_surface(stage)
+                .on_activate({
+                    let host = host.clone();
+                    move |window, cx| {
+                        let host = host.clone();
+                        host.clone().open(
+                            Overlay::slideover("Inspector")
+                                .description("Mass details and readiness")
+                                .body(move |environment, _, _| {
+                                    let host = host.clone();
+                                    let stage = tokens::palette(environment.appearance()).surface;
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(environment
+                                            .preferences()
+                                            .scale
+                                            .apply(tokens::spacing::GROUP)))
+                                        .child(
+                                            Button::new("open-nested", "Open Song", environment)
+                                                .on_surface(stage)
+                                                .on_activate(move |window, cx| {
+                                                    host.clone().open(child(), window, cx)
+                                                }),
+                                        )
+                                        .child(long_body(environment))
+                                        .into_any_element()
+                                }),
+                            window,
+                            cx,
+                        )
+                    }
+                }),
+        )
+        .into_any_element()
+}
+
+fn render_toasts(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let host = overlays(window, cx);
+    let stage = tokens::palette(environment.appearance()).surface;
+    row("scenario-toasts", environment)
+        .child(
+            Button::new("post-confirmation", "Remove Cue", environment)
+                .on_surface(stage)
+                .on_activate({
+                    let host = host.clone();
+                    move |_, cx| {
+                        host.notify(
+                            Toast::confirmation("Cue removed.").undo("Undo", |_, _| {}),
+                            cx,
+                        )
+                    }
+                }),
+        )
+        .child(
+            Button::new("post-failure", "Lose output", environment)
+                .on_surface(stage)
+                .on_activate({
+                    let host = host.clone();
+                    move |_, cx| {
+                        host.notify(
+                            Toast::failure("Congregation display disconnected. Program is frozen."),
+                            cx,
+                        )
+                    }
+                }),
         )
         .into_any_element()
 }
@@ -587,6 +746,9 @@ impl Render for LabView {
                             ),
                     ),
             )
+            // The one overlay layer, last and once. Every temporary surface in
+            // the lab comes through it, exactly as in the shell.
+            .child(overlays(window, cx).layer(environment, window, cx))
     }
 }
 
@@ -891,6 +1053,259 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Lets a surface finish entering or leaving. The transition asks for a
+    /// platform animation frame, and the test platform has none.
+    fn settle(cx: &mut gpui::VisualTestContext, duration: u16) {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(duration.into()));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+
+    /// The constrained nested-overlay matrix: every temporary surface stays
+    /// inside the window with its exterior gutters, keeps its header and its
+    /// actions reachable while only the body scrolls, and a nested slideover
+    /// leaves its parent where it was.
+    #[gpui::test]
+    fn overlay_scenarios_cover_the_appearance_scale_viewport_matrix(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        let enter = tokens::motion::OVERLAY_OPEN_DURATION_MS;
+        let exit = tokens::motion::OVERLAY_CLOSE_DURATION_MS;
+        for appearance in [PreparationAppearance::Light, PreparationAppearance::Dark] {
+            for scale in [
+                crate::environment::InterfaceScale::Percent100,
+                crate::environment::InterfaceScale::Percent125,
+                crate::environment::InterfaceScale::Percent150,
+                crate::environment::InterfaceScale::Percent175,
+                crate::environment::InterfaceScale::Percent200,
+            ] {
+                for viewport in ViewportPreset::ALL {
+                    let (width, height) = viewport.size();
+                    cx.simulate_resize(size(px(width), px(height)));
+                    let contained = |bounds: gpui::Bounds<gpui::Pixels>, what: &str| {
+                        assert!(
+                            bounds.origin.x > px(0.0)
+                                && bounds.origin.y > px(0.0)
+                                && bounds.right() < px(width)
+                                && bounds.bottom() < px(height),
+                            "{what} stays inside the viewport with its exterior gutters \
+                             ({appearance:?} {scale:?} {viewport:?})"
+                        );
+                    };
+
+                    for scenario in ["dialog", "slideover"] {
+                        lab.update(cx, |lab, cx| {
+                            lab.change(
+                                EnvironmentChange::SetPreferences(UiPreferences {
+                                    appearance,
+                                    scale,
+                                }),
+                                cx,
+                            );
+                            lab.set_viewport(viewport, cx);
+                            assert!(lab.select_scenario(scenario, cx));
+                        });
+                        cx.run_until_parked();
+
+                        let (invoker, title, bar) = if scenario == "dialog" {
+                            (
+                                "button-Delete Mass",
+                                "overlay-Delete this Mass?",
+                                "scroll-indicator-overlay-body-Delete this Mass?",
+                            )
+                        } else {
+                            (
+                                "button-Inspector",
+                                "overlay-Inspector",
+                                "scroll-indicator-overlay-body-Inspector",
+                            )
+                        };
+                        let trigger = cx.debug_bounds(invoker).unwrap();
+                        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+                        settle(cx, enter);
+
+                        let surface = cx.debug_bounds(title).expect("the surface is open");
+                        contained(surface, title);
+                        // The header's Close control and the body's indicator
+                        // are both inside it: the body is what scrolls, and the
+                        // header stays put while it does.
+                        let close = cx.debug_bounds("button-Close").unwrap();
+                        assert!(
+                            close.origin.y >= surface.origin.y
+                                && close.bottom() <= surface.bottom(),
+                            "the Close control stays in the header ({title} {scale:?})"
+                        );
+                        let indicator = cx
+                            .debug_bounds(bar)
+                            .expect("a body taller than its surface shows the indicator");
+                        assert!(
+                            indicator.origin.y > close.bottom()
+                                && indicator.bottom() <= surface.bottom()
+                                && indicator.size.width < surface.size.width,
+                            "the indicator is a thin overlay on the body alone \
+                             ({title} {scale:?} {viewport:?})"
+                        );
+
+                        if scenario == "dialog" {
+                            // The footer keeps both actions reachable while the
+                            // body scrolls between them and the header.
+                            let primary = cx.debug_bounds("button-Delete").unwrap();
+                            let secondary = cx.debug_bounds("button-Keep").unwrap();
+                            assert!(
+                                primary.bottom() <= surface.bottom()
+                                    && secondary.bottom() <= surface.bottom()
+                                    && primary.origin.y >= indicator.origin.y
+                                    && secondary.origin.x < primary.origin.x,
+                                "the primary action ends the footer ({scale:?} {viewport:?})"
+                            );
+                        } else {
+                            // Nested: the parent is kept, not replaced.
+                            let nest = cx.debug_bounds("button-Open Song").unwrap();
+                            cx.simulate_click(nest.center(), gpui::Modifiers::default());
+                            settle(cx, enter);
+                            let child = cx
+                                .debug_bounds("overlay-Song details")
+                                .expect("the nested slideover is open");
+                            contained(child, "the nested slideover");
+                            assert!(
+                                cx.debug_bounds("overlay-Inspector").is_some(),
+                                "its parent stays where it was ({scale:?} {viewport:?})"
+                            );
+                            cx.simulate_keystrokes("escape");
+                            settle(cx, exit);
+                            assert!(cx.debug_bounds("overlay-Song details").is_none());
+                            assert!(cx.debug_bounds("overlay-Inspector").is_some());
+                        }
+
+                        cx.simulate_keystrokes("escape");
+                        settle(cx, exit);
+                        assert!(
+                            cx.debug_bounds(title).is_none(),
+                            "{title} closes ({appearance:?} {scale:?} {viewport:?})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A bounded scrolling surface contains its own wheel. GPUI's scroll
+    /// listener never stops propagating, so without containment one wheel over
+    /// the popup moved the popup, the slideover body it sits in, and the lab
+    /// stage behind that, all by the same delta.
+    #[gpui::test]
+    fn a_popup_inside_a_slideover_scrolls_only_itself(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        // A window smaller than the preset, so the stage behind everything
+        // scrolls too and has something to be kept still.
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            assert!(lab.select_scenario("slideover", cx));
+        });
+        cx.run_until_parked();
+
+        let trigger = cx.debug_bounds("button-Inspector").unwrap();
+        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+        let nest = cx.debug_bounds("button-Open Song").unwrap();
+        cx.simulate_click(nest.center(), gpui::Modifiers::default());
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+
+        let select = cx.debug_bounds("button-Language: English").unwrap();
+        cx.simulate_click(select.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+        let popup = cx.debug_bounds("selection-list").expect("the popup opens");
+        let before = (
+            cx.debug_bounds("scroll-indicator-selection-list").unwrap(),
+            cx.debug_bounds("scroll-indicator-overlay-body-Song details")
+                .unwrap(),
+            cx.debug_bounds("lab-stage").unwrap(),
+        );
+
+        cx.simulate_mouse_move(popup.center(), None, gpui::Modifiers::default());
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: popup.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-120.0))),
+            modifiers: gpui::Modifiers::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+
+        let after = (
+            cx.debug_bounds("scroll-indicator-selection-list").unwrap(),
+            cx.debug_bounds("scroll-indicator-overlay-body-Song details")
+                .unwrap(),
+            cx.debug_bounds("lab-stage").unwrap(),
+        );
+        assert!(
+            after.0.origin.y > before.0.origin.y,
+            "the collection under the pointer scrolls"
+        );
+        assert_eq!(
+            after.1.origin.y, before.1.origin.y,
+            "the slideover body it sits in does not"
+        );
+        assert_eq!(
+            after.2.origin.y, before.2.origin.y,
+            "and neither does the stage behind that"
+        );
+    }
+
+    /// Toasts sit bottom-center and outlive nothing but their own rules: an
+    /// expiring confirmation carries its Undo, an owned failure waits.
+    #[gpui::test]
+    fn toasts_sit_bottom_center_and_keep_their_two_kinds_apart(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        let (width, height) = ViewportPreset::Compact.size();
+        cx.simulate_resize(size(px(width), px(height)));
+        lab.update(cx, |lab, cx| assert!(lab.select_scenario("toasts", cx)));
+        cx.run_until_parked();
+
+        for label in ["button-Remove Cue", "button-Lose output"] {
+            let trigger = cx.debug_bounds(label).unwrap();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            cx.run_until_parked();
+        }
+        // Both have arrived from below and come to rest; the entrance is what
+        // the overlay tests cover, and this one is about where they rest.
+        settle(cx, crate::tokens::motion::OVERLAY_OPEN_DURATION_MS);
+        let confirmation = cx.debug_bounds("toast-Cue removed.").unwrap();
+        let failure = cx
+            .debug_bounds("toast-Congregation display disconnected. Program is frozen.")
+            .unwrap();
+        for (toast, what) in [(confirmation, "confirmation"), (failure, "failure")] {
+            assert!(
+                toast.bottom() < px(height)
+                    && toast.origin.x > px(0.0)
+                    && (toast.center().x - px(width / 2.0)).abs() <= px(1.0),
+                "the {what} sits bottom-center"
+            );
+        }
+        assert!(cx.debug_bounds("button-Undo").is_some());
+        assert!(cx.debug_bounds("button-Dismiss").is_some());
+
+        cx.executor()
+            .advance_clock(crate::overlay::TOAST_TIMEOUT + std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("toast-Cue removed.").is_none(),
+            "the confirmation expires on its own"
+        );
+        assert!(
+            cx.debug_bounds("toast-Congregation display disconnected. Program is frozen.")
+                .is_some(),
+            "and the owned failure waits to be dismissed"
+        );
+        let dismiss = cx.debug_bounds("button-Dismiss").unwrap();
+        cx.simulate_click(dismiss.center(), gpui::Modifiers::default());
+        settle(cx, crate::tokens::motion::OVERLAY_CLOSE_DURATION_MS);
+        assert!(
+            cx.debug_bounds("toast-Congregation display disconnected. Program is frozen.")
+                .is_none()
+        );
     }
 
     /// The indicator is also a control. `DESIGN.md` only forbids it being the

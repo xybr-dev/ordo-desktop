@@ -127,6 +127,27 @@ impl Scroll {
         &self.handle
     }
 
+    /// Makes `element` the bounded scrolling surface: it tracks this handle,
+    /// scrolls, and *contains* what it scrolls.
+    ///
+    /// Containment is the part GPUI does not do. Its own wheel listener never
+    /// stops propagating, so every scrollable ancestor under the pointer scrolls
+    /// by the same delta — a popup inside a slideover body inside a scrolling
+    /// pane moved all three at once. `occlude` is what settles it: the hit test
+    /// stops at an occluding hitbox, so a surface behind this one is not offered
+    /// the wheel, is not hovered, and does not lend its cursor. It applies only
+    /// within these bounds and only to what is behind them, so this surface's
+    /// own rows, and the indicator drawn over them, are unaffected.
+    ///
+    /// Every bounded scrolling surface goes through here rather than repeating
+    /// the three calls, so none of them can be the one that forgets.
+    pub fn bounded<E: gpui::StatefulInteractiveElement + Styled>(&self, element: E) -> E {
+        element
+            .track_scroll(&self.handle)
+            .overflow_y_scroll()
+            .occlude()
+    }
+
     /// The indicator for the surface's *current* measurement, to be placed in a
     /// `relative` wrapper around the scrolling element — a sibling, because a
     /// child of the scrolling element would scroll away with the content.
@@ -141,7 +162,7 @@ impl Scroll {
     /// surface passes `0`.
     pub fn indicator(
         &self,
-        id: &'static str,
+        id: &str,
         corner: f32,
         window: &mut Window,
         cx: &mut gpui::App,

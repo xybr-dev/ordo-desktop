@@ -5,6 +5,7 @@ pub mod environment;
 /// Development-only scenario host; `ui-lab` enables it, operator builds do not.
 #[cfg(any(test, feature = "lab"))]
 pub mod lab;
+pub mod overlay;
 pub mod primitives;
 pub mod scroll;
 pub mod tokens;
@@ -30,7 +31,9 @@ actions!(
         DecreaseInterfaceScale,
         ResetInterfaceScale,
         EnterPresenter,
-        LeavePresenter
+        LeavePresenter,
+        FocusNext,
+        FocusPrevious
     ]
 );
 
@@ -49,8 +52,14 @@ pub fn init(cx: &mut App) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn key_bindings() -> [KeyBinding; 4] {
+/// `Tab` is not bound by GPUI and the pin binds it only inside a text input,
+/// where a single-line Field propagates it straight back out. Ordo therefore
+/// owns the two focus-order keys, which is what lets a modal surface contain
+/// them; `DESIGN.md`'s `F6` region cycle joins them with the region registry.
+pub(crate) fn key_bindings() -> [KeyBinding; 6] {
     [
+        KeyBinding::new("tab", FocusNext, None),
+        KeyBinding::new("shift-tab", FocusPrevious, None),
         KeyBinding::new("ctrl-=", IncreaseInterfaceScale, None),
         KeyBinding::new("ctrl-+", IncreaseInterfaceScale, None),
         KeyBinding::new("ctrl--", DecreaseInterfaceScale, None),

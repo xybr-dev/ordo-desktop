@@ -182,6 +182,41 @@ pub mod elevation {
             inset: false,
         }
     }
+
+    /// Executable Overlay token for dialogs, slideovers, and the focused child
+    /// in a nested slideover sequence — the second and last of `DESIGN.md`'s
+    /// two shadow levels per appearance.
+    pub fn overlay(
+        appearance: super::ResolvedAppearance,
+        scale: crate::environment::InterfaceScale,
+    ) -> gpui::BoxShadow {
+        let (color, opacity, blur) = match appearance {
+            super::ResolvedAppearance::Light => (0x27231F, 0.20, 48.0),
+            super::ResolvedAppearance::Dark => (0x000000, 0.58, 52.0),
+        };
+        let mut color = gpui::rgb(color);
+        color.a = opacity;
+        gpui::BoxShadow {
+            color: color.into(),
+            offset: gpui::point(gpui::px(0.0), gpui::px(scale.apply(18.0))),
+            blur_radius: gpui::px(scale.apply(blur)),
+            spread_radius: gpui::px(0.0),
+            inset: false,
+        }
+    }
+
+    /// The one dim scrim every overlay shares, faded by its surface's own
+    /// progress. `DESIGN.md` names it in prose only — it has no frontmatter
+    /// token — so it is stated once here rather than in each overlay.
+    ///
+    /// ponytail: `blackout` is the darkest neutral Ordo already owns and reads
+    /// the same over both appearances; give it its own token if a scrim ever
+    /// has to differ between them.
+    pub fn scrim(progress: f32) -> gpui::Rgba {
+        let mut color = gpui::rgb(super::color::BLACKOUT);
+        color.a = 0.45 * progress.clamp(0.0, 1.0);
+        color
+    }
 }
 
 pub mod icon {
