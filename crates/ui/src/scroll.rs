@@ -13,7 +13,7 @@ use std::{cell::Cell, rc::Rc};
 
 use gpui::{
     CursorStyle, IntoElement, MouseButton, ScrollHandle, Styled, Window, div, point, prelude::*,
-    px, relative, rgb,
+    px, rgb,
 };
 
 use crate::{environment::UiEnvironment, tokens};
@@ -79,23 +79,31 @@ struct Measurement {
     offset: f32,
 }
 
-/// Where the indicator sits in its track, as fractions of the track.
+/// Where the indicator sits in its track, in pixels from the track's top.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Proportions {
+struct Bar {
     top: f32,
     length: f32,
 }
 
 /// `None` whenever the content fits, because `DESIGN.md` forbids the indicator
 /// on a surface that does not scroll.
-fn proportions(measured: Measurement) -> Option<Proportions> {
-    if measured.viewport <= 0.0 || measured.max_offset <= 0.0 {
+///
+/// Position and length are both resolved here, in the track's own pixels. They
+/// used to be fractions of the track with the minimum applied afterwards in
+/// pixels, which put them in different spaces: a collection long enough to bind
+/// the minimum was positioned as if the indicator were still its unclamped
+/// fraction, so at full travel it ended up below the track by exactly what the
+/// minimum had added — riding out over the corner the track is inset to clear.
+fn bar(measured: Measurement, track: f32, minimum: f32) -> Option<Bar> {
+    if track <= 0.0 || measured.max_offset <= 0.0 {
         return None;
     }
-    let length = measured.viewport / (measured.viewport + measured.max_offset);
+    let visible = measured.viewport / (measured.viewport + measured.max_offset);
+    let length = (visible * track).clamp(minimum.min(track), track);
     let travelled = (measured.offset.abs() / measured.max_offset).clamp(0.0, 1.0);
-    Some(Proportions {
-        top: travelled * (1.0 - length),
+    Some(Bar {
+        top: travelled * (track - length),
         length,
     })
 }
@@ -149,8 +157,11 @@ impl Scroll {
                 }
             })
             .detach();
-        let proportions = proportions(measured)?;
         let scale = environment.preferences().scale;
+        // The track is the surface inset by the corner it has to stay clear of
+        // at each end.
+        let track = measured.viewport - 2.0 * scale.apply(corner);
+        let bar_geometry = bar(measured, track, scale.apply(MINIMUM_LENGTH))?;
         let dragging = self.grab.get().is_some();
         let thickness = if dragging || self.near.get() || self.over.get() {
             GRAB_THICKNESS
@@ -161,14 +172,10 @@ impl Scroll {
             .id("scroll-indicator")
             .debug_selector(|| "scroll-indicator".into())
             .absolute()
-            .top(relative(proportions.top))
+            .top(px(bar_geometry.top))
             .right_0()
             .w(px(scale.apply(thickness)))
-            .h(relative(proportions.length))
-            // A very long collection would otherwise shrink it to a dot, and a
-            // very short track would let that minimum grow past the surface.
-            .min_h(px(scale.apply(MINIMUM_LENGTH)))
-            .max_h(relative(1.0))
+            .h(px(bar_geometry.length))
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .bg(rgb(tokens::palette(environment.appearance()).border_strong))
             // Open until it is taken hold of, which is the whole of what this
@@ -226,19 +233,17 @@ impl Scroll {
                 })
                 .on_drag_move({
                     let scroll = self.clone();
-                    move |event: &gpui::DragMoveEvent<Grab>, window, _| {
+                    move |event: &gpui::DragMoveEvent<Grab>, window, _cx| {
                         let Some((from, offset)) = scroll.grab.get() else {
                             return;
                         };
                         let measured = scroll.measure();
-                        let track = f32::from(event.bounds.size.height);
-                        let bar = (proportions.length * track)
-                            .max(scale.apply(MINIMUM_LENGTH))
-                            .min(track);
-                        // The pointer covers the track it has left to travel,
-                        // not the whole track, so a drag to the bottom of the
-                        // surface lands on the bottom of the content.
-                        let travel = track - bar;
+                        // The pointer covers the track the indicator has left
+                        // to travel, not the whole track, so a drag to the
+                        // bottom of the surface lands on the bottom of the
+                        // content. This is the geometry the frame under the
+                        // pointer was drawn from, which is what it is dragging.
+                        let travel = track - bar_geometry.length;
                         if travel <= 0.0 {
                             return;
                         }
@@ -268,32 +273,68 @@ mod tests {
         }
     }
 
+    /// The track a bounded surface of this height actually offers, which is
+    /// what every assertion below is in terms of.
+    const TRACK: f32 = 240.0;
+    const MINIMUM: f32 = MINIMUM_LENGTH;
+
     #[test]
     fn content_that_fits_has_no_indicator() {
-        assert_eq!(proportions(measured(240.0, 0.0, 0.0)), None);
+        assert_eq!(bar(measured(TRACK, 0.0, 0.0), TRACK, MINIMUM), None);
         // Nothing has been measured yet, which is not the same as fitting, but
         // there is equally nothing to draw from.
-        assert_eq!(proportions(measured(0.0, 0.0, 0.0)), None);
+        assert_eq!(bar(measured(0.0, 0.0, 0.0), 0.0, MINIMUM), None);
     }
 
     #[test]
     fn the_indicator_reports_how_much_is_visible_and_where_it_is() {
-        // Three viewports of content: a third is visible.
-        let top = proportions(measured(100.0, 200.0, 0.0)).unwrap();
-        assert!((top.length - 1.0 / 3.0).abs() < f32::EPSILON);
+        // Three viewports of content: a third of the track is visible.
+        let top = bar(measured(100.0, 200.0, 0.0), 300.0, MINIMUM).unwrap();
+        assert_eq!(top.length, 100.0);
         assert_eq!(top.top, 0.0);
 
         // GPUI counts downward scroll as a negative offset; halfway down puts
         // the indicator halfway through the track it has left to travel.
-        let middle = proportions(measured(100.0, 200.0, -100.0)).unwrap();
-        assert!((middle.top - (1.0 / 3.0)).abs() < 1e-6);
+        let middle = bar(measured(100.0, 200.0, -100.0), 300.0, MINIMUM).unwrap();
+        assert_eq!(middle.top, 100.0);
 
-        let bottom = proportions(measured(100.0, 200.0, -200.0)).unwrap();
-        assert!((bottom.top + bottom.length - 1.0).abs() < 1e-6);
+        let bottom = bar(measured(100.0, 200.0, -200.0), 300.0, MINIMUM).unwrap();
+        assert_eq!(bottom.top + bottom.length, 300.0);
 
         // An overscrolled offset stays inside the track rather than sliding
         // out of the surface.
-        let overscrolled = proportions(measured(100.0, 200.0, -400.0)).unwrap();
+        let overscrolled = bar(measured(100.0, 200.0, -400.0), 300.0, MINIMUM).unwrap();
         assert_eq!(overscrolled, bottom);
+    }
+
+    /// The case the popup's six choices never reach and T0.4's Cue timeline
+    /// will: enough content that the minimum length, not the visible fraction,
+    /// decides how long the indicator is.
+    #[test]
+    fn the_minimum_length_stays_inside_the_track_it_was_applied_in() {
+        let collection = measured(TRACK, TRACK * 40.0, 0.0);
+        let visible = bar(collection, TRACK, MINIMUM).unwrap();
+        assert_eq!(
+            visible.length, MINIMUM,
+            "a collection this long is what binds the minimum"
+        );
+
+        let travelled = measured(TRACK, TRACK * 40.0, -TRACK * 40.0);
+        let end = bar(travelled, TRACK, MINIMUM).unwrap();
+        assert_eq!(
+            end.top + end.length,
+            TRACK,
+            "at full travel it ends where the track does, rather than below it \
+             by whatever the minimum added"
+        );
+    }
+
+    /// A surface too short to hold the minimum would otherwise be given an
+    /// indicator longer than itself.
+    #[test]
+    fn a_track_shorter_than_the_minimum_holds_the_indicator_anyway() {
+        let short = bar(measured(16.0, 400.0, -400.0), 16.0, MINIMUM).unwrap();
+        assert_eq!(short.length, 16.0);
+        assert_eq!(short.top, 0.0);
     }
 }

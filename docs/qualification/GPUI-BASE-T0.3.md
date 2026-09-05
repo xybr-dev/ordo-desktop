@@ -261,8 +261,12 @@ scrolled content, half a spacing step off the edge and with no reserved gutter.
 Sitting on the edge means it has to stop where that edge curves away from it, so
 its track is inset by the surface's own radius at both ends and the surface says
 what that radius is — the popup's is `OVERLAY`, and a square pane passes `0`.
-It is also never taller than that track, which is what a very short surface
-would otherwise do to the minimum length.
+Position and length are both resolved in that track's own pixels. Keeping them
+in one space is what makes staying inside it true rather than usually true: a
+collection long enough to bind the minimum length, which the popup's six choices
+never are and T0.4's Cue timeline easily will be, was otherwise positioned as
+its unclamped fraction and ended up below the track by exactly what the minimum
+had added. A track shorter than the minimum holds the indicator anyway.
 
 It is draggable, which `DESIGN.md` allows: the rule is that it is never the
 *only* way to scroll, and wheel, keyboard, and `scroll_to_item` behavior are
