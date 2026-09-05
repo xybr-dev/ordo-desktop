@@ -465,8 +465,6 @@ impl Control {
             .track_focus(&handle)
             .aria_expanded(open)
             .when(self.kind == Kind::Select, |b| b.aria_value(value))
-            .h_auto()
-            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
             .max_w(px(scale
                 .apply(320.0)
                 .min(f32::from(window.viewport_size().width) - 32.0)
