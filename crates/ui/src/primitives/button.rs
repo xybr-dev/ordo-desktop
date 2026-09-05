@@ -180,6 +180,7 @@ impl Button {
             // work in PR 7 gives Ordo somewhere to put one.
             .when(self.availability.is_available(), |control| {
                 control
+                    .cursor_pointer()
                     .hover(|style| style.border_color(rgb(palette.border_strong)))
                     .active(|style| {
                         style
