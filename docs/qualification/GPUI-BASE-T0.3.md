@@ -159,7 +159,14 @@ already folds case and the two halves must agree: `english` filtering to
 showing, and hand the Choir or Presider caller its own duplicate to reject. Two
 choices differing only in case are therefore one name, as they are to the
 operator reading the list; a collection with genuinely duplicate labels resolves
-to the first, because the Field's text is all this control has to go on. A half-typed value, a cleared one, and a name the collection does not
+to the first, because the Field's text is all this control has to go on.
+Whenever the control settles closed on a name it matched — Tab, an outside
+press, Escape, or a pick through the popup — the Field is rewritten to that
+choice's own spelling, so the collapsed control shows the value it holds rather
+than a near-miss of it, and `text` never hands a caller the operator's casing
+for a name the parish already keeps. Typing itself is untouched, so no caret is
+yanked mid-word, and a name outside the collection settles exactly as written.
+A half-typed value, a cleared one, and a name the collection does not
 contain are all "no selection", so no row is filled, no caller reads a value the
 operator cannot see, and a caller that accepts a new name reads
 `SelectionState::text` and decides for itself. `MVP-PLAN.md` needs exactly that:

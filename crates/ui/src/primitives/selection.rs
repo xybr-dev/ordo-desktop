@@ -214,6 +214,7 @@ impl State {
     /// Closes and returns focus to the trigger. `DESIGN.md` (Focus Navigation)
     /// asks for that when a *focused* surface closes: Escape, Tab, selection.
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settle(window, cx);
         self.open = false;
         self.trigger.focus(window, cx);
         cx.notify();
@@ -222,9 +223,25 @@ impl State {
     /// Closes without touching focus, for the operator who pointed somewhere
     /// else. Focusing the trigger here would round-trip focus off whatever
     /// they actually clicked.
-    fn dismiss(&mut self, cx: &mut Context<Self>) {
+    fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settle(window, cx);
         self.open = false;
         cx.notify();
+    }
+
+    /// Leaves a settling Combobox showing the name it matched, in the
+    /// collection's spelling. [`State::current`] folds case while the operator
+    /// types, so `english` is already the English choice; coming to rest still
+    /// reading `english` would collapse the control to a near-miss of its own
+    /// value, and hand a caller reading [`SelectionState::text`] the operator's
+    /// casing for a name the parish already keeps. Typing is untouched, so no
+    /// caret is ever yanked mid-word, and a name outside the collection is left
+    /// exactly as it was written.
+    fn settle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(field), Some(i)) = (self.field.clone(), self.current(cx)) else {
+            return;
+        };
+        field.set_value(self.choices[i].label.clone(), window, cx);
     }
 
     fn focus_active(&self, window: &mut Window, cx: &mut App) {
@@ -1102,13 +1119,13 @@ impl Control {
             // nothing.
             .on_mouse_down_out({
                 let state = self.state.clone();
-                move |_, _, cx| {
+                move |_, window, cx| {
                     state.0.update(cx, |s, cx| {
                         // The trigger sits outside the popup, so its own press
                         // arrives here too. That one belongs to the trigger,
                         // which toggles on release.
                         if !std::mem::take(&mut s.press_on_trigger) {
-                            s.dismiss(cx);
+                            s.dismiss(window, cx);
                         }
                     })
                 }
@@ -1744,6 +1761,20 @@ mod tests {
             let state = view.read(cx).state.0.read(cx);
             assert!(state.create_row(cx).is_some(), "this one is new");
         });
+
+        // Coming to rest, it shows the name it matched in the collection's
+        // spelling, so the control never collapses to a near-miss of its own
+        // value and no caller stores `english` for a priest the parish keeps.
+        // A name the collection does not contain settles exactly as written.
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("english");
+        view.read_with(cx, |v, cx| assert!(v.state.is_open(cx)));
+        press(cx, "tab");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), Some(0));
+            assert_eq!(v.state.text(cx), Some("English".into()));
+        });
+        assert_eq!(caret(&view, cx).1, "English");
     }
 
     #[gpui::test]
