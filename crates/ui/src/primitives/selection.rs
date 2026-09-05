@@ -382,11 +382,17 @@ impl Control {
             .accessibility_label(choice.label.clone())
             .selected(state.selected == Some(i))
             .set_position(i + 1, state.choices.len())
-            .disabled(!choice.availability.is_available())
+            // Disabled and Unavailable are different states, as on the Button:
+            // only Disabled is disabled, and an Unavailable tab stays
+            // focusable and inspectable while its activation is simply not
+            // attached.
+            .disabled(choice.availability.is_disabled())
             .when(!choice.availability.is_disabled(), |t| {
                 t.track_focus(&state.focus[i].clone().tab_stop(Some(i) == state.active))
             })
-            .on_click(move |_, w, cx| choose(i, w, cx))
+            .when(choice.availability.is_available(), |t| {
+                t.on_click(move |_, w, cx| choose(i, w, cx))
+            })
             .border_b(px(if state.selected == Some(i) {
                 scale.apply(2.0)
             } else {
