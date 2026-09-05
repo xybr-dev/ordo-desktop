@@ -131,6 +131,21 @@ impl State {
             .position(|choice| choice.label.to_lowercase() == value)
     }
 
+    /// Everything one frame needs from the collection, resolved once.
+    ///
+    /// Each part walks every choice and lowercases its label, and a frame wants
+    /// them for the loop, for each row it draws, and for the offered name. Two
+    /// reads in one frame could also disagree, since the Field is free to
+    /// change between them.
+    fn frame(&self, cx: &App) -> Frame {
+        Frame {
+            selected: self.current(cx),
+            active: self.active_choice(cx),
+            create: self.create_row(cx),
+            visible: self.visible(cx),
+        }
+    }
+
     /// The row that offers the typed name, addressed one past the collection.
     /// It is a row the arrows and Enter reach like any other, so it needs an
     /// index; nothing else may hand this one out, and every lookup that could
@@ -364,6 +379,14 @@ fn seed(
     field
 }
 
+/// One frame's view of the collection. See [`State::frame`].
+struct Frame {
+    visible: Vec<usize>,
+    selected: Option<usize>,
+    active: Option<usize>,
+    create: Option<usize>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     Menu,
@@ -553,7 +576,7 @@ impl Control {
     /// The row that keeps the typed name. It sits in the same list, carries
     /// the same option role, and is reached the same way, because from the
     /// operator's side it is one more thing they can pick.
-    fn create_item(&self, cx: &App) -> gpui::Stateful<gpui::Div> {
+    fn create_item(&self, frame: &Frame, cx: &App) -> gpui::Stateful<gpui::Div> {
         let state = self.state.0.read(cx);
         let typed = state
             .field
@@ -583,7 +606,7 @@ impl Control {
             .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .text_color(rgb(palette.text))
-            .when(state.active_choice(cx) == Some(index), |d| {
+            .when(frame.active == Some(index), |d| {
                 d.aria_active_descendant()
                     .bg(rgb(palette.surface_secondary))
             })
@@ -600,14 +623,14 @@ impl Control {
         focus_visible(item, self.environment, palette.surface)
     }
 
-    fn item(&self, i: usize, cx: &App) -> gpui::Stateful<gpui::Div> {
+    fn item(&self, i: usize, frame: &Frame, cx: &App) -> gpui::Stateful<gpui::Div> {
         // A tab renders through `tab()`, which carries the Tab role and its
         // position. Reaching a popup row with `Kind::Tabs` would silently name
         // it a ListBoxOption instead.
         debug_assert!(self.kind != Kind::Tabs, "a tab is not a popup choice");
         let state = self.state.0.read(cx);
         let choice = &state.choices[i];
-        let selected = state.current(cx) == Some(i);
+        let selected = frame.selected == Some(i);
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
         let description = choice
@@ -617,7 +640,7 @@ impl Control {
         let choose = self.select();
         // The Combobox's caret stays in its Field, so the choice the arrows
         // rest on is marked here instead of being focused.
-        let active = self.kind == Kind::Combobox && state.active_choice(cx) == Some(i);
+        let active = self.kind == Kind::Combobox && frame.active == Some(i);
         let item = div()
             .id(i)
             .capture_any_mouse_down(self.focus_item(i))
@@ -686,7 +709,7 @@ impl Control {
         focus_visible(item, self.environment, palette.surface)
     }
 
-    fn tab(&self, i: usize, cx: &App) -> gpui_base::Tab {
+    fn tab(&self, i: usize, frame: &Frame, cx: &App) -> gpui_base::Tab {
         let state = self.state.0.read(cx);
         let choice = &state.choices[i];
         let palette = tokens::palette(self.environment.appearance());
@@ -696,7 +719,7 @@ impl Control {
             .capture_any_mouse_down(self.focus_item(i))
             .debug_selector(move || format!("tab-{i}"))
             .accessibility_label(choice.label.clone())
-            .selected(state.selected == Some(i))
+            .selected(frame.selected == Some(i))
             .set_position(i + 1, state.choices.len())
             // Disabled and Unavailable are different states, as on the Button:
             // only Disabled is disabled, and an Unavailable tab stays
@@ -709,7 +732,7 @@ impl Control {
             .when(choice.availability.is_available(), |t| {
                 t.on_click(move |_, w, cx| choose(i, w, cx))
             })
-            .border_b(px(if state.selected == Some(i) {
+            .border_b(px(if frame.selected == Some(i) {
                 scale.apply(2.0)
             } else {
                 0.0
@@ -718,9 +741,9 @@ impl Control {
             .child(choice.label.clone())
             .px(px(scale.apply(12.0)))
             .py(px(scale.apply(8.0)))
-            .when(state.selected == Some(i), |t| t.bg(rgb(palette.selection)))
+            .when(frame.selected == Some(i), |t| t.bg(rgb(palette.selection)))
             .when(choice.availability.is_available(), |t| {
-                t.cursor_pointer().when(state.selected != Some(i), |t| {
+                t.cursor_pointer().when(frame.selected != Some(i), |t| {
                     t.hover(|style| style.bg(rgb(palette.surface_secondary)))
                 })
             })
@@ -980,7 +1003,7 @@ impl Control {
         let state = self.state.0.read(cx);
         let open = state.open;
         let choice_count = state.choices.len();
-        let visible = state.visible(cx);
+        let frame = state.frame(cx);
         let scroll = state.scroll.clone();
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
@@ -1025,19 +1048,18 @@ impl Control {
             });
         if kind == Kind::Tabs {
             for i in 0..choice_count {
-                list = list.child(self.tab(i, cx));
+                list = list.child(self.tab(i, &frame, cx));
             }
             return self.tabs().child(list.flex_wrap()).into_any_element();
         }
-        let create = self.state.0.read(cx).create_row(cx);
-        for &i in &visible {
-            if Some(i) == create {
-                list = list.child(self.create_item(cx));
+        for &i in &frame.visible {
+            if Some(i) == frame.create {
+                list = list.child(self.create_item(&frame, cx));
             } else {
-                list = list.child(self.item(i, cx));
+                list = list.child(self.item(i, &frame, cx));
             }
         }
-        if visible.is_empty() {
+        if frame.visible.is_empty() {
             list = list.child(self.no_matches());
         }
 
@@ -1342,13 +1364,14 @@ mod tests {
                 surface: 0,
             };
             assert_eq!(node(control.list()).role(), Role::Menu);
+            let frame = control.state.0.read(cx).frame(cx);
             for kind in [Kind::Menu, Kind::Select, Kind::Combobox, Kind::Tabs] {
                 control.kind = kind;
                 for i in 0..4 {
                     let item = if kind == Kind::Tabs {
-                        node(control.tab(i, cx).render(w, cx).into_element())
+                        node(control.tab(i, &frame, cx).render(w, cx).into_element())
                     } else {
-                        node(control.item(i, cx))
+                        node(control.item(i, &frame, cx))
                     };
                     assert_eq!(
                         item.role(),
@@ -1764,7 +1787,7 @@ mod tests {
                 ),
                 surface: 0,
             };
-            let row = control.create_item(cx);
+            let row = control.create_item(&control.state.0.read(cx).frame(cx), cx);
             let mut node = accesskit::Node::new(row.a11y_role().expect("semantic element"));
             row.write_a11y_info(&mut node);
             // The row says what taking it does, in the operator's own words,
@@ -1849,8 +1872,9 @@ mod tests {
             assert_eq!(root.label(), Some("Languages"));
             assert_eq!(root.is_expanded(), Some(true));
             assert_eq!(node(control.list()).role(), Role::ListBox);
+            let frame = control.state.0.read(cx).frame(cx);
             for i in [0, 3] {
-                let item = node(control.item(i, cx));
+                let item = node(control.item(i, &frame, cx));
                 assert_eq!(item.role(), Role::ListBoxOption);
                 assert_eq!(item.is_selected(), Some(false));
             }
