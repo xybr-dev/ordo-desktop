@@ -46,6 +46,10 @@ struct State {
     trigger: FocusHandle,
     focus: Vec<FocusHandle>,
     scroll: ScrollHandle,
+    /// Set by the trigger's capture-phase press, which runs before the popup's
+    /// own outside-press handler. Without it the press dismisses and the
+    /// release reopens, so the control that opens the popup cannot close it.
+    press_on_trigger: bool,
 }
 
 impl State {
@@ -62,11 +66,16 @@ impl State {
             open: false,
             trigger: cx.focus_handle().tab_stop(true),
             scroll: ScrollHandle::new(),
+            press_on_trigger: false,
         }
     }
 
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = true;
+        // The press that opened this is spent. A press that never became a
+        // click — pressed on the trigger, released elsewhere — would otherwise
+        // leave the flag set and swallow one later outside press.
+        self.press_on_trigger = false;
         self.active = self
             .selected
             .filter(|&i| !self.choices[i].availability.is_disabled())
@@ -477,6 +486,10 @@ impl Control {
                 }
             })
             .control()
+            .capture_any_mouse_down({
+                let state = self.state.clone();
+                move |_, _, cx| state.0.update(cx, |s, _| s.press_on_trigger = true)
+            })
             .track_focus(&handle)
             .aria_expanded(open)
             .when(self.kind == Kind::Select, |b| b.aria_value(value))
@@ -601,7 +614,16 @@ impl Control {
             // nothing.
             .on_mouse_down_out({
                 let state = self.state.clone();
-                move |_, _, cx| state.0.update(cx, |s, cx| s.dismiss(cx))
+                move |_, _, cx| {
+                    state.0.update(cx, |s, cx| {
+                        // The trigger sits outside the popup, so its own press
+                        // arrives here too. That one belongs to the trigger,
+                        // which toggles on release.
+                        if !std::mem::take(&mut s.press_on_trigger) {
+                            s.dismiss(cx);
+                        }
+                    })
+                }
             });
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so
@@ -934,6 +956,38 @@ mod tests {
                     "{kind:?} does not pull focus back off the clicked control"
                 );
                 assert_eq!(view.elsewhere.get(), 1, "{kind:?} click-through activation");
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn the_trigger_closes_the_popup_it_opened(cx: &mut TestAppContext) {
+        for kind in [Kind::Menu, Kind::Select] {
+            let (view, cx) = open(cx, kind);
+            press(cx, "down");
+            view.read_with(cx, |v, cx| assert!(v.state.is_open(cx)));
+            let trigger = cx
+                .debug_bounds(if kind == Kind::Select {
+                    "button-Languages: English"
+                } else {
+                    "button-Languages"
+                })
+                .unwrap();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            view.read_with(cx, |v, cx| {
+                assert!(!v.state.is_open(cx), "{kind:?} closes from its trigger")
+            });
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            view.read_with(cx, |v, cx| {
+                assert!(v.state.is_open(cx), "{kind:?} reopens from its trigger")
+            });
+            // A press the trigger swallowed must not also swallow the next
+            // press somewhere else.
+            let elsewhere = cx.debug_bounds("button-After").unwrap();
+            cx.simulate_click(elsewhere.center(), gpui::Modifiers::default());
+            view.read_with(cx, |v, cx| {
+                assert!(!v.state.is_open(cx), "{kind:?} still dismisses");
+                assert_eq!(v.elsewhere.get(), 1);
             });
         }
     }
