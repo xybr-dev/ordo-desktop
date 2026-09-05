@@ -45,6 +45,11 @@ fn closing_operator_closes_congregation_and_owned_workers(cx: &mut TestAppContex
 
 #[gpui::test]
 async fn runtime_restores_and_persists_installation_preferences(cx: &mut TestAppContext) {
+    // The preferences worker is a real OS thread, so the restore crosses a
+    // boundary the test executor cannot see. Without this it advances its
+    // virtual clock past `condition`'s 3s timer while the read is still in
+    // flight, and the test fails on a loaded machine rather than on a defect.
+    cx.executor().allow_parking();
     let preferences = temporary_preferences("runtime-preferences");
     fs::write(&preferences, "appearance=light\nscale=175\n").unwrap();
     let runtime = cx
