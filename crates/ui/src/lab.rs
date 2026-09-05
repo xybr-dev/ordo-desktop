@@ -790,6 +790,11 @@ mod tests {
                             assert!(cx.debug_bounds("button-Clear").is_some());
                             let only = cx.debug_bounds("choice-4").unwrap();
                             assert!(cx.debug_bounds("choice-0").is_none());
+                            assert!(
+                                cx.debug_bounds("scroll-indicator").is_none(),
+                                "one match fits, so the indicator goes away \
+                                 ({appearance:?} {scale:?})"
+                            );
                             let popup = cx.debug_bounds("selection-list").unwrap();
                             assert!(
                                 only.origin.y >= popup.origin.y
@@ -836,11 +841,30 @@ mod tests {
                                  unless the window snapped it \
                                  ({scenario} {appearance:?} {scale:?})"
                             );
+                            // Six choices, one of them a paragraph, exceed the
+                            // popup's bounded height at every scale.
+                            let top = cx
+                                .debug_bounds("scroll-indicator")
+                                .expect("a popup taller than its viewport shows the indicator");
+                            assert!(
+                                top.origin.y >= popup.origin.y
+                                    && top.bottom() <= popup.bottom()
+                                    && top.right() <= popup.right()
+                                    && top.size.height < popup.size.height,
+                                "the indicator is a thin overlay inside the popup \
+                                 ({scenario} {appearance:?} {scale:?})"
+                            );
                             cx.simulate_keystrokes("end");
                             let last = cx.debug_bounds("choice-5").unwrap();
                             assert!(
                                 last.origin.y >= popup.origin.y && last.bottom() <= popup.bottom(),
                                 "arrow navigation scrolls the long last value into view"
+                            );
+                            let bottom = cx.debug_bounds("scroll-indicator").unwrap();
+                            assert!(
+                                bottom.origin.y > top.origin.y && bottom.bottom() <= popup.bottom(),
+                                "the indicator reports the position scrolling reached \
+                                 ({scenario} {appearance:?} {scale:?})"
                             );
                             cx.simulate_keystrokes("escape");
                             assert!(cx.debug_bounds("selection-list").is_none());

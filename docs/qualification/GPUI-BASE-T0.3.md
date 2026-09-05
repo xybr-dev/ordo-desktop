@@ -222,12 +222,10 @@ therefore assert the ComboBox root, its name and expanded state, and the
 ListBox/option roles, and the behavior tests cover which choice is active.
 
 The popup is the second bounded scrolling surface Ordo owns, after T0.3.6's,
-and the scroll indicator `MILESTONES.md` requires still does not exist — the pin
-paints none, as recorded above, and no shared implementation has landed. This
-work is what makes the popup routinely taller than its box, since a filtered
-Presider or Song collection is exactly that case, so the debt is named here
-rather than left to pass unremarked: it closes with the shared indicator, which
-is PR 8's, not with this primitive.
+and the scroll indicator `MILESTONES.md` requires did not exist when this
+primitive landed — the pin paints none, as recorded above. T0.3.8 closes that
+debt with the shared implementation described below, which the popup now
+carries.
 
 The lab registers both halves — `combobox`, a closed Language set, and
 `combobox-new`, an open Presider set — bringing the same matrix to 120
@@ -236,6 +234,42 @@ long multilingual match, filtering to none, the offered name and taking it with
 the pointer, and cancelling with Escape, with window containment asserted at
 both viewports and every scale. `ui-lab <scenario>` opens one by name, because
 reviewing a control by hand should not mean cycling `F2` to reach it.
+
+### T0.3.8 shared scroll-indicator evidence
+
+`ui::scroll` owns the one indicator. It adds no dependency: the pin paints
+nothing and ships no scrollbar element, so the geometry comes from
+`ScrollHandle::bounds()`, `max_offset()`, and `offset()` and nothing else. The
+Select, Menu, and Combobox popup is its first consumer; PR 9's overlay bodies
+and T0.4's Cue timeline and dense editor lists are the next, and none of them
+reimplements it.
+
+`Scroll` replaces the bare `ScrollHandle` a surface used to own, because the
+indicator needs one thing GPUI's handle does not keep: what the last frame drew.
+A surface is measured during prepaint, after every render has run, so the frame
+that opens a popup renders before its own geometry exists, and GPUI refuses to
+dirty a window mid-draw. The surface therefore checks itself once the frame is
+over and asks for one more only when the measurement moved under it. That
+converges in a single extra frame, leaves an idle surface idle, and — this is
+the half a first-frame-only fix would miss — takes the indicator away again when
+filtering shrinks the content back inside its box.
+
+The indicator is a sibling of the scrolling element inside a `relative` wrapper,
+never its child: a child is translated by the scroll offset and would slide away
+with the content it reports on. It is drawn in the strong border token over the
+scrolled content with no reserved gutter, is absent whenever the content fits,
+and is not a control — wheel, keyboard, and `scroll_to_item` behavior are
+untouched, and it carries no AccessKit node, because a scroll position is not
+something to announce.
+
+Its proportions are asserted directly: how much of the content is visible, where
+that sits after scrolling, that an overscrolled offset stays inside its track,
+and that content which fits yields nothing. The lab's existing matrix carries
+the rest, so no scenario was added for it: the Menu and Select popups exceed
+their bounded height at every appearance, scale, and viewport, and assert the
+indicator is a thin overlay inside the popup and that it advances when `End`
+scrolls to the long last value; the Combobox filtered to its one match asserts
+the indicator is gone.
 
 ### Pinned platform limitations
 
@@ -266,10 +300,12 @@ anyway.
 The pin supplies no scroll indicator. `overflow_y_scroll` scrolls from wheel
 and keyboard but paints nothing, and GPUI ships no scrollbar element, so a list
 taller than its bounded owner gives no sign that more content exists below the
-fold. Ordo therefore owns one thin overlay indicator drawn from
-`ScrollHandle::offset()` and the content-versus-viewport height, shared by every
-bounded scrolling surface rather than reimplemented per list. Adopting a base
-scrollbar later reruns this qualification.
+fold. Ordo therefore owns one thin overlay indicator, `ui::scroll`, drawn from
+the handle's bounds, maximum offset, and offset, shared by every bounded
+scrolling surface rather than reimplemented per list. It also has to own the
+repaint: the pin measures a surface during prepaint and refuses to dirty a
+window mid-draw, so the indicator would otherwise be a frame behind whatever it
+reports. Adopting a base scrollbar later reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no
