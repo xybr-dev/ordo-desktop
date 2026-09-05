@@ -144,6 +144,16 @@ interception: the pinned single-line input leaves both to propagate, so they
 reach the root's `on_confirm` and `on_dismiss` seams, which commit and revert.
 Tab is not bound in either context and is handled from the trigger's key-down.
 
+Home and End are deliberately *not* intercepted, which is the one place a
+Combobox parts company with the Select it shares a popup with. They are bound
+in the input context and move the caret to the ends of the Field, so the
+operator correcting the front of a name they mistyped keeps the correction
+instead of losing it to a jump to the first choice — the editable-combobox
+behavior, where the ends of the collection are reached by arrowing. They are
+not dead keys: `home_and_end_move_the_caret_and_leave_the_collection_where_it_was`
+inserts a character after each and asserts where it lands, and that the popup
+and the active choice are untouched.
+
 Filtering breaks T0.3.6's "collections are fixed for a state's lifetime" only
 for the *visible* subset. A choice is addressed by its index in the whole
 collection everywhere — focus handles, selection, callbacks — and the filtered

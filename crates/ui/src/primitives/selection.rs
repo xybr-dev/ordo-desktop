@@ -1715,6 +1715,31 @@ mod tests {
         });
     }
 
+    /// Home and End edit rather than navigate, which is the one place a
+    /// Combobox parts company with the Select it shares a popup with. The
+    /// caret is in the Field, and an operator correcting the front of a name
+    /// they mistyped would lose the correction to a jump to the first choice.
+    #[gpui::test]
+    fn home_and_end_move_the_caret_and_leave_the_collection_where_it_was(cx: &mut TestAppContext) {
+        let (view, cx) = combobox(cx);
+        press(cx, "down");
+        cx.simulate_input("nglish");
+        press(cx, "down");
+        let active = view.read_with(cx, |v, cx| v.state.0.read(cx).active);
+
+        press(cx, "home");
+        cx.simulate_input("E");
+        assert_eq!(caret(&view, cx).1, "English");
+        press(cx, "end");
+        cx.simulate_input("x");
+        assert_eq!(caret(&view, cx).1, "Englishx");
+        view.read_with(cx, |v, cx| {
+            let state = v.state.0.read(cx);
+            assert!(state.open, "editing the caret is not leaving");
+            assert_eq!(state.active, active, "nor is it moving the collection");
+        });
+    }
+
     #[gpui::test]
     fn typing_a_whole_name_selects_it_without_committing_through_the_popup(
         cx: &mut TestAppContext,
