@@ -690,6 +690,11 @@ impl OverlayHost {
             .when(overlay.kind == Surface::Slideover, |d| d.h(px(height)))
             .opacity(progress)
             .bg(rgb(palette.surface))
+            // The body inherits the operator size in every host: header,
+            // footer, and controls all carry explicit sizes, while bare body
+            // content would otherwise fall back to the pin's fixed default
+            // wherever the host root sets none (as `ui-lab` does not).
+            .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .border_1()
             .border_color(rgb(palette.border_strong))
             .rounded(px(scale.apply(tokens::radius::OVERLAY)))

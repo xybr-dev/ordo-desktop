@@ -10,7 +10,8 @@ use gpui::{
 };
 
 use crate::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale, assets,
+    DecreaseInterfaceScale, FocusNext, FocusPrevious, IncreaseInterfaceScale, ResetInterfaceScale,
+    assets,
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
     },
@@ -398,6 +399,7 @@ pub(crate) fn overlays(window: &mut Window, cx: &mut App) -> OverlayHost {
 fn long_body(environment: UiEnvironment) -> AnyElement {
     let scale = environment.preferences().scale;
     div()
+        .debug_selector(|| "lab-long-body".into())
         .flex()
         .flex_col()
         .gap(px(scale.apply(tokens::spacing::GROUP)))
@@ -730,8 +732,12 @@ impl LabView {
         }
     }
 
-    fn next_scenario(&mut self, _: &NextScenario, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_scenario(&mut self, _: &NextScenario, window: &mut Window, cx: &mut Context<Self>) {
         self.scenario = (self.scenario + 1) % SCENARIOS.len();
+        // The switch unmounts whatever held focus, leaving a stale stop that
+        // Tab cannot step from and later keys cannot dispatch from. Home
+        // focus so the next key starts live.
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
@@ -771,6 +777,12 @@ impl Render for LabView {
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
             .on_action(cx.listener(Self::next_appearance))
+            // The plain window tab order, so a scenario is keyboard-reachable
+            // after F2. The pin stops action dispatch at the innermost
+            // handler, so the regions scenario's registry and an open
+            // overlay's trap both keep precedence over this root.
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .on_action(cx.listener(|this, _: &IncreaseInterfaceScale, _, cx| {
                 this.change(EnvironmentChange::IncreaseScale, cx);
             }))
@@ -1479,6 +1491,434 @@ mod tests {
             cx.debug_bounds("selection-list").is_some(),
             "dragging the indicator is not a press outside the popup"
         );
+    }
+
+    /// The T0.3 milestone path through the lab, driven by keyboard only.
+    ///
+    /// `MILESTONES.md` T0.3 E2E, first half: open `ui-lab`, exercise the
+    /// field, select, combobox, dialog, and nested-slideover scenarios using
+    /// only the keyboard, change from 1920x1080/100% to 1366x768/200%, and
+    /// verify state, focus return, and viewport containment.
+    ///
+    /// Every operator action below is a key event or text input; this test
+    /// issues no pointer event. Scenario selection rides the lab's own F2
+    /// cycle. Focus stepping is harness setup (see below); the F2 cycle
+    /// itself is additionally covered by
+    /// `lab_keys_cycle_the_viewport_and_drive_appearance_and_scale`.
+    /// Role semantics beyond presence are covered by the node-capture unit
+    /// tests named inline; this path proves the composed behavior.
+    #[gpui::test]
+    fn the_milestone_keyboard_path_holds_state_focus_and_containment_across_viewport_switch(
+        cx: &mut TestAppContext,
+    ) {
+        let enter_ms = tokens::motion::OVERLAY_OPEN_DURATION_MS;
+        let exit_ms = tokens::motion::OVERLAY_CLOSE_DURATION_MS;
+
+        let (lab, cx) = open(cx);
+        cx.update(|window, _| window.activate_window());
+
+        // The milestone starts at 1920x1080 and 100%.
+        cx.simulate_resize(size(px(1920.0), px(1080.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            lab.change(
+                EnvironmentChange::SetPreferences(UiPreferences {
+                    appearance: PreparationAppearance::Light,
+                    scale: crate::environment::InterfaceScale::Percent100,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        // Raw key events, one per frame: the shared `keys` shape from the
+        // region and shell harnesses. Keystrokes that transfer focus need the
+        // frame in between, or the next key reaches the stop it just left.
+        let press = |cx: &mut gpui::VisualTestContext, key: &str| {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            cx.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            cx.simulate_event(gpui::KeyUpEvent { keystroke });
+            cx.run_until_parked();
+        };
+        // Harness setup: reach the scenario with the lab's own F2 cycle, then
+        // Tab into its first control with the same key an operator presses.
+        // The lab root owns the plain `FocusNext` pair; the region registry
+        // and overlay trap keep precedence inside.
+        let tab_into_scenario = |scenario: &'static str, cx: &mut gpui::VisualTestContext| {
+            let root = lab.read_with(cx, |lab, _| lab.focus_handle.clone());
+            cx.update(|window, cx| window.focus(&root, cx));
+            cx.run_until_parked();
+            for _ in 0..SCENARIOS.len() {
+                if lab.read_with(cx, |lab, _| lab.scenario().name) == scenario {
+                    break;
+                }
+                press(cx, "f2");
+            }
+            assert_eq!(
+                lab.read_with(cx, |lab, _| lab.scenario().name),
+                scenario,
+                "F2 reaches {scenario}"
+            );
+            press(cx, "tab");
+            cx.update(|window, cx| window.focused(cx).expect("the first Tab stop takes focus"))
+        };
+        let contained =
+            |selector: &'static str, width: f32, height: f32, cx: &mut gpui::VisualTestContext| {
+                let bounds = cx
+                    .debug_bounds(selector)
+                    .unwrap_or_else(|| panic!("{selector} is on screen"));
+                assert!(
+                    bounds.origin.x >= px(0.0)
+                        && bounds.origin.y >= px(0.0)
+                        && bounds.right() <= px(width)
+                        && bounds.bottom() <= px(height),
+                    "{selector} escapes {width}x{height}: {bounds:?}"
+                );
+            };
+
+        // Field: Tab reaches every field in reading order and typing delivers
+        // into the focused one without disturbing its neighbours. Value
+        // reporting is pinned by
+        // `primitives::field::tests::typing_edits_the_value_and_the_field_reports_it`
+        // and the TextInput role by
+        // `primitives::field::tests::field_node_exposes_name_value_placeholder_and_description`;
+        // filtering in the combobox below proves Field typing observably.
+        let mut last = tab_into_scenario("fields", cx);
+        cx.simulate_input("Kyrie");
+        cx.run_until_parked();
+        for _ in 0..3 {
+            press(cx, "tab");
+            let now =
+                cx.update(|window, cx| window.focused(cx).expect("Tab keeps focus on a field"));
+            assert_ne!(now, last, "Tab advances through the fields in order");
+            last = now;
+        }
+        contained("field-control", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("field-read-only").is_some(),
+            "the Read-only reason stays stated"
+        );
+        assert!(
+            cx.debug_bounds("control-unavailable").is_some(),
+            "the Unavailable cue stays stated"
+        );
+
+        // Select: Enter opens, arrows move, Enter commits, Escape cancels, and
+        // focus returns to the trigger either way. Option roles are pinned by
+        // `primitives::selection::tests::final_accesskit_nodes_report_roles_selection_and_blocked_actions`.
+        let invoker = tab_into_scenario("select", cx);
+        press(cx, "enter");
+        contained("selection-list", 1920.0, 1080.0, cx);
+        press(cx, "escape");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Escape cancels the popup"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "cancelling returns focus to the trigger"
+            )
+        });
+        press(cx, "enter");
+        // One key per frame: Enter hands focus to the popup, and Down must
+        // reach the popup rather than the trigger it left.
+        press(cx, "down");
+        press(cx, "enter");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Enter commits and closes"
+        );
+        assert!(
+            cx.debug_bounds("button-Language: English").is_some(),
+            "committing English renames the trigger"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "committing returns focus to the trigger"
+            )
+        });
+
+        // Combobox: typing filters without leaving the Field, Enter commits.
+        // The caret/active-choice split is pinned by
+        // `primitives::selection::tests::combobox_typing_filters_while_the_caret_stays_in_the_field`.
+        let field_focus = tab_into_scenario("combobox", cx);
+        cx.simulate_input("kyrie");
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("choice-4").is_some(),
+            "filtering leaves the long match"
+        );
+        assert!(
+            cx.debug_bounds("choice-0").is_none(),
+            "and filters the rest away"
+        );
+        assert!(
+            cx.debug_bounds("button-Clear").is_some(),
+            "a typed value may be cleared"
+        );
+        assert!(
+            cx.debug_bounds("scroll-indicator-selection-list").is_none(),
+            "one match fits, so no indicator"
+        );
+        contained("selection-list", 1920.0, 1080.0, cx);
+        // Raw Enter: from inside the Field, a keystroke Enter never reaches
+        // the popup root's confirm seam — the unit harness drives the same
+        // key the same raw way.
+        press(cx, "enter");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Enter commits and closes"
+        );
+        cx.update(|window, _| {
+            assert!(
+                field_focus.is_focused(window),
+                "the caret never left the Field"
+            )
+        });
+
+        // Dialog: Enter opens, Tab stays inside, Escape closes with focus back
+        // on the invoker. Trap cycling is pinned by
+        // `overlay::tests::tab_cycles_inside_the_surface_instead_of_escaping_it`;
+        // naming by
+        // `overlay::tests::the_surface_names_and_describes_itself_as_a_dialog`.
+        let invoker = tab_into_scenario("dialog", cx);
+        press(cx, "enter");
+        settle(cx, enter_ms);
+        contained("overlay-Delete this Mass?", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("overlay-scrim").is_some(),
+            "the scrim captures outside input"
+        );
+        press(cx, "tab");
+        assert!(
+            cx.debug_bounds("overlay-Delete this Mass?").is_some(),
+            "Tab does not escape the dialog"
+        );
+        cx.update(|window, _| {
+            assert!(
+                !invoker.is_focused(window),
+                "Tab moved on inside the dialog"
+            )
+        });
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Delete this Mass?").is_none(),
+            "Escape closes the dialog"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "closing returns focus to the invoker"
+            )
+        });
+
+        // Nested slideover: Enter opens the parent with focus on its first
+        // stop, the nested invoker, so Enter opens the child too. A stop
+        // that dismisses the parent instead reopens it from the invoker
+        // holding focus, converging back on the nested invoker. Retention is
+        // pinned by
+        // `overlay::tests::a_nested_slideover_keeps_its_parent_and_returns_focus_to_it`.
+        let invoker = tab_into_scenario("slideover", cx);
+        press(cx, "enter");
+        settle(cx, enter_ms);
+        contained("overlay-Inspector", 1920.0, 1080.0, cx);
+        // Opening leaves focus on no live stop; two Tabs reach the nested
+        // invoker through the header. Each step must land somewhere new, so a
+        // composed reading-order regression fails here rather than at the
+        // Enter below; the child opening proves the second stop was its
+        // invoker.
+        let unmoved = cx.update(|window, cx| window.focused(cx));
+        press(cx, "tab");
+        let first = cx.update(|window, cx| window.focused(cx));
+        assert_ne!(first, unmoved, "the first Tab leaves the stale stop");
+        press(cx, "tab");
+        let nested_invoker = cx
+            .update(|window, cx| window.focused(cx))
+            .expect("the second Tab reaches a live stop");
+        assert_ne!(
+            Some(nested_invoker.clone()),
+            first,
+            "the second Tab reaches the nested invoker"
+        );
+        press(cx, "enter");
+        settle(cx, enter_ms);
+        contained("overlay-Song details", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "the nested child keeps its parent"
+        );
+        // Tab stays inside the child; Escape unwinds child then parent, with
+        // focus back on the nested invoker and then the scenario invoker.
+        press(cx, "tab");
+        assert!(
+            cx.debug_bounds("overlay-Song details").is_some(),
+            "Tab does not escape the nested child"
+        );
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Song details").is_none(),
+            "Escape closes the child"
+        );
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "and the parent stays"
+        );
+        cx.update(|window, _| {
+            assert!(
+                nested_invoker.is_focused(window),
+                "closing the child returns focus to its invoker"
+            )
+        });
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_none(),
+            "Escape closes the parent"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "closing returns focus to the invoker"
+            )
+        });
+
+        // The milestone's viewport switch: 1366x768 at 200%. Earlier state
+        // survives it, and the same Select stays contained with its overflow
+        // reported.
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Compact, cx);
+            lab.change(
+                EnvironmentChange::SetPreferences(UiPreferences {
+                    appearance: PreparationAppearance::Light,
+                    scale: crate::environment::InterfaceScale::Percent200,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("lab-stage").map(|bounds| bounds.size),
+            Some(size(px(1366.0), px(768.0))),
+            "the stage keeps its exact geometry after the switch"
+        );
+        let invoker = tab_into_scenario("select", cx);
+        // Scenario state is fresh on return — persistence belongs to the
+        // shell, proven by the second half below — so commit again at the new
+        // scale and prove the same containment, indicator, and focus return.
+        assert!(
+            cx.debug_bounds("button-Language: Not assigned").is_some(),
+            "the scenario restarts from its default"
+        );
+        press(cx, "enter");
+        contained("selection-list", 1366.0, 768.0, cx);
+        assert!(
+            cx.debug_bounds("scroll-indicator-selection-list").is_some(),
+            "the taller popup reports its overflow at 200%"
+        );
+        press(cx, "down");
+        press(cx, "enter");
+        assert!(cx.debug_bounds("selection-list").is_none());
+        assert!(
+            cx.debug_bounds("button-Language: English").is_some(),
+            "committing English renames the trigger at 200%"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "focus still returns after the switch"
+            )
+        });
+    }
+
+    /// Dialog body copy follows Interface scale: the card owns the operator
+    /// text size, so bare body content measures taller at 200% than at 100%
+    /// inside the same viewport. Without it the copy keeps the pin's fixed
+    /// default wherever the host root sets none, as `ui-lab` does not.
+    #[gpui::test]
+    fn the_dialog_body_grows_with_interface_scale(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        cx.simulate_resize(size(px(1920.0), px(1080.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            assert!(lab.select_scenario("dialog", cx));
+        });
+        cx.run_until_parked();
+
+        // Opens the dialog, measures its content height, and closes it, at
+        // one scale. Pointer setup only; the assertion is about text sizing.
+        let content_height = |scale: crate::environment::InterfaceScale,
+                              cx: &mut gpui::VisualTestContext| {
+            lab.update(cx, |lab, cx| {
+                lab.change(
+                    EnvironmentChange::SetPreferences(UiPreferences {
+                        appearance: PreparationAppearance::Light,
+                        scale,
+                    }),
+                    cx,
+                );
+            });
+            cx.run_until_parked();
+            let trigger = cx.debug_bounds("button-Delete Mass").unwrap();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            cx.run_until_parked();
+            settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+            let height = cx
+                .debug_bounds("lab-long-body")
+                .expect("the dialog body renders")
+                .size
+                .height;
+            cx.simulate_keystrokes("escape");
+            cx.run_until_parked();
+            settle(cx, tokens::motion::OVERLAY_CLOSE_DURATION_MS);
+            height
+        };
+
+        let at_100 = content_height(crate::environment::InterfaceScale::Percent100, cx);
+        let at_200 = content_height(crate::environment::InterfaceScale::Percent200, cx);
+        assert!(
+            at_200 > at_100,
+            "body copy grows with scale ({at_100:?} at 100%, {at_200:?} at 200%)"
+        );
+    }
+
+    /// F2 keeps cycling scenarios after focus moves inside one: the lab-root
+    /// handler answers from any live stop, and only a modal trap (which owns
+    /// its keys while open) takes precedence. Covers every scenario, since
+    /// each hosts different controls.
+    #[gpui::test]
+    fn f2_cycles_scenarios_from_inside_a_scenario(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        cx.update(|window, _| window.activate_window());
+        assert_eq!(
+            lab.read_with(cx, |lab, _| lab.scenario().name),
+            "placeholder"
+        );
+
+        for next in super::SCENARIOS.iter().skip(1).map(|s| s.name) {
+            cx.simulate_keystrokes("f2");
+            cx.run_until_parked();
+            lab.read_with(cx, |lab, _| assert_eq!(lab.scenario().name, next));
+            // Into the scenario with the operator key, then onward: F2 must
+            // still cycle from wherever Tab landed.
+            cx.simulate_keystrokes("tab");
+            cx.run_until_parked();
+            assert!(
+                cx.update(|window, cx| window.focused(cx)).is_some(),
+                "Tab keeps focus somewhere live in {next}"
+            );
+        }
+        cx.simulate_keystrokes("f2");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.scenario().name, "placeholder"));
     }
 
     #[gpui::test]
