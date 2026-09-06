@@ -49,15 +49,53 @@ impl Badge {
     }
 }
 
+/// The label a fill of this color can carry, which is the appearance's own text
+/// or its surface, whichever the fill leaves further away.
+///
+/// The liturgical colors are `DESIGN.md`'s normative domain palette and are the
+/// same five in both appearances — they name a season, not a theme. So a badge
+/// adapts by choosing what it writes on them rather than by tinting them:
+/// liturgical white keeps dark text in Dark mode, purple keeps light text in
+/// Light mode, and every pairing stays legible without a second set of tokens.
+fn label_on(fill: u32, environment: UiEnvironment) -> u32 {
+    let palette = tokens::palette(environment.appearance());
+    let candidates = [palette.text, palette.surface];
+    *candidates
+        .iter()
+        .max_by(|&&a, &&b| contrast(fill, a).total_cmp(&contrast(fill, b)))
+        .expect("two candidates")
+}
+
+/// WCAG relative luminance, which is what a contrast ratio is computed from.
+fn luminance(color: u32) -> f32 {
+    let channel = |shift: u32| {
+        let value = ((color >> shift) & 0xFF) as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+}
+
+/// The WCAG contrast ratio between two colors, from 1.0 to 21.0.
+fn contrast(a: u32, b: u32) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
 impl RenderOnce for Badge {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
-        let tone = self.tone.unwrap_or(palette.text_muted);
-        // An outline rather than a fill: the row underneath a badge is already
-        // a surface, and a filled chip on it would read as a second control.
-        // `DESIGN.md` also keeps pills for status labels alone, so this uses
-        // the ordinary control radius.
+        // A solid fill, because an outline in the domain color is only as
+        // visible as that color happens to be against the row: liturgical
+        // white on a Preparation surface was very nearly nothing at all. The
+        // fill carries the season and the label is picked to sit on it.
+        // `DESIGN.md` keeps pills for status labels, so this stays the
+        // ordinary control radius.
+        let fill = self.tone.unwrap_or(palette.surface_secondary);
         div()
             .debug_selector({
                 let label = self.label.clone();
@@ -66,9 +104,13 @@ impl RenderOnce for Badge {
             .flex_none()
             .px(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
+            .bg(rgb(fill))
+            // A fill close to the row underneath it needs an edge to be a
+            // badge at all, and one in its own label color is the edge that
+            // is legible on every fill.
             .border(px(tokens::border::SEPARATOR))
-            .border_color(rgb(tone))
-            .text_color(rgb(tone))
+            .border_color(rgb(label_on(fill, self.environment)))
+            .text_color(rgb(label_on(fill, self.environment)))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .child(self.label)
     }
@@ -237,6 +279,26 @@ impl RenderOnce for ListRow {
     }
 }
 
+/// Up and Down move between the rows of a list, because a column of records is
+/// one collection the operator reads through, not a run of unrelated controls
+/// that only `Tab` connects.
+///
+/// ponytail: this rides the window's tab order rather than roving focus, so at
+/// either end it steps out of the list instead of stopping or wrapping. It goes
+/// with the ListBox semantics [`ListRow`] already owes, and both land with the
+/// first list that owns real records.
+pub fn arrows<E: gpui::InteractiveElement>(column: E) -> E {
+    column.on_key_down(|event, window, cx| {
+        match event.keystroke.key.as_str() {
+            "up" => window.focus_prev(cx),
+            "down" => window.focus_next(cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+        window.prevent_default();
+    })
+}
+
 /// A list that has nothing in it says so, rather than leaving the operator in
 /// front of an empty column wondering whether it is still loading.
 pub fn empty(reason: impl Into<String>, environment: UiEnvironment) -> impl IntoElement {
@@ -252,6 +314,35 @@ pub fn empty(reason: impl Into<String>, environment: UiEnvironment) -> impl Into
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole point of picking the label rather than tinting the fill: every
+    /// season stays readable in both appearances. `DESIGN.md`'s own contrast
+    /// floor for text is WCAG AA, and a badge is small text.
+    #[test]
+    fn every_liturgical_badge_is_legible_in_both_appearances() {
+        use crate::environment::{ResolvedAppearance, UiPreferences};
+        let fills = [
+            ("purple", tokens::color::LITURGICAL_PURPLE),
+            ("red", tokens::color::LITURGICAL_RED),
+            ("green", tokens::color::LITURGICAL_GREEN),
+            ("rose", tokens::color::LITURGICAL_ROSE),
+            ("white", tokens::color::LITURGICAL_WHITE),
+        ];
+        for appearance in [ResolvedAppearance::Light, ResolvedAppearance::Dark] {
+            let environment = UiEnvironment::new(UiPreferences::default(), appearance);
+            let palette = tokens::palette(appearance);
+            for (name, fill) in fills
+                .into_iter()
+                .chain([("plain", palette.surface_secondary)])
+            {
+                let ratio = contrast(fill, label_on(fill, environment));
+                assert!(
+                    ratio >= 4.5,
+                    "{name} on {appearance:?} reads at {ratio:.2}:1"
+                );
+            }
+        }
+    }
     use crate::environment::{ResolvedAppearance, UiPreferences};
     use gpui::{Context, Element, Render, TestAppContext, accesskit, canvas};
     use std::sync::{Arc, Mutex};

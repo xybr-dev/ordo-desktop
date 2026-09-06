@@ -23,7 +23,7 @@ use ui::{
     overlay::{Overlay, OverlayHost},
     primitives::{
         button::Button,
-        list::{Badge, ListRow},
+        list::{self, Badge, ListRow},
         selection::{Choice, SelectionState, Tabs},
     },
     resolved_appearance,
@@ -447,8 +447,7 @@ impl ShellView {
             .relative()
             .size_full()
             .child(
-                scroll
-                    .bounded(div().id("primary-list"))
+                list::arrows(scroll.bounded(div().id("primary-list")))
                     .size_full()
                     .flex()
                     .flex_col()
@@ -1086,7 +1085,7 @@ mod tests {
                     );
                     // Collapsed there is no label to line the icons up with,
                     // so they sit in the middle of the rail rather than
-                    // off-centre behind the active marker.
+                    // off-centre beside a marker.
                     if collapsed {
                         let offset = f32::from(item.center().x - rail.center().x).abs();
                         assert!(
@@ -1097,6 +1096,25 @@ mod tests {
                             scale.percent()
                         );
                     }
+                }
+                // The marker is the row's own leading edge, inside its fill and
+                // on the rail's inset — never a bar outside the row that pushes
+                // it off the inset, and never a sliver beside a centred icon.
+                let marker = cx.debug_bounds(sel(format!(
+                    "rail-active-{}",
+                    Destination::default().label()
+                )));
+                match marker {
+                    Some(marker) => {
+                        assert!(!collapsed, "a collapsed rail draws no marker");
+                        assert_eq!(
+                            marker.left(),
+                            rail.left() + px(scale.apply(tokens::spacing::RELATED)),
+                            "the marker is off the rail's inset at {width} and {}%",
+                            scale.percent()
+                        );
+                    }
+                    None => assert!(collapsed, "an expanded rail marks where it is"),
                 }
                 // The list is a bounded scrolling surface like every other, so
                 // it reports its position when it overflows and says nothing
@@ -1151,6 +1169,37 @@ mod tests {
             seen_collapsed && seen_expanded,
             "the matrix has to exercise both rail states"
         );
+    }
+
+    /// A column of records is one collection the operator reads through, so the
+    /// arrows move between its rows rather than leaving `Tab` as the only way
+    /// down a list. Focus is compared against where clicking the same row puts
+    /// it, which is the only thing that says *which* row the arrows reached.
+    #[gpui::test]
+    fn the_arrows_move_between_list_rows(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        let focused = |cx: &mut VisualTestContext| cx.update(|window, cx| window.focused(cx));
+        click(cx, "row-Upcoming \u{b7} entry 3");
+        let third = focused(cx);
+        click(cx, "row-Upcoming \u{b7} entry 1");
+        let first = focused(cx);
+        assert!(
+            first.is_some() && first != third,
+            "clicking a row focuses it"
+        );
+        shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
+
+        cx.simulate_keystrokes("down down");
+        cx.run_until_parked();
+        assert_eq!(
+            focused(cx),
+            third,
+            "two rows down from the first is the third"
+        );
+
+        cx.simulate_keystrokes("up up");
+        cx.run_until_parked();
+        assert_eq!(focused(cx), first, "and two back up is where it started");
     }
 
     /// More local views than the strip is wide is the case a wrapped strip got

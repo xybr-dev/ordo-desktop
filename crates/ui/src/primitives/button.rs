@@ -38,6 +38,7 @@ pub struct Button {
     icon_only: bool,
     quiet: bool,
     stretch: bool,
+    current: bool,
     tooltip: Option<SharedString>,
     availability: Availability,
     environment: UiEnvironment,
@@ -59,6 +60,7 @@ impl Button {
             icon: None,
             icon_trailing: false,
             icon_only: false,
+            current: false,
             quiet: false,
             stretch: false,
             tooltip: None,
@@ -124,6 +126,15 @@ impl Button {
     /// with everything else, and reads as ragged unless they share an edge.
     pub fn stretch(mut self) -> Self {
         self.stretch = true;
+        self
+    }
+
+    /// Marks the one control in a set the operator is currently on — the rail
+    /// destination they are in. It changes nothing visible: the surface that
+    /// owns the set draws that, and this is the half of it a screen reader
+    /// gets, so the state is never carried by a fill alone.
+    pub fn current(mut self, current: bool) -> Self {
+        self.current = current;
         self
     }
 
@@ -231,6 +242,7 @@ impl Button {
             })
             .disabled(disabled)
             .accessibility_label(name)
+            .when(self.current, |control| control.aria_selected(true))
             // ponytail: the pinned GPUI exposes no disabled flag to AccessKit
             // (see docs/qualification/GPUI-BASE-T0.3.md), so the blocked state
             // rides the description. Move it to the flag when a revision has one.

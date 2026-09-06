@@ -762,8 +762,36 @@ scrolled axis, and `Scroll::horizontal` returns the same handle read across.
 overflow, and the indicator; the responsive matrix pins the flush leading edge
 and the tabs meeting end to end at every viewport and scale.
 
+The rail's active marker is the row's own leading edge, inside the fill and
+clipped by its radius, with every row reserving the same bar so the icons stay
+aligned and the row keeps the rail's inset on both sides. A collapsed rail draws
+no marker: a four-pixel sliver beside a centred icon reads as a rendering fault
+rather than as state. The non-color half of the treatment is instead
+`Button::current`, which marks the destination the operator is in for assistive
+technology in both widths, so the state is never a fill alone. The responsive
+matrix asserts the marker's position when expanded and its absence when
+collapsed.
+
+`list::arrows` binds Up and Down to the window's focus order from the list
+container, because a column of records is one collection the operator reads
+through rather than a run of controls only `Tab` connects. It rides the tab
+order rather than roving focus, so it steps out of the list at either end; that
+goes with the ListBox semantics `ListRow` already owes.
+`the_arrows_move_between_list_rows` compares the focus handle the arrows reach
+against the one clicking that row produces, which is the only assertion that
+says *which* row was reached.
+
+A badge is a solid fill in its liturgical color with a label picked for contrast
+against it, rather than an outline: an outline is only as visible as the domain
+color happens to be against the row, and liturgical white on a Preparation
+surface was very nearly nothing. `DESIGN.md`'s liturgical colors are normative
+and the same five in both appearances — they name a season, not a theme — so the
+badge adapts by choosing what it writes on them.
+`every_liturgical_badge_is_legible_in_both_appearances` pins every season and the
+plain badge at WCAG AA in Light and Dark.
+
 Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
-82 UI tests, 12 shell/runtime tests in `ordo`, the native runtime harness,
+83 UI tests, 13 shell/runtime tests in `ordo`, the native runtime harness,
 Clippy, release configuration, and cargo-deny. This evidence does not close all
 of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
 Contrast check remain with T0.3.12.
