@@ -134,9 +134,15 @@ fn item(
     let scale = environment.preferences().scale;
     let label = destination.label();
     let height = scale.apply(tokens::density::DEFAULT_CONTROL);
+    let corner = px(scale.apply(tokens::radius::CONTROL));
     let marker = |bar: gpui::Div| {
         bar.w(px(scale.apply(tokens::spacing::UNIT)))
             .h(px(height))
+            // The bar carries the row's own leading corner rather than relying
+            // on the row to clip it: GPUI's content mask is a rectangle, so
+            // `overflow_hidden` bounds a child without following the radius,
+            // and a square bar ran out past the curve at top and bottom.
+            .rounded_l(corner)
             .when(active, |bar| {
                 bar.debug_selector(move || format!("rail-active-{label}"))
                     .bg(rgb(tokens::color::PRIMARY))
@@ -146,8 +152,7 @@ fn item(
         .flex()
         .items_center()
         .relative()
-        .rounded(px(scale.apply(tokens::radius::CONTROL)))
-        // So the marker takes the row's own corner rather than squaring it off.
+        .rounded(corner)
         .overflow_hidden()
         .when(active, |row| row.bg(rgb(palette.selection)))
         // Expanded the marker is in flow, so every row reserves it and the

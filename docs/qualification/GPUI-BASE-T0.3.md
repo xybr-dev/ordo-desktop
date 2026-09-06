@@ -795,7 +795,11 @@ flow and overlays the row's leading edge, which keeps the single icon centred in
 the rail while the state stays visible. Overlaying is also why it is drawn after
 the control rather than before it: an icon-only Button fills the whole row, so a
 marker painted first vanished under the row's hover fill the moment the pointer
-arrived — the one case where the collapsed rail did fall back to a tint alone. The responsive matrix asserts the
+arrived — the one case where the collapsed rail did fall back to a tint alone.
+The bar also carries the row's leading corner itself rather than being clipped
+to it: GPUI's content mask is a rectangle, so `overflow_hidden` bounds a child
+without following the radius, and a square bar ran out past the curve at both
+ends of the row. The responsive matrix asserts the
 marker's position at every combination, the icon's centring where the rail
 collapses, and that every row measures the same: a row whose control is sized by
 its own label leaves seven fills at seven widths staggered down the rail, so the
