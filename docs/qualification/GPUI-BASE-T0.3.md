@@ -509,8 +509,8 @@ rejects duplicate names before their focus handles are mounted twice.
 
 The registry hosts the ordinary Tab/Shift+Tab handlers, which walk GPUI's
 whole-window tab order across region boundaries. F6/Shift+F6 instead walk only
-the supplied visible regions. PR 11's Preparation shell must place workspace
-controls under this root to receive those handlers.
+the supplied visible regions. Workspace controls must descend from this root to
+receive those handlers, which T0.3.11's Preparation shell does.
 A focus-exit subscription also remembers departures by Tab or pointer. The
 subscription belongs to the region and is dropped with its workspace registry.
 Returning checks membership in the rendered focus tree, so a remembered control
@@ -597,6 +597,108 @@ that an icon-only control's tooltip speaks its full name once: its Tooltip
 node has an explicit label and also contains visible text, and element-only
 captures cannot establish whether a consumer repeats that subtree. Presenter
 safety transitions and shell composition remain with their later owning tasks. This evidence does not close all of T0.3.
+
+### T0.3.11 production-shell evidence
+
+`crates/ordo/src/shell/` owns application workflow. `ui` keeps only reusable
+primitives, the region registry, the overlay layer, and the development-only
+lab, and it no longer holds a view of its own: the T0.1 prototype `RootView` is
+replaced by `ordo::shell::ShellView` rather than grown. The actions split the
+same way. `ui` declares only what it binds or answers — the Interface scale
+keys, and the Tab/F6 pair the registry handles — while navigation, appearance,
+and the Presenter transition are `ordo::shell`'s, because a destination is
+application vocabulary and `ui` has no destinations. No dependency is added.
+
+The registry's `render` is replaced by `region` and `root`, and the lab moves
+with it. One call that both wrapped and placed every region could only produce
+a flat list of siblings, which no workspace is: the rail, the header, the list,
+and the editor are consecutive in reading order and nested in layout — the rail
+beside a column, the header above a row of panes. `region` now wraps one region
+in reading order and hands the element back for the caller to place; `root`
+takes what was wrapped since the last call and hosts the handlers over it. It
+must be their ancestor, which is the one thing the flat version enforced for
+free and the doc comment now says.
+
+`RegionRegistry::focus_region` is the other half, and it is what a focused
+editor needs: the shell asks a region for the keyboard, and the registry
+answers with the remembered-target-or-first-tab-stop walk the F6 cycle already
+uses. It cannot answer immediately. `Window::focus_next` reads the *last
+rendered* frame's tab stops, and every caller is a view that is changing what is
+mounted, so the request is recorded and performed by a task the next `root`
+spawns — the same "check the frame once it is over" shape T0.3.8 uses, for the
+same reason. `Window::on_next_frame` is the obvious alternative and was tried:
+registered from an event handler it never delivered under `TestAppContext`, and
+it is in any case bound to an arbitrary next frame rather than to the render
+that changes the tree.
+
+Returning from a focused editor has to go through that seam rather than through
+the invoker's own handle, because at this pin the handle does not survive.
+`gpui_base::Button` takes its focus handle from `Window::use_keyed_state`, which
+exists only while its element is rendered in consecutive frames, so a control
+that is unmounted for the duration of a focused editor comes back a different
+control. What the region can promise is the region: focus returns to the
+control the operator left from when it survived, and to the region's first tab
+stop otherwise. The test asserts the promise behaviorally — after Back, `Enter`
+alone reopens the editor, so the keyboard is on the control that opened it.
+
+The rail collapses from effective width and Interface scale, never from a
+resolution breakpoint: it gives up its labels at the point where the remaining
+workspace would fall below `DESIGN.md`'s `240px` list plus `520px` editor plus
+its gutters, with both terms scaled and the window measured through
+`Window::viewport_size`. That threshold puts both rail states inside the
+qualified matrix — `1366x768` collapses at 150% and `1920x1080` at 200% — so
+neither state is a case only a hand-resized window would reach. Collapsed, a
+destination is an icon whose tooltip is its accessible name, which is the
+Button's own contract for an icon-only control. The active destination is
+marked by a filled bar on the leading edge as well as the selection tint, so
+`MILESTONES.md`'s non-color-only requirement does not rest on the fill.
+
+Local view state is the view's rather than the window's. A destination keeps the
+local view it was left on, and `Window::use_keyed_state` cannot: the tabs
+unmount when the operator leaves the destination, and the state goes with them.
+The shell therefore owns one `SelectionState` per destination that has tabs and
+reads `selected` while rendering, using `Tabs::on_select` only as the redraw
+seam — which is exactly the division `SelectionState` documents. A destination
+does not keep another's row selection, because a row index means nothing across
+collections.
+
+Regions are `Global navigation`, `Workspace actions`, `Primary list`, and `Main
+editor`, in that order. The Primary list is genuinely absent for a
+single-surface destination — Settings, Help, Diagnostics — and while a focused
+editor owns the workspace, so the shell exercises the same hidden-region
+skipping the lab does, on real content. The overlay host is mounted as a
+sibling of the registry root, as T0.3.10 requires, and the header's Inspector
+opens the labeled right slideover through it. The congregation window is
+untouched and still renders neither the registry nor the overlay/status host.
+
+Automated evidence in `ordo::shell`:
+
+- `the_rail_reaches_every_destination_and_tabs_reach_every_local_view`: every
+  one of the seven destinations opened by pointer, every local view of the two
+  destinations that have them, exactly one active marker at a time, the Primary
+  list present only where the destination has one, Settings selecting an
+  Interface scale that `Ctrl+0` then resets, and a destination keeping its own
+  local view across a round trip through another.
+- `the_rail_collapses_and_the_workspace_never_runs_past_the_window`: both
+  qualified viewports at all five scales, asserting the rail's measured width
+  against the collapse rule and that the rail, the workspace, and the workspace
+  title all end inside the window — the whole-workspace horizontal scroll
+  `DESIGN.md` forbids, measured rather than assumed.
+- `a_focused_editor_returns_the_destination_local_view_selection_and_invoker`:
+  destination, local view, and row selection surviving the round trip, the list
+  region absent while the editor owns the workspace, the rail still marking its
+  destination, and the keyboard back on the invoker.
+- `the_rail_gives_up_its_labels_before_the_workspace_gives_up_a_pane` and
+  `every_destination_is_reachable_and_local_views_belong_only_to_a_destination`
+  pin the collapse threshold and the hybrid hierarchy without a window.
+- The environment, shortcut, Presenter, and startup-restore tests move from
+  `ui` unchanged apart from their view.
+
+Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
+81 UI tests, 11 shell/runtime tests in `ordo`, the native runtime harness,
+Clippy, release configuration, and cargo-deny. This evidence does not close all
+of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
+Contrast check remain with T0.3.12.
 
 ### Pinned platform limitations
 

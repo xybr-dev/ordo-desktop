@@ -1,5 +1,8 @@
 use gpui::TestAppContext;
-use ordo::{CongregationView, open_native_runtime_at};
+use ordo::{
+    CongregationView, open_native_runtime_at,
+    shell::{OpenSongs, UseDarkAppearance},
+};
 use presentation::{CongregationState, OutputStatus, ProgramFrame};
 use std::{
     fs,
@@ -7,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use ui::{
-    IncreaseInterfaceScale, OpenSongs, UseDarkAppearance,
+    IncreaseInterfaceScale,
     environment::{InterfaceScale, PreparationAppearance},
 };
 

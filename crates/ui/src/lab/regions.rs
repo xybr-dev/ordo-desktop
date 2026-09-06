@@ -119,15 +119,22 @@ impl Render for RegionScenario {
                     .into_any_element(),
             ));
         }
+        let regions: Vec<_> = regions
+            .into_iter()
+            .map(|(name, content): (gpui::SharedString, _)| {
+                self.registry.region(name, window, cx).child(content)
+            })
+            .collect();
         div()
             .debug_selector(|| "scenario-regions".into())
             .size_full()
             .child(
                 self.registry
-                    .render(regions, window, cx)
+                    .root(window, cx)
                     .track_focus(&self.focus)
                     .flex()
-                    .flex_col(),
+                    .flex_col()
+                    .children(regions),
             )
             .child(self.host.layer(environment, window, cx))
     }
