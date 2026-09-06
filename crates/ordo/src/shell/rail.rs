@@ -151,13 +151,8 @@ fn item(
         .overflow_hidden()
         .when(active, |row| row.bg(rgb(palette.selection)))
         // Expanded the marker is in flow, so every row reserves it and the
-        // icons share one edge. Collapsed it leaves the flow and overlays that
-        // edge instead, so it no longer pushes the single icon off centre.
-        .child(if collapsed {
-            marker(div().absolute().left_0().top_0())
-        } else {
-            marker(div().flex_none())
-        })
+        // icons share one edge, and the control beside it never covers it.
+        .when(!collapsed, |row| row.child(marker(div().flex_none())))
         // The control takes what the marker leaves, rather than only what its
         // own label needs: a row sized to its label leaves seven fills at seven
         // widths staggered down the rail.
@@ -180,6 +175,14 @@ fn item(
                     .on_activate(open),
             ),
         )
+        // Collapsed the marker leaves the flow and overlays the row's leading
+        // edge, so it no longer pushes the single icon off centre — and it is
+        // drawn after the control rather than before it, because an icon-only
+        // Button fills the whole row and its hover fill would otherwise paint
+        // straight over the marker the moment the pointer arrived.
+        .when(collapsed, |row| {
+            row.child(marker(div().absolute().left_0().top_0()))
+        })
 }
 
 pub fn render(

@@ -792,7 +792,10 @@ between the two widths is the flow, not the marker: expanded, every row reserves
 the same bar, so the icons stay aligned and the row keeps the rail's inset on
 both sides; collapsed, there is no label to align against, so the bar leaves the
 flow and overlays the row's leading edge, which keeps the single icon centred in
-the rail while the state stays visible. The responsive matrix asserts the
+the rail while the state stays visible. Overlaying is also why it is drawn after
+the control rather than before it: an icon-only Button fills the whole row, so a
+marker painted first vanished under the row's hover fill the moment the pointer
+arrived — the one case where the collapsed rail did fall back to a tint alone. The responsive matrix asserts the
 marker's position at every combination, the icon's centring where the rail
 collapses, and that every row measures the same: a row whose control is sized by
 its own label leaves seven fills at seven widths staggered down the rail, so the
