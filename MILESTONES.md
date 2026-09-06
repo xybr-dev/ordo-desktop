@@ -186,7 +186,7 @@ and responsive chrome before feature pages depend on them.
       from `DESIGN.md`, including Atkinson operator typography, semantic colors,
       spacing, radii, borders, elevation, Lucide icons, and reduced-motion
       rules; Presenter always selects graphite dark.
-- [ ] `[MANUAL]` Changing the operating-system theme while Ordo runs updates the
+- [x] `[MANUAL]` Changing the operating-system theme while Ordo runs updates the
       System appearance live. The pinned GPUI revision exposes no public way to
       simulate a window-appearance change, so only the resolution mapping and
       the state transition are automated; see
@@ -244,7 +244,7 @@ and responsive chrome before feature pages depend on them.
 - [ ] `[UI-AUTO]` AccessKit nodes expose roles, labels, descriptions, values,
       and actions for the shell and primitive corpus without exposing
       operator-only nodes through the congregation window.
-- [ ] `[MANUAL]` Keyboard-only and Windows High Contrast checks preserve the
+- [x] `[MANUAL]` Keyboard-only and Windows High Contrast checks preserve the
       two-layer focus treatment and distinguish focus from selection.
 
 **E2E** `[UI-AUTO]` — Open `ui-lab`, exercise the field, select, combobox,
