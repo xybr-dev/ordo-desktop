@@ -1068,6 +1068,18 @@ mod tests {
                     "the marker is off the rail's inset at {width} and {}%",
                     scale.percent()
                 );
+                // The marker's curve is its quad's own corner, and GPUI clamps
+                // a corner radius to half the quad's smaller side. A quad the
+                // width of the bar alone would be given half the radius the
+                // control beside it draws, so the marker has to stay at least
+                // the full corner across.
+                let corner = px(scale.apply(tokens::radius::CONTROL));
+                assert!(
+                    marker.size.width >= corner * 2.0 && marker.size.height >= corner * 2.0,
+                    "the marker measures {:?} at {width} and {}%, too small to hold the                      control corner it has to match",
+                    marker.size,
+                    scale.percent()
+                );
                 // The list is a bounded scrolling surface like every other, so
                 // it reports its position when it overflows and says nothing
                 // when it does not — the shared indicator, not one of its own.

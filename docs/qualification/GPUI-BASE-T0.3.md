@@ -783,23 +783,28 @@ destination with no local views is ruled like every other one. The navigation
 test asserts the header is present at every destination while only the strip
 follows the local views.
 
-The rail's active marker is the row's own leading edge, inside the fill and
-clipped by its radius, in both widths. `MILESTONES.md` asks the active
+The rail's active marker is the row's own leading edge in both widths. `MILESTONES.md` asks the active
 destination to be non-color-only, and `Button::current` is the assistive half of
 that rather than the visible one, so a collapsed rail that dropped the bar would
 leave the tint alone for the operator the requirement exists for. What changes
 between the two widths is the flow, not the marker: expanded, every row reserves
 the same bar, so the icons stay aligned and the row keeps the rail's inset on
-both sides; collapsed, there is no label to align against, so the bar leaves the
-flow and overlays the row's leading edge, which keeps the single icon centred in
-the rail while the state stays visible. Overlaying is also why it is drawn after
-the control rather than before it: an icon-only Button fills the whole row, so a
-marker painted first vanished under the row's hover fill the moment the pointer
-arrived — the one case where the collapsed rail did fall back to a tint alone.
-The bar also carries the row's leading corner itself rather than being clipped
-to it: GPUI's content mask is a rectangle, so `overflow_hidden` bounds a child
-without following the radius, and a square bar ran out past the curve at both
-ends of the row. The responsive matrix asserts the
+both sides; collapsed, nothing is reserved, so the single icon stays centred in
+the rail while the state stays visible. What the marker is took three attempts,
+and the pin decided each one. It cannot be clipped to the row's corner, because
+GPUI's content mask is a rectangle: `overflow_hidden` bounds a child without
+following the radius, so a square bar ran out past the curve at both ends. It
+cannot carry that corner as its own radius either, because `Style::paint` clamps
+a corner radius to half the quad's smaller side, so a four-pixel bar asking for
+the four-pixel control radius is given two and comes out visibly tighter than the
+control beside it. What works is the left border of a quad the size of the whole
+row: the radius is unclamped there, so the marker's curve is literally the row's
+corner. That quad is out of flow and inert — a div with nothing but a border
+inserts no hitbox at this pin — so it neither moves the icon nor takes the
+pointer, and being the row's last child it is drawn over the control's hover
+fill rather than under it, which an icon-only Button filling the whole row would
+otherwise cover the moment the pointer arrived. The matrix pins the minimum quad
+size the clamp makes load-bearing. The responsive matrix asserts the
 marker's position at every combination, the icon's centring where the rail
 collapses, and that every row measures the same: a row whose control is sized by
 its own label leaves seven fills at seven widths staggered down the rail, so the

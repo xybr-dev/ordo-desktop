@@ -114,15 +114,14 @@ pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
 /// One rail row. Collapsed it is an icon whose tooltip is its accessible name,
 /// which is the Button's own contract for an icon-only control.
 ///
-/// The active marker is the row's own leading edge, inside the fill and clipped
-/// by its radius, in both widths: `MILESTONES.md` asks the active destination
-/// to be non-color-only, and `Button::current` is the assistive half of that,
-/// not the visible one. Expanded, every row reserves the same bar, so the icons
-/// still line up down the rail and the row keeps the rail's inset on both
-/// sides. Collapsed there is no label to line the icons up against, so the same
-/// bar leaves the flow and overlays the row's leading edge instead. Its size is
-/// unchanged; what changes is that it no longer pushes the single icon off the
-/// centre of the rail, which was the objection to drawing it there at all.
+/// The active marker is the row's own leading edge in both widths:
+/// `MILESTONES.md` asks the active destination to be non-color-only, and
+/// `Button::current` is the assistive half of that, not the visible one. It is
+/// drawn as the left border of a quad the size of the row, so it takes the
+/// row's corner rather than approximating it, and it is out of flow, so the
+/// only difference between the two widths is what the row reserves beside it:
+/// expanded, every row reserves the bar's width and the icons line up down the
+/// rail; collapsed, nothing is reserved and the single icon stays centred.
 fn item(
     destination: Destination,
     active: bool,
@@ -133,20 +132,25 @@ fn item(
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     let label = destination.label();
-    let height = scale.apply(tokens::density::DEFAULT_CONTROL);
     let corner = px(scale.apply(tokens::radius::CONTROL));
-    let marker = |bar: gpui::Div| {
-        bar.w(px(scale.apply(tokens::spacing::UNIT)))
-            .h(px(height))
-            // The bar carries the row's own leading corner rather than relying
-            // on the row to clip it: GPUI's content mask is a rectangle, so
-            // `overflow_hidden` bounds a child without following the radius,
-            // and a square bar ran out past the curve at top and bottom.
-            .rounded_l(corner)
-            .when(active, |bar| {
-                bar.debug_selector(move || format!("rail-active-{label}"))
-                    .bg(rgb(tokens::color::PRIMARY))
-            })
+    let bar = px(scale.apply(tokens::spacing::UNIT));
+    // The marker is the leading edge of a quad the size of the whole row, drawn
+    // as that quad's left border, so its curve is the row's own corner and
+    // matches the control beside it exactly. A quad only the bar's own width
+    // cannot do that: GPUI clamps a corner radius to half the quad's smaller
+    // side, so a four-pixel bar asking for the four-pixel control radius was
+    // given two, and came out visibly tighter than everything around it. Out of
+    // flow it neither moves the icon nor takes the pointer — a div with nothing
+    // but a border inserts no hitbox — and being the row's last child it is
+    // drawn over the control's hover fill rather than under it.
+    let marker = || {
+        div()
+            .absolute()
+            .inset_0()
+            .rounded(corner)
+            .border_l(bar)
+            .border_color(rgb(tokens::color::PRIMARY))
+            .debug_selector(move || format!("rail-active-{label}"))
     };
     div()
         .flex()
@@ -155,9 +159,11 @@ fn item(
         .rounded(corner)
         .overflow_hidden()
         .when(active, |row| row.bg(rgb(palette.selection)))
-        // Expanded the marker is in flow, so every row reserves it and the
-        // icons share one edge, and the control beside it never covers it.
-        .when(!collapsed, |row| row.child(marker(div().flex_none())))
+        // Expanded, every row reserves the marker's width so the icons share one
+        // edge down the rail whether or not their row is the active one.
+        // Collapsed there is no label to line them up against, so nothing is
+        // reserved and the single icon stays centred in the rail.
+        .when(!collapsed, |row| row.child(div().flex_none().w(bar)))
         // The control takes what the marker leaves, rather than only what its
         // own label needs: a row sized to its label leaves seven fills at seven
         // widths staggered down the rail.
@@ -180,14 +186,7 @@ fn item(
                     .on_activate(open),
             ),
         )
-        // Collapsed the marker leaves the flow and overlays the row's leading
-        // edge, so it no longer pushes the single icon off centre — and it is
-        // drawn after the control rather than before it, because an icon-only
-        // Button fills the whole row and its hover fill would otherwise paint
-        // straight over the marker the moment the pointer arrived.
-        .when(collapsed, |row| {
-            row.child(marker(div().absolute().left_0().top_0()))
-        })
+        .when(active, |row| row.child(marker()))
 }
 
 pub fn render(
