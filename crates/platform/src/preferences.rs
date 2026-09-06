@@ -1,7 +1,6 @@
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+#[cfg(not(target_os = "windows"))]
+use std::path::Path;
+use std::{fs, io, path::PathBuf};
 
 /// The installation-local preferences file. Parsing remains application-owned.
 #[derive(Clone, Debug)]
