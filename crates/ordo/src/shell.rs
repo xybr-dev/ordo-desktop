@@ -1087,6 +1087,10 @@ mod tests {
                     f32::from(rail.size.width),
                     scale.percent()
                 );
+                // ... and every row is the width of the rail, rather than of
+                // its own label: seven fills at seven widths staggered down
+                // the rail and took the icons off their shared edge with them.
+                let mut widths = Vec::new();
                 // The bug this pins: a rail narrower than its own labels
                 // painted them straight past its edge, and only the hover fill
                 // showed how far. Every destination has to end inside it.
@@ -1104,6 +1108,7 @@ mod tests {
                         f32::from(item.right() - rail.right()),
                         scale.percent()
                     );
+                    widths.push(item.size.width);
                     // Collapsed there is no label to line the icons up with,
                     // so they sit in the middle of the rail rather than
                     // off-centre beside a marker.
@@ -1118,6 +1123,11 @@ mod tests {
                         );
                     }
                 }
+                assert!(
+                    widths.windows(2).all(|pair| pair[0] == pair[1]),
+                    "the rail rows measure {widths:?} at {width} and {}%",
+                    scale.percent()
+                );
                 // The marker is the row's own leading edge, inside its fill and
                 // on the rail's inset — never a bar outside the row that pushes
                 // it off the inset, and never a sliver beside a centred icon.

@@ -148,22 +148,27 @@ fn item(
                     }),
             )
         })
+        // The control takes what the marker leaves, rather than only what its
+        // own label needs: a row sized to its label leaves seven fills at seven
+        // widths staggered down the rail.
         .child(
-            Button::new(SharedString::from(label), label, environment)
-                .icon(destination.icon())
-                .quiet()
-                .current(active)
-                // Expanded, a destination is read down the rail with the other
-                // six, so its icon and label start on a shared edge rather than
-                // floating in the middle.
-                .when(!collapsed, Button::stretch)
-                .when(collapsed, Button::icon_only)
-                .on_surface(if active {
-                    palette.selection
-                } else {
-                    palette.surface
-                })
-                .on_activate(open),
+            div().flex_1().min_w_0().child(
+                Button::new(SharedString::from(label), label, environment)
+                    .icon(destination.icon())
+                    .quiet()
+                    .current(active)
+                    // Expanded, a destination is read down the rail with the other
+                    // six, so its icon and label start on a shared edge rather than
+                    // floating in the middle.
+                    .when(!collapsed, Button::stretch)
+                    .when(collapsed, Button::icon_only)
+                    .on_surface(if active {
+                        palette.selection
+                    } else {
+                        palette.surface
+                    })
+                    .on_activate(open),
+            ),
         )
 }
 

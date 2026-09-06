@@ -777,8 +777,10 @@ no marker: a four-pixel sliver beside a centred icon reads as a rendering fault
 rather than as state. The non-color half of the treatment is instead
 `Button::current`, which marks the destination the operator is in for assistive
 technology in both widths, so the state is never a fill alone. The responsive
-matrix asserts the marker's position when expanded and its absence when
-collapsed.
+matrix asserts the marker's position when expanded, its absence when collapsed,
+and that every row measures the same: a row whose control is sized by its own
+label leaves seven fills at seven widths staggered down the rail, so the control
+takes what the marker leaves rather than what its label needs.
 
 `list::arrows` binds Up and Down to the window's focus order from the list
 container, because a column of records is one collection the operator reads
