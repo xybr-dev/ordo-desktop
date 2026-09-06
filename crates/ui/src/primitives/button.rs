@@ -37,6 +37,7 @@ pub struct Button {
     icon_trailing: bool,
     icon_only: bool,
     quiet: bool,
+    stretch: bool,
     tooltip: Option<SharedString>,
     availability: Availability,
     environment: UiEnvironment,
@@ -59,6 +60,7 @@ impl Button {
             icon_trailing: false,
             icon_only: false,
             quiet: false,
+            stretch: false,
             tooltip: None,
             availability: Availability::default(),
             environment,
@@ -113,6 +115,15 @@ impl Button {
     /// still answer with the tonal fill.
     pub fn quiet(mut self) -> Self {
         self.quiet = true;
+        self
+    }
+
+    /// Fills the container and puts the content on its leading edge, for a
+    /// navigation or list row rather than a discrete action. A centred label
+    /// is right for a button the operator aims at; a row is read down a column
+    /// with everything else, and reads as ragged unless they share an edge.
+    pub fn stretch(mut self) -> Self {
+        self.stretch = true;
         self
     }
 
@@ -237,7 +248,14 @@ impl Button {
             .flex()
             .flex_row()
             .items_center()
-            .justify_center()
+            .when(self.stretch, |control| {
+                // `min_w_0` is the half that makes `truncate` bite: a flex item
+                // will not shrink below its content without it, so a stretched
+                // row painted its label straight past the container it was
+                // told to fill.
+                control.w_full().min_w_0().justify_start()
+            })
+            .when(!self.stretch, |control| control.justify_center())
             .gap(px(scale.apply(tokens::spacing::RELATED)))
             .h(px(height))
             .when(icon_only, |control| control.w(px(height)))

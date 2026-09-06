@@ -20,6 +20,7 @@ use crate::{
         button::Button,
         disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
+        list::{Badge, ListRow},
         selection::{Choice, Combobox, Menu, Select, SelectionState, Tabs},
     },
     resolved_appearance, tokens,
@@ -159,6 +160,10 @@ static SCENARIOS: &[Scenario] = &[
         name: "disclosure",
         render: render_disclosure,
     },
+    Scenario {
+        name: "list",
+        render: render_list,
+    },
 ];
 
 fn choices() -> Vec<Choice> {
@@ -263,6 +268,70 @@ fn render_tabs(environment: UiEnvironment, window: &mut Window, cx: &mut App) ->
         )
         .into_any_element()
 }
+/// The primary-list shape: a ruled column of rows, each carrying the detail
+/// and the classifiers that tell one entity from another. The liturgical
+/// colors appear here and nowhere else in the lab, because a season is the
+/// domain metadata `DESIGN.md` reserves them for.
+fn render_list(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let selected = window.use_keyed_state("lab-list", cx, |_, _| None::<usize>);
+    let current = *selected.read(cx);
+    let stage = tokens::palette(environment.appearance()).surface;
+    type Season = Option<(&'static str, u32)>;
+    let entries: [(&str, &str, Season); 4] = [
+        (
+            "Second Sunday of Lent",
+            "6:00 AM \u{b7} Cebuano \u{b7} San Nicolas Parish Choir",
+            Some(("Lent", tokens::color::LITURGICAL_PURPLE)),
+        ),
+        (
+            "Easter Sunday of the Resurrection",
+            "9:30 AM \u{b7} English",
+            Some(("Easter", tokens::color::LITURGICAL_WHITE)),
+        ),
+        (
+            fixtures::LONG_CEBUANO_TITLE,
+            fixtures::LONG_MULTILINGUAL_BODY,
+            Some(("Ordinary Time", tokens::color::LITURGICAL_GREEN)),
+        ),
+        ("Draft template", "No scheduled start", None),
+    ];
+    row("scenario-list", environment)
+        .child(
+            div()
+                .debug_selector(|| "list-column".into())
+                .w(px(environment
+                    .preferences()
+                    .scale
+                    .apply(tokens::density::WORKSPACE_GUTTER_COMPACT * 20.0)))
+                .flex()
+                .flex_col()
+                .children(entries.into_iter().enumerate().map(
+                    |(index, (title, detail, season))| {
+                        let selected = selected.clone();
+                        ListRow::new(("row", index), title, environment)
+                            .detail(detail)
+                            .badges(
+                                season
+                                    .map(|(name, tone)| Badge::new(name, environment).tone(tone))
+                                    .into_iter()
+                                    .chain(
+                                        (index == 3).then(|| Badge::new("Incomplete", environment)),
+                                    ),
+                            )
+                            .selected(current == Some(index))
+                            .on_surface(stage)
+                            .on_activate(move |_, cx| {
+                                selected.update(cx, |state, cx| {
+                                    *state = Some(index);
+                                    cx.notify();
+                                });
+                            })
+                    },
+                )),
+        )
+        .into_any_element()
+}
+
 fn render_disclosure(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
     let scale = environment.preferences().scale;
     let stage = tokens::palette(environment.appearance()).surface;
@@ -883,6 +952,7 @@ mod tests {
                         "combobox-new",
                         "tabs",
                         "disclosure",
+                        "list",
                         "regions",
                     ] {
                         lab.update(cx, |lab, cx| {
@@ -903,9 +973,23 @@ mod tests {
                             "combobox-new" => "scenario-combobox-new",
                             "tabs" => "scenario-tabs",
                             "regions" => "scenario-regions",
+                            "list" => "scenario-list",
                             _ => "scenario-disclosure",
                         };
                         assert!(cx.debug_bounds(selector).is_some());
+                        if scenario == "list" {
+                            // The row holding a long multilingual title and
+                            // body is the one that would paint past its column
+                            // if a row stopped truncating, and its season
+                            // badge is the last thing on its detail line.
+                            let column = cx.debug_bounds("list-column").unwrap();
+                            let badge = cx.debug_bounds("badge-Ordinary Time").unwrap();
+                            assert!(
+                                badge.right() <= column.right() && column.right() <= px(width),
+                                "a row's inline content stays inside its column \
+                                 ({appearance:?} {scale:?})"
+                            );
+                        }
                         if scenario == "combobox-new" {
                             let field = cx.debug_bounds("field-control").unwrap();
                             cx.simulate_click(field.center(), gpui::Modifiers::default());

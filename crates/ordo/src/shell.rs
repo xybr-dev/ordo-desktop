@@ -23,9 +23,12 @@ use ui::{
     overlay::{Overlay, OverlayHost},
     primitives::{
         button::Button,
+        list::{Badge, ListRow},
         selection::{Choice, SelectionState, Tabs},
     },
-    resolved_appearance, tokens,
+    resolved_appearance,
+    scroll::Scroll,
+    tokens,
 };
 
 actions!(
@@ -42,28 +45,63 @@ actions!(
 
 /// The regions `DESIGN.md` names for a Preparation workspace, in reading order.
 /// The Primary list is absent for a single-surface destination and while a
-/// focused editor is open, which is exactly what the `F6` cycle skips.
+/// focused editor owns the screen, which is exactly what the `F6` cycle skips.
 const GLOBAL_NAVIGATION: &str = "Global navigation";
 const WORKSPACE_ACTIONS: &str = "Workspace actions";
 const PRIMARY_LIST: &str = "Primary list";
 const MAIN_EDITOR: &str = "Main editor";
 
+/// The list column's own logical width, `DESIGN.md`'s minimum for a primary
+/// list plus the inset its rows carry.
+const LIST_WIDTH: f32 = 280.0;
+
 /// Fixture rows until T1 gives the shell real records. One is long and
 /// multilingual on purpose: a workspace that cannot hold it would report the
-/// horizontal scroll `DESIGN.md` forbids.
+/// horizontal scroll `DESIGN.md` forbids, and there are enough of them that the
+/// column needs the shared scroll indicator.
 const LONG_TITLE: &str =
     "Pasidungog sa Mahal nga Birhen Maria sa Kaputli ug sa Kalinaw sa Katilingban";
 
-fn rows(view: &str) -> Vec<SharedString> {
-    vec![
-        format!("{view} · 6:00 AM").into(),
-        format!("{view} · 9:30 AM").into(),
-        LONG_TITLE.into(),
-    ]
+/// A liturgical season is real domain metadata, which is the one thing
+/// `DESIGN.md` lets the liturgical colors say.
+const SEASONS: [(&str, u32); 4] = [
+    ("Lent", tokens::color::LITURGICAL_PURPLE),
+    ("Easter", tokens::color::LITURGICAL_WHITE),
+    ("Ordinary Time", tokens::color::LITURGICAL_GREEN),
+    ("Pentecost", tokens::color::LITURGICAL_RED),
+];
+
+struct Entry {
+    title: SharedString,
+    detail: SharedString,
+    season: Option<(&'static str, u32)>,
+}
+
+fn rows(view: &str) -> Vec<Entry> {
+    let times = ["6:00 AM", "7:30 AM", "9:30 AM", "5:00 PM"];
+    let languages = ["Cebuano", "English", "Filipino", "Cebuano"];
+    (0..8)
+        .map(|index| Entry {
+            title: if index == 7 {
+                LONG_TITLE.into()
+            } else {
+                format!("{view} \u{b7} entry {}", index + 1).into()
+            },
+            detail: format!(
+                "{} \u{b7} {}",
+                times[index % times.len()],
+                languages[index % languages.len()]
+            )
+            .into(),
+            // Not every entry carries a season, so a row without a badge has to
+            // read as an ordinary row rather than a broken one.
+            season: (index % 3 != 2).then(|| SEASONS[index % SEASONS.len()]),
+        })
+        .collect()
 }
 
 /// The Preparation shell: the rail, the current destination's local views, its
-/// list and editor, and the one overlay layer.
+/// list and viewer, and the one overlay layer.
 pub struct ShellView {
     build_identity: &'static str,
     destination: Destination,
@@ -73,9 +111,12 @@ pub struct ShellView {
     masses_views: SelectionState,
     library_views: SelectionState,
     selected_row: Option<usize>,
-    /// The entity a focused editor is open on. The rail stays; the workspace
-    /// belongs to this one entity until the operator returns.
+    /// The entity a focused editor is open on. It takes the whole screen, rail
+    /// included: the operator is working on one thing, and Back returns them to
+    /// the screen they left rather than to a pane beside it.
     editing: Option<SharedString>,
+    list_scroll: Scroll,
+    viewer_scroll: Scroll,
     registry: RegionRegistry,
     overlays: OverlayHost,
     environment: UiEnvironment,
@@ -131,6 +172,8 @@ impl ShellView {
             library_views: views(Destination::Library, cx),
             selected_row: None,
             editing: None,
+            list_scroll: Scroll::new(),
+            viewer_scroll: Scroll::new(),
             registry: RegionRegistry::default(),
             overlays: OverlayHost::new(cx),
             environment,
@@ -156,7 +199,7 @@ impl ShellView {
             .and_then(|index| views.get(index).copied())
     }
 
-    /// What the current destination's list and editor are showing.
+    /// What the current destination's list and viewer are showing.
     fn context(&self, cx: &App) -> &'static str {
         self.local_view(cx).unwrap_or(self.destination.label())
     }
@@ -255,8 +298,8 @@ impl ShellView {
         }
     }
 
-    /// The action seam for opening the Song Library, which a later menu and
-    /// the acceptance path both use. It opens Library on the local view the
+    /// The action seam for opening the Song Library, which a later menu and the
+    /// acceptance path both use. It opens Library on the local view the
     /// operator left it on — Songs, until they change it.
     fn open_songs(&mut self, _: &OpenSongs, _: &mut Window, cx: &mut Context<Self>) {
         self.open(Destination::Library, cx);
@@ -270,39 +313,70 @@ impl Focusable for ShellView {
 }
 
 impl ShellView {
-    fn header(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn gutter(&self, window: &Window) -> f32 {
+        let scale = self.environment.preferences().scale;
+        let collapsed = rail::collapsed(window.viewport_size().width.into(), scale);
+        scale.apply(if collapsed {
+            tokens::density::WORKSPACE_GUTTER_COMPACT
+        } else {
+            tokens::density::WORKSPACE_GUTTER_WIDE
+        })
+    }
+
+    /// The workspace header: the destination's title and actions above its
+    /// local views. The tab strip is the full width of the workspace and rules
+    /// it top and bottom, so the tabs read as the seam between what the
+    /// workspace is and what it is showing rather than as loose controls.
+    fn header(&mut self, gutter: f32, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let view = cx.entity().downgrade();
         let overlays = self.overlays.clone();
         let tabs = self.local_views().map(|state| {
-            Tabs::new(
-                "local-views",
-                format!("{} views", self.destination.label()),
-                state,
-                environment,
-            )
-            .on_surface(palette.surface)
-            // The state is authoritative and notifies on its own; this is the
-            // redraw seam for what the local view *shows*.
-            .on_select(move |_, _, cx| {
-                let _ = view.update(cx, |view, cx| {
-                    view.selected_row = None;
-                    cx.notify();
-                });
-            })
+            div()
+                .debug_selector(|| "workspace-tabs".into())
+                .flex_none()
+                .w_full()
+                .px(px(gutter))
+                .border_t(px(tokens::border::SEPARATOR))
+                .border_b(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
+                .child(
+                    Tabs::new(
+                        "local-views",
+                        format!("{} views", self.destination.label()),
+                        state,
+                        environment,
+                    )
+                    .on_surface(palette.background)
+                    // The state is authoritative and notifies on its own; this
+                    // is the redraw seam for what the local view *shows*.
+                    .on_select(move |_, _, cx| {
+                        let _ = view.update(cx, |view, cx| {
+                            view.selected_row = None;
+                            cx.notify();
+                        });
+                    }),
+                )
         });
+        // A short window scrolls its panes; it does not compress the header.
+        // `DESIGN.md` puts the current entity and the primary workspace action
+        // among the things that are never truncated, and a flex child gives up
+        // its own height unless it is told not to.
         div()
+            .flex_none()
             .flex()
             .flex_col()
-            .gap(px(scale.apply(tokens::spacing::RELATED)))
             .child(
                 div()
+                    .flex_none()
                     .flex()
                     .items_center()
                     .justify_between()
                     .gap(px(scale.apply(tokens::spacing::GROUP)))
+                    .px(px(gutter))
+                    .py(px(scale.apply(tokens::spacing::GROUP)))
                     .child(
                         div()
                             .debug_selector(|| "workspace-title".into())
@@ -316,7 +390,7 @@ impl ShellView {
                         // slideover when the workspace is constrained, and the
                         // shell's one use of the overlay layer it owns.
                         Button::new("inspector", "Inspector", environment)
-                            .on_surface(palette.surface)
+                            .on_surface(palette.background)
                             .on_activate(move |window, cx| {
                                 overlays.clone().open(
                                     Overlay::slideover("Inspector")
@@ -334,48 +408,58 @@ impl ShellView {
             .into_any_element()
     }
 
-    fn primary_list(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// The primary list: one ruled column of rows. It is a bounded scrolling
+    /// surface like every other, so it goes through `ui::scroll` rather than
+    /// growing its own scroller and its own indicator.
+    fn primary_list(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
-        let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
-        let view_name = self.context(cx);
         let selected = self.selected_row;
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-            .children(rows(view_name).into_iter().enumerate().map(|(index, row)| {
+        let scroll = self.list_scroll.clone();
+        let rows = rows(self.context(cx))
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
                 let view = cx.entity().downgrade();
-                let active = selected == Some(index);
-                div()
-                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                    .when(active, |wrapper| wrapper.bg(rgb(palette.selection)))
-                    .child(
-                        Button::new(("row", index), row, environment)
-                            .quiet()
-                            .truncate()
-                            .on_surface(if active {
-                                palette.selection
-                            } else {
-                                palette.surface
-                            })
-                            // Selection refreshes the editor beside it and
-                            // leaves focus on the row, which is what
-                            // `DESIGN.md` asks a primary list for.
-                            .on_activate(move |_, cx| {
-                                let _ = view.update(cx, |view, cx| {
-                                    view.selected_row = Some(index);
-                                    cx.notify();
-                                });
-                            }),
+                ListRow::new(("row", index), entry.title, environment)
+                    .detail(entry.detail)
+                    .badges(
+                        entry
+                            .season
+                            .map(|(name, tone)| Badge::new(name, environment).tone(tone)),
                     )
-            }))
+                    .selected(selected == Some(index))
+                    .on_surface(palette.background)
+                    // Selection refreshes the viewer beside it and leaves focus
+                    // on the row, which is what `DESIGN.md` asks a primary list
+                    // for. Opening the entity is the separate deliberate act.
+                    .on_activate(move |_, cx| {
+                        let _ = view.update(cx, |view, cx| {
+                            view.selected_row = Some(index);
+                            cx.notify();
+                        });
+                    })
+            })
+            .collect::<Vec<_>>();
+        div()
+            .relative()
+            .size_full()
+            .child(
+                scroll
+                    .bounded(div().id("primary-list"))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .children(rows),
+            )
+            // A square pane, so the indicator's track runs its whole height.
+            .children(scroll.indicator("primary-list", 0.0, window, cx, environment))
             .into_any_element()
     }
 
-    /// The main editor: the selected entity's detail, the focused editor it
-    /// opens into, or the destination's own single surface.
-    fn editor(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// The content viewer beside the list: what the selected entity is, and the
+    /// way into its own screen.
+    fn viewer(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
@@ -398,58 +482,40 @@ impl ShellView {
                 .into_any_element();
         }
         let view = cx.entity().downgrade();
-        if let Some(entity) = self.editing.clone() {
-            return pane()
-                .debug_selector(|| "focused-editor".into())
-                .child(
-                    Button::new("back", format!("Back to {}", self.context(cx)), environment)
-                        .icon(ui::assets::icon::CHEVRON_RIGHT)
-                        .on_surface(palette.background)
-                        .on_activate(move |_, cx| {
-                            let _ = view.update(cx, |view, cx| {
-                                view.editing = None;
-                                // The invoker is unmounted with the editor, so
-                                // the region gives back its remembered target
-                                // or its first tab stop — the Open control the
-                                // operator left from.
-                                view.registry.focus_region(MAIN_EDITOR);
-                                cx.notify();
-                            });
-                        }),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                        .child(entity),
-                )
-                .into_any_element();
-        }
-        let Some(row) = self
+        let Some(entry) = self
             .selected_row
-            .and_then(|index| rows(self.context(cx)).get(index).cloned())
+            .and_then(|index| rows(self.context(cx)).into_iter().nth(index))
         else {
             return pane()
                 .child("Select an item to see its details.")
                 .into_any_element();
         };
+        let title = entry.title.clone();
         pane()
+            .w_full()
             .child(
                 div()
-                    .debug_selector(|| "editor-title".into())
+                    .debug_selector(|| "viewer-title".into())
+                    .w_full()
                     .min_w_0()
                     .truncate()
                     .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                    .child(row.clone()),
+                    .child(entry.title),
+            )
+            .child(
+                div()
+                    .text_color(rgb(palette.text_muted))
+                    .child(entry.detail),
             )
             .child(
                 Button::new("open-editor", "Open", environment)
                     .on_surface(palette.background)
                     .on_activate(move |_, cx| {
                         let _ = view.update(cx, |view, cx| {
-                            view.editing = Some(row.clone());
-                            view.registry.focus_region(MAIN_EDITOR);
+                            view.editing = Some(title.clone());
+                            // The screen the operator is arriving on: its Back
+                            // control is the first thing in Workspace actions.
+                            view.registry.focus_region(WORKSPACE_ACTIONS);
                             cx.notify();
                         });
                     }),
@@ -557,19 +623,16 @@ impl ShellView {
             .child(group("Interface scale", scales))
             .into_any_element()
     }
-}
 
-impl Render for ShellView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The workspace: the rail beside the destination's header, list, and
+    /// viewer. The right border belongs to the list column rather than to the
+    /// gap between two padded panes, so it runs the whole height of the pair.
+    fn workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let collapsed = rail::collapsed(window.viewport_size().width.into(), scale);
-        let gutter = scale.apply(if collapsed {
-            tokens::density::WORKSPACE_GUTTER_COMPACT
-        } else {
-            tokens::density::WORKSPACE_GUTTER_WIDE
-        });
+        let gutter = self.gutter(window);
 
         let view = cx.entity().downgrade();
         let rail = rail::render(
@@ -583,16 +646,19 @@ impl Render for ShellView {
                 })
             },
         );
-        let header = self.header(cx);
-        let show_list = self.destination.has_primary_list() && self.editing.is_none();
-        let list = show_list.then(|| self.primary_list(cx));
-        let editor = self.editor(cx);
+        let header = self.header(gutter, cx);
+        let list = self
+            .destination
+            .has_primary_list()
+            .then(|| self.primary_list(window, cx));
+        let viewer = self.viewer(cx);
 
-        // Reading order: rail, header, list, editor. Layout nests them; the
+        // Reading order: rail, header, list, viewer. Layout nests them; the
         // registry only needs to be their ancestor.
         let rail = self
             .registry
             .region(GLOBAL_NAVIGATION, window, cx)
+            .flex_none()
             .child(rail);
         let header = self
             .registry
@@ -604,20 +670,161 @@ impl Render for ShellView {
                 .region(PRIMARY_LIST, window, cx)
                 .debug_selector(|| "shell-primary-list".into())
                 .flex_none()
-                .w(px(scale.apply(240.0)))
+                .w(px(scale.apply(LIST_WIDTH)))
                 .min_w_0()
                 .h_full()
                 .overflow_hidden()
+                .border_r(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
                 .child(list)
         });
-        let editor = self
+        // The viewer scrolls rather than clipping: a pane that hides the rest
+        // of what it holds, with nothing saying so, is the one thing worse
+        // than a scrollbar.
+        let scroll = self.viewer_scroll.clone();
+        let viewer = self
             .registry
             .region(MAIN_EDITOR, window, cx)
             .flex_1()
             .min_w_0()
             .h_full()
+            .relative()
             .overflow_hidden()
-            .child(editor);
+            .child(
+                scroll
+                    .bounded(div().id("viewer"))
+                    .size_full()
+                    .p(px(gutter))
+                    .child(viewer),
+            )
+            .children(scroll.indicator("viewer", 0.0, window, cx, environment));
+
+        self.registry
+            .root(window, cx)
+            .track_focus(&self.focus_handle)
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .child(rail)
+            .child(
+                div()
+                    .debug_selector(|| "shell-workspace".into())
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(header)
+                    .child(div().flex_1().min_h_0().flex().children(list).child(viewer)),
+            )
+            .into_any_element()
+    }
+
+    /// A focused editor takes the whole screen, rail included: the operator is
+    /// working on one entity, and Back returns them to the screen they left
+    /// rather than to a pane beside it.
+    fn focused_editor(
+        &mut self,
+        entity: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let environment = self.environment;
+        let scale = environment.preferences().scale;
+        let palette = tokens::palette(environment.appearance());
+        let gutter = self.gutter(window);
+        let view = cx.entity().downgrade();
+        let back = self.context(cx);
+        let header = div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::GROUP)))
+                    .px(px(gutter))
+                    .py(px(scale.apply(tokens::spacing::GROUP)))
+                    .child(
+                        Button::new("back", format!("Back to {back}"), environment)
+                            .icon(ui::assets::icon::CHEVRON_RIGHT)
+                            .on_surface(palette.background)
+                            .on_activate(move |_, cx| {
+                                let _ = view.update(cx, |view, cx| {
+                                    view.editing = None;
+                                    // The invoker unmounts with this screen, so
+                                    // the region hands back its remembered
+                                    // target or its first tab stop — the Open
+                                    // control the operator left from.
+                                    view.registry.focus_region(MAIN_EDITOR);
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        div()
+                            .debug_selector(|| "editor-title".into())
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                            .child(entity),
+                    ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .border_t(px(tokens::border::SEPARATOR))
+                    .border_color(rgb(palette.border)),
+            );
+
+        let header = self
+            .registry
+            .region(WORKSPACE_ACTIONS, window, cx)
+            .flex_none()
+            .child(header);
+        let scroll = self.viewer_scroll.clone();
+        let body = self
+            .registry
+            .region(MAIN_EDITOR, window, cx)
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .relative()
+            .overflow_hidden()
+            .child(
+                scroll
+                    .bounded(div().id("viewer"))
+                    .size_full()
+                    .p(px(gutter))
+                    .child("This entity has no editor yet."),
+            )
+            .children(scroll.indicator("viewer", 0.0, window, cx, environment));
+
+        self.registry
+            .root(window, cx)
+            .track_focus(&self.focus_handle)
+            .debug_selector(|| "focused-editor".into())
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+}
+
+impl Render for ShellView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let environment = self.environment;
+        let scale = environment.preferences().scale;
+        let palette = tokens::palette(environment.appearance());
+        let gutter = self.gutter(window);
+        let screen = match self.editing.clone() {
+            Some(entity) => self.focused_editor(entity, window, cx),
+            None => self.workspace(window, cx),
+        };
 
         div()
             .id("ordo-shell")
@@ -663,35 +870,7 @@ impl Render for ShellView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
-            .child(
-                self.registry
-                    .root(window, cx)
-                    .track_focus(&self.focus_handle)
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(rail)
-                    .child(
-                        div()
-                            .debug_selector(|| "shell-workspace".into())
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(gutter))
-                            .p(px(gutter))
-                            .child(header)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .gap(px(gutter))
-                                    .children(list)
-                                    .child(editor),
-                            ),
-                    ),
-            )
+            .child(screen)
             // Not a region: nothing here is interactive, and T0.1's build
             // identity and offline status still have to be on screen.
             .child(
@@ -722,7 +901,6 @@ impl Render for ShellView {
             .child(self.overlays.clone().layer(environment, window, cx))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,12 +1054,44 @@ mod tests {
                 seen_collapsed |= collapsed;
                 seen_expanded |= !collapsed;
                 let rail = cx.debug_bounds("shell-rail").unwrap();
-                assert_eq!(
-                    rail.size.width,
-                    px(rail::width(collapsed, scale)),
-                    "rail at {width} and {}%",
+                let reserved = px(if collapsed {
+                    rail::collapsed_width(scale)
+                } else {
+                    scale.apply(rail::EXPANDED_RESERVE)
+                });
+                assert!(
+                    rail.size.width <= reserved,
+                    "the rail measures {}px against a reserve of {reserved:?} at {width} and {}%",
+                    f32::from(rail.size.width),
                     scale.percent()
                 );
+                // The bug this pins: a rail narrower than its own labels
+                // painted them straight past its edge, and only the hover fill
+                // showed how far. Every destination has to end inside it.
+                for destination in Destination::PRIMARY
+                    .into_iter()
+                    .chain(Destination::ANCHORED)
+                {
+                    let item = cx
+                        .debug_bounds(sel(format!("button-{}", destination.label())))
+                        .unwrap();
+                    assert!(
+                        item.right() <= rail.right(),
+                        "{} runs {}px past the rail at {width} and {}%",
+                        destination.label(),
+                        f32::from(item.right() - rail.right()),
+                        scale.percent()
+                    );
+                }
+                // The list is a bounded scrolling surface like every other, so
+                // it reports its position when it overflows and says nothing
+                // when it does not — the shared indicator, not one of its own.
+                let indicator = cx.debug_bounds("scroll-indicator-primary-list").is_some();
+                if (width, scale) == (1366.0, InterfaceScale::Percent200) {
+                    assert!(indicator, "a list past the end of its column reports so");
+                } else if (width, scale) == (1920.0, InterfaceScale::Percent100) {
+                    assert!(!indicator, "a list that fits its column reports nothing");
+                }
                 for selector in ["shell-rail", "shell-workspace", "workspace-title"] {
                     let bounds = cx.debug_bounds(selector).unwrap();
                     assert!(
@@ -908,28 +1118,54 @@ mod tests {
     ) {
         let (shell, cx) = open(cx);
         click(cx, "tab-1"); // Masses · History
-        click(cx, "button-History · 9:30 AM");
+        click(cx, "row-History · entry 2");
         shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(1)));
-        assert!(cx.debug_bounds("editor-title").is_some());
+        assert!(cx.debug_bounds("viewer-title").is_some());
+        // A row carries its classifiers inline, which is what the shape is for.
+        assert!(cx.debug_bounds("badge-Easter").is_some());
+
+        // A short window makes the list too long for its column; it does not
+        // make the rows shorter. Squeezing them closed is what left the
+        // indicator with nothing to report.
+        let tall = cx.debug_bounds("row-History \u{b7} entry 1").unwrap();
+        assert!(cx.debug_bounds("scroll-indicator-primary-list").is_none());
+        cx.simulate_resize(size(px(1366.0), px(420.0)));
+        cx.run_until_parked();
+        let short = cx.debug_bounds("row-History \u{b7} entry 1").unwrap();
+        assert_eq!(
+            short.size.height, tall.size.height,
+            "a row keeps its own height when the window shortens"
+        );
+        assert!(
+            cx.debug_bounds("scroll-indicator-primary-list").is_some(),
+            "the list overflows instead, and says so"
+        );
+        cx.simulate_resize(size(px(1920.0), px(1080.0)));
+        cx.run_until_parked();
 
         click(cx, "button-Open");
         cx.run_until_parked();
         shell.read_with(cx, |shell, cx| {
             assert_eq!(
                 shell.editing().map(SharedString::as_ref),
-                Some("History · 9:30 AM")
+                Some("History · entry 2")
             );
             assert_eq!(shell.local_view(cx), Some("History"));
         });
         assert!(cx.debug_bounds("focused-editor").is_some());
-        assert!(
-            cx.debug_bounds("shell-primary-list").is_none(),
-            "a focused editor owns the workspace, so the list region is absent"
-        );
-        assert!(
-            cx.debug_bounds("rail-active-Masses").is_some(),
-            "the rail keeps the active destination through a focused editor"
-        );
+        // The whole screen, not a pane: the list, the tabs, and the rail all
+        // give way to the entity, and come back with it.
+        for absent in [
+            "shell-primary-list",
+            "workspace-tabs",
+            "shell-rail",
+            "rail-active-Masses",
+        ] {
+            assert!(
+                cx.debug_bounds(absent).is_none(),
+                "{absent} survived into a focused editor"
+            );
+        }
 
         click(cx, "button-Back to History");
         cx.run_until_parked();
@@ -940,6 +1176,11 @@ mod tests {
             assert!(shell.editing().is_none());
         });
         assert!(cx.debug_bounds("shell-primary-list").is_some());
+        assert!(cx.debug_bounds("workspace-tabs").is_some());
+        assert!(
+            cx.debug_bounds("rail-active-Masses").is_some(),
+            "Back returns the whole screen the operator left"
+        );
 
         // The invoker got the keyboard back: Enter alone reopens the editor.
         keys(cx, "enter");

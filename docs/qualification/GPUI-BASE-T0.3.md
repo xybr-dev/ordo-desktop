@@ -662,6 +662,46 @@ seam — which is exactly the division `SelectionState` documents. A destination
 does not keep another's row selection, because a row index means nothing across
 collections.
 
+The primary list is `ui::primitives::list`, a new Ordo primitive rather than a
+column of Buttons. It adds no dependency: a row wraps the same qualified base
+Button every other control does, so it is focused, activated by Enter/Space, and
+named like anything else, and everything visible is Ordo's — a title, a detail
+line, the badges that classify it, and one shared bottom edge, which is what
+`DESIGN.md` asks for before a card and what keeps adjacent rows from doubling a
+border between every pair. A `Badge` is a short classifier beside that text;
+the liturgical colors reach it through `tone`, which is the one thing
+`DESIGN.md` allows them to say. What a row is *not* is a collection: arrow-key
+roving and ListBox/option semantics need the collection itself, and land with
+the first list that owns real records. The gap is marked in the source and
+nothing claims otherwise in the meantime.
+
+A row also declares `flex_none`, and that is not cosmetic. Without it a row is
+an ordinary flex child of its column, so a short window squeezes every row down
+to its minimum instead of letting the list overflow — the titles close up, and
+the scroll indicator has nothing to report because the list was never allowed to
+be too long. A regression test shortens the window and asserts both halves: the
+row keeps the height it had, and the indicator appears. The same rule holds the
+workspace header, which `DESIGN.md` puts among the things that are never
+truncated; the panes below it scroll instead, through `ui::scroll` like every
+other bounded surface.
+
+The rail is sized by its own content rather than by a constant. Atkinson is
+wide, and a fixed width is a guess that only ever fails one way: a destination
+whose label is painted past the edge it was told to fit inside, visible only
+when a hover fill showed how far it ran. `rail::EXPANDED_RESERVE` remains as
+what the collapse decision reserves for the rail, and the matrix test pins it to
+what the rail actually measures — every destination has to end inside the rail
+at both viewports and all five scales. Rail items also use the new
+`Button::stretch`, which fills the container and puts the icon and label on the
+leading edge: a destination is read down a column with six others, and a centred
+label reads as ragged.
+
+Opening an entity replaces the whole screen, rail included, rather than swapping
+one pane. The operator is working on one thing, and Back returns them to the
+screen they left — the destination, its local view, its row selection, and the
+keyboard, all of which the test asserts are gone while the editor is open and
+back afterwards.
+
 Regions are `Global navigation`, `Workspace actions`, `Primary list`, and `Main
 editor`, in that order. The Primary list is genuinely absent for a
 single-surface destination — Settings, Help, Diagnostics — and while a focused
@@ -681,21 +721,28 @@ Automated evidence in `ordo::shell`:
   local view across a round trip through another.
 - `the_rail_collapses_and_the_workspace_never_runs_past_the_window`: both
   qualified viewports at all five scales, asserting the rail's measured width
-  against the collapse rule and that the rail, the workspace, and the workspace
-  title all end inside the window — the whole-workspace horizontal scroll
-  `DESIGN.md` forbids, measured rather than assumed.
+  against its reserve, every destination ending inside the rail, the list
+  reporting its position when it overflows and nothing when it fits, and the
+  rail, the workspace, and the workspace title all ending inside the window —
+  the whole-workspace horizontal scroll `DESIGN.md` forbids, measured rather
+  than assumed.
 - `a_focused_editor_returns_the_destination_local_view_selection_and_invoker`:
   destination, local view, and row selection surviving the round trip, the list
-  region absent while the editor owns the workspace, the rail still marking its
-  destination, and the keyboard back on the invoker.
+  region, the tab strip, and the rail all absent while the editor owns the
+  screen and all back afterwards, a row keeping its height when the window
+  shortens, and the keyboard back on the invoker.
 - `the_rail_gives_up_its_labels_before_the_workspace_gives_up_a_pane` and
   `every_destination_is_reachable_and_local_views_belong_only_to_a_destination`
   pin the collapse threshold and the hybrid hierarchy without a window.
 - The environment, shortcut, Presenter, and startup-restore tests move from
   `ui` unchanged apart from their view.
 
+`ui-lab` gains a `list` scenario for the new primitive and takes it through the
+existing appearance/scale/viewport matrix, asserting that a row's inline content
+stays inside its column at every combination.
+
 Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
-81 UI tests, 11 shell/runtime tests in `ordo`, the native runtime harness,
+82 UI tests, 11 shell/runtime tests in `ordo`, the native runtime harness,
 Clippy, release configuration, and cargo-deny. This evidence does not close all
 of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
 Contrast check remain with T0.3.12.

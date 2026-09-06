@@ -82,30 +82,29 @@ impl Destination {
     }
 }
 
-/// The expanded rail's width: an icon, the adopted gap, and enough room for
-/// the longest destination label at the operator label size.
-const EXPANDED_WIDTH: f32 = 200.0;
+/// What the collapse decision reserves for an expanded rail. The rail itself
+/// is sized by its own content, because Atkinson is wide and a fixed width is
+/// a guess that only ever fails one way: a destination whose label is painted
+/// past the edge it was told to fit inside. This is the reserve the workspace
+/// is measured against, and a test pins it to what the rail actually measures.
+pub const EXPANDED_RESERVE: f32 = 240.0;
 /// `DESIGN.md`'s minimum logical list and editor widths. The rail gives up its
 /// labels before the workspace gives up a pane, so these are the threshold.
 const MINIMUM_WORKSPACE: f32 = 240.0 + 520.0;
 
+/// A collapsed rail is exactly one square icon control plus the rail's inset.
 pub fn collapsed_width(scale: InterfaceScale) -> f32 {
-    scale.apply(tokens::density::DEFAULT_CONTROL + 2.0 * tokens::spacing::RELATED)
-}
-
-pub fn width(collapsed: bool, scale: InterfaceScale) -> f32 {
-    if collapsed {
-        collapsed_width(scale)
-    } else {
-        scale.apply(EXPANDED_WIDTH)
-    }
+    scale.apply(tokens::density::DEFAULT_CONTROL + tokens::spacing::UNIT)
+        + scale.apply(tokens::spacing::RELATED_TIGHT)
+        + 2.0 * scale.apply(tokens::spacing::RELATED)
+        + tokens::border::SEPARATOR
 }
 
 /// `DESIGN.md` decides this from the effective workspace remaining after
 /// Interface scale, window size, and navigation chrome — never from a
 /// resolution breakpoint — so both terms are scaled and the window is measured.
 pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
-    viewport_width - scale.apply(EXPANDED_WIDTH)
+    viewport_width - scale.apply(EXPANDED_RESERVE)
         < scale.apply(MINIMUM_WORKSPACE + 2.0 * tokens::density::WORKSPACE_GUTTER_COMPACT)
 }
 
@@ -141,14 +140,16 @@ fn item(
         .child(
             div()
                 .flex_1()
-                .min_w_0()
                 .rounded(px(scale.apply(tokens::radius::CONTROL)))
                 .when(active, |row| row.bg(rgb(palette.selection)))
                 .child(
                     Button::new(SharedString::from(label), label, environment)
                         .icon(destination.icon())
                         .quiet()
-                        .truncate()
+                        // A destination is read down the rail with the other
+                        // six, so its icon and label start on a shared edge
+                        // rather than floating in the middle of the row.
+                        .stretch()
                         .when(collapsed, Button::icon_only)
                         .on_surface(if active {
                             palette.selection
@@ -186,7 +187,6 @@ pub fn render(
     div()
         .debug_selector(|| "shell-rail".into())
         .flex_none()
-        .w(px(width(collapsed, scale)))
         .h_full()
         .flex()
         .flex_col()
@@ -231,7 +231,7 @@ mod tests {
             );
         }
         assert!(
-            collapsed_width(Percent100) < width(false, Percent100),
+            collapsed_width(Percent100) < EXPANDED_RESERVE,
             "collapsing has to give the workspace width back"
         );
     }
