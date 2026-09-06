@@ -399,6 +399,7 @@ pub(crate) fn overlays(window: &mut Window, cx: &mut App) -> OverlayHost {
 fn long_body(environment: UiEnvironment) -> AnyElement {
     let scale = environment.preferences().scale;
     div()
+        .debug_selector(|| "lab-long-body".into())
         .flex()
         .flex_col()
         .gap(px(scale.apply(tokens::spacing::GROUP)))
@@ -1834,6 +1835,57 @@ mod tests {
                 "focus still returns after the switch"
             )
         });
+    }
+
+    /// Dialog body copy follows Interface scale: the card owns the operator
+    /// text size, so bare body content measures taller at 200% than at 100%
+    /// inside the same viewport. Without it the copy keeps the pin's fixed
+    /// default wherever the host root sets none, as `ui-lab` does not.
+    #[gpui::test]
+    fn the_dialog_body_grows_with_interface_scale(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        cx.simulate_resize(size(px(1920.0), px(1080.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            assert!(lab.select_scenario("dialog", cx));
+        });
+        cx.run_until_parked();
+
+        // Opens the dialog, measures its content height, and closes it, at
+        // one scale. Pointer setup only; the assertion is about text sizing.
+        let content_height = |scale: crate::environment::InterfaceScale,
+                              cx: &mut gpui::VisualTestContext| {
+            lab.update(cx, |lab, cx| {
+                lab.change(
+                    EnvironmentChange::SetPreferences(UiPreferences {
+                        appearance: PreparationAppearance::Light,
+                        scale,
+                    }),
+                    cx,
+                );
+            });
+            cx.run_until_parked();
+            let trigger = cx.debug_bounds("button-Delete Mass").unwrap();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::default());
+            cx.run_until_parked();
+            settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+            let height = cx
+                .debug_bounds("lab-long-body")
+                .expect("the dialog body renders")
+                .size
+                .height;
+            cx.simulate_keystrokes("escape");
+            cx.run_until_parked();
+            settle(cx, tokens::motion::OVERLAY_CLOSE_DURATION_MS);
+            height
+        };
+
+        let at_100 = content_height(crate::environment::InterfaceScale::Percent100, cx);
+        let at_200 = content_height(crate::environment::InterfaceScale::Percent200, cx);
+        assert!(
+            at_200 > at_100,
+            "body copy grows with scale ({at_100:?} at 100%, {at_200:?} at 200%)"
+        );
     }
 
     #[gpui::test]

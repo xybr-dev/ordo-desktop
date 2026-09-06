@@ -1165,6 +1165,25 @@ mod tests {
         cx.simulate_keystrokes("up up");
         cx.run_until_parked();
         assert_eq!(focused(cx), first, "and two back up is where it started");
+
+        // Past either end the arrows leave the list through the surrounding
+        // tab order rather than wrapping or sticking, and the selection stays
+        // where the operator left it.
+        keys(cx, "up");
+        assert_ne!(focused(cx), first, "Up past the first row leaves the list");
+        shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
+        click(cx, "row-Upcoming \u{b7} entry 1");
+        let mut prev = focused(cx);
+        for _ in 0..7 {
+            keys(cx, "down");
+            let now = focused(cx);
+            assert_ne!(now, prev, "Down walks one row at a time");
+            prev = now;
+        }
+        shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
+        keys(cx, "down");
+        assert_ne!(focused(cx), prev, "Down past the last row leaves the list");
+        shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
     }
 
     /// `DESIGN.md` owes every visually truncated value its full text on pointer
