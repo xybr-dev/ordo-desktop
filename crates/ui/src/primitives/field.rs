@@ -299,6 +299,15 @@ impl Field {
             .focused(focused)
             .disabled(disabled)
             .accessibility_label(self.label.clone())
+            .aria_value(self.state.value(cx))
+            .aria_placeholder(
+                self.state
+                    .input
+                    .read(cx)
+                    .presentation()
+                    .placeholder()
+                    .clone(),
+            )
             // ponytail: AccessKit can represent read-only, but the pinned GPUI
             // exposes no `aria_read_only` setter any more than it does a
             // disabled one, so the state rides the description. Same upgrade
@@ -378,6 +387,38 @@ mod tests {
         cx.update(|window, cx| state.focus(window, cx));
         cx.run_until_parked();
         (state, cx)
+    }
+
+    #[gpui::test]
+    fn field_node_exposes_name_value_placeholder_and_description(cx: &mut TestAppContext) {
+        use gpui::{Element, accesskit};
+        let (state, cx) = open(cx, |field, _| field);
+        cx.update(|window, cx| {
+            state.set_value("Gloria", window, cx);
+            let environment =
+                UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+            let field = Field::new("title", "Title", &state, environment);
+            let element = field
+                .control(
+                    false,
+                    true,
+                    Some("Read-only. Published".into()),
+                    Field::NOT_ASSIGNED.into(),
+                    tokens::palette(environment.appearance()),
+                    None::<gpui::Div>,
+                    window,
+                    cx,
+                )
+                .render(window, cx)
+                .into_element();
+            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.role(), accesskit::Role::TextInput);
+            assert_eq!(node.label(), Some("Title"));
+            assert_eq!(node.value(), Some("Gloria"));
+            assert_eq!(node.placeholder(), Some("Not assigned"));
+            assert_eq!(node.description(), Some("Read-only. Published"));
+        });
     }
 
     #[gpui::test]

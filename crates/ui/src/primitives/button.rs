@@ -342,6 +342,9 @@ struct TooltipView {
 impl gpui::Render for TooltipView {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         div()
+            .id("control-tooltip")
+            .role(gpui::Role::Tooltip)
+            .aria_label(self.text.clone())
             .debug_selector(|| "control-tooltip".into())
             .px(px(self.scale.apply(tokens::spacing::RELATED)))
             .py(px(self.scale.apply(tokens::spacing::RELATED_TIGHT)))
@@ -405,6 +408,25 @@ mod tests {
             prefer_character_input: false,
         });
         cx.simulate_event(KeyUpEvent { keystroke });
+    }
+
+    #[gpui::test]
+    fn tooltip_node_exposes_its_full_name(cx: &mut gpui::TestAppContext) {
+        use gpui::{Element, Render};
+        let (view, cx) = cx.add_window_view(|_, _| TooltipView {
+            text: "Open Inspector".into(),
+            palette: tokens::palette(environment().appearance()),
+            scale: environment().preferences().scale,
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                let element = view.render(window, cx).into_element();
+                let mut node = gpui::accesskit::Node::new(element.a11y_role().unwrap());
+                element.write_a11y_info(&mut node);
+                assert_eq!(node.role(), gpui::Role::Tooltip);
+                assert_eq!(node.label(), Some("Open Inspector"));
+            })
+        });
     }
 
     #[gpui::test]

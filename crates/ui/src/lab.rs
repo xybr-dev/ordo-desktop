@@ -25,6 +25,8 @@ use crate::{
     resolved_appearance, tokens,
 };
 
+mod regions;
+
 actions!(ordo_lab, [NextScenario, NextViewport, NextAppearance]);
 
 /// Initializes the UI environment plus the lab-only keys. Production shells call
@@ -108,6 +110,10 @@ static SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "placeholder",
         render: render_placeholder,
+    },
+    Scenario {
+        name: "regions",
+        render: regions::render,
     },
     Scenario {
         name: "buttons",
@@ -877,6 +883,7 @@ mod tests {
                         "combobox-new",
                         "tabs",
                         "disclosure",
+                        "regions",
                     ] {
                         lab.update(cx, |lab, cx| {
                             lab.change(
@@ -895,6 +902,7 @@ mod tests {
                             "combobox" => "scenario-combobox",
                             "combobox-new" => "scenario-combobox-new",
                             "tabs" => "scenario-tabs",
+                            "regions" => "scenario-regions",
                             _ => "scenario-disclosure",
                         };
                         assert!(cx.debug_bounds(selector).is_some());

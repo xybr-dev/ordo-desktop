@@ -244,6 +244,7 @@ struct Entry {
 }
 
 struct Host {
+    status: crate::accessibility::StatusAnnouncement,
     entries: Vec<Entry>,
     /// Keyed by message, which is what makes the channel deduplicated: the
     /// same operational change reported twice replaces its own toast rather
@@ -275,6 +276,7 @@ struct Host {
 impl Host {
     fn empty() -> Self {
         Self {
+            status: crate::accessibility::StatusAnnouncement::default(),
             entries: Vec::new(),
             // Ordo draws the motion itself, so the enter duration is zero and a
             // toast is present the moment it is posted. The exit duration is
@@ -457,12 +459,25 @@ impl OverlayHost {
             .detach();
     }
 
+    /// The single polite channel for expected UI transitions. Selection and
+    /// focus do not post here; confirmations use this same channel.
+    pub fn announce_status(&self, message: impl Into<SharedString>, cx: &mut App) {
+        self.0.update(cx, |host, cx| {
+            if host.status.announce(message) {
+                cx.notify();
+            }
+        });
+    }
+
     /// Posts a bottom-center message. A confirmation expires on its own; a
     /// failure stays until it is dismissed.
     pub fn notify(&self, toast: Toast, cx: &mut App) {
         let timeout = toast.timeout();
         self.0.update(cx, |host, cx| {
             let id = toast.message.clone();
+            if toast.notice == Notice::Confirmation {
+                host.status.announce(id.clone());
+            }
             let now = cx.background_executor().now();
             host.toasts.push(id, toast, ToastOptions { timeout }, now);
             // Mounting and expiring are two passes of the same clock, and the
@@ -537,6 +552,7 @@ impl OverlayHost {
             })
             .collect();
         div()
+            .child(self.0.read(cx).status.render())
             .children(self.scrim(open, environment, window, cx))
             .children(surfaces)
             .children(self.toast_stack(environment, window, cx))
@@ -746,6 +762,9 @@ impl OverlayHost {
                     let focus = focus.clone();
                     move |_: &FocusNext, window, cx| contain(&focus, false, window, cx)
                 })
+                // This focused modal is the sole region; F6 keeps its target.
+                .on_action(|_: &crate::NextRegion, _, _| {})
+                .on_action(|_: &crate::PreviousRegion, _, _| {})
                 .on_action(move |_: &FocusPrevious, window, cx| contain(&focus, true, window, cx))
                 .child(deferred(sheet).with_priority(card_priority(index)))
                 .into_any_element(),
@@ -1139,14 +1158,6 @@ impl OverlayHost {
                         scale,
                     )])
                     .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                    // A confirmation reports what the operator just did, so it is
-                    // polite; a failure is the unexpected event `DESIGN.md` allows
-                    // to interrupt.
-                    .role(match toast.notice {
-                        Notice::Confirmation => Role::Status,
-                        Notice::Failure => Role::Alert,
-                    })
-                    .aria_label(toast.message.clone())
                     .child(
                         gpui::svg()
                             .flex_none()
@@ -1199,6 +1210,7 @@ impl OverlayHost {
                         .on_surface(palette.surface)
                         .on_activate(move |window, cx| dismiss(window, cx))
                     }))
+                    .map(|element| toast_semantics(element, &toast))
             });
         Some(
             deferred(
@@ -1268,6 +1280,21 @@ fn anchor(child: impl IntoElement) -> gpui::Anchored {
 /// to and still be above the card under that one.
 fn card_priority(index: usize) -> usize {
     OVERLAY_PRIORITY + 2 * index + 1
+}
+
+fn toast_semantics(
+    element: gpui::Stateful<gpui::Div>,
+    toast: &Toast,
+) -> crate::accessibility::LiveElement {
+    let (role, priority) = match toast.notice {
+        // Confirmation text is announced once by the host's shared channel.
+        Notice::Confirmation => (Role::Status, gpui::accesskit::Live::Off),
+        Notice::Failure => (Role::Alert, gpui::accesskit::Live::Assertive),
+    };
+    crate::accessibility::LiveElement::new(
+        element.role(role).aria_label(toast.message.clone()),
+        priority,
+    )
 }
 
 /// The node an operator's assistive technology reads. The base sheet carries no
@@ -1562,6 +1589,10 @@ mod tests {
         // surfaces do not grow more dramatic with nesting. The dim belongs to
         // the layer, so three surfaces are behind one of it rather than three.
         assert!(cx.debug_bounds("overlay-scrim").is_some());
+
+        let child_focus = cx.update(|window, cx| window.focused(cx).unwrap());
+        cx.simulate_keystrokes("f6 shift-f6");
+        cx.update(|window, _| assert!(child_focus.is_focused(window)));
 
         cx.simulate_keystrokes("escape");
         settle(cx);
@@ -2047,6 +2078,41 @@ mod tests {
             Some("This cannot be undone."),
             "complete text is a description, never part of the name"
         );
+    }
+
+    #[gpui::test]
+    fn toast_nodes_use_one_polite_channel_and_explicit_urgent_failures(cx: &mut TestAppContext) {
+        use gpui::{
+            Element,
+            accesskit::{Live, Node},
+        };
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        for (toast, role, priority) in [
+            (Toast::confirmation("Saved"), Role::Status, Live::Off),
+            (
+                Toast::failure("Export failed"),
+                Role::Alert,
+                Live::Assertive,
+            ),
+        ] {
+            let element = toast_semantics(div().id("toast"), &toast);
+            let mut node = Node::new(element.a11y_role().unwrap());
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.role(), role);
+            assert_eq!(node.live(), Some(priority));
+            assert_eq!(node.label(), Some(toast.message.as_ref()));
+            cx.update(|_, cx| host.notify(toast.clone(), cx));
+            cx.update(|_, cx| host.notify(toast.clone(), cx));
+        }
+        cx.update(|_, cx| {
+            assert_eq!(host.toasts(cx).len(), 2);
+            let element = host.0.read(cx).status.render().into_element();
+            let mut node = Node::new(element.a11y_role().unwrap());
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.label(), Some("Saved"));
+            assert_eq!(node.live(), Some(Live::Polite));
+        });
     }
 
     /// Overlays must sit under a popup opened from inside one, and both must
