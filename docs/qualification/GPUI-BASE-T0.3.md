@@ -497,6 +497,107 @@ bodies can be on screen at once. `Scroll::bounded` joins it as the other half of
 what a bounded surface asks for, and the Select/Menu/Combobox popup adopts it
 too — it was the surface the containment bug was reported against.
 
+### T0.3.10 region-navigation and semantic evidence
+
+`ui::accessibility::RegionRegistry` owns the ordered visible region cycle.
+Callers supply only mounted regions in reading order; the registry retains each
+region's focus handle and a weak remembered descendant under its stable visible
+name. Names must be unique within a render and come from a fixed vocabulary,
+not entity-derived titles: entries intentionally remain until the registry is
+dropped, so hidden regions retain their remembered targets. A debug assertion
+rejects duplicate names before their focus handles are mounted twice.
+
+The registry hosts the ordinary Tab/Shift+Tab handlers, which walk GPUI's
+whole-window tab order across region boundaries. F6/Shift+F6 instead walk only
+the supplied visible regions. PR 11's Preparation shell must place workspace
+controls under this root to receive those handlers.
+A focus-exit subscription also remembers departures by Tab or pointer. The
+subscription belongs to the region and is dropped with its workspace registry.
+Returning checks membership in the rendered focus tree, so a remembered control
+that was removed falls back to the first surviving tab stop (or the region
+itself when empty). Retaining a handle alone does not make a hidden control a
+valid target. Neither F6 departures nor the focus-exit subscription remember
+the region container itself: an empty region must try its first tab stop again
+when content appears.
+
+Mount the shared overlay layer as a sibling of the registry root, as the lab
+scenario does. A dialog or nested slideover's focused dispatch path therefore
+cannot reach the workspace F6 handlers, so F6 leaves its current control in
+place. The tests prove this sibling composition, not an overlay F6-consuming
+handler; the redundant no-op handlers were removed. PR 11 must preserve this
+composition. Existing modal Tab containment and invoker restoration remain the
+same shipping path.
+
+The `regions` lab scenario uses the production registry, Button, Field, and
+OverlayHost. It covers Global navigation, Workspace actions, Primary list,
+Main editor, and an Inspector that can be hidden. Selecting its fixture item
+updates contextual content without moving focus. It joins the existing lab
+appearance/scale/viewport matrix. The keyboard test uses real key down/up
+pairs, including Enter's raw Button handler. Its window is explicitly active:
+the pin's `Window::draw` only sends focus-exit notifications for an active
+window, so an inactive test window cannot exercise remembered Tab departures.
+
+Automated evidence:
+
+- `visible_regions_restore_targets_without_stealing_selection_focus`: Tab and
+  Shift+Tab across region boundaries, F6/Shift+F6 restoration, hidden Inspector
+  skipping, wraparound, selection without focus theft, dialog containment and
+  return, and F6 from an editable Field.
+- `a_removed_remembered_control_falls_back_to_the_surviving_region`: a retained
+  but unmounted control is rejected. Removing the rendered-tree membership
+  check was observed to fail this regression test before restoring it. The
+  same test now covers an empty region gaining content after both F6 and
+  direct focus departures; this failed before excluding container targets.
+- `a_nested_slideover_keeps_its_parent_and_returns_focus_to_it`: additionally
+  checks forward/reverse F6 while the deepest surface owns focus in the
+  sibling composition above.
+- `an_expired_confirmation_can_announce_the_same_message_again`: duplicate
+  mounted confirmations remain one toast, expiry clears the current matching
+  status, and a later identical message becomes a fresh node-content change.
+  Expiry cannot clear a different current status. The test failed before the
+  expiry reset was added.
+- Captured node tests cover Region names/shortcuts, Tooltip role/full name,
+  Field name/value/placeholder/description, Status and Alert roles and explicit
+  live priorities, and consecutive announcement deduplication. Existing Button,
+  Menu, Select, Combobox, Tabs, Disclosure, and overlay node captures continue
+  to cover their actions, selection, expansion, values, and descriptions.
+
+Ordo's Tooltip view now supplies its own Tooltip role and accessible name; it
+had replaced the base view without retaining that node. Field supplies the
+current value and placeholder to its TextInput frame. The previously qualified
+Disabled/Read-only description fallbacks and missing relationship setters
+remain as documented above.
+
+`OverlayHost::announce_status` is the single polite status seam for expected
+UI transitions, also used by confirmation/Undo toasts. Repeating the current
+message leaves its node unchanged; a different intervening transition allows
+the earlier message again. Unmounting a confirmation/Undo toast clears its
+matching current announcement, so a subsequent identical confirmation can be
+announced again after expiry or dismissal. The lab exercises Inspector
+shown/hidden. Ordinary focus and selection never post to this channel. Confirmation toast nodes remain
+inspectable but have live priority Off, avoiding a second announcement. Owned
+failure toasts retain Alert semantics and use Assertive priority.
+
+The pin exposes no live-priority setter on Div, and AccessKit consumer's
+`Node::live` inherits Off when unspecified rather than inferring a priority
+from Status/Alert roles. A private `LiveElement` delegates Stateful<Div>'s
+layout, prepaint, paint, ID, and existing semantic writer, then sets only the
+node's live priority. This adapter can disappear when GPUI exposes the setter;
+no dependency or native adapter changes are needed.
+
+Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
+84 UI tests, workspace tests, Clippy, release configuration, and cargo-deny.
+
+These are element-node captures, not a running screen-reader test. The platform
+limitations below still apply. Source inspection confirms that the passive
+`CongregationView` renders neither the registry nor the operator overlay/status
+host. Native tree isolation, spoken announcements, and Windows High Contrast
+remain manual qualification. In particular, check with a live screen reader
+that an icon-only control's tooltip speaks its full name once: its Tooltip
+node has an explicit label and also contains visible text, and element-only
+captures cannot establish whether a consumer repeats that subtree. Presenter
+safety transitions and shell composition remain with their later owning tasks. This evidence does not close all of T0.3.
+
 ### Pinned platform limitations
 
 The pinned revision also bounds what T0.3 can automate.
