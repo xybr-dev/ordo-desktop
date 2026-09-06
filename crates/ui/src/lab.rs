@@ -732,8 +732,12 @@ impl LabView {
         }
     }
 
-    fn next_scenario(&mut self, _: &NextScenario, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_scenario(&mut self, _: &NextScenario, window: &mut Window, cx: &mut Context<Self>) {
         self.scenario = (self.scenario + 1) % SCENARIOS.len();
+        // The switch unmounts whatever held focus, leaving a stale stop that
+        // Tab cannot step from and later keys cannot dispatch from. Home
+        // focus so the next key starts live.
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
@@ -1884,6 +1888,37 @@ mod tests {
             at_200 > at_100,
             "body copy grows with scale ({at_100:?} at 100%, {at_200:?} at 200%)"
         );
+    }
+
+    /// F2 keeps cycling scenarios after focus moves inside one: the lab-root
+    /// handler answers from any live stop, and only a modal trap (which owns
+    /// its keys while open) takes precedence. Covers every scenario, since
+    /// each hosts different controls.
+    #[gpui::test]
+    fn f2_cycles_scenarios_from_inside_a_scenario(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        cx.update(|window, _| window.activate_window());
+        assert_eq!(
+            lab.read_with(cx, |lab, _| lab.scenario().name),
+            "placeholder"
+        );
+
+        for next in super::SCENARIOS.iter().skip(1).map(|s| s.name) {
+            cx.simulate_keystrokes("f2");
+            cx.run_until_parked();
+            lab.read_with(cx, |lab, _| assert_eq!(lab.scenario().name, next));
+            // Into the scenario with the operator key, then onward: F2 must
+            // still cycle from wherever Tab landed.
+            cx.simulate_keystrokes("tab");
+            cx.run_until_parked();
+            assert!(
+                cx.update(|window, cx| window.focused(cx)).is_some(),
+                "Tab keeps focus somewhere live in {next}"
+            );
+        }
+        cx.simulate_keystrokes("f2");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.scenario().name, "placeholder"));
     }
 
     #[gpui::test]
