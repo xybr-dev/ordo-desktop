@@ -1541,10 +1541,9 @@ mod tests {
             cx.run_until_parked();
         };
         // Harness setup: reach the scenario with the lab's own F2 cycle, then
-        // step the window tab order to its first control. The dev host owns
-        // no Tab handler — Tab order belongs to the shell's region registry —
-        // so the step calls the same `focus_next` a Tab would drive; every
-        // control interaction after it is a real key event.
+        // Tab into its first control with the same key an operator presses.
+        // The lab root owns the plain `FocusNext` pair; the region registry
+        // and overlay trap keep precedence inside.
         let tab_into_scenario = |scenario: &'static str, cx: &mut gpui::VisualTestContext| {
             let root = lab.read_with(cx, |lab, _| lab.focus_handle.clone());
             cx.update(|window, cx| window.focus(&root, cx));
@@ -1560,8 +1559,7 @@ mod tests {
                 scenario,
                 "F2 reaches {scenario}"
             );
-            cx.update(|window, cx| window.focus_next(cx));
-            cx.run_until_parked();
+            press(cx, "tab");
             cx.update(|window, cx| window.focused(cx).expect("the first Tab stop takes focus"))
         };
         let contained =
