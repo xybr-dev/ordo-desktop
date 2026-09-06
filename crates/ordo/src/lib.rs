@@ -22,6 +22,7 @@ use presentation::{CongregationState, OutputStatus, ProgramFrame};
 use shell::ShellView;
 use ui::environment::UiPreferences;
 
+pub mod settings;
 pub mod shell;
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));

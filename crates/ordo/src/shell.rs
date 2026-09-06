@@ -4,22 +4,37 @@
 //! reusable primitives, the region registry, and the one overlay layer, and
 //! this view is the first thing to compose them into a workspace an operator
 //! navigates. `ui-lab` composes the same primitives its own way.
+//!
+//! **What belongs here is chrome, not content.** The shell owns the rail, the
+//! workspace header, the region registration, the one overlay layer, the
+//! Interface preferences, and the frame a focused editor is hosted in. It does
+//! not own screens. A destination's screens are its own top-level module —
+//! `masses/`, `songs/`, `library/`, `themes/`, `transfer/`, `settings/`,
+//! `diagnostics/`, `help/`, and `presenter/`, each split by screen the way
+//! `MILESTONES.md`'s **Changes:** paths name them — and a focused editor
+//! belongs to the entity it edits (`masses/planner/`, `songs/lyrics/`,
+//! `themes/editor/`), not to the frame that hosts it. Presenter Mode is a
+//! different window with a different region cycle and is not a shell screen at
+//! all. Without that rule this file grows once per feature; with it, it stops
+//! at the chrome.
 
+pub mod fixtures;
 pub mod rail;
 
 use std::{mem, rc::Rc};
 
+use fixtures::rows;
 use gpui::{
     AnyElement, App, Context, FocusHandle, Focusable, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 use rail::Destination;
+
+use crate::settings;
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
     accessibility::RegionRegistry,
-    environment::{
-        EnvironmentChange, InterfaceScale, PreparationAppearance, UiEnvironment, UiPreferences,
-    },
+    environment::{EnvironmentChange, PreparationAppearance, UiEnvironment, UiPreferences},
     overlay::{Overlay, OverlayHost},
     primitives::{
         button::Button,
@@ -54,51 +69,6 @@ const MAIN_EDITOR: &str = "Main editor";
 /// The list column's own logical width, `DESIGN.md`'s minimum for a primary
 /// list plus the inset its rows carry.
 const LIST_WIDTH: f32 = 280.0;
-
-/// Fixture rows until T1 gives the shell real records. One is long and
-/// multilingual on purpose: a workspace that cannot hold it would report the
-/// horizontal scroll `DESIGN.md` forbids, and there are enough of them that the
-/// column needs the shared scroll indicator.
-const LONG_TITLE: &str =
-    "Pasidungog sa Mahal nga Birhen Maria sa Kaputli ug sa Kalinaw sa Katilingban";
-
-/// A liturgical season is real domain metadata, which is the one thing
-/// `DESIGN.md` lets the liturgical colors say.
-const SEASONS: [(&str, u32); 4] = [
-    ("Lent", tokens::color::LITURGICAL_PURPLE),
-    ("Easter", tokens::color::LITURGICAL_WHITE),
-    ("Ordinary Time", tokens::color::LITURGICAL_GREEN),
-    ("Pentecost", tokens::color::LITURGICAL_RED),
-];
-
-struct Entry {
-    title: SharedString,
-    detail: SharedString,
-    season: Option<(&'static str, u32)>,
-}
-
-fn rows(view: &str) -> Vec<Entry> {
-    let times = ["6:00 AM", "7:30 AM", "9:30 AM", "5:00 PM"];
-    let languages = ["Cebuano", "English", "Filipino", "Cebuano"];
-    (0..8)
-        .map(|index| Entry {
-            title: if index == 7 {
-                LONG_TITLE.into()
-            } else {
-                format!("{view} \u{b7} entry {}", index + 1).into()
-            },
-            detail: format!(
-                "{} \u{b7} {}",
-                times[index % times.len()],
-                languages[index % languages.len()]
-            )
-            .into(),
-            // Not every entry carries a season, so a row without a badge has to
-            // read as an ordinary row rather than a broken one.
-            season: (index % 3 != 2).then(|| SEASONS[index % SEASONS.len()]),
-        })
-        .collect()
-}
 
 /// The Preparation shell: the rail, the current destination's local views, its
 /// list and viewer, and the one overlay layer.
@@ -479,7 +449,14 @@ impl ShellView {
                 .items_start()
         };
         if self.destination == Destination::Settings {
-            return self.settings(cx);
+            let view = cx.entity().downgrade();
+            return settings::installation::panel(environment, move |change| {
+                let view = view.clone();
+                Box::new(move |_, cx| {
+                    let _ = view.update(cx, |view, cx| view.change_from_settings(change, cx));
+                })
+            })
+            .into_any_element();
         }
         if !self.destination.has_primary_list() {
             return pane()
@@ -528,107 +505,6 @@ impl ShellView {
                         });
                     }),
             )
-            .into_any_element()
-    }
-
-    /// Settings owns the appearance and Interface scale preferences. Each is a
-    /// row of choices with the current one marked the way the rail marks the
-    /// current destination, so neither depends on color alone.
-    fn settings(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let environment = self.environment;
-        let scale = environment.preferences().scale;
-        let palette = tokens::palette(environment.appearance());
-        let preferences = environment.preferences();
-        let choice = |id: SharedString,
-                      label: SharedString,
-                      active: bool,
-                      change: EnvironmentChange,
-                      cx: &mut Context<Self>| {
-            let view = cx.entity().downgrade();
-            div()
-                .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                .when(active, |row| {
-                    row.debug_selector({
-                        let label = label.clone();
-                        move || format!("setting-active-{label}")
-                    })
-                    .bg(rgb(palette.selection))
-                })
-                .child(
-                    Button::new(id, label, environment)
-                        .on_surface(if active {
-                            palette.selection
-                        } else {
-                            palette.background
-                        })
-                        .on_activate(move |_, cx| {
-                            let _ = view.update(cx, |view, cx| {
-                                view.change_from_settings(change, cx);
-                            });
-                        }),
-                )
-        };
-        let group = |label: &'static str, choices: Vec<gpui::Div>| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(scale.apply(tokens::spacing::RELATED)))
-                .child(
-                    div()
-                        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                        .text_color(rgb(palette.text_muted))
-                        .child(label),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(scale.apply(tokens::spacing::RELATED)))
-                        .children(choices),
-                )
-        };
-        let appearances = [
-            (PreparationAppearance::System, "System"),
-            (PreparationAppearance::Light, "Light"),
-            (PreparationAppearance::Dark, "Dark"),
-        ]
-        .into_iter()
-        .map(|(appearance, label)| {
-            choice(
-                format!("appearance-{label}").into(),
-                label.into(),
-                preferences.appearance == appearance,
-                EnvironmentChange::SetAppearance(appearance),
-                cx,
-            )
-        })
-        .collect();
-        let scales = [
-            InterfaceScale::Percent100,
-            InterfaceScale::Percent125,
-            InterfaceScale::Percent150,
-            InterfaceScale::Percent175,
-            InterfaceScale::Percent200,
-        ]
-        .into_iter()
-        .map(|step| {
-            let label = format!("{}%", step.percent());
-            choice(
-                format!("scale-{label}").into(),
-                label.into(),
-                preferences.scale == step,
-                EnvironmentChange::SetScale(step),
-                cx,
-            )
-        })
-        .collect();
-        div()
-            .debug_selector(|| "settings-panel".into())
-            .flex()
-            .flex_col()
-            .gap(px(scale.apply(tokens::spacing::SECTION)))
-            .child(group("Preparation appearance", appearances))
-            .child(group("Interface scale", scales))
             .into_any_element()
     }
 
@@ -915,6 +791,7 @@ mod tests {
     use crate::BUILD_IDENTITY;
     use gpui::{Modifiers, TestAppContext, VisualTestContext, size};
     use std::cell::Cell;
+    use ui::environment::InterfaceScale;
 
     /// Real key down/up pairs, because a primitive's own raw handlers are half
     /// of what the shell is composing.
