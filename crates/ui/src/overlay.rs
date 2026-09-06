@@ -301,7 +301,10 @@ impl Host {
     fn sweep(&mut self, cx: &mut Context<Self>) {
         let now = cx.background_executor().now();
         let advance = self.toasts.advance(now, false);
-        for (id, _) in &advance.removed {
+        for (id, toast) in &advance.removed {
+            if toast.notice == Notice::Confirmation {
+                self.status.clear(id);
+            }
             self.seeded.get_mut().remove(id);
             self.heights.get_mut().remove(id);
         }
@@ -526,6 +529,8 @@ impl OverlayHost {
 
     /// Every temporary surface this window owns, in one element. A view renders
     /// this once, last, and nothing else stacks anything.
+    /// Mount beside the workspace region root, never inside it: focused modal
+    /// actions must not bubble into the workspace F6 cycle.
     pub fn layer(
         &self,
         environment: UiEnvironment,
@@ -762,9 +767,6 @@ impl OverlayHost {
                     let focus = focus.clone();
                     move |_: &FocusNext, window, cx| contain(&focus, false, window, cx)
                 })
-                // This focused modal is the sole region; F6 keeps its target.
-                .on_action(|_: &crate::NextRegion, _, _| {})
-                .on_action(|_: &crate::PreviousRegion, _, _| {})
                 .on_action(move |_: &FocusPrevious, window, cx| contain(&focus, true, window, cx))
                 .child(deferred(sheet).with_priority(card_priority(index)))
                 .into_any_element(),
@@ -1911,6 +1913,46 @@ mod tests {
         });
         settle(cx);
         view.read_with(cx, |view, cx| assert!(view.host.toasts(cx).is_empty()));
+    }
+
+    #[gpui::test]
+    fn an_expired_confirmation_can_announce_the_same_message_again(cx: &mut TestAppContext) {
+        use gpui::Element;
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let label = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let element = host.0.read(cx).status.render().into_element();
+                let mut node = gpui::accesskit::Node::new(element.a11y_role().unwrap());
+                element.write_a11y_info(&mut node);
+                node.label().map(str::to_owned)
+            })
+        };
+        cx.update(|_, cx| {
+            host.notify(Toast::confirmation("Saved"), cx);
+            host.notify(Toast::confirmation("Saved"), cx);
+        });
+        assert_eq!(label(cx).as_deref(), Some("Saved"));
+        cx.update(|_, cx| assert_eq!(host.toasts(cx).len(), 1));
+        cx.executor()
+            .advance_clock(TOAST_TIMEOUT + Duration::from_secs(1));
+        cx.run_until_parked();
+        assert_eq!(
+            label(cx),
+            None,
+            "expiry resets the announcement, not only the visible toast"
+        );
+        cx.update(|_, cx| host.notify(Toast::confirmation("Saved"), cx));
+        assert_eq!(label(cx).as_deref(), Some("Saved"));
+        cx.update(|_, cx| host.announce_status("Inspector shown", cx));
+        cx.executor()
+            .advance_clock(TOAST_TIMEOUT + Duration::from_secs(1));
+        cx.run_until_parked();
+        assert_eq!(
+            label(cx).as_deref(),
+            Some("Inspector shown"),
+            "an old toast cannot clear a different current transition"
+        );
     }
 
     /// A toast is out of the flow for the frame it is measured on, so the

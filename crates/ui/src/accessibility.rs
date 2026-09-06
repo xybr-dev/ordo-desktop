@@ -14,28 +14,35 @@ struct Region {
 }
 
 /// One registry per operator workspace. Supply only visible regions, in reading
-/// order, on each render. Names are stable identities and accessible labels.
+/// order, on each render. Names are unique accessible labels from a fixed
+/// vocabulary, never entity titles. Entries live as long as the registry so
+/// temporarily hidden regions retain their targets.
 #[derive(Default)]
 pub struct RegionRegistry {
     regions: HashMap<SharedString, Region>,
 }
 
 impl RegionRegistry {
+    /// Hosts window-scoped Tab/Shift+Tab handlers (region boundaries do not trap
+    /// them) and visible-region-scoped F6/Shift+F6 handlers. Workspace controls
+    /// must descend from this root to receive these actions. Mount the overlay
+    /// layer as its sibling so modal focus cannot bubble into the region cycle.
     pub fn render(
         &mut self,
         regions: impl IntoIterator<Item = (SharedString, AnyElement)>,
         window: &mut Window,
         cx: &mut App,
     ) -> gpui::Stateful<gpui::Div> {
-        let mut visible = Vec::new();
+        let mut visible: Vec<Target> = Vec::new();
         let mut root = div().id("workspace-regions");
         for (name, content) in regions {
             let region = self.regions.entry(name.clone()).or_insert_with(|| {
                 let focus = cx.focus_handle();
                 let remembered = Rc::new(RefCell::new(None));
                 let saved = remembered.clone();
+                let container = focus.downgrade();
                 let subscription = window.on_focus_out(&focus, cx, move |event, _, _| {
-                    *saved.borrow_mut() = Some(event.blurred);
+                    *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
                 });
                 Region {
                     focus,
@@ -43,6 +50,10 @@ impl RegionRegistry {
                     _subscription: subscription,
                 }
             });
+            debug_assert!(
+                visible.iter().all(|(focus, _)| focus != &region.focus),
+                "duplicate region name: {name}"
+            );
             visible.push((region.focus.clone(), region.remembered.clone()));
             root = root.child(region_container(name, &region.focus).child(content));
         }
@@ -75,7 +86,10 @@ fn cycle(regions: &[Target], backwards: bool, window: &mut Window, cx: &mut App)
         .iter()
         .position(|(focus, _)| focus.contains_focused(window, cx));
     if let Some(index) = current {
-        *regions[index].1.borrow_mut() = window.focused(cx).map(|focus| focus.downgrade());
+        *regions[index].1.borrow_mut() = window
+            .focused(cx)
+            .filter(|focus| focus != &regions[index].0)
+            .map(|focus| focus.downgrade());
     }
     let next = match (current, backwards) {
         (Some(index), false) => (index + 1) % regions.len(),
@@ -113,6 +127,13 @@ impl StatusAnnouncement {
         }
         self.0 = Some(message);
         true
+    }
+
+    /// A finished toast relinquishes only its own current announcement.
+    pub(crate) fn clear(&mut self, message: &SharedString) {
+        if self.0.as_ref() == Some(message) {
+            self.0 = None;
+        }
     }
 
     pub fn render(&self) -> impl IntoElement + use<> {
@@ -249,6 +270,7 @@ mod tests {
             removed: FocusHandle,
             second: FocusHandle,
             show_control: bool,
+            show_first: bool,
         }
         impl gpui::Render for Workspace {
             fn render(
@@ -261,7 +283,7 @@ mod tests {
                         (
                             "First".into(),
                             div()
-                                .child(div().track_focus(&self.first))
+                                .when(self.show_first, |d| d.child(div().track_focus(&self.first)))
                                 .when(self.show_control, |d| {
                                     d.child(div().track_focus(&self.removed))
                                 })
@@ -284,7 +306,9 @@ mod tests {
             removed: cx.focus_handle().tab_stop(true),
             second: cx.focus_handle().tab_stop(true),
             show_control: true,
+            show_first: true,
         });
+        cx.update(|window, _| window.activate_window());
         cx.run_until_parked();
         cx.update(|window, cx| {
             let removed = view.read(cx).removed.clone();
@@ -299,6 +323,46 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("shift-f6");
         cx.update(|window, cx| assert!(view.read(cx).first.is_focused(window)));
+        for leave_by_key in [true, false] {
+            view.update(cx, |view, cx| {
+                view.show_first = false;
+                cx.notify();
+            });
+            cx.run_until_parked();
+            cx.update(|window, cx| {
+                let second = view.read(cx).second.clone();
+                second.focus(window, cx);
+            });
+            cx.simulate_keystrokes("shift-f6");
+            cx.update(|window, cx| {
+                assert!(
+                    view.read(cx).registry.regions["First"]
+                        .focus
+                        .is_focused(window)
+                )
+            });
+            if leave_by_key {
+                cx.simulate_keystrokes("f6");
+            } else {
+                cx.update(|window, cx| {
+                    let second = view.read(cx).second.clone();
+                    second.focus(window, cx);
+                });
+                cx.run_until_parked();
+            }
+            view.update(cx, |view, cx| {
+                view.show_first = true;
+                cx.notify();
+            });
+            cx.run_until_parked();
+            cx.simulate_keystrokes("shift-f6");
+            cx.update(|window, cx| {
+                assert!(
+                    view.read(cx).first.is_focused(window),
+                    "new content replaces the empty container target"
+                )
+            });
+        }
     }
 
     #[gpui::test]
