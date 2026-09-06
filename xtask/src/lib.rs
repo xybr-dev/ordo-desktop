@@ -35,6 +35,7 @@ const LUCIDE_ICONS: &[&str] = &[
     "calendar-days.svg",
     "check.svg",
     "chevron-down.svg",
+    "chevron-left.svg",
     "chevron-right.svg",
     "circle-alert.svg",
     "circle-question-mark.svg",

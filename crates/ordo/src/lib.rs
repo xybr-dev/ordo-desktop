@@ -19,7 +19,11 @@ use platform::{
     windows::{preparation_window_options, presenter_window_options},
 };
 use presentation::{CongregationState, OutputStatus, ProgramFrame};
-use ui::{RootView, environment::UiPreferences};
+use shell::ShellView;
+use ui::environment::UiPreferences;
+
+pub mod settings;
+pub mod shell;
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
@@ -91,13 +95,13 @@ impl From<WorkerStartError> for RuntimeError {
 }
 
 pub struct NativeRuntime {
-    operator: WindowHandle<RootView>,
+    operator: WindowHandle<ShellView>,
     congregation: Option<WindowHandle<CongregationView>>,
     shutdown_report: Rc<RefCell<Option<Vec<WorkerFailure>>>>,
 }
 
 impl NativeRuntime {
-    pub fn operator(&self) -> WindowHandle<RootView> {
+    pub fn operator(&self) -> WindowHandle<ShellView> {
         self.operator
     }
 
@@ -214,7 +218,7 @@ pub fn open_native_runtime_at(
     let operator = cx
         .open_window(preparation_window_options(operator_bounds), |window, cx| {
             cx.new(|cx| {
-                let root = RootView::with_preferences(
+                let root = ShellView::with_preferences(
                     BUILD_IDENTITY,
                     UiPreferences::default(),
                     Some(save_preferences),

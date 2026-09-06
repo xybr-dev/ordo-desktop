@@ -8,6 +8,7 @@
 pub mod button;
 pub mod disclosure;
 pub mod field;
+pub mod list;
 pub mod selection;
 
 use gpui::{
@@ -97,6 +98,28 @@ pub fn focus_visible<E: gpui::InteractiveElement>(
 ) -> E {
     let rings = focus_rings(environment, surface);
     element.focus_visible(move |style| style.shadow(rings))
+}
+
+/// Reveals a truncated value's full text on pointer hover, which is half of what
+/// `DESIGN.md` requires of every visually truncated value. It is attached
+/// unconditionally: measuring whether a given string actually clipped costs a
+/// frame and buys nothing, since the tooltip only ever repeats what is already
+/// there.
+///
+/// ponytail: the keyboard half is not available at this pin, which registers
+/// tooltips through mouse handlers alone and suppresses them outright under
+/// keyboard modality — see the truncation entry under **Pinned platform
+/// limitations** in `docs/qualification/GPUI-BASE-T0.3.md`. The full text still
+/// reaches AccessKit through the value's accessible name.
+pub fn truncated<E: gpui::StatefulInteractiveElement>(
+    element: E,
+    text: impl Into<SharedString>,
+    environment: UiEnvironment,
+) -> E {
+    let text = text.into();
+    element
+        .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
+        .tooltip(move |_, cx| button::tooltip_view(text.clone(), environment, cx))
 }
 
 /// A persistent line of explanation beside a control: an icon, then the state

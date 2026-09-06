@@ -22,6 +22,7 @@ pub mod icon {
         CALENDAR_DAYS => "calendar-days.svg",
         CHECK => "check.svg",
         CHEVRON_DOWN => "chevron-down.svg",
+        CHEVRON_LEFT => "chevron-left.svg",
         CHEVRON_RIGHT => "chevron-right.svg",
         CIRCLE_ALERT => "circle-alert.svg",
         CIRCLE_QUESTION_MARK => "circle-question-mark.svg",

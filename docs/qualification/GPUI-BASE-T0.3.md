@@ -509,8 +509,8 @@ rejects duplicate names before their focus handles are mounted twice.
 
 The registry hosts the ordinary Tab/Shift+Tab handlers, which walk GPUI's
 whole-window tab order across region boundaries. F6/Shift+F6 instead walk only
-the supplied visible regions. PR 11's Preparation shell must place workspace
-controls under this root to receive those handlers.
+the supplied visible regions. Workspace controls must descend from this root to
+receive those handlers, which T0.3.11's Preparation shell does.
 A focus-exit subscription also remembers departures by Tab or pointer. The
 subscription belongs to the region and is dropped with its workspace registry.
 Returning checks membership in the rendered focus tree, so a remembered control
@@ -598,6 +598,269 @@ node has an explicit label and also contains visible text, and element-only
 captures cannot establish whether a consumer repeats that subtree. Presenter
 safety transitions and shell composition remain with their later owning tasks. This evidence does not close all of T0.3.
 
+### T0.3.11 production-shell evidence
+
+`crates/ordo/src/shell/` owns application workflow. `ui` keeps only reusable
+primitives, the region registry, the overlay layer, and the development-only
+lab, and it no longer holds a view of its own: the T0.1 prototype `RootView` is
+replaced by `ordo::shell::ShellView` rather than grown. The actions split the
+same way. `ui` declares only what it binds or answers — the Interface scale
+keys, and the Tab/F6 pair the registry handles — while navigation, appearance,
+and the Presenter transition are `ordo::shell`'s, because a destination is
+application vocabulary and `ui` has no destinations. No dependency is added.
+
+The registry's `render` is replaced by `region` and `root`, and the lab moves
+with it. One call that both wrapped and placed every region could only produce
+a flat list of siblings, which no workspace is: the rail, the header, the list,
+and the editor are consecutive in reading order and nested in layout — the rail
+beside a column, the header above a row of panes. `region` now wraps one region
+in reading order and hands the element back for the caller to place; `root`
+takes what was wrapped since the last call and hosts the handlers over it. It
+must be their ancestor, which is the one thing the flat version enforced for
+free and the doc comment now says.
+
+`RegionRegistry::focus_region` is the other half, and it is what a focused
+editor needs: the shell asks a region for the keyboard, and the registry
+answers with the remembered-target-or-first-tab-stop walk the F6 cycle already
+uses. It cannot answer immediately. `Window::focus_next` reads the *last
+rendered* frame's tab stops, and every caller is a view that is changing what is
+mounted, so the request is recorded and performed by a task the next `root`
+spawns — the same "check the frame once it is over" shape T0.3.8 uses, for the
+same reason. `Window::on_next_frame` is the obvious alternative and was tried:
+registered from an event handler it never delivered under `TestAppContext`, and
+it is in any case bound to an arbitrary next frame rather than to the render
+that changes the tree.
+
+Returning from a focused editor has to go through that seam rather than through
+the invoker's own handle, because at this pin the handle does not survive.
+`gpui_base::Button` takes its focus handle from `Window::use_keyed_state`, which
+exists only while its element is rendered in consecutive frames, so a control
+that is unmounted for the duration of a focused editor comes back a different
+control. What the region can promise is the region: focus returns to the
+control the operator left from when it survived, and to the region's first tab
+stop otherwise. The test asserts the promise behaviorally — after Back, `Enter`
+alone reopens the editor, so the keyboard is on the control that opened it.
+
+The rail collapses from effective width and Interface scale, never from a
+resolution breakpoint: it gives up its labels at the point where the remaining
+workspace would fall below `DESIGN.md`'s `240px` list plus `520px` editor plus
+its gutters, with both terms scaled and the window measured through
+`Window::viewport_size`. The gutter reserved is the wide one, because that is
+what the branch being decided — an expanded rail — actually renders; measuring it
+against the compact gutter would leave the workspace narrower than the minimum
+the threshold exists to protect. That threshold puts both rail states inside the
+qualified matrix — `1366x768` collapses at 150% and `1920x1080` at 200% — so
+neither state is a case only a hand-resized window would reach. Collapsed, a
+destination is an icon whose tooltip is its accessible name, which is the
+Button's own contract for an icon-only control. The active destination is
+marked by a filled bar on the leading edge as well as the selection tint, so
+`MILESTONES.md`'s non-color-only requirement does not rest on the fill.
+
+Local view state is the view's rather than the window's. A destination keeps the
+local view it was left on, and `Window::use_keyed_state` cannot: the tabs
+unmount when the operator leaves the destination, and the state goes with them.
+The shell therefore owns one `SelectionState` per destination that has tabs and
+reads `selected` while rendering, using `Tabs::on_select` only as the redraw
+seam — which is exactly the division `SelectionState` documents. A destination
+does not keep another's row selection, because a row index means nothing across
+collections.
+
+The primary list is `ui::primitives::list`, a new Ordo primitive rather than a
+column of Buttons. It adds no dependency: a row wraps the same qualified base
+Button every other control does, so it is focused, activated by Enter/Space, and
+named like anything else, and everything visible is Ordo's — a title, a detail
+line, the badges that classify it, and one shared bottom edge, which is what
+`DESIGN.md` asks for before a card and what keeps adjacent rows from doubling a
+border between every pair. A row's title and detail both truncate, so the row
+carries its accessible name as a tooltip too, and `ui::primitives::truncated`
+does the same for the workspace, viewer, and editor titles, which truncate
+without a control of their own. It is attached unconditionally: measuring whether
+a given string actually clipped costs a frame and buys nothing, since the tooltip
+only repeats what is already there. That closes the pointer half of `DESIGN.md`'s
+truncation rule and only the pointer half — the pin suppresses a tooltip under
+keyboard modality, which is recorded under **Pinned platform limitations** below
+— so a keyboard operator reads the full text through the accessible name instead. A `Badge` is a short classifier beside that text;
+the liturgical colors reach it through `tone`, which is the one thing
+`DESIGN.md` allows them to say. What a row is *not* is a collection: arrow-key
+roving and ListBox/option semantics need the collection itself, and land with
+the first list that owns real records. The gap is marked in the source and
+nothing claims otherwise in the meantime.
+
+A row also declares `flex_none`, and that is not cosmetic. Without it a row is
+an ordinary flex child of its column, so a short window squeezes every row down
+to its minimum instead of letting the list overflow — the titles close up, and
+the scroll indicator has nothing to report because the list was never allowed to
+be too long. A regression test shortens the window and asserts both halves: the
+row keeps the height it had, and the indicator appears. The same rule holds the
+workspace header, which `DESIGN.md` puts among the things that are never
+truncated; the panes below it scroll instead, through `ui::scroll` like every
+other bounded surface.
+
+The active marker is out of flow, on the rail's leading edge, because the two
+rail states want opposite things from it. Expanded, the icons and labels line up
+in a column beside it. Collapsed there is no label to line anything up with, and
+an icon pushed off-centre by a four-pixel bar reads as crooked, so the icon is
+centred in the rail and the marker overlays its edge. A marker in flow would do
+the first and prevent the second, and it also charged the collapsed rail width
+it no longer costs. The matrix test asserts the centring at every scale where
+the rail collapses.
+
+The rail is sized by its own content rather than by a constant. Atkinson is
+wide, and a fixed width is a guess that only ever fails one way: a destination
+whose label is painted past the edge it was told to fit inside, visible only
+when a hover fill showed how far it ran. `rail::EXPANDED_RESERVE` remains as
+what the collapse decision reserves for the rail, and the matrix test pins it to
+what the rail actually measures — every destination has to end inside the rail
+at both viewports and all five scales. Rail items also use the new
+`Button::stretch`, which fills the container and puts the icon and label on the
+leading edge: a destination is read down a column with six others, and a centred
+label reads as ragged.
+
+Opening an entity replaces the whole screen, rail included, rather than swapping
+one pane. Its body keeps its own `Scroll` rather than the viewer's: the two are
+never on screen together, so one handle would hand the operator back a viewer
+scrolled to a position they never chose. The operator is working on one thing,
+and Back returns them to the screen they left — the destination, its local view, its row selection, and the
+keyboard, all of which the test asserts are gone while the editor is open and
+back afterwards.
+
+Regions are `Global navigation`, `Workspace actions`, `Primary list`, and `Main
+editor`, in that order. The Primary list is genuinely absent for a
+single-surface destination — Settings, Help, Diagnostics — and while a focused
+editor owns the workspace, so the shell exercises the same hidden-region
+skipping the lab does, on real content. The overlay host is mounted as a
+sibling of the registry root, as T0.3.10 requires, and the header's Inspector
+opens the labeled right slideover through it. The congregation window is
+untouched and still renders neither the registry nor the overlay/status host.
+
+Automated evidence in `ordo::shell`:
+
+- `the_rail_reaches_every_destination_and_tabs_reach_every_local_view`: every
+  one of the seven destinations opened by pointer, every local view of the two
+  destinations that have them, exactly one active marker at a time, the Primary
+  list present only where the destination has one, Settings selecting an
+  Interface scale that `Ctrl+0` then resets, and a destination keeping its own
+  local view across a round trip through another.
+- `the_rail_collapses_and_the_workspace_never_runs_past_the_window`: both
+  qualified viewports at all five scales, asserting the rail's measured width
+  against its reserve, every destination ending inside the rail, the list
+  reporting its position when it overflows and nothing when it fits, and the
+  rail, the workspace, and the workspace title all ending inside the window —
+  the whole-workspace horizontal scroll `DESIGN.md` forbids, measured rather
+  than assumed.
+- `a_focused_editor_returns_the_destination_local_view_selection_and_invoker`:
+  destination, local view, and row selection surviving the round trip, the list
+  region, the tab strip, and the rail all absent while the editor owns the
+  screen and all back afterwards, a row keeping its height when the window
+  shortens, and the keyboard back on the invoker.
+- `the_rail_gives_up_its_labels_before_the_workspace_gives_up_a_pane` and
+  `every_destination_is_reachable_and_local_views_belong_only_to_a_destination`
+  pin the collapse threshold and the hybrid hierarchy without a window.
+- The environment, shortcut, Presenter, and startup-restore tests move from
+  `ui` unchanged apart from their view.
+
+`ui-lab` gains a `list` scenario for the new primitive and takes it through the
+existing appearance/scale/viewport matrix, asserting that a row's inline content
+stays inside its column at every combination.
+
+The local-view strip is a seam across the workspace rather than a row of loose
+controls: `Tabs` spaces nothing, and the strip carries no gutter, so the first
+view starts on the workspace edge. Views that outrun the strip scroll across it
+instead of wrapping, because a wrapped strip moves every tab under it the moment
+one more is added or the window narrows. That makes it a bounded scrolling
+surface like any other, so `ui::scroll::Scroll` gained an axis: the measurement,
+the wheel direction, and the edge the indicator sits on are all read down the
+scrolled axis, and `Scroll::horizontal` returns the same handle read across.
+`a_strip_too_narrow_for_its_local_views_scrolls_across` pins one line, the
+overflow, and the indicator; the responsive matrix pins the flush leading edge
+and the tabs meeting end to end at every viewport and scale.
+
+The seam between what a workspace is and what it is showing belongs to the
+header, not to the tab strip: the header draws its own bottom edge, and the
+strip — where there is one — draws only the edge above itself. The tabs still
+sit between a pair of rules, no surface doubles another's border, and a
+destination with no local views is ruled like every other one. The navigation
+test asserts the header is present at every destination while only the strip
+follows the local views.
+
+The rail's active marker is the row's own leading edge in both widths. `MILESTONES.md` asks the active
+destination to be non-color-only, and `Button::current` is the assistive half of
+that rather than the visible one, so a collapsed rail that dropped the bar would
+leave the tint alone for the operator the requirement exists for. What changes
+between the two widths is the flow, not the marker: expanded, every row reserves
+the same bar, so the icons stay aligned and the row keeps the rail's inset on
+both sides; collapsed, nothing is reserved, so the single icon stays centred in
+the rail while the state stays visible. What the marker is took three attempts,
+and the pin decided each one. It cannot be clipped to the row's corner, because
+GPUI's content mask is a rectangle: `overflow_hidden` bounds a child without
+following the radius, so a square bar ran out past the curve at both ends. It
+cannot carry that corner as its own radius either, because `Style::paint` clamps
+a corner radius to half the quad's smaller side, so a four-pixel bar asking for
+the four-pixel control radius is given two and comes out visibly tighter than the
+control beside it. What works is the left border of a quad the size of the whole
+row: the radius is unclamped there, so the marker's curve is literally the row's
+corner. That quad is out of flow and inert — a div with nothing but a border
+inserts no hitbox at this pin — so it neither moves the icon nor takes the
+pointer, and being the row's last child it is drawn over the control's hover
+fill rather than under it, which an icon-only Button filling the whole row would
+otherwise cover the moment the pointer arrived. The matrix pins the minimum quad
+size the clamp makes load-bearing, and
+`the_active_rails_marker_does_not_take_the_pointer` pins the inertness, because
+nothing else can: every other rail click in these tests lands on a row that is
+not the active one, and clicking the active one asserts nothing on its own,
+since opening the destination it is already on is a no-op either way. The test
+fails as soon as the quad is given a hitbox.
+
+What the row does *not* do is clip. GPUI masks a child's paint to the parent's
+rectangle through `Style::overflow_mask`, and that mask covers box shadows —
+which is what Ordo's focus treatment is made of, two outset rings. An
+`overflow_hidden` here therefore erased the focus ring from every rail
+destination, in the first region the `F6` cycle reaches, and did it in both
+widths: collapsed, an icon-only Button fills the row and every side of its ring
+fell outside; expanded, only the segment lying in the marker's own band
+survived. Nothing needs the clip once the marker carries its own corner, since
+the Button already rounds its fill to the same radius, so the row does not set
+it. The expanded reserve is the bar plus `FOCUS_SEPARATION + FOCUS_OUTER` for
+the same reason: with only the bar reserved, a focused active destination puts
+the ring and the marker in one four-pixel band, and `DESIGN.md` has focus and
+selection coexisting rather than taking turns. Collapsed nothing is reserved and
+the rings fall outside the row entirely, which the rail's own inset leaves room
+for. The responsive matrix asserts the
+marker's position at every combination, the icon's centring where the rail
+collapses, and that every row measures the same: a row whose control is sized by
+its own label leaves seven fills at seven widths staggered down the rail, so the
+control takes what the marker leaves rather than what its label needs. The
+Settings panel marks its current appearance and scale the same way, with a
+`CHECK` glyph as the shape cue beside the same `Button::current` semantics — and
+it reserves that glyph's slot on every choice for the rail's own reason, because
+the choices sit on a wrapping flex line and one that grew when it was taken would
+shove its neighbours along and drop the last to the next row. The navigation test
+takes an appearance and asserts the other choices did not move.
+
+`list::arrows` binds Up and Down to the window's focus order from the list
+container, because a column of records is one collection the operator reads
+through rather than a run of controls only `Tab` connects. It rides the tab
+order rather than roving focus, so it steps out of the list at either end; that
+goes with the ListBox semantics `ListRow` already owes.
+`the_arrows_move_between_list_rows` compares the focus handle the arrows reach
+against the one clicking that row produces, which is the only assertion that
+says *which* row was reached.
+
+A badge is a solid fill in its liturgical color with a label picked for contrast
+against it, rather than an outline: an outline is only as visible as the domain
+color happens to be against the row, and liturgical white on a Preparation
+surface was very nearly nothing. `DESIGN.md`'s liturgical colors are normative
+and the same five in both appearances — they name a season, not a theme — so the
+badge adapts by choosing what it writes on them.
+`every_liturgical_badge_is_legible_in_both_appearances` pins every season and the
+plain badge at WCAG AA in Light and Dark.
+
+Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
+83 UI tests, 14 shell/runtime tests in `ordo`, the native runtime harness,
+Clippy, release configuration, and cargo-deny. This evidence does not close all
+of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
+Contrast check remain with T0.3.12.
+
 ### Pinned platform limitations
 
 The pinned revision also bounds what T0.3 can automate.
@@ -640,6 +903,20 @@ the flag exists and is both readable and settable, but nothing at the pin maps
 an operating-system `prefers-reduced-motion` onto it. Ordo honors it wherever
 motion is drawn and automates that; following the platform setting needs a
 revision that reports it, which reruns this qualification.
+
+A truncated value's keyboard reveal is a fourth. `DESIGN.md` requires every
+visually truncated value to show its full text "on pointer hover **and keyboard
+focus**", and the pin supplies only the pointer half: `div.rs` registers a
+tooltip through `register_tooltip_mouse_handlers` and nothing else, and there is
+no focus trigger anywhere in the pinned GPUI. It does not merely omit the other
+half — it suppresses it. `Hitbox::is_hovered` returns `false` outright when
+`Window::last_input_was_keyboard`, and the prepaint hover check a tooltip is
+gated on begins with the same negation, so tabbing to a truncated control shows
+nothing. Ordo therefore closes the pointer half with `ui::primitives::truncated`
+and the `ListRow`'s own tooltip, and the full text reaches a keyboard operator
+through the accessible name, which every truncated value already carries. A
+revision that triggers a tooltip from focus, or that stops suppressing one under
+keyboard modality, closes the visible half and reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no

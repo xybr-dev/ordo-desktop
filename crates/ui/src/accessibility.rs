@@ -3,8 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{FocusNext, FocusPrevious, NextRegion, PreviousRegion};
 use gpui::{
-    AnyElement, App, FocusHandle, SharedString, Subscription, WeakFocusHandle, Window, div,
-    prelude::*,
+    App, FocusHandle, SharedString, Subscription, WeakFocusHandle, Window, div, prelude::*,
 };
 
 struct Region {
@@ -13,57 +12,91 @@ struct Region {
     _subscription: Subscription,
 }
 
-/// One registry per operator workspace. Supply only visible regions, in reading
+/// One registry per operator workspace. Wrap only visible regions, in reading
 /// order, on each render. Names are unique accessible labels from a fixed
 /// vocabulary, never entity titles. Entries live as long as the registry so
 /// temporarily hidden regions retain their targets.
 #[derive(Default)]
 pub struct RegionRegistry {
     regions: HashMap<SharedString, Region>,
+    visible: Vec<Target>,
+    pending: Option<SharedString>,
 }
 
 impl RegionRegistry {
-    /// Hosts window-scoped Tab/Shift+Tab handlers (region boundaries do not trap
-    /// them) and visible-region-scoped F6/Shift+F6 handlers. Workspace controls
-    /// must descend from this root to receive these actions. Mount the overlay
-    /// layer as its sibling so modal focus cannot bubble into the region cycle.
-    pub fn render(
+    /// Wraps one visible region and gives it the next place in the cycle. The
+    /// wrapped elements are the caller's to place, because a workspace is not
+    /// a flat list: the rail, the header, and the panes are siblings in
+    /// reading order but nested in layout.
+    pub fn region(
         &mut self,
-        regions: impl IntoIterator<Item = (SharedString, AnyElement)>,
+        name: impl Into<SharedString>,
         window: &mut Window,
         cx: &mut App,
     ) -> gpui::Stateful<gpui::Div> {
-        let mut visible: Vec<Target> = Vec::new();
-        let mut root = div().id("workspace-regions");
-        for (name, content) in regions {
-            let region = self.regions.entry(name.clone()).or_insert_with(|| {
-                let focus = cx.focus_handle();
-                let remembered = Rc::new(RefCell::new(None));
-                let saved = remembered.clone();
-                let container = focus.downgrade();
-                let subscription = window.on_focus_out(&focus, cx, move |event, _, _| {
-                    *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
-                });
-                Region {
-                    focus,
-                    remembered,
-                    _subscription: subscription,
-                }
+        let name = name.into();
+        let region = self.regions.entry(name.clone()).or_insert_with(|| {
+            let focus = cx.focus_handle();
+            let remembered = Rc::new(RefCell::new(None));
+            let saved = remembered.clone();
+            let container = focus.downgrade();
+            let subscription = window.on_focus_out(&focus, cx, move |event, _, _| {
+                *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
             });
-            debug_assert!(
-                visible.iter().all(|(focus, _)| focus != &region.focus),
-                "duplicate region name: {name}"
-            );
-            visible.push((region.focus.clone(), region.remembered.clone()));
-            root = root.child(region_container(name, &region.focus).child(content));
+            Region {
+                focus,
+                remembered,
+                _subscription: subscription,
+            }
+        });
+        debug_assert!(
+            self.visible.iter().all(|(focus, _)| focus != &region.focus),
+            "duplicate region name: {name}"
+        );
+        self.visible
+            .push((region.focus.clone(), region.remembered.clone()));
+        region_container(name, &region.focus)
+    }
+
+    /// The root for the regions wrapped since the last call, which it must
+    /// contain. It hosts the ordinary Tab/Shift+Tab handlers (region
+    /// boundaries do not trap them) and the visible-region F6/Shift+F6 cycle,
+    /// so every workspace control must descend from it. Mount the overlay
+    /// layer as its sibling, so modal focus cannot bubble into that cycle.
+    pub fn root(&mut self, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
+        let visible = std::mem::take(&mut self.visible);
+        if let Some(target) = self
+            .pending
+            .take()
+            .and_then(|name| self.regions.get(&name))
+            .map(|region| (region.focus.clone(), region.remembered.clone()))
+        {
+            // Once this frame is over, not during it: the tab order comes from
+            // the last rendered tree, and the caller asked precisely because it
+            // was changing what is mounted.
+            window
+                .spawn(cx, async move |cx| {
+                    cx.update(|window, cx| restore(&target, window, cx)).ok();
+                })
+                .detach();
         }
-        root.on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+        div()
+            .id("workspace-regions")
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .on_action({
                 let visible = visible.clone();
                 move |_: &NextRegion, window, cx| cycle(&visible, false, window, cx)
             })
             .on_action(move |_: &PreviousRegion, window, cx| cycle(&visible, true, window, cx))
+    }
+
+    /// Asks the next render to return focus to a region's remembered target,
+    /// or its first tab stop. It waits for that render because the tab order
+    /// comes from the last rendered tree, and every caller is a view changing
+    /// what is mounted — leaving for a focused editor, or coming back from one.
+    pub fn focus_region(&mut self, name: impl Into<SharedString>) {
+        self.pending = Some(name.into());
     }
 }
 
@@ -97,7 +130,13 @@ fn cycle(regions: &[Target], backwards: bool, window: &mut Window, cx: &mut App)
         (None, false) => 0,
         (None, true) => regions.len() - 1,
     };
-    let (region, remembered) = &regions[next];
+    restore(&regions[next], window, cx);
+}
+
+/// A remembered control only counts while it is still in the rendered tree, so
+/// a region whose target has gone offers its first tab stop instead, and the
+/// container itself only when it has none.
+fn restore((region, remembered): &Target, window: &mut Window, cx: &mut App) {
     let target = remembered
         .borrow()
         .as_ref()
@@ -278,25 +317,18 @@ mod tests {
                 window: &mut Window,
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
-                self.registry.render(
-                    [
-                        (
-                            "First".into(),
-                            div()
-                                .when(self.show_first, |d| d.child(div().track_focus(&self.first)))
-                                .when(self.show_control, |d| {
-                                    d.child(div().track_focus(&self.removed))
-                                })
-                                .into_any_element(),
-                        ),
-                        (
-                            "Second".into(),
-                            div().track_focus(&self.second).into_any_element(),
-                        ),
-                    ],
-                    window,
-                    cx,
-                )
+                let first = self
+                    .registry
+                    .region("First", window, cx)
+                    .when(self.show_first, |d| d.child(div().track_focus(&self.first)))
+                    .when(self.show_control, |d| {
+                        d.child(div().track_focus(&self.removed))
+                    });
+                let second = self
+                    .registry
+                    .region("Second", window, cx)
+                    .child(div().track_focus(&self.second));
+                self.registry.root(window, cx).child(first).child(second)
             }
         }
         cx.update(crate::init).unwrap();
