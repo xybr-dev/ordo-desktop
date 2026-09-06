@@ -1481,6 +1481,357 @@ mod tests {
         );
     }
 
+    /// The T0.3 milestone path through the lab, driven by keyboard only.
+    ///
+    /// `MILESTONES.md` T0.3 E2E, first half: open `ui-lab`, exercise the
+    /// field, select, combobox, dialog, and nested-slideover scenarios using
+    /// only the keyboard, change from 1920x1080/100% to 1366x768/200%, and
+    /// verify state, focus return, and viewport containment.
+    ///
+    /// Every operator action below is a key event or text input; this test
+    /// issues no pointer event. Scenario selection rides the lab's own F2
+    /// cycle. Focus stepping is harness setup (see below); the F2 cycle
+    /// itself is additionally covered by
+    /// `lab_keys_cycle_the_viewport_and_drive_appearance_and_scale`.
+    /// Role semantics beyond presence are covered by the node-capture unit
+    /// tests named inline; this path proves the composed behavior.
+    #[gpui::test]
+    fn the_milestone_keyboard_path_holds_state_focus_and_containment_across_viewport_switch(
+        cx: &mut TestAppContext,
+    ) {
+        let enter_ms = tokens::motion::OVERLAY_OPEN_DURATION_MS;
+        let exit_ms = tokens::motion::OVERLAY_CLOSE_DURATION_MS;
+
+        let (lab, cx) = open(cx);
+        cx.update(|window, _| window.activate_window());
+
+        // The milestone starts at 1920x1080 and 100%.
+        cx.simulate_resize(size(px(1920.0), px(1080.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Wide, cx);
+            lab.change(
+                EnvironmentChange::SetPreferences(UiPreferences {
+                    appearance: PreparationAppearance::Light,
+                    scale: crate::environment::InterfaceScale::Percent100,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        // Raw key events, one per frame: the shared `keys` shape from the
+        // region and shell harnesses. Keystrokes that transfer focus need the
+        // frame in between, or the next key reaches the stop it just left.
+        let press = |cx: &mut gpui::VisualTestContext, key: &str| {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            cx.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            cx.simulate_event(gpui::KeyUpEvent { keystroke });
+            cx.run_until_parked();
+        };
+        // Harness setup: reach the scenario with the lab's own F2 cycle, then
+        // step the window tab order to its first control. The dev host owns
+        // no Tab handler — Tab order belongs to the shell's region registry —
+        // so the step calls the same `focus_next` a Tab would drive; every
+        // control interaction after it is a real key event.
+        let tab_into_scenario = |scenario: &'static str, cx: &mut gpui::VisualTestContext| {
+            let root = lab.read_with(cx, |lab, _| lab.focus_handle.clone());
+            cx.update(|window, cx| window.focus(&root, cx));
+            cx.run_until_parked();
+            for _ in 0..SCENARIOS.len() {
+                if lab.read_with(cx, |lab, _| lab.scenario().name) == scenario {
+                    break;
+                }
+                press(cx, "f2");
+            }
+            assert_eq!(
+                lab.read_with(cx, |lab, _| lab.scenario().name),
+                scenario,
+                "F2 reaches {scenario}"
+            );
+            cx.update(|window, cx| window.focus_next(cx));
+            cx.run_until_parked();
+            cx.update(|window, cx| window.focused(cx).expect("the first Tab stop takes focus"))
+        };
+        let contained =
+            |selector: &'static str, width: f32, height: f32, cx: &mut gpui::VisualTestContext| {
+                let bounds = cx
+                    .debug_bounds(selector)
+                    .unwrap_or_else(|| panic!("{selector} is on screen"));
+                assert!(
+                    bounds.origin.x >= px(0.0)
+                        && bounds.origin.y >= px(0.0)
+                        && bounds.right() <= px(width)
+                        && bounds.bottom() <= px(height),
+                    "{selector} escapes {width}x{height}: {bounds:?}"
+                );
+            };
+
+        // Field: Tab reaches every field in reading order and typing delivers
+        // into the focused one without disturbing its neighbours. Value
+        // reporting is pinned by
+        // `primitives::field::tests::typing_edits_the_value_and_the_field_reports_it`
+        // and the TextInput role by
+        // `primitives::field::tests::field_node_exposes_name_value_placeholder_and_description`;
+        // filtering in the combobox below proves Field typing observably.
+        let mut last = tab_into_scenario("fields", cx);
+        cx.simulate_input("Kyrie");
+        cx.run_until_parked();
+        for _ in 0..3 {
+            cx.update(|window, cx| window.focus_next(cx));
+            cx.run_until_parked();
+            let now =
+                cx.update(|window, cx| window.focused(cx).expect("Tab keeps focus on a field"));
+            assert_ne!(now, last, "Tab advances through the fields in order");
+            last = now;
+        }
+        contained("field-control", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("field-read-only").is_some(),
+            "the Read-only reason stays stated"
+        );
+        assert!(
+            cx.debug_bounds("control-unavailable").is_some(),
+            "the Unavailable cue stays stated"
+        );
+
+        // Select: Enter opens, arrows move, Enter commits, Escape cancels, and
+        // focus returns to the trigger either way. Option roles are pinned by
+        // `primitives::selection::tests::final_accesskit_nodes_report_roles_selection_and_blocked_actions`.
+        let invoker = tab_into_scenario("select", cx);
+        press(cx, "enter");
+        contained("selection-list", 1920.0, 1080.0, cx);
+        press(cx, "escape");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Escape cancels the popup"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "cancelling returns focus to the trigger"
+            )
+        });
+        press(cx, "enter");
+        // One key per frame: Enter hands focus to the popup, and Down must
+        // reach the popup rather than the trigger it left.
+        press(cx, "down");
+        press(cx, "enter");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Enter commits and closes"
+        );
+        assert!(
+            cx.debug_bounds("button-Language: English").is_some(),
+            "committing English renames the trigger"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "committing returns focus to the trigger"
+            )
+        });
+
+        // Combobox: typing filters without leaving the Field, Enter commits.
+        // The caret/active-choice split is pinned by
+        // `primitives::selection::tests::combobox_typing_filters_while_the_caret_stays_in_the_field`.
+        let field_focus = tab_into_scenario("combobox", cx);
+        cx.simulate_input("kyrie");
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("choice-4").is_some(),
+            "filtering leaves the long match"
+        );
+        assert!(
+            cx.debug_bounds("choice-0").is_none(),
+            "and filters the rest away"
+        );
+        assert!(
+            cx.debug_bounds("button-Clear").is_some(),
+            "a typed value may be cleared"
+        );
+        assert!(
+            cx.debug_bounds("scroll-indicator-selection-list").is_none(),
+            "one match fits, so no indicator"
+        );
+        contained("selection-list", 1920.0, 1080.0, cx);
+        // Raw Enter: from inside the Field, a keystroke Enter never reaches
+        // the popup root's confirm seam — the unit harness drives the same
+        // key the same raw way.
+        press(cx, "enter");
+        assert!(
+            cx.debug_bounds("selection-list").is_none(),
+            "Enter commits and closes"
+        );
+        cx.update(|window, _| {
+            assert!(
+                field_focus.is_focused(window),
+                "the caret never left the Field"
+            )
+        });
+
+        // Dialog: Enter opens, Tab stays inside, Escape closes with focus back
+        // on the invoker. Trap cycling is pinned by
+        // `overlay::tests::tab_cycles_inside_the_surface_instead_of_escaping_it`;
+        // naming by
+        // `overlay::tests::the_surface_names_and_describes_itself_as_a_dialog`.
+        let invoker = tab_into_scenario("dialog", cx);
+        press(cx, "enter");
+        settle(cx, enter_ms);
+        contained("overlay-Delete this Mass?", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("overlay-scrim").is_some(),
+            "the scrim captures outside input"
+        );
+        press(cx, "tab");
+        assert!(
+            cx.debug_bounds("overlay-Delete this Mass?").is_some(),
+            "Tab does not escape the dialog"
+        );
+        cx.update(|window, _| {
+            assert!(
+                !invoker.is_focused(window),
+                "Tab moved on inside the dialog"
+            )
+        });
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Delete this Mass?").is_none(),
+            "Escape closes the dialog"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "closing returns focus to the invoker"
+            )
+        });
+
+        // Nested slideover: Enter opens the parent with focus on its first
+        // stop, the nested invoker, so Enter opens the child too. A stop
+        // that dismisses the parent instead reopens it from the invoker
+        // holding focus, converging back on the nested invoker. Retention is
+        // pinned by
+        // `overlay::tests::a_nested_slideover_keeps_its_parent_and_returns_focus_to_it`.
+        let invoker = tab_into_scenario("slideover", cx);
+        press(cx, "enter");
+        settle(cx, enter_ms);
+        contained("overlay-Inspector", 1920.0, 1080.0, cx);
+        // Opening leaves focus on no live stop. Two Tabs reach the nested
+        // invoker through the header; remember it for the focus-return check
+        // below. A stop that dismisses the parent reopens it and retries.
+        let mut nested_invoker = None;
+        for _ in 0..4 {
+            if cx.debug_bounds("overlay-Song details").is_some() {
+                break;
+            }
+            press(cx, "tab");
+            press(cx, "tab");
+            nested_invoker = cx.update(|window, cx| window.focused(cx));
+            press(cx, "enter");
+            settle(cx, enter_ms);
+            if cx.debug_bounds("overlay-Inspector").is_none()
+                && cx.debug_bounds("overlay-Song details").is_none()
+            {
+                nested_invoker = None;
+                press(cx, "enter");
+                settle(cx, enter_ms);
+            }
+        }
+        let nested_invoker = nested_invoker.expect("the Tabs reach the nested invoker");
+        contained("overlay-Song details", 1920.0, 1080.0, cx);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "the nested child keeps its parent"
+        );
+        // Tab stays inside the child; Escape unwinds child then parent, with
+        // focus back on the nested invoker and then the scenario invoker.
+        press(cx, "tab");
+        assert!(
+            cx.debug_bounds("overlay-Song details").is_some(),
+            "Tab does not escape the nested child"
+        );
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Song details").is_none(),
+            "Escape closes the child"
+        );
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "and the parent stays"
+        );
+        cx.update(|window, _| {
+            assert!(
+                nested_invoker.is_focused(window),
+                "closing the child returns focus to its invoker"
+            )
+        });
+        press(cx, "escape");
+        settle(cx, exit_ms);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_none(),
+            "Escape closes the parent"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "closing returns focus to the invoker"
+            )
+        });
+
+        // The milestone's viewport switch: 1366x768 at 200%. Earlier state
+        // survives it, and the same Select stays contained with its overflow
+        // reported.
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        lab.update(cx, |lab, cx| {
+            lab.set_viewport(ViewportPreset::Compact, cx);
+            lab.change(
+                EnvironmentChange::SetPreferences(UiPreferences {
+                    appearance: PreparationAppearance::Light,
+                    scale: crate::environment::InterfaceScale::Percent200,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("lab-stage").map(|bounds| bounds.size),
+            Some(size(px(1366.0), px(768.0))),
+            "the stage keeps its exact geometry after the switch"
+        );
+        let invoker = tab_into_scenario("select", cx);
+        // Scenario state is fresh on return — persistence belongs to the
+        // shell, proven by the second half below — so commit again at the new
+        // scale and prove the same containment, indicator, and focus return.
+        assert!(
+            cx.debug_bounds("button-Language: Not assigned").is_some(),
+            "the scenario restarts from its default"
+        );
+        press(cx, "enter");
+        contained("selection-list", 1366.0, 768.0, cx);
+        assert!(
+            cx.debug_bounds("scroll-indicator-selection-list").is_some(),
+            "the taller popup reports its overflow at 200%"
+        );
+        press(cx, "down");
+        press(cx, "enter");
+        assert!(cx.debug_bounds("selection-list").is_none());
+        assert!(
+            cx.debug_bounds("button-Language: English").is_some(),
+            "committing English renames the trigger at 200%"
+        );
+        cx.update(|window, _| {
+            assert!(
+                invoker.is_focused(window),
+                "focus still returns after the switch"
+            )
+        });
+    }
+
     #[gpui::test]
     fn lab_keys_cycle_the_viewport_and_drive_appearance_and_scale(cx: &mut TestAppContext) {
         let (lab, cx) = open(cx);

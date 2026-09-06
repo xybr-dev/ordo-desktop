@@ -1443,4 +1443,155 @@ mod tests {
         });
         assert_eq!(saved.get(), Some(expected));
     }
+
+    /// Plays a surface's enter or exit motion, which is what actually mounts
+    /// or unmounts it. Same shape as the `ui` lab harness.
+    fn settle(cx: &mut VisualTestContext, duration: u16) {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(duration.into()));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+
+    /// The T0.3 milestone path through the production shell.
+    ///
+    /// `MILESTONES.md` T0.3 E2E, second half: launch `ordo`, navigate from
+    /// the expanded Masses rail to Library/Songs and its local views, and
+    /// verify the same primitive behavior holds in the shell without
+    /// whole-workspace horizontal scroll.
+    ///
+    /// Rail and tab navigation arrive by pointer here — the keyboard half of
+    /// the milestone is the lab path exercising the same primitives — while
+    /// list movement, surface dismissal, and scale changes arrive by
+    /// keyboard. Focus return and containment are asserted at both milestone
+    /// viewports.
+    #[gpui::test]
+    fn the_milestone_shell_path_holds_primitive_behavior_without_workspace_scroll(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, cx) = open(cx);
+        // The milestone starts expanded: 1920x1080 at 100% never collapses
+        // the rail.
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(shell.destination(), Destination::Masses);
+            assert_eq!(shell.local_view(cx), Some("Upcoming"));
+        });
+        assert!(!rail::collapsed(1920.0, InterfaceScale::Percent100));
+        for selector in ["shell-rail", "shell-workspace", "workspace-title"] {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            assert!(
+                bounds.right() <= px(1920.0),
+                "{selector} escapes the expanded workspace"
+            );
+        }
+
+        // Expanded Masses to Library/Songs and through every Library view.
+        click(cx, "button-Library");
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(shell.destination(), Destination::Library);
+            assert_eq!(shell.local_view(cx), Some("Songs"));
+        });
+        for (index, view) in Destination::Library.local_views().iter().enumerate() {
+            click(cx, sel(format!("tab-{index}")));
+            shell.read_with(cx, |shell, cx| {
+                assert_eq!(shell.local_view(cx), Some(*view));
+            });
+            let workspace = cx.debug_bounds("shell-workspace").unwrap();
+            assert!(
+                workspace.right() <= px(1920.0),
+                "the workspace scrolls past the window on {view}"
+            );
+        }
+
+        // The same list primitives as the lab, by keyboard: arrows move focus
+        // between rows without changing the selection.
+        click(cx, "tab-0");
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(shell.local_view(cx), Some("Songs"))
+        });
+        click(cx, "row-Songs \u{b7} entry 1");
+        let first = cx.update(|window, cx| window.focused(cx));
+        assert!(first.is_some(), "clicking a row focuses it");
+        shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
+        keys(cx, "down");
+        let second = cx.update(|window, cx| window.focused(cx));
+        assert!(
+            second.is_some() && second != first,
+            "Down moves to the next row by keyboard"
+        );
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(
+                shell.selected_row(),
+                Some(0),
+                "moving focus selects nothing"
+            )
+        });
+        keys(cx, "up");
+        assert_eq!(
+            cx.update(|window, cx| window.focused(cx)),
+            first,
+            "Up returns by keyboard"
+        );
+
+        // The same overlay primitives as the lab: the Inspector slideover
+        // opens, Tab stays inside, and Escape closes it with focus back on
+        // its invoker — proven by Enter reopening it alone.
+        click(cx, "button-Inspector");
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+        let inspector = cx.debug_bounds("overlay-Inspector").unwrap();
+        assert!(
+            inspector.right() <= px(1920.0),
+            "the slideover stays inside the expanded window"
+        );
+        keys(cx, "tab");
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "Tab does not escape the slideover"
+        );
+        keys(cx, "escape");
+        settle(cx, tokens::motion::OVERLAY_CLOSE_DURATION_MS);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_none(),
+            "Escape closes the slideover"
+        );
+        keys(cx, "enter");
+        settle(cx, tokens::motion::OVERLAY_OPEN_DURATION_MS);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "Enter alone reopens it, so focus returned to its invoker"
+        );
+        keys(cx, "tab");
+        keys(cx, "escape");
+        settle(cx, tokens::motion::OVERLAY_CLOSE_DURATION_MS);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_none(),
+            "Escape closes the reopened slideover"
+        );
+
+        // The milestone's switch: 1366x768 at 200% collapses the rail but
+        // never scrolls the workspace past the window, and navigation still
+        // works collapsed.
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        shell.update(cx, |shell, cx| {
+            shell.change_from_settings(EnvironmentChange::SetScale(InterfaceScale::Percent200), cx);
+        });
+        cx.run_until_parked();
+        assert!(rail::collapsed(1366.0, InterfaceScale::Percent200));
+        for selector in ["shell-rail", "shell-workspace", "workspace-title"] {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            assert!(
+                bounds.right() <= px(1366.0),
+                "{selector} escapes the collapsed workspace"
+            );
+        }
+        assert!(
+            cx.debug_bounds("scroll-indicator-primary-list").is_some(),
+            "the taller list reports its overflow at 200%"
+        );
+        click(cx, "button-Masses");
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(shell.destination(), Destination::Masses);
+            assert_eq!(shell.local_view(cx), Some("Upcoming"));
+        });
+    }
 }
