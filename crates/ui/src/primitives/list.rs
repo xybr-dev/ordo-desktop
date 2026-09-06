@@ -15,7 +15,7 @@ use gpui::{
 
 use crate::{
     environment::UiEnvironment,
-    primitives::{focus_visible, note},
+    primitives::{button, focus_visible},
     tokens,
 };
 
@@ -227,7 +227,11 @@ impl ListRow {
 
         gpui_base::Button::new(self.id)
             .debug_selector(move || format!("row-{title}"))
-            .accessibility_label(name)
+            .accessibility_label(name.clone())
+            // A row's title and detail both truncate, so `DESIGN.md` owes the
+            // full text to the pointer as well as to AccessKit.
+            .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
+            .tooltip(move |_, cx| button::tooltip_view(name.clone().into(), self.environment, cx))
             .aria_selected(selected)
             .when_some(self.on_activate, |row, activate| {
                 row.on_click(move |_, window, cx| activate(window, cx))
@@ -297,18 +301,6 @@ pub fn arrows<E: gpui::InteractiveElement>(column: E) -> E {
         cx.stop_propagation();
         window.prevent_default();
     })
-}
-
-/// A list that has nothing in it says so, rather than leaving the operator in
-/// front of an empty column wondering whether it is still loading.
-pub fn empty(reason: impl Into<String>, environment: UiEnvironment) -> impl IntoElement {
-    note(
-        crate::assets::icon::INFO,
-        tokens::palette(environment.appearance()).text_muted,
-        reason.into(),
-        "list-empty",
-        environment,
-    )
 }
 
 #[cfg(test)]

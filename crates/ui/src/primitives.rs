@@ -100,6 +100,21 @@ pub fn focus_visible<E: gpui::InteractiveElement>(
     element.focus_visible(move |style| style.shadow(rings))
 }
 
+/// Reveals a truncated value's full text on pointer hover, which `DESIGN.md`
+/// requires of every visually truncated value. It is attached unconditionally:
+/// measuring whether a given string actually clipped costs a frame and buys
+/// nothing, since the tooltip only ever repeats what is already there.
+pub fn truncated<E: gpui::StatefulInteractiveElement>(
+    element: E,
+    text: impl Into<SharedString>,
+    environment: UiEnvironment,
+) -> E {
+    let text = text.into();
+    element
+        .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
+        .tooltip(move |_, cx| button::tooltip_view(text.clone(), environment, cx))
+}
+
 /// A persistent line of explanation beside a control: an icon, then the state
 /// word and a short reason. `DESIGN.md` requires the explanation to stay on
 /// screen, so no primitive is allowed to reduce one of these to a tooltip.

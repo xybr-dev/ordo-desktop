@@ -645,7 +645,10 @@ The rail collapses from effective width and Interface scale, never from a
 resolution breakpoint: it gives up its labels at the point where the remaining
 workspace would fall below `DESIGN.md`'s `240px` list plus `520px` editor plus
 its gutters, with both terms scaled and the window measured through
-`Window::viewport_size`. That threshold puts both rail states inside the
+`Window::viewport_size`. The gutter reserved is the wide one, because that is
+what the branch being decided — an expanded rail — actually renders; measuring it
+against the compact gutter would leave the workspace narrower than the minimum
+the threshold exists to protect. That threshold puts both rail states inside the
 qualified matrix — `1366x768` collapses at 150% and `1920x1080` at 200% — so
 neither state is a case only a hand-resized window would reach. Collapsed, a
 destination is an icon whose tooltip is its accessible name, which is the
@@ -668,7 +671,13 @@ Button every other control does, so it is focused, activated by Enter/Space, and
 named like anything else, and everything visible is Ordo's — a title, a detail
 line, the badges that classify it, and one shared bottom edge, which is what
 `DESIGN.md` asks for before a card and what keeps adjacent rows from doubling a
-border between every pair. A `Badge` is a short classifier beside that text;
+border between every pair. A row's title and detail both truncate, so the row
+carries its accessible name as a tooltip too — `DESIGN.md` owes a truncated value
+its full text to the pointer as well as to AccessKit — and `ui::primitives::truncated`
+does the same for the workspace, viewer, and editor titles, which truncate
+without a control of their own. It is attached unconditionally: measuring whether
+a given string actually clipped costs a frame and buys nothing, since the tooltip
+only repeats what is already there. A `Badge` is a short classifier beside that text;
 the liturgical colors reach it through `tone`, which is the one thing
 `DESIGN.md` allows them to say. What a row is *not* is a collection: arrow-key
 roving and ListBox/option semantics need the collection itself, and land with
@@ -706,8 +715,10 @@ leading edge: a destination is read down a column with six others, and a centred
 label reads as ragged.
 
 Opening an entity replaces the whole screen, rail included, rather than swapping
-one pane. The operator is working on one thing, and Back returns them to the
-screen they left — the destination, its local view, its row selection, and the
+one pane. Its body keeps its own `Scroll` rather than the viewer's: the two are
+never on screen together, so one handle would hand the operator back a viewer
+scrolled to a position they never chose. The operator is working on one thing,
+and Back returns them to the screen they left — the destination, its local view, its row selection, and the
 keyboard, all of which the test asserts are gone while the editor is open and
 back afterwards.
 
@@ -771,16 +782,21 @@ test asserts the header is present at every destination while only the strip
 follows the local views.
 
 The rail's active marker is the row's own leading edge, inside the fill and
-clipped by its radius, with every row reserving the same bar so the icons stay
-aligned and the row keeps the rail's inset on both sides. A collapsed rail draws
-no marker: a four-pixel sliver beside a centred icon reads as a rendering fault
-rather than as state. The non-color half of the treatment is instead
-`Button::current`, which marks the destination the operator is in for assistive
-technology in both widths, so the state is never a fill alone. The responsive
-matrix asserts the marker's position when expanded, its absence when collapsed,
-and that every row measures the same: a row whose control is sized by its own
-label leaves seven fills at seven widths staggered down the rail, so the control
-takes what the marker leaves rather than what its label needs.
+clipped by its radius, in both widths. `MILESTONES.md` asks the active
+destination to be non-color-only, and `Button::current` is the assistive half of
+that rather than the visible one, so a collapsed rail that dropped the bar would
+leave the tint alone for the operator the requirement exists for. What changes
+between the two widths is the flow, not the marker: expanded, every row reserves
+the same bar, so the icons stay aligned and the row keeps the rail's inset on
+both sides; collapsed, there is no label to align against, so the bar leaves the
+flow and overlays the row's leading edge, which keeps the single icon centred in
+the rail while the state stays visible. The responsive matrix asserts the
+marker's position at every combination, the icon's centring where the rail
+collapses, and that every row measures the same: a row whose control is sized by
+its own label leaves seven fills at seven widths staggered down the rail, so the
+control takes what the marker leaves rather than what its label needs. The
+Settings panel marks its current appearance and scale the same way, with a
+`CHECK` glyph as the shape cue beside the same `Button::current` semantics.
 
 `list::arrows` binds Up and Down to the window's focus order from the list
 container, because a column of records is one collection the operator reads
@@ -801,7 +817,7 @@ badge adapts by choosing what it writes on them.
 plain badge at WCAG AA in Light and Dark.
 
 Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
-83 UI tests, 13 shell/runtime tests in `ordo`, the native runtime harness,
+83 UI tests, 14 shell/runtime tests in `ordo`, the native runtime harness,
 Clippy, release configuration, and cargo-deny. This evidence does not close all
 of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
 Contrast check remain with T0.3.12.

@@ -87,6 +87,10 @@ pub struct ShellView {
     editing: Option<SharedString>,
     list_scroll: Scroll,
     viewer_scroll: Scroll,
+    /// The focused editor's body keeps its own scroll rather than sharing the
+    /// viewer's: the two are never on screen together, so one handle would hand
+    /// the operator back a viewer scrolled to a position they never chose.
+    editor_scroll: Scroll,
     registry: RegionRegistry,
     overlays: OverlayHost,
     environment: UiEnvironment,
@@ -144,6 +148,7 @@ impl ShellView {
             editing: None,
             list_scroll: Scroll::new(),
             viewer_scroll: Scroll::new(),
+            editor_scroll: Scroll::new(),
             registry: RegionRegistry::default(),
             overlays: OverlayHost::new(cx),
             environment,
@@ -356,14 +361,17 @@ impl ShellView {
                     .gap(px(scale.apply(tokens::spacing::GROUP)))
                     .px(px(gutter))
                     .py(px(scale.apply(tokens::spacing::GROUP)))
-                    .child(
+                    .child(ui::primitives::truncated(
                         div()
+                            .id("workspace-title")
                             .debug_selector(|| "workspace-title".into())
                             .min_w_0()
                             .truncate()
                             .text_size(px(scale.apply(tokens::typography::TITLE.size)))
                             .child(self.destination.label()),
-                    )
+                        self.destination.label(),
+                        environment,
+                    ))
                     .child(
                         // The Inspector `DESIGN.md` puts in a labeled right
                         // slideover when the workspace is constrained, and the
@@ -478,15 +486,18 @@ impl ShellView {
         let title = entry.title.clone();
         pane()
             .w_full()
-            .child(
+            .child(ui::primitives::truncated(
                 div()
+                    .id("viewer-title")
                     .debug_selector(|| "viewer-title".into())
                     .w_full()
                     .min_w_0()
                     .truncate()
                     .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                    .child(entry.title),
-            )
+                    .child(entry.title.clone()),
+                entry.title,
+                environment,
+            ))
             .child(
                 div()
                     .text_color(rgb(palette.text_muted))
@@ -632,7 +643,10 @@ impl ShellView {
                     .py(px(scale.apply(tokens::spacing::GROUP)))
                     .child(
                         Button::new("back", format!("Back to {back}"), environment)
-                            .icon(ui::assets::icon::CHEVRON_RIGHT)
+                            // An icon that describes its action leads the
+                            // label, so it has to point the way the control
+                            // goes.
+                            .icon(ui::assets::icon::CHEVRON_LEFT)
                             .on_surface(palette.background)
                             .on_activate(move |_, cx| {
                                 let _ = view.update(cx, |view, cx| {
@@ -646,14 +660,17 @@ impl ShellView {
                                 });
                             }),
                     )
-                    .child(
+                    .child(ui::primitives::truncated(
                         div()
+                            .id("editor-title")
                             .debug_selector(|| "editor-title".into())
                             .min_w_0()
                             .truncate()
                             .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                            .child(entity),
-                    ),
+                            .child(entity.clone()),
+                        entity,
+                        environment,
+                    )),
             )
             .child(
                 div()
@@ -667,7 +684,7 @@ impl ShellView {
             .region(WORKSPACE_ACTIONS, window, cx)
             .flex_none()
             .child(header);
-        let scroll = self.viewer_scroll.clone();
+        let scroll = self.editor_scroll.clone();
         let body = self
             .registry
             .region(MAIN_EDITOR, window, cx)
@@ -678,12 +695,12 @@ impl ShellView {
             .overflow_hidden()
             .child(
                 scroll
-                    .bounded(div().id("viewer"))
+                    .bounded(div().id("editor-body"))
                     .size_full()
                     .p(px(gutter))
                     .child("This entity has no editor yet."),
             )
-            .children(scroll.indicator("viewer", 0.0, window, cx, environment));
+            .children(scroll.indicator("editor-body", 0.0, window, cx, environment));
 
         self.registry
             .root(window, cx)
@@ -1006,24 +1023,27 @@ mod tests {
                     scale.percent()
                 );
                 // The marker is the row's own leading edge, inside its fill and
-                // on the rail's inset — never a bar outside the row that pushes
-                // it off the inset, and never a sliver beside a centred icon.
-                let marker = cx.debug_bounds(sel(format!(
-                    "rail-active-{}",
-                    Destination::default().label()
-                )));
-                match marker {
-                    Some(marker) => {
-                        assert!(!collapsed, "a collapsed rail draws no marker");
-                        assert_eq!(
-                            marker.left(),
-                            rail.left() + px(scale.apply(tokens::spacing::RELATED)),
-                            "the marker is off the rail's inset at {width} and {}%",
+                // on the rail's inset, in both widths — `MILESTONES.md` asks
+                // for a cue that is not the fill alone, and a collapsed rail is
+                // no exception. Collapsed it is out of flow, which is what
+                // leaves the icon centred above.
+                let marker = cx
+                    .debug_bounds(sel(format!(
+                        "rail-active-{}",
+                        Destination::default().label()
+                    )))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "the rail marks where it is at {width} and {}%",
                             scale.percent()
-                        );
-                    }
-                    None => assert!(collapsed, "an expanded rail marks where it is"),
-                }
+                        )
+                    });
+                assert_eq!(
+                    marker.left(),
+                    rail.left() + px(scale.apply(tokens::spacing::RELATED)),
+                    "the marker is off the rail's inset at {width} and {}%",
+                    scale.percent()
+                );
                 // The list is a bounded scrolling surface like every other, so
                 // it reports its position when it overflows and says nothing
                 // when it does not — the shared indicator, not one of its own.
@@ -1108,6 +1128,43 @@ mod tests {
         cx.simulate_keystrokes("up up");
         cx.run_until_parked();
         assert_eq!(focused(cx), first, "and two back up is where it started");
+    }
+
+    /// `DESIGN.md` owes every visually truncated value its full text on pointer
+    /// hover as well as to AccessKit. The row's title and detail both truncate,
+    /// and so do the workspace, viewer, and editor titles, none of which is a
+    /// control that would carry a tooltip on its own.
+    #[gpui::test]
+    fn a_truncated_value_reveals_its_full_text_to_the_pointer(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx);
+        click(cx, "row-Upcoming \u{b7} entry 1");
+        for selector in [
+            "row-Upcoming \u{b7} entry 1",
+            "workspace-title",
+            "viewer-title",
+        ] {
+            let bounds = cx
+                .debug_bounds(selector)
+                .unwrap_or_else(|| panic!("{selector} renders"));
+            cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+            cx.executor()
+                .advance_clock(ui::primitives::button::TOOLTIP_SHOW_DELAY);
+            cx.run_until_parked();
+            assert!(
+                cx.debug_bounds("control-tooltip").is_some(),
+                "{selector} truncates without offering its full text"
+            );
+        }
+        click(cx, "button-Open");
+        let title = cx.debug_bounds("editor-title").expect("the editor renders");
+        cx.simulate_mouse_move(title.center(), None, Modifiers::default());
+        cx.executor()
+            .advance_clock(ui::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_some(),
+            "the editor title truncates without offering its full text"
+        );
     }
 
     /// More local views than the strip is wide is the case a wrapped strip got

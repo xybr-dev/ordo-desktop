@@ -10,6 +10,7 @@ use gpui::{
     App, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px, rgb,
 };
 use ui::{
+    assets::icon,
     environment::{EnvironmentChange, InterfaceScale, PreparationAppearance, UiEnvironment},
     primitives::button::Button,
     tokens,
@@ -41,6 +42,11 @@ pub fn panel(
                 })
                 .child(
                     Button::new(id, label, environment)
+                        // The fill is never the only cue: a check marks the
+                        // current choice for a sighted operator, and Current
+                        // marks it for assistive technology.
+                        .when(active, |choice| choice.icon(icon::CHECK))
+                        .current(active)
                         .on_surface(if active {
                             palette.selection
                         } else {

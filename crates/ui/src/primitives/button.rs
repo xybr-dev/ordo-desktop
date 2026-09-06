@@ -352,7 +352,11 @@ impl RenderOnce for Button {
     }
 }
 
-fn tooltip_view(text: SharedString, environment: UiEnvironment, cx: &mut App) -> AnyView {
+pub(crate) fn tooltip_view(
+    text: SharedString,
+    environment: UiEnvironment,
+    cx: &mut App,
+) -> AnyView {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     cx.new(move |_| TooltipView {

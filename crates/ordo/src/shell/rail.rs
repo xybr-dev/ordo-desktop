@@ -103,21 +103,26 @@ pub fn collapsed_width(scale: InterfaceScale) -> f32 {
 /// `DESIGN.md` decides this from the effective workspace remaining after
 /// Interface scale, window size, and navigation chrome — never from a
 /// resolution breakpoint — so both terms are scaled and the window is measured.
+/// The gutter reserved is the wide one, because that is what an expanded rail
+/// renders: measuring the branch it is deciding against the other branch's
+/// gutter would leave the workspace narrower than the minimum this protects.
 pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
     viewport_width - scale.apply(EXPANDED_RESERVE)
-        < scale.apply(MINIMUM_WORKSPACE + 2.0 * tokens::density::WORKSPACE_GUTTER_COMPACT)
+        < scale.apply(MINIMUM_WORKSPACE + 2.0 * tokens::density::WORKSPACE_GUTTER_WIDE)
 }
 
 /// One rail row. Collapsed it is an icon whose tooltip is its accessible name,
 /// which is the Button's own contract for an icon-only control.
 ///
-/// Expanded, the active marker is the row's own leading edge, inside the fill
-/// and clipped by its radius: every row reserves the same bar, so the icons
+/// The active marker is the row's own leading edge, inside the fill and clipped
+/// by its radius, in both widths: `MILESTONES.md` asks the active destination
+/// to be non-color-only, and `Button::current` is the assistive half of that,
+/// not the visible one. Expanded, every row reserves the same bar, so the icons
 /// still line up down the rail and the row keeps the rail's inset on both
-/// sides. Collapsed there is no marker at all — a four-pixel sliver beside a
-/// centred icon reads as a rendering fault rather than as state — so the
-/// non-color half of the treatment is the row's Current semantics, which every
-/// state carries in both widths.
+/// sides. Collapsed there is no label to line the icons up against, so the
+/// marker leaves the flow and overlays the row's leading edge instead — the
+/// same full-height bar, at a size that reads as deliberate, with the icon
+/// still centred in the rail.
 fn item(
     destination: Destination,
     active: bool,
@@ -129,24 +134,29 @@ fn item(
     let scale = environment.preferences().scale;
     let label = destination.label();
     let height = scale.apply(tokens::density::DEFAULT_CONTROL);
+    let marker = |bar: gpui::Div| {
+        bar.w(px(scale.apply(tokens::spacing::UNIT)))
+            .h(px(height))
+            .when(active, |bar| {
+                bar.debug_selector(move || format!("rail-active-{label}"))
+                    .bg(rgb(tokens::color::PRIMARY))
+            })
+    };
     div()
         .flex()
         .items_center()
+        .relative()
         .rounded(px(scale.apply(tokens::radius::CONTROL)))
         // So the marker takes the row's own corner rather than squaring it off.
         .overflow_hidden()
         .when(active, |row| row.bg(rgb(palette.selection)))
-        .when(!collapsed, |row| {
-            row.child(
-                div()
-                    .flex_none()
-                    .w(px(scale.apply(tokens::spacing::UNIT)))
-                    .h(px(height))
-                    .when(active, |bar| {
-                        bar.debug_selector(move || format!("rail-active-{label}"))
-                            .bg(rgb(tokens::color::PRIMARY))
-                    }),
-            )
+        // Expanded the marker is in flow, so every row reserves it and the
+        // icons share one edge. Collapsed it overlays that edge instead, so the
+        // single icon stays centred in the rail.
+        .child(if collapsed {
+            marker(div().absolute().left_0().top_0())
+        } else {
+            marker(div().flex_none())
         })
         // The control takes what the marker leaves, rather than only what its
         // own label needs: a row sized to its label leaves seven fills at seven
