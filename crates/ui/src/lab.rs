@@ -10,7 +10,8 @@ use gpui::{
 };
 
 use crate::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale, assets,
+    DecreaseInterfaceScale, FocusNext, FocusPrevious, IncreaseInterfaceScale, ResetInterfaceScale,
+    assets,
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
     },
@@ -771,6 +772,12 @@ impl Render for LabView {
             .on_action(cx.listener(Self::next_scenario))
             .on_action(cx.listener(Self::next_viewport))
             .on_action(cx.listener(Self::next_appearance))
+            // The plain window tab order, so a scenario is keyboard-reachable
+            // after F2. The pin stops action dispatch at the innermost
+            // handler, so the regions scenario's registry and an open
+            // overlay's trap both keep precedence over this root.
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .on_action(cx.listener(|this, _: &IncreaseInterfaceScale, _, cx| {
                 this.change(EnvironmentChange::IncreaseScale, cx);
             }))
@@ -1581,8 +1588,7 @@ mod tests {
         cx.simulate_input("Kyrie");
         cx.run_until_parked();
         for _ in 0..3 {
-            cx.update(|window, cx| window.focus_next(cx));
-            cx.run_until_parked();
+            press(cx, "tab");
             let now =
                 cx.update(|window, cx| window.focused(cx).expect("Tab keeps focus on a field"));
             assert_ne!(now, last, "Tab advances through the fields in order");
@@ -1720,28 +1726,26 @@ mod tests {
         press(cx, "enter");
         settle(cx, enter_ms);
         contained("overlay-Inspector", 1920.0, 1080.0, cx);
-        // Opening leaves focus on no live stop. Two Tabs reach the nested
-        // invoker through the header; remember it for the focus-return check
-        // below. A stop that dismisses the parent reopens it and retries.
-        let mut nested_invoker = None;
-        for _ in 0..4 {
-            if cx.debug_bounds("overlay-Song details").is_some() {
-                break;
-            }
-            press(cx, "tab");
-            press(cx, "tab");
-            nested_invoker = cx.update(|window, cx| window.focused(cx));
-            press(cx, "enter");
-            settle(cx, enter_ms);
-            if cx.debug_bounds("overlay-Inspector").is_none()
-                && cx.debug_bounds("overlay-Song details").is_none()
-            {
-                nested_invoker = None;
-                press(cx, "enter");
-                settle(cx, enter_ms);
-            }
-        }
-        let nested_invoker = nested_invoker.expect("the Tabs reach the nested invoker");
+        // Opening leaves focus on no live stop; two Tabs reach the nested
+        // invoker through the header. Each step must land somewhere new, so a
+        // composed reading-order regression fails here rather than at the
+        // Enter below; the child opening proves the second stop was its
+        // invoker.
+        let unmoved = cx.update(|window, cx| window.focused(cx));
+        press(cx, "tab");
+        let first = cx.update(|window, cx| window.focused(cx));
+        assert_ne!(first, unmoved, "the first Tab leaves the stale stop");
+        press(cx, "tab");
+        let nested_invoker = cx
+            .update(|window, cx| window.focused(cx))
+            .expect("the second Tab reaches a live stop");
+        assert_ne!(
+            Some(nested_invoker.clone()),
+            first,
+            "the second Tab reaches the nested invoker"
+        );
+        press(cx, "enter");
+        settle(cx, enter_ms);
         contained("overlay-Song details", 1920.0, 1080.0, cx);
         assert!(
             cx.debug_bounds("overlay-Inspector").is_some(),
