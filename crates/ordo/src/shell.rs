@@ -324,9 +324,14 @@ impl ShellView {
     }
 
     /// The workspace header: the destination's title and actions above its
-    /// local views. The tab strip is the full width of the workspace and rules
-    /// it top and bottom, so the tabs read as the seam between what the
-    /// workspace is and what it is showing rather than as loose controls.
+    /// local views.
+    ///
+    /// The seam between what the workspace *is* and what it is *showing* is the
+    /// header's own bottom edge, so a destination with no local views is ruled
+    /// like every other one. The tab strip, where there is one, draws only the
+    /// edge above itself — the seam between the title and the views — and the
+    /// header's edge finishes it below. That keeps the pair of rules the tabs
+    /// sit between without either surface doubling the other's border.
     fn header(&mut self, gutter: f32, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
@@ -342,7 +347,6 @@ impl ShellView {
                 // the first local view starts on that edge rather than floating
                 // in from it.
                 .border_t(px(tokens::border::SEPARATOR))
-                .border_b(px(tokens::border::SEPARATOR))
                 .border_color(rgb(palette.border))
                 .child(
                     Tabs::new(
@@ -367,9 +371,12 @@ impl ShellView {
         // among the things that are never truncated, and a flex child gives up
         // its own height unless it is told not to.
         div()
+            .debug_selector(|| "workspace-header".into())
             .flex_none()
             .flex()
             .flex_col()
+            .border_b(px(tokens::border::SEPARATOR))
+            .border_color(rgb(palette.border))
             .child(
                 div()
                     .flex_none()
@@ -989,6 +996,20 @@ mod tests {
                 cx.debug_bounds("shell-primary-list").is_some(),
                 destination.has_primary_list(),
                 "{} primary list",
+                destination.label()
+            );
+            // The seam under the header is the header's own, so a destination
+            // with no local views is still ruled off from what it shows. Only
+            // the strip is conditional.
+            assert!(
+                cx.debug_bounds("workspace-header").is_some(),
+                "{} has no header to rule it",
+                destination.label()
+            );
+            assert_eq!(
+                cx.debug_bounds("workspace-tabs").is_some(),
+                !destination.local_views().is_empty(),
+                "{} tab strip",
                 destination.label()
             );
             for (index, view) in destination.local_views().iter().enumerate() {

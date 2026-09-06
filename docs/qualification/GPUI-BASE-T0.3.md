@@ -762,6 +762,14 @@ scrolled axis, and `Scroll::horizontal` returns the same handle read across.
 overflow, and the indicator; the responsive matrix pins the flush leading edge
 and the tabs meeting end to end at every viewport and scale.
 
+The seam between what a workspace is and what it is showing belongs to the
+header, not to the tab strip: the header draws its own bottom edge, and the
+strip — where there is one — draws only the edge above itself. The tabs still
+sit between a pair of rules, no surface doubles another's border, and a
+destination with no local views is ruled like every other one. The navigation
+test asserts the header is present at every destination while only the strip
+follows the local views.
+
 The rail's active marker is the row's own leading edge, inside the fill and
 clipped by its radius, with every row reserving the same bar so the icons stay
 aligned and the row keeps the rail's inset on both sides. A collapsed rail draws
