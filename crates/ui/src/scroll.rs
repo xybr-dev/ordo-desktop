@@ -50,9 +50,20 @@ const MINIMUM_LENGTH: f32 = tokens::spacing::SECTION;
 /// one more frame when the measurement moves under it, which also covers the
 /// reverse case: content that shrinks to fit must lose its indicator on an
 /// otherwise idle surface.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum Axis {
+    #[default]
+    Vertical,
+    Horizontal,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Scroll {
     handle: ScrollHandle,
+    /// Which way this surface scrolls. Everything below is written down the
+    /// scrolled axis and across the other one, so the two differ only in which
+    /// component of a point is read and which edge the indicator sits on.
+    axis: Axis,
     drawn: Rc<Cell<Option<Measurement>>>,
     /// Whether the pointer is close enough to the edge to be reaching for the
     /// indicator, which is what widens it to something grabbable. The indicator
@@ -79,7 +90,8 @@ struct Measurement {
     offset: f32,
 }
 
-/// Where the indicator sits in its track, in pixels from the track's top.
+/// Where the indicator sits in its track, in pixels from the track's start —
+/// its top on a vertical surface, its leading edge on a horizontal one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Bar {
     top: f32,
@@ -95,11 +107,20 @@ struct Bar {
 /// the minimum was positioned as if the indicator were still its unclamped
 /// fraction, so at full travel it ended up below the track by exactly what the
 /// minimum had added — riding out over the corner the track is inset to clear.
-fn measure(handle: &ScrollHandle) -> Measurement {
+fn measure(handle: &ScrollHandle, axis: Axis) -> Measurement {
+    let along = |point: gpui::Point<gpui::Pixels>| {
+        f32::from(match axis {
+            Axis::Vertical => point.y,
+            Axis::Horizontal => point.x,
+        })
+    };
     Measurement {
-        viewport: f32::from(handle.bounds().size.height),
-        max_offset: f32::from(handle.max_offset().y),
-        offset: f32::from(handle.offset().y),
+        viewport: along(gpui::point(
+            handle.bounds().size.width,
+            handle.bounds().size.height,
+        )),
+        max_offset: along(handle.max_offset()),
+        offset: along(handle.offset()),
     }
 }
 
@@ -127,6 +148,15 @@ impl Scroll {
         &self.handle
     }
 
+    /// The same surface, scrolled across instead of down: a strip of tabs too
+    /// wide for its workspace, where wrapping onto a second line would move
+    /// every tab under it. The handle is untouched, so a caller may take this
+    /// from a `Scroll` it already owns.
+    pub fn horizontal(mut self) -> Self {
+        self.axis = Axis::Horizontal;
+        self
+    }
+
     /// Makes `element` the bounded scrolling surface: it tracks this handle,
     /// scrolls, and *contains* what it scrolls.
     ///
@@ -142,10 +172,11 @@ impl Scroll {
     /// Every bounded scrolling surface goes through here rather than repeating
     /// the three calls, so none of them can be the one that forgets.
     pub fn bounded<E: gpui::StatefulInteractiveElement + Styled>(&self, element: E) -> E {
-        element
-            .track_scroll(&self.handle)
-            .overflow_y_scroll()
-            .occlude()
+        let element = element.track_scroll(&self.handle).occlude();
+        match self.axis {
+            Axis::Vertical => element.overflow_y_scroll(),
+            Axis::Horizontal => element.overflow_x_scroll(),
+        }
     }
 
     /// The indicator for the surface's *current* measurement, to be placed in a
@@ -168,7 +199,8 @@ impl Scroll {
         cx: &mut gpui::App,
         environment: UiEnvironment,
     ) -> Option<impl IntoElement + use<>> {
-        let measured = measure(&self.handle);
+        let across = self.axis == Axis::Horizontal;
+        let measured = measure(&self.handle, self.axis);
         self.drawn.set(Some(measured));
         // What this frame draws from is the *previous* frame's measurement:
         // GPUI writes the surface's bounds and clamps its offset during
@@ -185,9 +217,10 @@ impl Scroll {
         // that is already drawing itself.
         let handle = self.handle.clone();
         let drawn = self.drawn.clone();
+        let axis = self.axis;
         window
             .spawn(cx, async move |cx| {
-                if drawn.get() != Some(measure(&handle)) {
+                if drawn.get() != Some(measure(&handle, axis)) {
                     cx.update(|window, _| window.refresh()).ok();
                 }
             })
@@ -211,10 +244,18 @@ impl Scroll {
                 move || name.to_string()
             })
             .absolute()
-            .top(px(bar_geometry.top))
-            .right_0()
-            .w(px(scale.apply(thickness)))
-            .h(px(bar_geometry.length))
+            .when(!across, |bar| {
+                bar.top(px(bar_geometry.top))
+                    .right_0()
+                    .w(px(scale.apply(thickness)))
+                    .h(px(bar_geometry.length))
+            })
+            .when(across, |bar| {
+                bar.left(px(bar_geometry.top))
+                    .bottom_0()
+                    .h(px(scale.apply(thickness)))
+                    .w(px(bar_geometry.length))
+            })
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .bg(rgb(tokens::palette(environment.appearance()).border_strong))
             // Open until it is taken hold of, which is the whole of what this
@@ -231,8 +272,12 @@ impl Scroll {
                 let scroll = self.clone();
                 move |event, _, _| {
                     scroll.grab.set(Some((
-                        f32::from(event.position.y),
-                        measure(&scroll.handle).offset,
+                        f32::from(if across {
+                            event.position.x
+                        } else {
+                            event.position.y
+                        }),
+                        measure(&scroll.handle, scroll.axis).offset,
                     )));
                 }
             })
@@ -257,12 +302,23 @@ impl Scroll {
             div()
                 .id(named("scroll-track"))
                 .absolute()
-                .top(px(scale.apply(corner)))
-                .bottom(px(scale.apply(corner)))
-                .right(px(scale.apply(INSET)))
-                .w(px(scale.apply(REACH)))
                 .flex()
-                .justify_end()
+                .when(!across, |track| {
+                    track
+                        .top(px(scale.apply(corner)))
+                        .bottom(px(scale.apply(corner)))
+                        .right(px(scale.apply(INSET)))
+                        .w(px(scale.apply(REACH)))
+                        .justify_end()
+                })
+                .when(across, |track| {
+                    track
+                        .left(px(scale.apply(corner)))
+                        .right(px(scale.apply(corner)))
+                        .bottom(px(scale.apply(INSET)))
+                        .h(px(scale.apply(REACH)))
+                        .items_end()
+                })
                 .on_hover({
                     let scroll = self.clone();
                     move |near, window, _| {
@@ -277,7 +333,7 @@ impl Scroll {
                         let Some((from, offset)) = scroll.grab.get() else {
                             return;
                         };
-                        let measured = measure(&scroll.handle);
+                        let measured = measure(&scroll.handle, scroll.axis);
                         // The pointer covers the track the indicator has left
                         // to travel, not the whole track, so a drag to the
                         // bottom of the surface lands on the bottom of the
@@ -287,12 +343,16 @@ impl Scroll {
                         if travel <= 0.0 {
                             return;
                         }
-                        let moved = f32::from(event.event.position.y) - from;
+                        let position = event.event.position;
+                        let moved = f32::from(if across { position.x } else { position.y }) - from;
                         let scrolled = (offset - moved * measured.max_offset / travel)
                             .clamp(-measured.max_offset, 0.0);
-                        scroll
-                            .handle
-                            .set_offset(point(scroll.handle.offset().x, px(scrolled)));
+                        let offset = scroll.handle.offset();
+                        scroll.handle.set_offset(if across {
+                            point(px(scrolled), offset.y)
+                        } else {
+                            point(offset.x, px(scrolled))
+                        });
                         window.refresh();
                     }
                 })

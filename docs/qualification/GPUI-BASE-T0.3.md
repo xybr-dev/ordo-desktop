@@ -750,8 +750,20 @@ Automated evidence in `ordo::shell`:
 existing appearance/scale/viewport matrix, asserting that a row's inline content
 stays inside its column at every combination.
 
+The local-view strip is a seam across the workspace rather than a row of loose
+controls: `Tabs` spaces nothing, and the strip carries no gutter, so the first
+view starts on the workspace edge. Views that outrun the strip scroll across it
+instead of wrapping, because a wrapped strip moves every tab under it the moment
+one more is added or the window narrows. That makes it a bounded scrolling
+surface like any other, so `ui::scroll::Scroll` gained an axis: the measurement,
+the wheel direction, and the edge the indicator sits on are all read down the
+scrolled axis, and `Scroll::horizontal` returns the same handle read across.
+`a_strip_too_narrow_for_its_local_views_scrolls_across` pins one line, the
+overflow, and the indicator; the responsive matrix pins the flush leading edge
+and the tabs meeting end to end at every viewport and scale.
+
 Validation: `cargo xtask verify` passed all nine gates on 2026-09-06, including
-82 UI tests, 11 shell/runtime tests in `ordo`, the native runtime harness,
+82 UI tests, 12 shell/runtime tests in `ordo`, the native runtime harness,
 Clippy, release configuration, and cargo-deny. This evidence does not close all
 of T0.3; the E2E path, the manual keyboard-only pass, and the Windows High
 Contrast check remain with T0.3.12.

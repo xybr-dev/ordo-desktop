@@ -1043,8 +1043,11 @@ impl Control {
         let mut list = self
             .list()
             .flex()
-            .gap(px(scale.apply(4.0)))
-            .when(kind != Kind::Tabs, |d| d.flex_col())
+            // Tabs meet: a local view strip is a seam across the workspace, not
+            // a row of loose controls, so only a popup list spaces its rows.
+            .when(kind != Kind::Tabs, |d| {
+                d.flex_col().gap(px(scale.apply(4.0)))
+            })
             .on_key_down({
                 let state = self.state.clone();
                 let select = select.clone();
@@ -1081,7 +1084,17 @@ impl Control {
             for i in 0..choice_count {
                 list = list.child(self.tab(i, &frame, cx));
             }
-            return self.tabs().child(list.flex_wrap()).into_any_element();
+            // Too many local views run off to the side and scroll, rather than
+            // wrapping onto a second line: a wrapped strip moves every tab
+            // under it the moment one more is added or the window narrows.
+            let scroll = scroll.horizontal();
+            return self
+                .tabs()
+                .relative()
+                .w_full()
+                .child(scroll.bounded(list.w_full()))
+                .children(scroll.indicator(&self.id.to_string(), 0.0, window, cx, self.environment))
+                .into_any_element();
         }
         for &i in &frame.visible {
             if Some(i) == frame.create {

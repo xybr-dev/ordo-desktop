@@ -338,7 +338,9 @@ impl ShellView {
                 .debug_selector(|| "workspace-tabs".into())
                 .flex_none()
                 .w_full()
-                .px(px(gutter))
+                // No gutter: the strip rules the workspace edge to edge, and
+                // the first local view starts on that edge rather than floating
+                // in from it.
                 .border_t(px(tokens::border::SEPARATOR))
                 .border_b(px(tokens::border::SEPARATOR))
                 .border_color(rgb(palette.border))
@@ -1105,6 +1107,35 @@ mod tests {
                 } else if (width, scale) == (1920.0, InterfaceScale::Percent100) {
                     assert!(!indicator, "a list that fits its column reports nothing");
                 }
+                // The strip is a seam across the workspace: the first local
+                // view starts on its edge, the rest meet it end to end, and
+                // they stay on one line however narrow the workspace becomes —
+                // a wrapped strip moves every tab under it.
+                let strip = cx.debug_bounds("workspace-tabs").unwrap();
+                let tabs: Vec<_> = (0..Destination::Masses.local_views().len())
+                    .map(|i| cx.debug_bounds(sel(format!("tab-{i}"))).unwrap())
+                    .collect();
+                assert_eq!(
+                    tabs[0].left(),
+                    strip.left(),
+                    "the first local view is inset from the workspace edge at \
+                     {width} and {}%",
+                    scale.percent()
+                );
+                for pair in tabs.windows(2) {
+                    assert_eq!(
+                        pair[0].top(),
+                        pair[1].top(),
+                        "the local views wrapped at {width} and {}%",
+                        scale.percent()
+                    );
+                    assert_eq!(
+                        pair[0].right(),
+                        pair[1].left(),
+                        "the local views are spaced apart at {width} and {}%",
+                        scale.percent()
+                    );
+                }
                 for selector in ["shell-rail", "shell-workspace", "workspace-title"] {
                     let bounds = cx.debug_bounds(selector).unwrap();
                     assert!(
@@ -1119,6 +1150,41 @@ mod tests {
         assert!(
             seen_collapsed && seen_expanded,
             "the matrix has to exercise both rail states"
+        );
+    }
+
+    /// More local views than the strip is wide is the case a wrapped strip got
+    /// wrong: the overflow dropped onto a second line and moved every tab under
+    /// it. They stay on one line and the strip scrolls across instead, which
+    /// makes it a bounded scrolling surface like any other and so gives it the
+    /// shared indicator.
+    #[gpui::test]
+    fn a_strip_too_narrow_for_its_local_views_scrolls_across(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        click(cx, "button-Library");
+        // Narrower than either qualified viewport on purpose: the strip has to
+        // hold up wherever the operator drags the window to, not only where the
+        // matrix measures it.
+        cx.simulate_resize(size(px(800.0), px(600.0)));
+        shell.update(cx, |shell, cx| {
+            shell.change_from_settings(EnvironmentChange::SetScale(InterfaceScale::Percent200), cx);
+        });
+        cx.run_until_parked();
+
+        let strip = cx.debug_bounds("workspace-tabs").unwrap();
+        let tabs: Vec<_> = (0..Destination::Library.local_views().len())
+            .map(|i| cx.debug_bounds(sel(format!("tab-{i}"))).unwrap())
+            .collect();
+        assert!(
+            tabs.last().unwrap().right() > strip.right(),
+            "this is only the overflow case while the views outrun the strip"
+        );
+        for pair in tabs.windows(2) {
+            assert_eq!(pair[0].top(), pair[1].top(), "the local views wrapped");
+        }
+        assert!(
+            cx.debug_bounds("scroll-indicator-local-views").is_some(),
+            "a strip with more views than it can show reports its position"
         );
     }
 
