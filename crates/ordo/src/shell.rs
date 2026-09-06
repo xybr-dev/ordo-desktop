@@ -1076,7 +1076,8 @@ mod tests {
                 let corner = px(scale.apply(tokens::radius::CONTROL));
                 assert!(
                     marker.size.width >= corner * 2.0 && marker.size.height >= corner * 2.0,
-                    "the marker measures {:?} at {width} and {}%, too small to hold the                      control corner it has to match",
+                    "the marker measures {:?} at {width} and {}%, too small to hold \
+                     the control corner it has to match",
                     marker.size,
                     scale.percent()
                 );
@@ -1335,6 +1336,37 @@ mod tests {
         });
         cx.update(|window, _| window.remove_window());
         cx.run_until_parked();
+    }
+
+    /// The active row's marker is a quad the size of the whole row, drawn over
+    /// the control it marks, so the one thing it must not do is take the
+    /// pointer. Nothing else covers this: every other rail click in these tests
+    /// lands on a row that is not the active one, and clicking the active one
+    /// asserts nothing, because opening the destination it is already on is a
+    /// no-op either way.
+    #[gpui::test]
+    fn the_active_rails_marker_does_not_take_the_pointer(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        click(cx, "button-Library");
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(shell.destination(), Destination::Library);
+        });
+        let row = cx.update(|window, cx| window.focused(cx));
+        assert!(row.is_some(), "clicking a rail row focuses it");
+        // Off the rail without leaving the destination, so the marker is still
+        // over the row about to be clicked again.
+        click(cx, "row-Songs \u{b7} entry 1");
+        assert_ne!(
+            cx.update(|window, cx| window.focused(cx)),
+            row,
+            "the list took the keyboard"
+        );
+        click(cx, "button-Library");
+        assert_eq!(
+            cx.update(|window, cx| window.focused(cx)),
+            row,
+            "the active row's marker swallowed the pointer"
+        );
     }
 
     #[gpui::test]

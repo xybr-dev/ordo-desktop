@@ -134,6 +134,11 @@ fn item(
     let label = destination.label();
     let corner = px(scale.apply(tokens::radius::CONTROL));
     let bar = px(scale.apply(tokens::spacing::UNIT));
+    // What a focused control's rings need beside it. They are outset box
+    // shadows, so they are painted outside the Button's own bounds and the row
+    // has to leave them somewhere to land — see the reserve below and the
+    // absent `overflow_hidden` above it.
+    let rings = px(scale.apply(tokens::border::FOCUS_SEPARATION + tokens::border::FOCUS_OUTER));
     // The marker is the leading edge of a quad the size of the whole row, drawn
     // as that quad's left border, so its curve is the row's own corner and
     // matches the control beside it exactly. A quad only the bar's own width
@@ -157,13 +162,23 @@ fn item(
         .items_center()
         .relative()
         .rounded(corner)
-        .overflow_hidden()
+        // No `overflow_hidden`. GPUI masks a child's paint to this row's
+        // rectangle, box shadows included, and Ordo's focus treatment is two
+        // outset shadows — so clipping here erased the ring from every rail
+        // destination, in the first region `F6` reaches. Nothing needs the clip
+        // any more: the marker carries its own corner and the Button rounds its
+        // own fill to the same radius.
         .when(active, |row| row.bg(rgb(palette.selection)))
         // Expanded, every row reserves the marker's width so the icons share one
-        // edge down the rail whether or not their row is the active one.
-        // Collapsed there is no label to line them up against, so nothing is
-        // reserved and the single icon stays centred in the rail.
-        .when(!collapsed, |row| row.child(div().flex_none().w(bar)))
+        // edge down the rail whether or not their row is the active one, plus
+        // the room a focused control's rings need — without it the ring lands in
+        // the marker's band and the two cannot both be seen, which `DESIGN.md`
+        // requires of focus and selection alike. Collapsed there is no label to
+        // line the icons up against, so nothing is reserved, the single icon
+        // stays centred, and the rings fall outside the row entirely.
+        .when(!collapsed, |row| {
+            row.child(div().flex_none().w(bar + rings))
+        })
         // The control takes what the marker leaves, rather than only what its
         // own label needs: a row sized to its label leaves seven fills at seven
         // widths staggered down the rail.

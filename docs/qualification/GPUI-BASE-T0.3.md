@@ -804,7 +804,28 @@ inserts no hitbox at this pin — so it neither moves the icon nor takes the
 pointer, and being the row's last child it is drawn over the control's hover
 fill rather than under it, which an icon-only Button filling the whole row would
 otherwise cover the moment the pointer arrived. The matrix pins the minimum quad
-size the clamp makes load-bearing. The responsive matrix asserts the
+size the clamp makes load-bearing, and
+`the_active_rails_marker_does_not_take_the_pointer` pins the inertness, because
+nothing else can: every other rail click in these tests lands on a row that is
+not the active one, and clicking the active one asserts nothing on its own,
+since opening the destination it is already on is a no-op either way. The test
+fails as soon as the quad is given a hitbox.
+
+What the row does *not* do is clip. GPUI masks a child's paint to the parent's
+rectangle through `Style::overflow_mask`, and that mask covers box shadows —
+which is what Ordo's focus treatment is made of, two outset rings. An
+`overflow_hidden` here therefore erased the focus ring from every rail
+destination, in the first region the `F6` cycle reaches, and did it in both
+widths: collapsed, an icon-only Button fills the row and every side of its ring
+fell outside; expanded, only the segment lying in the marker's own band
+survived. Nothing needs the clip once the marker carries its own corner, since
+the Button already rounds its fill to the same radius, so the row does not set
+it. The expanded reserve is the bar plus `FOCUS_SEPARATION + FOCUS_OUTER` for
+the same reason: with only the bar reserved, a focused active destination puts
+the ring and the marker in one four-pixel band, and `DESIGN.md` has focus and
+selection coexisting rather than taking turns. Collapsed nothing is reserved and
+the rings fall outside the row entirely, which the rail's own inset leaves room
+for. The responsive matrix asserts the
 marker's position at every combination, the icon's centring where the rail
 collapses, and that every row measures the same: a row whose control is sized by
 its own label leaves seven fills at seven widths staggered down the rail, so the
