@@ -7,7 +7,7 @@
 //! environment and one seam for applying a change; everything else is here.
 
 use gpui::{
-    App, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px, rgb,
+    App, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px, rgb, svg,
 };
 use ui::{
     assets::icon,
@@ -29,9 +29,13 @@ pub fn panel(
     let scale = environment.preferences().scale;
     let palette = tokens::palette(environment.appearance());
     let preferences = environment.preferences();
+    let mark = scale.apply(tokens::icon::CONTROL_SIZE);
     let choice =
         |id: SharedString, label: SharedString, active: bool, change: EnvironmentChange| {
             div()
+                .flex()
+                .items_center()
+                .pl(px(scale.apply(tokens::spacing::RELATED)))
                 .rounded(px(scale.apply(tokens::radius::CONTROL)))
                 .when(active, |row| {
                     row.debug_selector({
@@ -40,12 +44,23 @@ pub fn panel(
                     })
                     .bg(rgb(palette.selection))
                 })
+                // The fill is never the only cue: a check marks the current
+                // choice for a sighted operator, and `current` below marks it
+                // for assistive technology. Every choice reserves the mark's
+                // slot the way every rail row reserves its marker bar — these
+                // sit on a wrapping flex line, so a choice that grew when it
+                // was taken would shove its neighbours along it and drop one to
+                // the next row.
+                .child(div().flex_none().size(px(mark)).when(active, |slot| {
+                    slot.child(
+                        svg()
+                            .size(px(mark))
+                            .text_color(rgb(palette.text))
+                            .data(icon::CHECK.as_bytes()),
+                    )
+                }))
                 .child(
                     Button::new(id, label, environment)
-                        // The fill is never the only cue: a check marks the
-                        // current choice for a sighted operator, and Current
-                        // marks it for assistive technology.
-                        .when(active, |choice| choice.icon(icon::CHECK))
                         .current(active)
                         .on_surface(if active {
                             palette.selection

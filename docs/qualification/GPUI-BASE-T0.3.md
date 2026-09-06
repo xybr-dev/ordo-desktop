@@ -672,12 +672,14 @@ named like anything else, and everything visible is Ordo's — a title, a detail
 line, the badges that classify it, and one shared bottom edge, which is what
 `DESIGN.md` asks for before a card and what keeps adjacent rows from doubling a
 border between every pair. A row's title and detail both truncate, so the row
-carries its accessible name as a tooltip too — `DESIGN.md` owes a truncated value
-its full text to the pointer as well as to AccessKit — and `ui::primitives::truncated`
+carries its accessible name as a tooltip too, and `ui::primitives::truncated`
 does the same for the workspace, viewer, and editor titles, which truncate
 without a control of their own. It is attached unconditionally: measuring whether
 a given string actually clipped costs a frame and buys nothing, since the tooltip
-only repeats what is already there. A `Badge` is a short classifier beside that text;
+only repeats what is already there. That closes the pointer half of `DESIGN.md`'s
+truncation rule and only the pointer half — the pin suppresses a tooltip under
+keyboard modality, which is recorded under **Pinned platform limitations** below
+— so a keyboard operator reads the full text through the accessible name instead. A `Badge` is a short classifier beside that text;
 the liturgical colors reach it through `tone`, which is the one thing
 `DESIGN.md` allows them to say. What a row is *not* is a collection: arrow-key
 roving and ListBox/option semantics need the collection itself, and land with
@@ -796,7 +798,11 @@ collapses, and that every row measures the same: a row whose control is sized by
 its own label leaves seven fills at seven widths staggered down the rail, so the
 control takes what the marker leaves rather than what its label needs. The
 Settings panel marks its current appearance and scale the same way, with a
-`CHECK` glyph as the shape cue beside the same `Button::current` semantics.
+`CHECK` glyph as the shape cue beside the same `Button::current` semantics — and
+it reserves that glyph's slot on every choice for the rail's own reason, because
+the choices sit on a wrapping flex line and one that grew when it was taken would
+shove its neighbours along and drop the last to the next row. The navigation test
+takes an appearance and asserts the other choices did not move.
 
 `list::arrows` binds Up and Down to the window's focus order from the list
 container, because a column of records is one collection the operator reads
@@ -864,6 +870,20 @@ the flag exists and is both readable and settable, but nothing at the pin maps
 an operating-system `prefers-reduced-motion` onto it. Ordo honors it wherever
 motion is drawn and automates that; following the platform setting needs a
 revision that reports it, which reruns this qualification.
+
+A truncated value's keyboard reveal is a fourth. `DESIGN.md` requires every
+visually truncated value to show its full text "on pointer hover **and keyboard
+focus**", and the pin supplies only the pointer half: `div.rs` registers a
+tooltip through `register_tooltip_mouse_handlers` and nothing else, and there is
+no focus trigger anywhere in the pinned GPUI. It does not merely omit the other
+half — it suppresses it. `Hitbox::is_hovered` returns `false` outright when
+`Window::last_input_was_keyboard`, and the prepaint hover check a tooltip is
+gated on begins with the same negation, so tabbing to a truncated control shows
+nothing. Ordo therefore closes the pointer half with `ui::primitives::truncated`
+and the `ListRow`'s own tooltip, and the full text reaches a keyboard operator
+through the accessible name, which every truncated value already carries. A
+revision that triggers a tooltip from focus, or that stops suppressing one under
+keyboard modality, closes the visible half and reruns this qualification.
 
 No platform mode is reported either. The pinned revision exposes no
 high-contrast or forced-colors signal, and a GPU-composited GPUI window gets no

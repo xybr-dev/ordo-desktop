@@ -119,10 +119,10 @@ pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
 /// to be non-color-only, and `Button::current` is the assistive half of that,
 /// not the visible one. Expanded, every row reserves the same bar, so the icons
 /// still line up down the rail and the row keeps the rail's inset on both
-/// sides. Collapsed there is no label to line the icons up against, so the
-/// marker leaves the flow and overlays the row's leading edge instead — the
-/// same full-height bar, at a size that reads as deliberate, with the icon
-/// still centred in the rail.
+/// sides. Collapsed there is no label to line the icons up against, so the same
+/// bar leaves the flow and overlays the row's leading edge instead. Its size is
+/// unchanged; what changes is that it no longer pushes the single icon off the
+/// centre of the rail, which was the objection to drawing it there at all.
 fn item(
     destination: Destination,
     active: bool,
@@ -151,8 +151,8 @@ fn item(
         .overflow_hidden()
         .when(active, |row| row.bg(rgb(palette.selection)))
         // Expanded the marker is in flow, so every row reserves it and the
-        // icons share one edge. Collapsed it overlays that edge instead, so the
-        // single icon stays centred in the rail.
+        // icons share one edge. Collapsed it leaves the flow and overlays that
+        // edge instead, so it no longer pushes the single icon off centre.
         .child(if collapsed {
             marker(div().absolute().left_0().top_0())
         } else {

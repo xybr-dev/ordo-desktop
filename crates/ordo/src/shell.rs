@@ -926,6 +926,30 @@ mod tests {
         });
         assert!(cx.debug_bounds("setting-active-150%").is_some());
         keys(cx, "ctrl-0");
+        // Every choice reserves the mark's slot, so taking one changes the mark
+        // and not the line: the appearance choices wrap, and a choice that grew
+        // when it was taken would shove its neighbours along and drop one to the
+        // next row. Appearance is the half that can be picked without moving
+        // every other measurement with it.
+        fn appearances(cx: &mut VisualTestContext) -> [gpui::Point<gpui::Pixels>; 3] {
+            ["System", "Light", "Dark"].map(|label| {
+                cx.debug_bounds(sel(format!("button-{label}")))
+                    .unwrap()
+                    .origin
+            })
+        }
+        let before = appearances(cx);
+        click(cx, "button-Dark");
+        assert!(
+            cx.debug_bounds("setting-active-Dark").is_some(),
+            "the picked appearance is marked"
+        );
+        assert_eq!(
+            before,
+            appearances(cx),
+            "taking a choice moved the ones beside it"
+        );
+        click(cx, "button-System");
         shell.read_with(cx, |shell, _| {
             assert_eq!(
                 shell.environment().preferences().scale,
@@ -1136,13 +1160,14 @@ mod tests {
     /// control that would carry a tooltip on its own.
     #[gpui::test]
     fn a_truncated_value_reveals_its_full_text_to_the_pointer(cx: &mut TestAppContext) {
-        let (_, cx) = open(cx);
-        click(cx, "row-Upcoming \u{b7} entry 1");
-        for selector in [
-            "row-Upcoming \u{b7} entry 1",
-            "workspace-title",
-            "viewer-title",
-        ] {
+        /// Rests the pointer on one element and reports where its tooltip
+        /// landed. Reporting the bounds rather than only their presence is what
+        /// makes the loop below bite: a tooltip that outlived the move to the
+        /// next element would otherwise satisfy every iteration after the first.
+        fn rest_on(
+            cx: &mut VisualTestContext,
+            selector: &'static str,
+        ) -> Option<gpui::Bounds<gpui::Pixels>> {
             let bounds = cx
                 .debug_bounds(selector)
                 .unwrap_or_else(|| panic!("{selector} renders"));
@@ -1150,19 +1175,32 @@ mod tests {
             cx.executor()
                 .advance_clock(ui::primitives::button::TOOLTIP_SHOW_DELAY);
             cx.run_until_parked();
+            cx.debug_bounds("control-tooltip")
+        }
+
+        let (_, cx) = open(cx);
+        click(cx, "row-Upcoming \u{b7} entry 1");
+        // A value that does not truncate says nothing, which is also what says
+        // the reveals below are `truncated`'s doing rather than something the
+        // shell shows everywhere.
+        let mut previous = rest_on(cx, "connection-status");
+        assert!(previous.is_none(), "an untruncated value offers no tooltip");
+        for selector in [
+            "row-Upcoming \u{b7} entry 1",
+            "workspace-title",
+            "viewer-title",
+        ] {
+            let tooltip = rest_on(cx, selector);
             assert!(
-                cx.debug_bounds("control-tooltip").is_some(),
-                "{selector} truncates without offering its full text"
+                tooltip.is_some() && tooltip != previous,
+                "{selector} truncates without offering its own full text"
             );
+            previous = tooltip;
         }
         click(cx, "button-Open");
-        let title = cx.debug_bounds("editor-title").expect("the editor renders");
-        cx.simulate_mouse_move(title.center(), None, Modifiers::default());
-        cx.executor()
-            .advance_clock(ui::primitives::button::TOOLTIP_SHOW_DELAY);
-        cx.run_until_parked();
+        let tooltip = rest_on(cx, "editor-title");
         assert!(
-            cx.debug_bounds("control-tooltip").is_some(),
+            tooltip.is_some() && tooltip != previous,
             "the editor title truncates without offering its full text"
         );
     }
