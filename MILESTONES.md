@@ -1618,6 +1618,9 @@ blocking valid content unnecessarily.
 - [ ] `[AUTO]` Readiness is derived and never stored as approval/completion.
 - [ ] `[UI-AUTO]` Header counts open one floating Readiness slideover grouped as
       Incomplete presentation and Review recommended.
+- [ ] `[UI-AUTO]` Readiness states and counts use a compact semantic
+      `StatusLabel` introduced with this first production caller; T0.3 does not
+      add a generic Badge or ubiquitous pill primitive.
 - [ ] `[UI-AUTO]` A jump preserves the panel; a corrective action closes it and
       focuses the owning editor control; fixed findings disappear automatically.
 - [ ] `[AUTO]` An archived referenced Arrangement is a warning and stays
@@ -2156,8 +2159,12 @@ current Program or silently changing reusable library content.
 **AC**
 
 - [ ] `[UI-AUTO]` Insert immediately Freezes Program and opens a viewport-
-      bounded chooser/editor for General text/image, Response sequence, or Song;
-      Cancel leaves Program held and creates no item.
+      bounded chooser/editor for General text/image, Response sequence, or Song.
+      The Song path is a centered, keyboard-first **Quick Insert** chooser whose
+      field filters results and whose arrow keys move the active result; it
+      composes the existing Field, selection-list, Dialog, focus, and scrolling
+      behavior rather than adding a global Command Palette primitive. Cancel
+      leaves Program held and creates no item.
 - [ ] `[UI-AUTO]` Save inserts a Mass-local item after the current Mass item in
       the same section, selects its first projectable Cue in Preview, and leaves
       Program held until Space. A missing Song/Arrangement is Mass-local first.
