@@ -182,7 +182,7 @@ and responsive chrome before feature pages depend on them.
 
 **AC**
 
-- [ ] `[AUTO]` Implement System-default, Light, and Dark Preparation appearance
+- [x] `[AUTO]` Implement System-default, Light, and Dark Preparation appearance
       from `DESIGN.md`, including Atkinson operator typography, semantic colors,
       spacing, radii, borders, elevation, Lucide icons, and reduced-motion
       rules; Presenter always selects graphite dark.
@@ -191,57 +191,57 @@ and responsive chrome before feature pages depend on them.
       simulate a window-appearance change, so only the resolution mapping and
       the state transition are automated; see
       `docs/qualification/GPUI-BASE-T0.3.md`.
-- [ ] `[UI-AUTO]` Global destinations appear in a vertical application rail:
+- [x] `[UI-AUTO]` Global destinations appear in a vertical application rail:
       Masses, Library, Themes, and Transfer & Backup; Settings, Help, and
       Diagnostics are anchored at the bottom.
-- [ ] `[UI-AUTO]` Global destinations are navigation, not tabs. Horizontal tabs
+- [x] `[UI-AUTO]` Global destinations are navigation, not tabs. Horizontal tabs
       are reserved for local views such as Masses' Upcoming, History, Archive,
       and Templates.
-- [ ] `[UI-AUTO]` The rail uses icons plus persistent labels when space permits
+- [x] `[UI-AUTO]` The rail uses icons plus persistent labels when space permits
       and collapses to accessible labeled icons with tooltips when effective
       width or Interface scale requires it.
-- [ ] `[UI-AUTO]` Settings and `Ctrl++`/`Ctrl+-`/`Ctrl+0` select the supported
+- [x] `[UI-AUTO]` Settings and `Ctrl++`/`Ctrl+-`/`Ctrl+0` select the supported
       100%, 125%, 150%, 175%, and 200% Interface scales, persist the
       installation preference, and never reflow canonical Slide content.
-- [ ] `[UI-AUTO]` The active destination remains non-color-only and survives
+- [x] `[UI-AUTO]` The active destination remains non-color-only and survives
       opening and returning from a focused editor.
-- [ ] `[AUTO]` Buttons, fields, menus, tooltips, selects, comboboxes,
+- [x] `[AUTO]` Buttons, fields, menus, tooltips, selects, comboboxes,
       disclosures, tabs, dialogs, and nested slideovers are Ordo-owned GPUI
       primitives with typed state and one application overlay layer. A Select
       is a button trigger plus a popup list; a Combobox is an editable Field
       trigger plus a filtered popup list. They are separate primitives.
-- [ ] `[UI-AUTO]` Dialogs, ordinary slideovers, and unpinned Presenter Ordo use
+- [x] `[UI-AUTO]` Dialogs, ordinary slideovers, and unpinned Presenter Ordo use
       one input-capturing dim scrim with no click-through; bottom-center toasts
       distinguish expiring confirmation/Undo from owned persistent failures.
-- [ ] `[UI-AUTO]` Slideovers enter in 400ms and exit in 200ms through
+- [x] `[UI-AUTO]` Slideovers enter in 400ms and exit in 200ms through
       interruptible reduced-motion-aware tokens.
-- [ ] `[AUTO]` The internal `ui` crate uses a pinned GPUI-compatible
+- [x] `[AUTO]` The internal `ui` crate uses a pinned GPUI-compatible
       `gpui-base` revision only behind Ordo-owned primitive Interfaces; the
       styled `gpui-component` layer is not a production dependency.
-- [ ] `[AUTO]` Dependency and license checks cover GPUI, `gpui-base`, and their
+- [x] `[AUTO]` Dependency and license checks cover GPUI, `gpui-base`, and their
       complete transitive graph before any closed-source distribution decision.
-- [ ] `[UI-AUTO]` `ui-lab` exposes curated reusable scenarios for every adopted
+- [x] `[UI-AUTO]` `ui-lab` exposes curated reusable scenarios for every adopted
       primitive across meaningful states, both appearances, supported Interface
       scales, 1366×768 and 1920×1080 presets, long multilingual content,
       constrained overlays, and keyboard/focus behavior.
-- [ ] `[AUTO]` `ui-lab` depends on `ui` and fixture helpers only, is excluded
+- [x] `[AUTO]` `ui-lab` depends on `ui` and fixture helpers only, is excluded
       from parish installers, and contains no duplicate domain workflow or
       alternate implementation of the `ordo` application.
-- [ ] `[AUTO]` No production dependency on React, a WebView, CSS/Tailwind,
+- [x] `[AUTO]` No production dependency on React, a WebView, CSS/Tailwind,
       shadcn, Base UI, or browser runtime enters the Cargo workspace.
-- [ ] `[AUTO]` Any additional third-party GPUI behavior library has its exact
+- [x] `[AUTO]` Any additional third-party GPUI behavior library has its exact
       revision, license, accessibility behavior, focus behavior, and removal
       seam qualified before it becomes a dependency.
-- [ ] `[UI-AUTO]` Every overlay remains within the visible app viewport; its
+- [x] `[UI-AUTO]` Every overlay remains within the visible app viewport; its
       body scrolls internally while header and actions remain reachable.
-- [ ] `[UI-AUTO]` Every bounded scrolling surface shows an Ordo-owned scroll
+- [x] `[UI-AUTO]` Every bounded scrolling surface shows an Ordo-owned scroll
       indicator whenever its content exceeds its viewport, from one shared
       implementation; the pinned GPUI paints none of its own, see
       `docs/qualification/GPUI-BASE-T0.3.md`.
-- [ ] `[UI-AUTO]` `Tab` follows visible reading order through GPUI focus handles;
+- [x] `[UI-AUTO]` `Tab` follows visible reading order through GPUI focus handles;
       `F6`/`Shift+F6` cycle only visible registered regions and restore the last
       meaningful target.
-- [ ] `[UI-AUTO]` AccessKit nodes expose roles, labels, descriptions, values,
+- [x] `[UI-AUTO]` AccessKit nodes expose roles, labels, descriptions, values,
       and actions for the shell and primitive corpus without exposing
       operator-only nodes through the congregation window.
 - [x] `[MANUAL]` Keyboard-only and Windows High Contrast checks preserve the
@@ -253,6 +253,15 @@ dialog, and nested-slideover scenarios using only the keyboard, change from
 Then launch `ordo`, navigate from the expanded Masses rail to Library/Songs and its
 local views, and verify that the same primitive behavior holds in the shell
 without whole-workspace horizontal scroll.
+
+**Evidence:** `cargo xtask verify` 9/9 green (84 `ui` + 16 `ordo` tests),
+including the milestone E2E pair
+`ui::lab::tests::the_milestone_keyboard_path_holds_state_focus_and_containment_across_viewport_switch`
+and
+`ordo::shell::tests::the_milestone_shell_path_holds_primitive_behavior_without_workspace_scroll`;
+manual scripts and per-AC evidence index in
+`docs/qualification/T0.3-MANUAL-GATE.md`, with both `[MANUAL]` passes recorded
+above.
 
 ### T0.4 — Canonical rendering and bundled-font isolation spike
 
