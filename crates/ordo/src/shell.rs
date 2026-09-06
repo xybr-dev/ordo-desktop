@@ -1082,6 +1082,19 @@ mod tests {
                         f32::from(item.right() - rail.right()),
                         scale.percent()
                     );
+                    // Collapsed there is no label to line the icons up with,
+                    // so they sit in the middle of the rail rather than
+                    // off-centre behind the active marker.
+                    if collapsed {
+                        let offset = f32::from(item.center().x - rail.center().x).abs();
+                        assert!(
+                            offset <= 1.0,
+                            "{} sits {offset}px off the centre of a collapsed rail at \
+                             {width} and {}%",
+                            destination.label(),
+                            scale.percent()
+                        );
+                    }
                 }
                 // The list is a bounded scrolling surface like every other, so
                 // it reports its position when it overflows and says nothing

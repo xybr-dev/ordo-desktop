@@ -92,10 +92,10 @@ pub const EXPANDED_RESERVE: f32 = 240.0;
 /// labels before the workspace gives up a pane, so these are the threshold.
 const MINIMUM_WORKSPACE: f32 = 240.0 + 520.0;
 
-/// A collapsed rail is exactly one square icon control plus the rail's inset.
+/// A collapsed rail is exactly one square icon control plus the rail's inset
+/// and its separator. The active marker is out of flow, so it adds nothing.
 pub fn collapsed_width(scale: InterfaceScale) -> f32 {
-    scale.apply(tokens::density::DEFAULT_CONTROL + tokens::spacing::UNIT)
-        + scale.apply(tokens::spacing::RELATED_TIGHT)
+    scale.apply(tokens::density::DEFAULT_CONTROL)
         + 2.0 * scale.apply(tokens::spacing::RELATED)
         + tokens::border::SEPARATOR
 }
@@ -110,6 +110,12 @@ pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
 
 /// One rail row. Collapsed it is an icon whose tooltip is its accessible name,
 /// which is the Button's own contract for an icon-only control.
+///
+/// The active marker rides the rail's leading edge without taking part in
+/// layout, because the two states want opposite things from it. Expanded, the
+/// icons and labels line up in a column beside it; collapsed, there is nothing
+/// to line up and an icon pushed off-centre by a four-pixel bar just reads as
+/// crooked. In flow it would do the first and prevent the second.
 fn item(
     destination: Destination,
     active: bool,
@@ -120,36 +126,43 @@ fn item(
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     let label = destination.label();
+    let marker = scale.apply(tokens::spacing::UNIT);
     div()
+        .relative()
         .flex()
         .items_center()
-        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-        // The non-color half of the active treatment: a marker on the leading
-        // edge, so the current destination is legible without the tint.
+        // Collapsed the icon is centred in the rail; expanded it starts on the
+        // shared edge the labels beside it need.
+        .when(collapsed, |row| row.justify_center())
+        .when(!collapsed, |row| {
+            row.pl(px(marker + scale.apply(tokens::spacing::RELATED_TIGHT)))
+        })
+        // The non-color half of the active treatment, so the current
+        // destination is legible without the tint.
         .child(
             div()
-                .flex_none()
-                .w(px(scale.apply(tokens::spacing::UNIT)))
+                .absolute()
+                .left_0()
+                .w(px(marker))
                 .h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-                .when(active, |marker| {
-                    marker
-                        .debug_selector(move || format!("rail-active-{label}"))
+                .when(active, |bar| {
+                    bar.debug_selector(move || format!("rail-active-{label}"))
                         .bg(rgb(tokens::color::PRIMARY))
                 }),
         )
         .child(
             div()
-                .flex_1()
+                .when(!collapsed, |row| row.flex_1().min_w_0())
                 .rounded(px(scale.apply(tokens::radius::CONTROL)))
                 .when(active, |row| row.bg(rgb(palette.selection)))
                 .child(
                     Button::new(SharedString::from(label), label, environment)
                         .icon(destination.icon())
                         .quiet()
-                        // A destination is read down the rail with the other
-                        // six, so its icon and label start on a shared edge
-                        // rather than floating in the middle of the row.
-                        .stretch()
+                        // Expanded, a destination is read down the rail with
+                        // the other six, so its icon and label start on a
+                        // shared edge rather than floating in the middle.
+                        .when(!collapsed, Button::stretch)
                         .when(collapsed, Button::icon_only)
                         .on_surface(if active {
                             palette.selection

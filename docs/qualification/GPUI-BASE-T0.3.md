@@ -685,6 +685,15 @@ workspace header, which `DESIGN.md` puts among the things that are never
 truncated; the panes below it scroll instead, through `ui::scroll` like every
 other bounded surface.
 
+The active marker is out of flow, on the rail's leading edge, because the two
+rail states want opposite things from it. Expanded, the icons and labels line up
+in a column beside it. Collapsed there is no label to line anything up with, and
+an icon pushed off-centre by a four-pixel bar reads as crooked, so the icon is
+centred in the rail and the marker overlays its edge. A marker in flow would do
+the first and prevent the second, and it also charged the collapsed rail width
+it no longer costs. The matrix test asserts the centring at every scale where
+the rail collapses.
+
 The rail is sized by its own content rather than by a constant. Atkinson is
 wide, and a fixed width is a guess that only ever fails one way: a destination
 whose label is painted past the edge it was told to fit inside, visible only
