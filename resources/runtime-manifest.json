@@ -1,10 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "network_required": false,
   "icon_family": "Lucide",
   "bundled_resources": [
-    "crates/ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
-    "crates/ui/assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
+    "assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
+    "assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
     "crates/ui/assets/icons/lucide/activity.svg",
     "crates/ui/assets/icons/lucide/calendar-days.svg",
     "crates/ui/assets/icons/lucide/check.svg",
@@ -23,8 +23,12 @@
     "crates/ui/assets/icons/lucide/swatch-book.svg",
     "crates/ui/assets/icons/lucide/triangle-alert.svg",
     "crates/ui/assets/icons/lucide/x.svg",
-    "crates/ui/assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
+    "assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
     "crates/ui/assets/licenses/Lucide-ISC-MIT.txt",
-    "crates/ui/assets/licenses/Noto-Sans-OFL-1.1.txt"
-  ]
+    "assets/licenses/Noto-Sans-OFL-1.1.txt"
+  ],
+  "font_hashes": {
+    "assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf": "5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745",
+    "assets/fonts/noto-sans/NotoSans[wdth,wght].ttf": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+  }
 }

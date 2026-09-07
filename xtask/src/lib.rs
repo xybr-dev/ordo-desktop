@@ -62,11 +62,11 @@ const LUCIDE_ICONS: &[&str] = &[
 /// Bundled assets that are not icons; the Lucide subset is appended from
 /// `LUCIDE_ICONS` so the two lists cannot drift apart.
 const REQUIRED_UI_ASSETS: &[&str] = &[
-    "crates/ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
-    "crates/ui/assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
-    "crates/ui/assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
+    "assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf",
+    "assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
+    "assets/licenses/Atkinson-Hyperlegible-Next-OFL-1.1.txt",
     "crates/ui/assets/licenses/Lucide-ISC-MIT.txt",
-    "crates/ui/assets/licenses/Noto-Sans-OFL-1.1.txt",
+    "assets/licenses/Noto-Sans-OFL-1.1.txt",
 ];
 
 fn required_ui_assets() -> impl Iterator<Item = String> {
@@ -93,6 +93,7 @@ struct RuntimeManifest {
     network_required: bool,
     icon_family: String,
     bundled_resources: Vec<String>,
+    font_hashes: BTreeMap<String, String>,
 }
 
 pub fn repo_root() -> PathBuf {
@@ -391,7 +392,7 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
 /// the packaged inventory, ask again whether this committed one still earns its
 /// place rather than letting it survive on inertia.
 fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskResult<()> {
-    if manifest.schema_version != 1 {
+    if manifest.schema_version != 2 {
         return Err("unsupported runtime-manifest schema".into());
     }
     if manifest.network_required {
@@ -419,7 +420,43 @@ fn validate_runtime_manifest(manifest: &RuntimeManifest, root: &Path) -> XtaskRe
             return Err(format!("bundled resource is missing: {resource}").into());
         }
     }
+    validate_font_hashes(&manifest.font_hashes, &manifest.bundled_resources, root)?;
     validate_lucide_assets(&root.join("crates/ui/assets/icons"))?;
+    Ok(())
+}
+
+/// A corrupted or replaced font file fails verification: every bundled font
+/// carries a pinned SHA-256 in the manifest, and every pinned hash names a
+/// bundled resource whose bytes must match.
+fn validate_font_hashes(
+    hashes: &BTreeMap<String, String>,
+    resources: &[String],
+    root: &Path,
+) -> XtaskResult<()> {
+    for resource in resources
+        .iter()
+        .filter(|resource| resource.ends_with(".ttf"))
+    {
+        if !hashes.contains_key(resource) {
+            return Err(format!("bundled font lacks a pinned hash: {resource}").into());
+        }
+    }
+    for (path, expected) in hashes {
+        if !resources.iter().any(|resource| resource == path) {
+            return Err(format!("pinned font hash names an unregistered resource: {path}").into());
+        }
+        let bytes = fs::read(root.join(path))?;
+        validate_font_digest(path, expected, &bytes)?;
+    }
+    Ok(())
+}
+
+fn validate_font_digest(path: &str, expected: &str, bytes: &[u8]) -> XtaskResult<()> {
+    use sha2::Digest as _;
+    let actual = format!("{:x}", sha2::Sha256::digest(bytes));
+    if actual != expected {
+        return Err(format!("bundled font hash mismatch: {path}").into());
+    }
     Ok(())
 }
 
@@ -617,6 +654,31 @@ mod tests {
         assert!(validate_offline_source("reqwest::get(\"example\")").is_err());
         assert!(validate_offline_source("std::net::TcpListener::bind(\"0.0.0.0:0\")").is_err());
         assert!(validate_offline_source("//! Ref: https://example.invalid/spec").is_ok());
+    }
+
+    #[test]
+    fn rejects_replaced_font_bytes() {
+        let pinned = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(validate_font_digest("font.ttf", pinned, b"abc").is_ok());
+        assert!(validate_font_digest("font.ttf", pinned, b"abd").is_err());
+    }
+
+    #[test]
+    fn rejects_corrupted_or_unpinned_bundled_font() {
+        let dir = std::env::temp_dir().join(format!("ordo-xtask-font-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be writable");
+        std::fs::write(dir.join("font.ttf"), b"abd").expect("temp font must be writable");
+        let pinned = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let resources = vec!["font.ttf".to_owned()];
+
+        // Replaced bytes no longer match the pinned hash.
+        let hashes = BTreeMap::from([("font.ttf".to_owned(), pinned.to_owned())]);
+        assert!(validate_font_hashes(&hashes, &resources, &dir).is_err());
+
+        // A font without any pinned hash is equally rejected.
+        assert!(validate_font_hashes(&BTreeMap::new(), &resources, &dir).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

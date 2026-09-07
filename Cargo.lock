@@ -7244,6 +7244,7 @@ dependencies = [
  "cargo_metadata",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
