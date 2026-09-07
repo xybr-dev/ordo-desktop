@@ -10,8 +10,8 @@ pub mod templates;
 
 pub use interface::{
     Diagnostics, ForegroundImage, Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X,
-    MIN_SAFE_INSET_Y, PlacedImage, Rect, RenderError, SemanticContent, TargetDensity, Theme,
-    render,
+    MIN_SAFE_INSET_Y, PlacedImage, Rect, RenderError, SemanticContent, SlideBackground,
+    TargetDensity, Theme, render,
 };
 pub use shaping::{
     Alignment, BODY_FONT_SIZE, BODY_LINE_HEIGHT, Fit, PaginationInputs, PlacedGlyph, ShapedLine,

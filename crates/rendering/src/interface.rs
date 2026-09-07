@@ -136,7 +136,8 @@ impl ZoneStyle {
 }
 
 /// Per-composition zone plan: per-zone styles, the song identity-block lead,
-/// and the body's vertical placement inside its rect.
+/// the body's vertical placement inside its rect, and the slide background
+/// the raster pass paints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CompositionPlan {
     pub(crate) header: ZoneStyle,
@@ -144,11 +145,12 @@ pub(crate) struct CompositionPlan {
     pub(crate) footer: ZoneStyle,
     pub(crate) footer_lead: Option<(ZoneStyle, u32)>,
     pub(crate) body_valign: VAlign,
+    pub(crate) background: SlideBackground,
 }
 
 impl CompositionPlan {
     /// The PR 4 neutral plan: the baseline size, left-origin lines starting
-    /// at the top of each zone.
+    /// at the top of each zone, on the theme background.
     pub(crate) const fn neutral() -> Self {
         Self {
             header: ZoneStyle::neutral(),
@@ -156,6 +158,7 @@ impl CompositionPlan {
             footer: ZoneStyle::neutral(),
             footer_lead: None,
             body_valign: VAlign::Top,
+            background: SlideBackground::Theme,
         }
     }
 }
@@ -168,6 +171,16 @@ impl CompositionPlan {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Diagnostics {
     pub warnings: Vec<String>,
+}
+
+/// Slide background intent, as the completed frame carries it: the theme
+/// background or the required black slide. The raster pass paints from this;
+/// an empty text slide and a black slide serialize differently because only
+/// one carries the black intent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlideBackground {
+    Theme,
+    Black,
 }
 
 /// One complete logical composition.
@@ -190,6 +203,7 @@ pub struct Frame {
     footer_lines: Vec<ShapedLine>,
     pagination: PaginationInputs,
     image: Option<PlacedImage>,
+    background: SlideBackground,
 }
 
 /// A resolved foreground image, as the template corpus accepts it: the
@@ -246,6 +260,10 @@ impl Frame {
 
     pub fn image(&self) -> Option<&PlacedImage> {
         self.image.as_ref()
+    }
+
+    pub fn background(&self) -> SlideBackground {
+        self.background
     }
 
     /// The logical canvas size this frame was composed for.
@@ -333,6 +351,11 @@ impl Frame {
                 let _ = writeln!(out, "image-absent");
             }
         }
+        let background = match self.background {
+            SlideBackground::Theme => "theme",
+            SlideBackground::Black => "black",
+        };
+        let _ = writeln!(out, "background {background}");
         for (zone, lines) in [
             ("header", self.header_lines.as_slice()),
             ("body", self.body_lines.as_slice()),
@@ -690,6 +713,7 @@ pub(crate) fn compose_zoned(
             footer_lines,
             pagination,
             image,
+            background: plan.background,
         },
         diagnostics,
     ))

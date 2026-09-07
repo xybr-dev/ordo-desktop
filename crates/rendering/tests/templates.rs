@@ -457,6 +457,44 @@ fn black_composes_empty_and_fits() {
     assert!(frame.body_lines().is_empty());
     assert!(diagnostics.warnings.is_empty());
     assert_eq!(frame.pagination().fit, rendering::Fit::Fits);
+    assert_eq!(frame.background(), rendering::SlideBackground::Black);
+    assert!(frame.serialize().contains("\nbackground black\n"));
+}
+
+#[test]
+fn black_is_distinguishable_from_any_other_empty_slide() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let (black, _) = render_template(
+        &content(TemplateKind::Black, None, "", None),
+        &theme,
+        density,
+    )
+    .unwrap();
+    // An empty General Text frame has identical zones but no black intent,
+    // so the raster pass can tell a required black slide apart.
+    let (empty, _) = render_template(
+        &content(TemplateKind::GeneralText, None, "", None),
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(empty.background(), rendering::SlideBackground::Theme);
+    assert!(empty.serialize().contains("\nbackground theme\n"));
+    assert_ne!(black.serialize(), empty.serialize());
+    // The plain Interface path stays on the theme background too.
+    let (plain, _) = rendering::render(
+        &rendering::SemanticContent {
+            body: String::new(),
+            response_header: None,
+            psalm_header: None,
+            footer: None,
+        },
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(plain.background(), rendering::SlideBackground::Theme);
 }
 
 #[test]

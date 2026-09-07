@@ -29,8 +29,8 @@
 //! - General image: optional header and caption footer, plus the resolved
 //!   foreground element, which joins the frame with aspect-ratio-contained
 //!   bounds inside the body zone for the raster pass to resolve.
-//! - Black: everything empty. Black paint is raster-side; the logical frame
-//!   is an empty composition that fits without warnings.
+//! - Black: everything empty, carrying the black background intent in the
+//!   frame for the raster pass to paint.
 //!
 //! Contract points, not oversights:
 //!
@@ -61,7 +61,7 @@
 
 use crate::interface::{
     self, CompositionPlan, Diagnostics, ForegroundImage, Frame, RenderError, SemanticContent,
-    TargetDensity, Theme, ZoneStyle,
+    SlideBackground, TargetDensity, Theme, ZoneStyle,
 };
 use crate::shaping::{self, Alignment, VAlign};
 
@@ -304,6 +304,13 @@ pub fn render_template(
         footer: composition.footer,
         footer_lead: composition.footer_lead,
         body_valign: composition.body_valign,
+        // Only the black slide carries the black intent; every other kind,
+        // however empty, stays on the theme background.
+        background: if content.kind == TemplateKind::Black {
+            SlideBackground::Black
+        } else {
+            SlideBackground::Theme
+        },
     };
     // Only the image slide records a foreground element; any other kind
     // leaves the frame imageless even if one was supplied.
