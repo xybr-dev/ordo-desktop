@@ -27,7 +27,7 @@
 //! header and footer content and anything else would misbound the frame.
 
 use crate::fonts::CanonicalFont;
-use crate::shaping::{self, Fit, PaginationInputs, ShapedLine};
+use crate::shaping::{self, Alignment, Fit, PaginationInputs, ShapedLine};
 
 /// Logical canvas width every slide composes in.
 pub const LOGICAL_WIDTH: u32 = 1920;
@@ -418,7 +418,17 @@ pub fn render(
         .as_deref()
         .or(content.psalm_header.as_deref());
     let header_lines = header_text
-        .map(|text| shaping::layout_zone(text, max_width, safe_x, safe_y, &faces))
+        .map(|text| {
+            shaping::layout_zone(
+                text,
+                shaping::BODY_FONT_SIZE,
+                max_width,
+                safe_x,
+                safe_y,
+                &faces,
+                Alignment::Left,
+            )
+        })
         .unwrap_or_default();
     // A present header reserves at least one line even when its string is
     // empty; an absent header collapses to zero so the body keeps the space.
@@ -429,7 +439,17 @@ pub fn render(
     let footer_lines = content
         .footer
         .as_deref()
-        .map(|text| shaping::layout_zone(text, max_width, 0, 0, &faces))
+        .map(|text| {
+            shaping::layout_zone(
+                text,
+                shaping::BODY_FONT_SIZE,
+                max_width,
+                0,
+                0,
+                &faces,
+                Alignment::Left,
+            )
+        })
         .unwrap_or_default();
     let footer_height = content
         .footer
@@ -460,7 +480,15 @@ pub fn render(
     let body_available = safe_height
         .saturating_sub(header_height)
         .saturating_sub(footer_height);
-    let laid_out = shaping::layout_body(&content.body, max_width, safe_x, body_y, &faces);
+    let laid_out = shaping::layout_body(
+        &content.body,
+        shaping::BODY_FONT_SIZE,
+        max_width,
+        safe_x,
+        body_y,
+        &faces,
+        Alignment::Left,
+    );
     let body_content_height =
         (laid_out.lines.len() as u32).saturating_mul(shaping::BODY_LINE_HEIGHT);
     // Horizontal overflow is possible only when a single glyph exceeds the
