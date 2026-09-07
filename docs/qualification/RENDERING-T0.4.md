@@ -71,7 +71,10 @@ bytes, and pins the integer glyph ids, advances, offsets, and byte clusters in
 Noto fallback are PR 4 scope: the probe deliberately records the raw behavior,
 including the Han character mapping to `.notdef` (glyph 0) until fallback
 lands. The probe is evidence, not the renderer, and its font path follows the
-faces to their PR 2 shared location.
+faces to their PR 2 shared location. The fixture is LF-pinned in
+`.gitattributes`: the test compares it against in-memory `writeln!` output, so
+a CRLF checkout on Windows would fail the comparison without any shaping
+drift.
 
 Linux run, `rustc 1.96.0`, x86_64:
 
