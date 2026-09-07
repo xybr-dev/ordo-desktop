@@ -17,7 +17,7 @@ const PROBE_TEXT: &str = "Maayong buntag, mga igsoon! The choir sings \u{2014} a
 
 fn serialize_shaping() -> String {
     let font_data = include_bytes!(
-        "../../ui/assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf"
+        "../../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf"
     );
     let face = rustybuzz::Face::from_slice(font_data, 0).expect("bundled Atkinson must parse");
     let mut buffer = rustybuzz::UnicodeBuffer::new();

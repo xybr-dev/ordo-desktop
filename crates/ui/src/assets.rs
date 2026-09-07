@@ -1,8 +1,10 @@
 //! Compile-time catalog of Ordo's bundled operator assets.
 
-pub const ATKINSON_HYPERLEGIBLE_NEXT: &[u8] =
-    include_bytes!("../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf");
-pub const NOTO_SANS: &[u8] = include_bytes!("../assets/fonts/noto-sans/NotoSans[wdth,wght].ttf");
+pub const ATKINSON_HYPERLEGIBLE_NEXT: &[u8] = include_bytes!(
+    "../../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext[wght].ttf"
+);
+pub const NOTO_SANS: &[u8] =
+    include_bytes!("../../../assets/fonts/noto-sans/NotoSans[wdth,wght].ttf");
 
 pub mod icon {
     /// Declares each icon constant and the `ALL` catalog from one list, so a
