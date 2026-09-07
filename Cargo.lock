@@ -4804,6 +4804,10 @@ name = "rendering"
 version = "0.1.0"
 dependencies = [
  "domain",
+ "rustybuzz",
+ "swash",
+ "tiny-skia",
+ "ttf-parser",
 ]
 
 [[package]]

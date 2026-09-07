@@ -8,6 +8,13 @@ publish.workspace = true
 
 [dependencies]
 domain.workspace = true
+# Canonical shaping and raster stack, qualified in
+# docs/qualification/RENDERING-T0.4.md. Exact pins: a revision change
+# invalidates that qualification. See xtask's QUALIFIED_RENDERING_DEPENDENCIES.
+rustybuzz = "=0.20.1"
+swash = "=0.2.10"
+tiny-skia = "=0.11.4"
+ttf-parser = "=0.25.1"
 
 [lints]
 workspace = true

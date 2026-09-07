@@ -28,6 +28,14 @@ const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
 
 const QUALIFIED_UI_DEPENDENCIES: &[&str] = &["gpui", "gpui-base"];
 
+/// Canonical shaping and raster stack, qualified in
+/// `docs/qualification/RENDERING-T0.4.md`. External crates only; internal
+/// edges such as `rendering -> domain` stay owned by the crate-graph contract.
+const QUALIFIED_RENDERING_DEPENDENCIES: &[&str] =
+    &["rustybuzz", "swash", "tiny-skia", "ttf-parser"];
+
+const GPUI_CRATES: &[&str] = &["gpui", "gpui-base", "gpui_platform", "gpui-platform"];
+
 const LUCIDE_ICON_DIR: &str = "crates/ui/assets/icons/lucide";
 
 const LUCIDE_ICONS: &[&str] = &[
@@ -235,7 +243,16 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
             })
             .collect::<BTreeMap<_, _>>()
     };
-    validate_ui_dependency_policy(&direct_dependencies(false), &direct_dependencies(true))
+    validate_ui_dependency_policy(&direct_dependencies(false), &direct_dependencies(true))?;
+    let workspace_names: BTreeSet<_> = workspace_packages(metadata)
+        .into_iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    validate_rendering_dependency_policy(
+        &direct_dependencies(false),
+        &direct_dependencies(true),
+        &workspace_names,
+    )
 }
 
 fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
@@ -310,6 +327,34 @@ fn validate_ui_dependency_policy(
             )
             .into());
         }
+    }
+    Ok(())
+}
+
+fn validate_rendering_dependency_policy(
+    normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+    normal_and_dev_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+    workspace_names: &BTreeSet<&str>,
+) -> XtaskResult<()> {
+    let rendering_dependencies = normal_dependencies
+        .get("rendering")
+        .ok_or("rendering package is missing")?;
+    let qualified: BTreeSet<_> = QUALIFIED_RENDERING_DEPENDENCIES.iter().copied().collect();
+    let unqualified: Vec<_> = rendering_dependencies
+        .difference(&qualified)
+        .filter(|dependency| !workspace_names.contains(*dependency))
+        .collect();
+    if !unqualified.is_empty() {
+        return Err(format!("unqualified rendering dependency: {unqualified:?}").into());
+    }
+
+    let rendering_all = normal_and_dev_dependencies
+        .get("rendering")
+        .ok_or("rendering package is missing")?;
+    let gpui: BTreeSet<_> = GPUI_CRATES.iter().copied().collect();
+    let leaked: Vec<_> = rendering_all.intersection(&gpui).collect();
+    if !leaked.is_empty() {
+        return Err(format!("no GPUI crate may reach rendering, found: {leaked:?}").into());
     }
     Ok(())
 }
@@ -634,6 +679,37 @@ mod tests {
             BTreeSet::from(["gpui", "gpui-base", "other-ui-behavior"]),
         )]);
         assert!(validate_ui_dependency_policy(&dependencies, &dependencies).is_err());
+    }
+
+    #[test]
+    fn qualifies_the_canonical_rendering_stack() {
+        let workspace = BTreeSet::from(["domain", "rendering"]);
+        let qualified = BTreeMap::from([(
+            "rendering",
+            BTreeSet::from(["domain", "rustybuzz", "swash", "tiny-skia", "ttf-parser"]),
+        )]);
+        assert!(validate_rendering_dependency_policy(&qualified, &qualified, &workspace).is_ok());
+
+        let with_extra = BTreeMap::from([(
+            "rendering",
+            BTreeSet::from(["domain", "rustybuzz", "cosmic-text"]),
+        )]);
+        assert!(
+            validate_rendering_dependency_policy(&with_extra, &with_extra, &workspace).is_err()
+        );
+    }
+
+    #[test]
+    fn keeps_gpui_crates_out_of_rendering() {
+        let workspace = BTreeSet::from(["domain", "rendering"]);
+        for gpui_crate in ["gpui", "gpui-base", "gpui_platform", "gpui-platform"] {
+            let normal = BTreeMap::from([("rendering", BTreeSet::from(["domain"]))]);
+            let with_leak = BTreeMap::from([("rendering", BTreeSet::from(["domain", gpui_crate]))]);
+            assert!(
+                validate_rendering_dependency_policy(&normal, &with_leak, &workspace).is_err(),
+                "{gpui_crate} must not reach rendering even as a dev-dependency"
+            );
+        }
     }
 
     #[test]
