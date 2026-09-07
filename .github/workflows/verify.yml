@@ -35,3 +35,18 @@ jobs:
         uses: taiki-e/install-action@cargo-deny
       - name: Verify
         run: cargo xtask verify
+
+  windows-shaping-probe:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Regenerate and compare shaping artifact
+        shell: pwsh
+        run: |
+          $env:ORDO_UPDATE_FIXTURES = "1"
+          cargo test -p rendering --locked --test shaping_probe || exit $LASTEXITCODE
+          git diff --exit-code -- crates/rendering/tests/fixtures/shaping-probe.txt || exit $LASTEXITCODE
+          (Get-FileHash crates/rendering/tests/fixtures/shaping-probe.txt -Algorithm SHA256).Hash.ToLower()
