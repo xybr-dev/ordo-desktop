@@ -2,14 +2,14 @@
 //!
 //! The fixed template relationships `DESIGN.md` adopts, composed through the
 //! same Renderer Interface as every other slide: each template maps resolved
-//! content onto header, body, and footer zones with a per-zone size and
-//! alignment, and [`render_template`] returns one complete frame plus
+//! content onto header, body, and footer zones with a per-zone size,
+//! alignment, and vertical placement, and [`render_template`] returns one complete frame plus
 //! diagnostics or one structured failure, exactly like [`crate::render`].
 //!
 //! Zone mapping per kind:
 //!
-//! - Lyrics: section label at top-left, authored-case body in the remainder,
-//!   no footer. A missing label collapses the header so the body keeps the
+//! - Lyrics: section label at top-left, authored-case body optically centered
+//!   in the remainder, no footer. A missing label collapses the header so the body keeps the
 //!   space; that absent-label composition is the label-off variant.
 //! - Response: resolved header, stored text rendered uppercase as the
 //!   emphasized body, no footer.
@@ -23,9 +23,9 @@
 //!   the large uppercase title leading at display size and the
 //!   composer/source plus optional credit following at meta size. The body
 //!   stays empty.
-//! - Celebration title: uppercase title in the body, localized date at
-//!   bottom-left.
-//! - General text: optional header, body, and optional footer as given.
+//! - Celebration title: uppercase title optically centered in the body,
+//!   localized date at bottom-left.
+//! - General text: optional header, center-left body, and optional footer as given.
 //! - General image: optional header and caption footer; the empty body rect
 //!   reserves the contained foreground bounds the raster pass fills in PR 7.
 //! - Black: everything empty. Black paint is raster-side; the logical frame
@@ -59,9 +59,10 @@
 //! past it warns.
 
 use crate::interface::{
-    self, Diagnostics, Frame, RenderError, SemanticContent, TargetDensity, Theme, ZoneStyle,
+    self, CompositionPlan, Diagnostics, Frame, RenderError, SemanticContent, TargetDensity, Theme,
+    ZoneStyle,
 };
-use crate::shaping::{self, Alignment};
+use crate::shaping::{self, Alignment, VAlign};
 
 /// Provisional display size: the 72px projected-response token. Emphasized
 /// bodies and large titles measure here until the PR 10 gallery freezes the
@@ -104,14 +105,15 @@ pub struct TemplateContent {
     pub footer: Option<String>,
 }
 
-/// One template's zone plan: per-zone styles plus the footer lead for the
-/// song identity block.
+/// One template's zone plan: per-zone styles, the footer lead for the song
+/// identity block, and the body's vertical placement inside its rect.
 struct Composition {
     semantic: SemanticContent,
     header: ZoneStyle,
     body: ZoneStyle,
     footer: ZoneStyle,
     footer_lead: Option<(ZoneStyle, u32)>,
+    body_valign: VAlign,
 }
 
 fn meta_left() -> ZoneStyle {
@@ -150,6 +152,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::CenterBlock),
             footer: neutral,
             footer_lead: None,
+            body_valign: VAlign::Center,
         },
         TemplateKind::Response => Composition {
             semantic: SemanticContent {
@@ -162,6 +165,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: neutral,
             footer_lead: None,
+            body_valign: VAlign::Top,
         },
         TemplateKind::ReadingIdentification => Composition {
             semantic: SemanticContent {
@@ -174,6 +178,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Center,
         },
         TemplateKind::ReadingPassage => Composition {
             semantic: SemanticContent {
@@ -186,6 +191,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: passage_left,
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Top,
         },
         TemplateKind::Psalm => Composition {
             semantic: SemanticContent {
@@ -198,6 +204,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Center,
         },
         TemplateKind::SongIdentification => {
             let title = content.body.to_uppercase();
@@ -217,6 +224,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 body: neutral,
                 footer: meta_left(),
                 footer_lead: Some((display(Alignment::Left), lead_authored)),
+                body_valign: VAlign::Top,
             }
         }
         TemplateKind::CelebrationTitle => Composition {
@@ -230,6 +238,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::CenterBlock),
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Center,
         },
         TemplateKind::GeneralText => Composition {
             semantic: SemanticContent {
@@ -242,6 +251,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: passage_left,
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Center,
         },
         TemplateKind::GeneralImage => Composition {
             semantic: SemanticContent {
@@ -254,6 +264,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: neutral,
             footer: meta_left(),
             footer_lead: None,
+            body_valign: VAlign::Top,
         },
         TemplateKind::Black => Composition {
             semantic: SemanticContent {
@@ -266,6 +277,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: neutral,
             footer: neutral,
             footer_lead: None,
+            body_valign: VAlign::Top,
         },
     }
 }
@@ -282,15 +294,15 @@ pub fn render_template(
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
     let composition = compose_content(content);
-    let (frame, mut diagnostics) = interface::compose_zoned(
-        &composition.semantic,
-        composition.header,
-        composition.body,
-        composition.footer,
-        composition.footer_lead,
-        theme,
-        density,
-    )?;
+    let plan = CompositionPlan {
+        header: composition.header,
+        body: composition.body,
+        footer: composition.footer,
+        footer_lead: composition.footer_lead,
+        body_valign: composition.body_valign,
+    };
+    let (frame, mut diagnostics) =
+        interface::compose_zoned(&composition.semantic, &plan, theme, density)?;
     match content.kind {
         TemplateKind::Lyrics => {
             let phrases = composition

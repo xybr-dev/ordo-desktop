@@ -59,6 +59,18 @@ pub enum Alignment {
     CenterBlock,
 }
 
+/// Vertical placement of a zone's shaped block inside its rect, applied from
+/// measured content height. Rects never move; only lines do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VAlign {
+    /// Lines start at the zone's top edge.
+    Top,
+    /// The block centers: lines shift down by half the leftover height,
+    /// truncating, and an overflowing block stays at the top edge beside
+    /// its warning.
+    Center,
+}
+
 /// Measured pagination inputs for one composition: geometry, line counts, and
 /// the fit result rather than a boolean.
 #[derive(Clone, Debug, Eq, PartialEq)]

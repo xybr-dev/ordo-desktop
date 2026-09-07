@@ -641,6 +641,98 @@ fn template_failures_travel_like_interface_failures() {
 }
 
 #[test]
+fn centered_templates_offset_the_body_block_from_its_measured_height() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    // One-line bodies: the leftover is odd, so top and bottom gaps match
+    // within one unit, exactly like horizontal centering.
+    let cases = [
+        lyrics("short line"),
+        content(
+            TemplateKind::ReadingIdentification,
+            None,
+            "Proclamation title",
+            Some("Reference text"),
+        ),
+        content(
+            TemplateKind::Psalm,
+            Some("Authored header"),
+            "refrain text",
+            Some("Reference text"),
+        ),
+        content(
+            TemplateKind::CelebrationTitle,
+            None,
+            "Celebration title",
+            Some("Localized date"),
+        ),
+        content(
+            TemplateKind::GeneralText,
+            Some("General header"),
+            "General body",
+            Some("General footer"),
+        ),
+    ];
+    for case in &cases {
+        let (frame, diagnostics) = render_template(case, &theme, density).unwrap();
+        assert!(diagnostics.warnings.is_empty());
+        assert_eq!(frame.body_lines().len(), 1);
+        let body = frame.body();
+        let line = &frame.body_lines()[0];
+        let top_gap = line.y - body.y as i32;
+        let bottom_gap = body.y as i32 + body.height as i32 - (line.y + line.height as i32);
+        assert!(top_gap > 0, "{kind:?} hugs the top edge", kind = case.kind);
+        assert!(
+            (top_gap - bottom_gap).abs() <= 1,
+            "{kind:?} is off-center: {top_gap} vs {bottom_gap}",
+            kind = case.kind
+        );
+    }
+}
+
+#[test]
+fn top_templates_start_at_the_body_edge() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    // Response and ReadingPassage keep top placement: no vertical offset.
+    let cases = [
+        content(
+            TemplateKind::Response,
+            Some("Authored header"),
+            "response text",
+            None,
+        ),
+        content(
+            TemplateKind::ReadingPassage,
+            None,
+            "Passage text",
+            Some("Reference text"),
+        ),
+    ];
+    for case in &cases {
+        let (frame, diagnostics) = render_template(case, &theme, density).unwrap();
+        assert!(diagnostics.warnings.is_empty());
+        assert_eq!(frame.body_lines()[0].y, frame.body().y as i32);
+    }
+}
+
+#[test]
+fn overflowing_centered_body_stays_top_anchored_beside_its_warning() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let body = (1..=20)
+        .map(|n| format!("lyric line {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (frame, diagnostics) = render_template(&lyrics(&body), &theme, density).unwrap();
+
+    assert!(!diagnostics.warnings.is_empty());
+    // No room to center: the block stays top-anchored with every line kept.
+    assert_eq!(frame.body_lines()[0].y, frame.body().y as i32);
+    assert_eq!(frame.body_lines().len(), 20);
+}
+
+#[test]
 fn omissions_are_structural_not_conventional() {
     // Reading templates take a resolved title and reference only: no reading
     // number can be named, and no theme picture can arrive as foreground

@@ -27,7 +27,7 @@
 //! header and footer content and anything else would misbound the frame.
 
 use crate::fonts::CanonicalFont;
-use crate::shaping::{self, Alignment, Fit, PaginationInputs, ShapedLine};
+use crate::shaping::{self, Alignment, Fit, PaginationInputs, ShapedLine, VAlign};
 
 /// Logical canvas width every slide composes in.
 pub const LOGICAL_WIDTH: u32 = 1920;
@@ -131,6 +131,31 @@ impl ZoneStyle {
         Self {
             size: shaping::BODY_FONT_SIZE,
             align: Alignment::Left,
+        }
+    }
+}
+
+/// Per-composition zone plan: per-zone styles, the song identity-block lead,
+/// and the body's vertical placement inside its rect.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CompositionPlan {
+    pub(crate) header: ZoneStyle,
+    pub(crate) body: ZoneStyle,
+    pub(crate) footer: ZoneStyle,
+    pub(crate) footer_lead: Option<(ZoneStyle, u32)>,
+    pub(crate) body_valign: VAlign,
+}
+
+impl CompositionPlan {
+    /// The PR 4 neutral plan: the baseline size, left-origin lines starting
+    /// at the top of each zone.
+    pub(crate) const fn neutral() -> Self {
+        Self {
+            header: ZoneStyle::neutral(),
+            body: ZoneStyle::neutral(),
+            footer: ZoneStyle::neutral(),
+            footer_lead: None,
+            body_valign: VAlign::Top,
         }
     }
 }
@@ -369,8 +394,8 @@ impl std::error::Error for RenderError {}
 
 /// Compose one complete logical frame from resolved content.
 ///
-/// `header`, `body`, and `footer` carry the per-zone size and alignment the
-/// template corpus assigns; [`render`] passes the neutral style everywhere.
+/// `plan` carries the per-zone size, alignment, and body vertical placement
+/// the template corpus assigns; [`render`] passes the neutral plan.
 /// `footer_lead` handles the one mixed-size zone in the corpus, the song
 /// identity block: when present, the footer's first `u32` authored lines lay
 /// out at the lead style and the rest at the footer style, keeping one
@@ -378,14 +403,14 @@ impl std::error::Error for RenderError {}
 /// same content and Theme always yield the same frame regardless of density.
 pub(crate) fn compose_zoned(
     content: &SemanticContent,
-    header: ZoneStyle,
-    body: ZoneStyle,
-    footer: ZoneStyle,
-    footer_lead: Option<(ZoneStyle, u32)>,
+    plan: &CompositionPlan,
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
     let _ = density;
+    let header = plan.header;
+    let body = plan.body;
+    let footer = plan.footer;
     if theme.safe_inset_x < MIN_SAFE_INSET_X || theme.safe_inset_y < MIN_SAFE_INSET_Y {
         return Err(RenderError::SafeAreaBelowMinimum {
             requested_x: theme.safe_inset_x,
@@ -467,7 +492,7 @@ pub(crate) fn compose_zoned(
 
     let (footer_lines, footer_height) = match content.footer.as_deref() {
         None => (Vec::new(), 0),
-        Some(text) => layout_footer(text, footer, footer_lead, max_width, &faces),
+        Some(text) => layout_footer(text, footer, plan.footer_lead, max_width, &faces),
     };
     // Chrome taller than the safe area cannot be paginated away, so it fails
     // structurally instead of warning beside misbounded zones.
@@ -493,7 +518,7 @@ pub(crate) fn compose_zoned(
     let body_available = safe_height
         .saturating_sub(header_height)
         .saturating_sub(footer_height);
-    let laid_out = shaping::layout_body(
+    let mut laid_out = shaping::layout_body(
         &content.body,
         body.size,
         max_width,
@@ -504,6 +529,21 @@ pub(crate) fn compose_zoned(
     );
     let body_content_height =
         (laid_out.lines.len() as u32).saturating_mul(shaping::line_height_for(body.size));
+    // Centered templates offset the shaped block from its measured height so
+    // short content sits in the middle of the remaining region instead of
+    // hugging its top edge. Truncating division keeps it deterministic, and
+    // an overflowing block stays top-anchored beside its warning.
+    if plan.body_valign == VAlign::Center {
+        let shift = body_available.saturating_sub(body_content_height) / 2;
+        if shift > 0 {
+            for line in &mut laid_out.lines {
+                line.y += shift as i32;
+                for glyph in &mut line.glyphs {
+                    glyph.y += shift as i32;
+                }
+            }
+        }
+    }
     // Horizontal overflow is possible only when a single glyph exceeds the
     // safe width; like every other overflow it is reported, never dropped.
     let widest = header_lines
@@ -636,14 +676,14 @@ fn layout_footer(
 
 /// Compose one complete logical frame from resolved content.
 ///
-/// Every zone measures at the 72px baseline with left-origin lines; the
-/// template corpus (see `templates`) varies size and alignment per zone
-/// through the same composition core.
+/// Every zone measures at the 72px baseline with left-origin lines starting
+/// at the top of each zone; the template corpus (see `templates`) varies
+/// size, alignment, and vertical placement per zone through the same
+/// composition core.
 pub fn render(
     content: &SemanticContent,
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
-    let neutral = ZoneStyle::neutral();
-    compose_zoned(content, neutral, neutral, neutral, None, theme, density)
+    compose_zoned(content, &CompositionPlan::neutral(), theme, density)
 }
