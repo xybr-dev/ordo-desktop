@@ -150,7 +150,7 @@ fn script_for(text: &str) -> rustybuzz::Script {
         match script_class(c) {
             ScriptClass::Han => return rustybuzz::script::HAN,
             ScriptClass::Greek => seen_greek = true,
-            ScriptClass::Other => {}
+            ScriptClass::Latin | ScriptClass::Other => {}
         }
     }
     if seen_greek {
@@ -215,13 +215,17 @@ fn is_combining_mark(c: char) -> bool {
     )
 }
 
-/// The strong scripts this path itemizes. Everything else (digits,
-/// punctuation, spacing, marks) is common: it rides with its neighbors
-/// instead of forcing a run boundary.
+/// The scripts this path itemizes. Latin, Greek, and Han are strong: a
+/// change between them starts a new shaping run even when the face does
+/// not. Everything else (digits, punctuation, spacing, marks) is common:
+/// it rides with its neighbors instead of forcing a run boundary. Latin
+/// letters run through Extended Additional; rarer Latin extensions ride as
+/// common and still shape under the Latin script by default.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ScriptClass {
     Han,
     Greek,
+    Latin,
     Other,
 }
 
@@ -229,14 +233,15 @@ fn script_class(c: char) -> ScriptClass {
     match c as u32 {
         0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2A6DF => ScriptClass::Han,
         0x0370..=0x03FF | 0x1F00..=0x1FFF => ScriptClass::Greek,
+        0x41..=0x5A
+        | 0x61..=0x7A
+        | 0xC0..=0xD6
+        | 0xD8..=0xF6
+        | 0xF8..=0xFF
+        | 0x100..=0x24F
+        | 0x1E00..=0x1EFF => ScriptClass::Latin,
         _ => ScriptClass::Other,
     }
-}
-
-/// A strong-script cluster joins the open run only on the same script; a
-/// common cluster rides with whichever run surrounds it.
-fn joins_run(open: ScriptClass, next: ScriptClass) -> bool {
-    open == ScriptClass::Other || next == ScriptClass::Other || open == next
 }
 
 /// One word shaped once, with clusters rebased to word byte offsets.
@@ -268,8 +273,11 @@ fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
             )),
         }
     }
-    // Merge adjacent clusters into single-face, single-script runs; a
-    // strong-script change starts a new run even when the face does not.
+    // Merge adjacent clusters into single-face, single-script runs. A
+    // strong-script change starts a new run even when the face does not; a
+    // common cluster joins its neighbors, and a still-neutral run adopts
+    // the first strong script that reaches it so leading commons can never
+    // bridge two strong scripts into one run.
     let mut runs: Vec<(CanonicalFont, ScriptClass, usize, usize)> = Vec::new();
     for (start, end, covers, class) in clusters {
         let font = if covers {
@@ -279,9 +287,15 @@ fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
         };
         match runs.last_mut() {
             Some((run_font, run_class, _, run_end))
-                if *run_font == font && joins_run(*run_class, class) =>
+                if *run_font == font
+                    && (*run_class == ScriptClass::Other
+                        || class == ScriptClass::Other
+                        || *run_class == class) =>
             {
                 *run_end = end;
+                if *run_class == ScriptClass::Other {
+                    *run_class = class;
+                }
             }
             _ => runs.push((font, class, start, end)),
         }

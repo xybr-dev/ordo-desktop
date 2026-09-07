@@ -283,6 +283,74 @@ fn adjacent_mixed_script_token_splits_runs_without_whitespace() {
 }
 
 #[test]
+fn adjacent_fallback_latin_and_greek_shape_under_their_own_scripts() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+
+    // One token, no whitespace: the Latin cluster `A`+mark must shape under
+    // the Latin script even though it shares the fallback face with the
+    // Greek alpha that follows it. Itemization is structural per the
+    // qualification; this pins the routing faces, order, and clusters.
+    let (frame, diagnostics) = render(&body_only("A\u{305}\u{3B1}"), &theme, density).unwrap();
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body_lines().len(), 1);
+    let line = &frame.body_lines()[0];
+    assert!(
+        line.glyphs.len() >= 3,
+        "base, mark, and alpha must all survive"
+    );
+    assert!(
+        line.glyphs
+            .iter()
+            .all(|glyph| glyph.font == rendering::fonts::CanonicalFont::Fallback),
+        "every member resolves fallback"
+    );
+    assert!(
+        line.glyphs.iter().all(|glyph| glyph.id != 0),
+        "no member may degrade to .notdef"
+    );
+    let mut last_x = -1;
+    for glyph in &line.glyphs {
+        assert!(glyph.x >= last_x, "glyphs must follow token order");
+        last_x = glyph.x;
+    }
+    // Clusters map to both parts: Latin base at 0, Greek alpha at 3.
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 0));
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 3));
+}
+
+#[test]
+fn leading_common_fallback_cannot_bridge_two_strong_scripts() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+
+    // One token: a common fallback mark (peso sign) leads fallback Greek
+    // and Han members. The leader adopts the Greek run that follows it
+    // instead of leaving a neutral run that would bridge Greek into Han,
+    // so the Han member still starts its own run.
+    let (frame, diagnostics) =
+        render(&body_only("\u{20B1}\u{3B1}\u{4E2D}"), &theme, density).unwrap();
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body_lines().len(), 1);
+    let line = &frame.body_lines()[0];
+    assert!(
+        line.glyphs
+            .iter()
+            .all(|glyph| glyph.font == rendering::fonts::CanonicalFont::Fallback),
+        "every member resolves fallback"
+    );
+    let mut last_x = -1;
+    for glyph in &line.glyphs {
+        assert!(glyph.x >= last_x, "glyphs must follow token order");
+        last_x = glyph.x;
+    }
+    // Clusters map to all three members: peso at 0, alpha at 3, Han at 5.
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 0));
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 3));
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 5));
+}
+
+#[test]
 fn oversized_header_and_footer_fail_instead_of_misbounding_zones() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
