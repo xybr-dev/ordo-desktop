@@ -2,3 +2,8 @@
 # output (LF) on Linux and Windows alike; a CRLF checkout would fail the
 # comparison without any shaping drift.
 crates/rendering/tests/fixtures/shaping-probe.txt text eol=lf
+# Golden corpus fixtures and goldens are byte-compared against in-memory
+# `writeln!` output on Linux and Windows alike; a CRLF checkout would fail
+# the comparison without any composition drift.
+tests/fixtures/rendering/*.json text eol=lf
+tests/golden-frames/*.txt text eol=lf

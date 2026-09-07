@@ -645,6 +645,27 @@ fn run(root: &Path, program: &str, args: &[&str]) -> XtaskResult<()> {
     Ok(())
 }
 
+/// Regenerate `tests/golden-frames/` from `tests/fixtures/rendering/`.
+///
+/// This is the corpus's only write path: the golden test never updates
+/// itself, so ordinary `cargo test` and `cargo xtask verify` fail on drift.
+/// Review the resulting `git diff` before committing — a regenerated golden
+/// is the point of the gate, and a silent update would prove nothing.
+pub fn bless_golden_frames(root: &Path) -> XtaskResult<()> {
+    let status = Command::new("cargo")
+        .args(["test", "-p", "rendering", "--test", "golden", "--locked"])
+        .current_dir(root)
+        .env("ORDO_UPDATE_FIXTURES", "1")
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+    if !status.success() {
+        return Err("command failed: cargo test -p rendering --test golden".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

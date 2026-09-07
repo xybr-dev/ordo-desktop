@@ -4805,6 +4805,7 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "rustybuzz",
+ "serde_json",
  "swash",
  "tiny-skia",
  "ttf-parser",

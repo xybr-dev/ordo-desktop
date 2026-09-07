@@ -1,0 +1,81 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-absent
+body-rect 120 80 1680 874
+footer-rect 120 954 1680 46
+pagination authored-body=1 header-lines=0 body-lines=2 footer-lines=1 content-height=130 available-height=874 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=body index=0 authored=0 x=120 y=80 width=1601 height=65 text=Sa sinugdan mao ang Pulong, ug ang Pulong uban sa Dios, ug ang
+glyph zone=body line=0 font=primary id=77 x=120 y=135 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=153 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=190 x=197 y=135 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=223 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=237 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=200 x=267 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=143 x=297 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=129 x=328 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=112 x=359 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=170 x=388 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=169 x=433 y=135 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=480 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=175 x=509 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=112 x=554 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=583 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=613 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=71 x=659 y=135 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=200 x=692 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=164 x=722 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=175 x=736 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=766 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=143 x=796 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=235 x=827 y=135 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=200 x=853 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=143 x=883 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=929 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=958 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=988 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=71 x=1034 y=135 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=200 x=1067 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=164 x=1097 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=175 x=1111 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=1141 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=143 x=1171 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=200 x=1217 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=123 x=1247 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=1278 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=170 x=1307 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=190 x=1352 y=135 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1378 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=18 x=1422 y=135 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=1459 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=175 x=1473 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=190 x=1503 y=135 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=235 x=1529 y=135 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=200 x=1555 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=143 x=1585 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=1631 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=1660 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=1690 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
+line zone=body index=1 authored=0 x=120 y=145 width=301 height=65 text=Pulong Dios.
+glyph zone=body line=1 font=primary id=71 x=120 y=200 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=200 x=153 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=183 y=200 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=175 x=197 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=170 x=227 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=143 x=257 y=200 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=18 x=303 y=200 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=340 y=200 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=175 x=354 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=190 x=384 y=200 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=234 x=410 y=200 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=footer index=0 authored=0 x=120 y=954 width=135 height=46 text=Juan 1:1
+glyph zone=footer line=0 font=primary id=47 x=120 y=993 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=200 x=140 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=112 x=161 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=170 x=182 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=366 x=215 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=236 x=231 y=993 x-advance=8 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=366 x=239 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=2
+warnings 0

@@ -1,0 +1,25 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 46
+body-rect 120 126 1680 874
+footer-absent
+pagination authored-body=1 header-lines=1 body-lines=1 footer-lines=0 content-height=83 available-height=874 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=95 height=46 text=Verse
+glyph zone=header line=0 font=primary id=96 x=120 y=119 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=142 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=163 y=119 x-advance=13 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=176 y=119 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=194 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=0 authored=0 x=768 y=521 width=383 height=83 text=Dayeg α ₱ 中
+glyph zone=body line=0 font=primary id=18 x=768 y=591 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=816 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=216 x=853 y=591 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=133 x=884 y=591 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=143 x=923 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=fallback id=381 x=983 y=591 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=fallback id=1572 x=1047 y=591 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=fallback id=0 x=1108 y=591 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+warnings 0

@@ -9,8 +9,11 @@ fn main() -> ExitCode {
         "tokens" => xtask::verify_design_tokens(&xtask::repo_root()),
         "offline" => xtask::verify_offline_contract(&xtask::repo_root())
             .and_then(|()| xtask::verify_git_pins(&xtask::repo_root())),
+        "bless-golden-frames" => xtask::bless_golden_frames(&xtask::repo_root()),
         _ => {
-            eprintln!("Usage: cargo xtask <verify|context|architecture|tokens|offline>");
+            eprintln!(
+                "Usage: cargo xtask <verify|context|architecture|tokens|offline|bless-golden-frames>"
+            );
             return ExitCode::FAILURE;
         }
     };
