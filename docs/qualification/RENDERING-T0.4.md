@@ -82,10 +82,12 @@ Linux run, `rustc 1.96.0`, x86_64:
 sha256 d3976b55459555c19f617f636f2a5e41b78ea1dd95ebea6d7858504efa834b71  shaping-probe.txt
 ```
 
-Windows comparison: PR 8 runs this exact test in the packaged Windows build
-and diffs the artifact byte-for-byte against the Linux one before any
-invariance claim closes. A mismatch fails PR 8 and re-opens this decision; it
-does not adjust the artifact.
+Windows Server 2022 CI run, `rustc 1.96.0`, x86_64: the
+[`windows-shaping-probe` job](https://github.com/xybr-dev/ordo-desktop/actions/runs/34104283694/job/101685632531)
+regenerated the fixture at commit `155c82f`, found no byte diff, and produced
+the same `d3976b55459555c19f617f636f2a5e41b78ea1dd95ebea6d7858504efa834b71`
+digest. PR 8 expands this early probe to the packaged canonical renderer; a
+mismatch there re-opens this decision rather than adjusting the artifact.
 
 ## Policy
 
