@@ -21,9 +21,10 @@
 //!
 //! Zone heights are measured, not proportional: each present zone occupies its
 //! wrapped lines at the provisional body size, and the body receives whatever
-//! safe-area height remains. Overflow — vertical, horizontal, or chrome taller
-//! than the safe area — keeps every line and reports a warning beside the
-//! complete frame; nothing shrinks and nothing clips.
+//! safe-area height remains. Body and line overflow keeps every line and
+//! reports a warning beside the complete frame; chrome taller than the safe
+//! area is a structured failure instead, because no pagination can split
+//! header and footer content and anything else would misbound the frame.
 
 use crate::fonts::CanonicalFont;
 use crate::shaping::{self, Fit, PaginationInputs, ShapedLine};
@@ -304,6 +305,11 @@ pub enum RenderError {
     },
     ConflictingHeaders,
     FontUnavailable,
+    ZonesExceedSafeArea {
+        header_height: u32,
+        footer_height: u32,
+        safe_height: u32,
+    },
 }
 
 impl std::fmt::Display for RenderError {
@@ -329,6 +335,14 @@ impl std::fmt::Display for RenderError {
                 write!(f, "response and psalm headers must not both be present")
             }
             Self::FontUnavailable => write!(f, "bundled canonical font is unavailable"),
+            Self::ZonesExceedSafeArea {
+                header_height,
+                footer_height,
+                safe_height,
+            } => write!(
+                f,
+                "header ({header_height}px) and footer ({footer_height}px) exceed the {safe_height}px safe area"
+            ),
         }
     }
 }
@@ -422,6 +436,15 @@ pub fn render(
         .as_deref()
         .map(|_| (footer_lines.len().max(1) as u32).saturating_mul(shaping::BODY_LINE_HEIGHT))
         .unwrap_or(0);
+    // Chrome taller than the safe area cannot be paginated away, so it fails
+    // structurally instead of warning beside misbounded zones.
+    if header_height.saturating_add(footer_height) > safe_height {
+        return Err(RenderError::ZonesExceedSafeArea {
+            header_height,
+            footer_height,
+            safe_height,
+        });
+    }
     let footer_y = safe_y + safe_height as i32 - footer_height as i32;
     let mut footer_lines = footer_lines;
     for line in &mut footer_lines {
@@ -449,11 +472,11 @@ pub fn render(
         .map(|line| line.width)
         .max()
         .unwrap_or(0);
-    let chrome_overflow = header_height.saturating_add(footer_height) > safe_height;
 
-    // Rect origins saturate inside the safe area so impossible totals stay
-    // denormalized but never wrap; heights stay measured and every line
-    // stays present while the warnings below name the overflow.
+    // Rect origins saturate inside the safe area so large-but-possible
+    // totals never wrap; heights stay measured and every line stays
+    // present while the warnings below name the overflow. Impossible
+    // chrome already failed above.
     let footer_rect_y = safe_area.y + safe_height.saturating_sub(footer_height);
     let body_rect_y = safe_area.y + header_height.min(safe_height);
 
@@ -477,12 +500,6 @@ pub fn render(
     };
 
     let mut diagnostics = Diagnostics::default();
-    if chrome_overflow {
-        diagnostics.warnings.push(format!(
-            "header and footer need {}px but the safe area offers {safe_height}px at the approved minimum; split before shrinking",
-            header_height.saturating_add(footer_height)
-        ));
-    }
     if widest > max_width {
         diagnostics.warnings.push(format!(
             "a line needs {widest}px but the safe area offers {max_width}px at the approved minimum; split before shrinking"

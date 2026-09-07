@@ -147,15 +147,10 @@ fn scale_units(units: i32, upem: i32) -> i32 {
 fn script_for(text: &str) -> rustybuzz::Script {
     let mut seen_greek = false;
     for c in text.chars() {
-        let c = c as u32;
-        if matches!(
-            c,
-            0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2A6DF
-        ) {
-            return rustybuzz::script::HAN;
-        }
-        if matches!(c, 0x0370..=0x03FF | 0x1F00..=0x1FFF) {
-            seen_greek = true;
+        match script_class(c) {
+            ScriptClass::Han => return rustybuzz::script::HAN,
+            ScriptClass::Greek => seen_greek = true,
+            ScriptClass::Other => {}
         }
     }
     if seen_greek {
@@ -220,6 +215,30 @@ fn is_combining_mark(c: char) -> bool {
     )
 }
 
+/// The strong scripts this path itemizes. Everything else (digits,
+/// punctuation, spacing, marks) is common: it rides with its neighbors
+/// instead of forcing a run boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScriptClass {
+    Han,
+    Greek,
+    Other,
+}
+
+fn script_class(c: char) -> ScriptClass {
+    match c as u32 {
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2A6DF => ScriptClass::Han,
+        0x0370..=0x03FF | 0x1F00..=0x1FFF => ScriptClass::Greek,
+        _ => ScriptClass::Other,
+    }
+}
+
+/// A strong-script cluster joins the open run only on the same script; a
+/// common cluster rides with whichever run surrounds it.
+fn joins_run(open: ScriptClass, next: ScriptClass) -> bool {
+    open == ScriptClass::Other || next == ScriptClass::Other || open == next
+}
+
 /// One word shaped once, with clusters rebased to word byte offsets.
 struct ShapedWord {
     text: String,
@@ -228,22 +247,47 @@ struct ShapedWord {
 }
 
 fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
-    let mut runs: Vec<(CanonicalFont, usize, usize)> = Vec::new();
+    // Cluster base characters with their combining marks, then choose one
+    // face per cluster: primary only when it carries every member,
+    // otherwise the whole cluster shapes in fallback (which stays the
+    // catch-all, even for marks neither face carries). The class is the
+    // base's; marks inherit it.
+    let mut clusters: Vec<(usize, usize, bool, ScriptClass)> = Vec::new();
     for (byte, c) in word.char_indices() {
         let end = byte + c.len_utf8();
+        match clusters.last_mut() {
+            Some((_, cluster_end, covers, _)) if is_combining_mark(c) => {
+                *cluster_end = end;
+                *covers &= fonts::resolve_font_for(c) == CanonicalFont::Primary;
+            }
+            _ => clusters.push((
+                byte,
+                end,
+                fonts::resolve_font_for(c) == CanonicalFont::Primary,
+                script_class(c),
+            )),
+        }
+    }
+    // Merge adjacent clusters into single-face, single-script runs; a
+    // strong-script change starts a new run even when the face does not.
+    let mut runs: Vec<(CanonicalFont, ScriptClass, usize, usize)> = Vec::new();
+    for (start, end, covers, class) in clusters {
+        let font = if covers {
+            CanonicalFont::Primary
+        } else {
+            CanonicalFont::Fallback
+        };
         match runs.last_mut() {
-            // A combining mark extends the open run so it shapes in its
-            // base's face; a dangling mark with no base falls through to
-            // its own resolution below.
-            Some((_, _, run_end)) if is_combining_mark(c) => *run_end = end,
-            Some((run_font, _, run_end)) if *run_font == fonts::resolve_font_for(c) => {
+            Some((run_font, run_class, _, run_end))
+                if *run_font == font && joins_run(*run_class, class) =>
+            {
                 *run_end = end;
             }
-            _ => runs.push((fonts::resolve_font_for(c), byte, end)),
+            _ => runs.push((font, class, start, end)),
         }
     }
     let mut glyphs = Vec::new();
-    for (font, start, end) in runs {
+    for (font, _, start, end) in runs {
         for mut glyph in shape_run(&word[start..end], font, faces) {
             glyph.cluster += start as u32;
             glyphs.push(glyph);

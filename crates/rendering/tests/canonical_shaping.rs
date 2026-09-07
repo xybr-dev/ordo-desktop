@@ -5,8 +5,7 @@
 //! strings, so no fixture file or line-ending pinning participates.
 
 use rendering::{
-    BODY_LINE_HEIGHT, Fit, LOGICAL_HEIGHT, LOGICAL_WIDTH, SemanticContent, TargetDensity, Theme,
-    render,
+    BODY_LINE_HEIGHT, Fit, RenderError, SemanticContent, TargetDensity, Theme, render,
 };
 
 fn body_only(body: &str) -> SemanticContent {
@@ -226,7 +225,65 @@ fn combining_marks_shape_in_their_base_face() {
 }
 
 #[test]
-fn oversized_header_and_footer_diagnose_instead_of_wrapping_coordinates() {
+fn cluster_falls_back_unless_primary_covers_every_member() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+
+    // U+0305 rides on a Latin base the primary face carries, but the face
+    // lacks the mark itself while fallback carries both. Splitting the
+    // cluster would emit a primary .notdef for the mark; the whole cluster
+    // must shape in fallback instead.
+    let (frame, _) = render(&body_only("A\u{305}"), &theme, density).unwrap();
+    assert_eq!(frame.body_lines().len(), 1);
+    let glyphs = &frame.body_lines()[0].glyphs;
+    assert!(!glyphs.is_empty());
+    assert!(
+        glyphs
+            .iter()
+            .all(|glyph| glyph.font == rendering::fonts::CanonicalFont::Fallback),
+        "partial primary coverage must not win the cluster"
+    );
+    assert!(
+        glyphs.iter().all(|glyph| glyph.id != 0),
+        "no member may degrade to .notdef"
+    );
+}
+
+#[test]
+fn adjacent_mixed_script_token_splits_runs_without_whitespace() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+
+    // One token, two strong scripts, one face: the Greek alpha must still
+    // shape under the Greek script and the Han character under Han, with
+    // common characters riding along rather than forcing boundaries.
+    let (frame, diagnostics) = render(&body_only("\u{3B1}\u{4E2D}"), &theme, density).unwrap();
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body_lines().len(), 1);
+    let line = &frame.body_lines()[0];
+    assert!(
+        line.glyphs.len() >= 2,
+        "both strong-script members must survive"
+    );
+    assert!(
+        line.glyphs
+            .iter()
+            .all(|glyph| glyph.font == rendering::fonts::CanonicalFont::Fallback),
+        "both members resolve fallback"
+    );
+    // Glyph order follows the token: Greek advances precede Han advances.
+    let mut last_x = -1;
+    for glyph in &line.glyphs {
+        assert!(glyph.x >= last_x, "glyphs must follow token order");
+        last_x = glyph.x;
+    }
+    // Clusters still map to both source characters (alpha is two bytes).
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 0));
+    assert!(line.glyphs.iter().any(|glyph| glyph.cluster == 2));
+}
+
+#[test]
+fn oversized_header_and_footer_fail_instead_of_misbounding_zones() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
     let tall = (1..=20)
@@ -239,29 +296,33 @@ fn oversized_header_and_footer_diagnose_instead_of_wrapping_coordinates() {
         ..body_only("")
     };
 
-    let (frame, diagnostics) = render(&content, &theme, density).unwrap();
-
-    assert_eq!(frame.pagination().fit, Fit::Overflows);
-    assert!(
-        !diagnostics.warnings.is_empty(),
-        "impossible chrome must diagnose, not pass silently"
+    // Chrome taller than the safe area cannot be paginated away, so it is a
+    // structured failure rather than a warning beside incoherent bounds.
+    assert_eq!(
+        render(&content, &theme, density),
+        Err(RenderError::ZonesExceedSafeArea {
+            header_height: 20 * BODY_LINE_HEIGHT,
+            footer_height: 20 * BODY_LINE_HEIGHT,
+            safe_height: 920,
+        })
     );
-    // Every line stays present in the complete frame.
-    assert_eq!(frame.header_lines().len(), 20);
-    assert_eq!(frame.footer_lines().len(), 20);
-    // Rect origins saturate inside the canvas instead of wrapping around it.
-    for rect in [frame.safe_area(), frame.body()]
-        .into_iter()
-        .chain(frame.header())
-        .chain(frame.footer())
-    {
-        assert!(
-            rect.x <= LOGICAL_WIDTH && rect.y <= LOGICAL_HEIGHT,
-            "zone rect left the canvas: {rect:?}"
-        );
-    }
-    assert_eq!(frame.footer().map(|rect| rect.y), Some(80));
-    assert_eq!(frame.body().height, 0);
+    // Chrome that exactly fills the safe area still stacks coherently.
+    let snug = (1..=11)
+        .map(|n| format!("line {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (frame, diagnostics) = render(
+        &SemanticContent {
+            response_header: Some(snug),
+            ..body_only("")
+        },
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(frame.pagination().fit, Fit::Fits);
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body().height, 920 - 11 * BODY_LINE_HEIGHT);
 }
 
 #[test]
