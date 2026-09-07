@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:SongIdentification
+header-absent
+body-lines:1
+Amazing Grace
+footer-lines:2
+John Newton
+Traditional melody
+image-absent

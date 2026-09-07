@@ -1,0 +1,36 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 46
+body-rect 120 126 1680 828
+footer-rect 120 954 1680 46
+pagination authored-body=1 header-lines=0 body-lines=1 footer-lines=1 content-height=83 available-height=828 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=body index=0 authored=0 x=790 y=498 width=339 height=83 text=refrain text
+glyph zone=body line=0 font=primary id=187 x=790 y=568 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=133 x=814 y=568 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=142 x=852 y=568 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=187 x=874 y=568 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=112 x=898 y=568 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=149 x=935 y=568 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=170 x=953 y=568 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=196 x=1012 y=568 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=133 x=1034 y=568 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=215 x=1072 y=568 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=196 x=1106 y=568 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+line zone=footer index=0 authored=0 x=120 y=954 width=249 height=46 text=Reference text
+glyph zone=footer line=0 font=primary id=74 x=120 y=993 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=133 x=144 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=142 x=165 y=993 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=133 x=176 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=187 x=197 y=993 x-advance=13 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=footer line=0 font=primary id=133 x=210 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=footer line=0 font=primary id=170 x=231 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=footer line=0 font=primary id=124 x=253 y=993 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=footer line=0 font=primary id=133 x=272 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=footer line=0 font=primary id=196 x=304 y=993 x-advance=12 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=133 x=316 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=215 x=337 y=993 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=196 x=356 y=993 x-advance=13 y-advance=0 x-offset=0 y-offset=0 cluster=3
+warnings 0

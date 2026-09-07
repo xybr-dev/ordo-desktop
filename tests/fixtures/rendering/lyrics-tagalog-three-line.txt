@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:Lyrics
+header:Taludtod
+body-lines:3
+Magandang umaga, mga kapatid
+purihin ang Panginoon
+magpakailanman siyang tapat
+footer-absent
+image-absent

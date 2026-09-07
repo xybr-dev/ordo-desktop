@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:ReadingPassage
+header-absent
+body-lines:1
+Sa sinugdan mao ang Pulong, ug ang Pulong uban sa Dios, ug ang Pulong Dios.
+footer-lines:1
+Juan 1:1
+image-absent

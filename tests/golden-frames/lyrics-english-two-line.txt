@@ -1,0 +1,72 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 46
+body-rect 120 126 1680 874
+footer-absent
+pagination authored-body=2 header-lines=1 body-lines=2 footer-lines=0 content-height=166 available-height=874 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=95 height=46 text=Verse
+glyph zone=header line=0 font=primary id=96 x=120 y=119 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=142 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=163 y=119 x-advance=13 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=176 y=119 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=194 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=0 authored=0 x=404 y=480 width=1112 height=83 text=The choir sings in the morning light
+glyph zone=body line=0 font=primary id=83 x=404 y=550 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=444 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=483 y=550 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=124 x=541 y=550 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=577 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=175 x=616 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=655 y=550 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=187 x=673 y=550 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=190 x=718 y=550 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=751 y=550 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=769 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=143 x=808 y=550 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=190 x=848 y=550 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=149 x=901 y=550 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=919 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=196 x=978 y=550 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=1001 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=1040 y=550 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=169 x=1098 y=550 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=175 x=1158 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=187 x=1197 y=550 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=170 x=1222 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=149 x=1261 y=550 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=170 x=1279 y=550 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=143 x=1318 y=550 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=164 x=1378 y=550 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=1397 y=550 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=1415 y=550 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=147 x=1455 y=550 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=196 x=1493 y=550 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=1 authored=1 x=404 y=563 width=877 height=83 text=holy is the Lord forevermore
+glyph zone=body line=1 font=primary id=147 x=404 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=443 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=482 y=633 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=216 x=500 y=633 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=149 x=552 y=633 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=190 x=570 y=633 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=196 x=623 y=633 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=147 x=646 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=133 x=685 y=633 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=51 x=743 y=633 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=781 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=820 y=633 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=129 x=844 y=633 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=142 x=904 y=633 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=924 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=963 y=633 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=133 x=987 y=633 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=209 x=1025 y=633 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=133 x=1057 y=633 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=187 x=1095 y=633 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=169 x=1120 y=633 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=1 font=primary id=175 x=1180 y=633 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=1 font=primary id=187 x=1219 y=633 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=9
+glyph zone=body line=1 font=primary id=133 x=1243 y=633 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=10
+warnings 0

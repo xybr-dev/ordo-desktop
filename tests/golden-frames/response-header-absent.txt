@@ -1,0 +1,23 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-absent
+body-rect 120 80 1680 920
+footer-absent
+pagination authored-body=1 header-lines=0 body-lines=1 footer-lines=0 content-height=83 available-height=920 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=body index=0 authored=0 x=692 y=80 width=535 height=83 text=RESPONSE TEXT
+glyph zone=body line=0 font=primary id=74 x=692 y=150 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=22 x=736 y=150 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=77 x=776 y=150 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=71 x=818 y=150 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=62 x=860 y=150 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=57 x=911 y=150 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=77 x=960 y=150 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=22 x=1002 y=150 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=83 x=1062 y=150 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=22 x=1102 y=150 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=102 x=1142 y=150 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=83 x=1187 y=150 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=3
+warnings 0

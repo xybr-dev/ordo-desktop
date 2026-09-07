@@ -1,0 +1,39 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 46
+body-rect 120 126 1680 874
+footer-absent
+pagination authored-body=1 header-lines=1 body-lines=1 footer-lines=0 content-height=83 available-height=874 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=132 height=46 text=TUBAG:
+glyph zone=header line=0 font=primary id=83 x=120 y=119 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=87 x=142 y=119 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=12 x=169 y=119 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=1 x=193 y=119 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=32 x=217 y=119 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=header line=0 font=primary id=236 x=244 y=119 x-advance=8 y-advance=0 x-offset=0 y-offset=0 cluster=5
+line zone=body index=0 authored=0 x=446 y=126 width=1028 height=83 text=ANG GINOO MAANAA KANINYO
+glyph zone=body line=0 font=primary id=1 x=446 y=196 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=57 x=491 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=32 x=540 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=32 x=609 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=38 x=658 y=196 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=57 x=686 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=62 x=735 y=196 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=62 x=786 y=196 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=56 x=857 y=196 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=1 x=916 y=196 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=1 x=962 y=196 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=57 x=1007 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=1 x=1056 y=196 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=1 x=1102 y=196 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=49 x=1167 y=196 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=1 x=1213 y=196 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=57 x=1258 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=38 x=1307 y=196 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=57 x=1335 y=196 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=103 x=1384 y=196 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=62 x=1423 y=196 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=6
+warnings 0

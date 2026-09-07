@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralText
+header:Pahibalo
+body-lines:1
+Maayong buntag — morning announcement: misa sa alas 9 (please be seated).
+footer-lines:1
+Parish office
+image-absent

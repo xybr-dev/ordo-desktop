@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:CelebrationTitle
+header-absent
+body-lines:1
+Pasko sa Pagkabanhaw
+footer-lines:1
+Abril 20, 2026
+image-absent

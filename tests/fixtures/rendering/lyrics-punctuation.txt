@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse
+body-lines:1
+Maayong buntag, mga igsoon! The choir sings — awit 123: "Pagdayeg" (Salmo 95).
+footer-absent
+image-absent

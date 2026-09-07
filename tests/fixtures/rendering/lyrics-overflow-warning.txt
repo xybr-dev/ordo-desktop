@@ -1,0 +1,26 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse
+body-lines:20
+lyric line 1
+lyric line 2
+lyric line 3
+lyric line 4
+lyric line 5
+lyric line 6
+lyric line 7
+lyric line 8
+lyric line 9
+lyric line 10
+lyric line 11
+lyric line 12
+lyric line 13
+lyric line 14
+lyric line 15
+lyric line 16
+lyric line 17
+lyric line 18
+lyric line 19
+lyric line 20
+footer-absent
+image-absent

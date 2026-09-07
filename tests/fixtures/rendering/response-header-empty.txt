@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:
+body-lines:1
+response text
+footer-absent
+image-absent

@@ -1,0 +1,42 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-absent
+body-rect 120 80 1680 874
+footer-rect 120 954 1680 46
+pagination authored-body=1 header-lines=0 body-lines=1 footer-lines=1 content-height=83 available-height=874 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=body index=0 authored=0 x=532 y=475 width=855 height=83 text=PASKO SA PAGKABANHAW
+glyph zone=body line=0 font=primary id=71 x=532 y=545 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=1 x=571 y=545 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=77 x=614 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=49 x=656 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=62 x=698 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=77 x=769 y=545 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=1 x=810 y=545 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=71 x=875 y=545 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=1 x=914 y=545 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=32 x=957 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=49 x=1006 y=545 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=1 x=1052 y=545 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=12 x=1097 y=545 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=1 x=1141 y=545 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=57 x=1186 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=36 x=1235 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=1 x=1284 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=9
+glyph zone=body line=0 font=primary id=97 x=1326 y=545 x-advance=61 y-advance=0 x-offset=0 y-offset=0 cluster=10
+line zone=footer index=0 authored=0 x=120 y=954 width=248 height=46 text=Abril 20, 2026
+glyph zone=footer line=0 font=primary id=1 x=120 y=993 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=123 x=145 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=187 x=167 y=993 x-advance=15 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=149 x=182 y=993 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=164 x=192 y=993 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=footer line=0 font=primary id=367 x=213 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=365 x=234 y=993 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=235 x=259 y=993 x-advance=8 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=367 x=278 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=365 x=299 y=993 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=367 x=324 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=371 x=345 y=993 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+warnings 0

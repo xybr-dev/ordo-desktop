@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Lyrics
+header:Bersikulo
+body-lines:1
+Maayong buntag, mga igsoon, pagdayeg sa Ginoo!
+footer-absent
+image-absent

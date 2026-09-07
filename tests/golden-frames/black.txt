@@ -1,0 +1,10 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-absent
+body-rect 120 80 1680 920
+footer-absent
+pagination authored-body=1 header-lines=0 body-lines=0 footer-lines=0 content-height=0 available-height=920 fit=fits hard-split=true first-hard-split=0
+image-absent
+background black
+warnings 0

@@ -1,0 +1,6 @@
+ordo-fixture/1
+kind:Black
+header-absent
+body-lines:0
+footer-absent
+image-absent
