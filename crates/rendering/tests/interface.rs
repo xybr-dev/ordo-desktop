@@ -4,8 +4,8 @@
 //! never through its internals.
 
 use rendering::{
-    LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X, MIN_SAFE_INSET_Y, Rect, RenderError,
-    SemanticContent, TargetDensity, Theme, render,
+    BODY_LINE_HEIGHT, LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X, MIN_SAFE_INSET_Y, Rect,
+    RenderError, SemanticContent, TargetDensity, Theme, render,
 };
 
 fn body_only(body: &str) -> SemanticContent {
@@ -48,7 +48,8 @@ fn complete_frames_carry_the_whole_composition() {
 fn absent_zones_return_their_space_to_the_body() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    let band = 920 / 6;
+    // Measured zone heights (PR 4): one wrapped line at the provisional size.
+    let line = BODY_LINE_HEIGHT;
 
     let (neither, _) = render(&body_only("body"), &theme, density).unwrap();
     let neither_body = neither.body();
@@ -62,8 +63,8 @@ fn absent_zones_return_their_space_to_the_body() {
     let header = header_frame
         .header()
         .expect("present header reserves a zone");
-    assert_eq!(header.height, band);
-    assert_eq!(header_frame.body().height, 920 - band);
+    assert_eq!(header.height, line);
+    assert_eq!(header_frame.body().height, 920 - line);
     assert_eq!(header_frame.footer(), None);
 
     let with_footer = SemanticContent {
@@ -72,7 +73,7 @@ fn absent_zones_return_their_space_to_the_body() {
     };
     let (footer_frame, _) = render(&with_footer, &theme, density).unwrap();
     assert_eq!(footer_frame.header(), None);
-    assert_eq!(footer_frame.body().height, 920 - band);
+    assert_eq!(footer_frame.body().height, 920 - line);
 
     let with_both = SemanticContent {
         response_header: Some("TUBAG:".to_owned()),
@@ -80,7 +81,7 @@ fn absent_zones_return_their_space_to_the_body() {
         ..body_only("body")
     };
     let (both_frame, _) = render(&with_both, &theme, density).unwrap();
-    assert_eq!(both_frame.body().height, 920 - 2 * band);
+    assert_eq!(both_frame.body().height, 920 - 2 * line);
 
     // Zones tile the safe area exactly: same width, stacked without gaps.
     for frame in [&header_frame, &footer_frame, &both_frame] {
