@@ -1,0 +1,4 @@
+# The shaping-probe fixture is byte-compared against in-memory `writeln!`
+# output (LF) on Linux and Windows alike; a CRLF checkout would fail the
+# comparison without any shaping drift.
+crates/rendering/tests/fixtures/shaping-probe.txt text eol=lf
