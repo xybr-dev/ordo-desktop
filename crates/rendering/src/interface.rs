@@ -209,7 +209,10 @@ pub struct Frame {
 /// A resolved foreground image, as the template corpus accepts it: the
 /// single-line asset identity the raster pass resolves, with the natural
 /// dimensions the logical bounds contain. No bytes travel here and nothing
-/// is fetched; PR 7 rasterizes from the recorded bounds.
+/// is fetched. PR 7 rasterizes the completed frame with a separate
+/// raster-time image source that maps this identity to encoded bytes and
+/// paints them into the frame's contained bounds; the logical frame carries
+/// geometry only, so no decode pipeline or pixel store enters this crate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ForegroundImage {
     pub id: String,
@@ -418,6 +421,7 @@ pub enum RenderError {
         natural_width: u32,
         natural_height: u32,
     },
+    MissingForegroundImage,
 }
 
 impl std::fmt::Display for RenderError {
@@ -458,6 +462,9 @@ impl std::fmt::Display for RenderError {
                 f,
                 "foreground image has no extent to contain: {natural_width}x{natural_height}"
             ),
+            Self::MissingForegroundImage => {
+                write!(f, "general image slide is missing its foreground image")
+            }
         }
     }
 }

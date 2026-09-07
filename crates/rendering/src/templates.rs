@@ -26,9 +26,10 @@
 //! - Celebration title: uppercase title optically centered in the body,
 //!   localized date at bottom-left.
 //! - General text: optional header, center-left body, and optional footer as given.
-//! - General image: optional header and caption footer, plus the resolved
-//!   foreground element, which joins the frame with aspect-ratio-contained
-//!   bounds inside the body zone for the raster pass to resolve.
+//! - General image: optional header and caption footer, plus the required
+//!   resolved foreground element, which joins the frame with
+//!   aspect-ratio-contained bounds inside the body zone for the raster pass
+//!   to resolve. A missing asset is a structured failure.
 //! - Black: everything empty, carrying the black background intent in the
 //!   frame for the raster pass to paint.
 //!
@@ -97,9 +98,9 @@ pub enum TemplateKind {
 /// chrome; `body` is the main resolved text (the song title for
 /// SongIdentification, empty for GeneralImage and Black); `footer` is the
 /// reference, credit block, localized date, caption, or general footer.
-/// `image` is the resolved foreground element, recorded only for
-/// GeneralImage; other kinds leave it `None`. Absent chrome is `None`, never
-/// an invented default.
+/// `image` is the resolved foreground element, required for GeneralImage
+/// and ignored by every other kind. Absent chrome is `None`, never an
+/// invented default.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateContent {
     pub kind: TemplateKind,
@@ -297,6 +298,12 @@ pub fn render_template(
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
+    // The adopted image slide requires one foreground image; anything else
+    // composes imageless, so the missing asset must fail here rather than
+    // reach the raster pass as an empty frame.
+    if content.kind == TemplateKind::GeneralImage && content.image.is_none() {
+        return Err(RenderError::MissingForegroundImage);
+    }
     let composition = compose_content(content);
     let plan = CompositionPlan {
         header: composition.header,

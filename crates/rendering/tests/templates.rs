@@ -93,12 +93,7 @@ fn every_template_composes_through_the_same_interface() {
             "General body",
             Some("General footer"),
         ),
-        content(
-            TemplateKind::GeneralImage,
-            Some("Image header"),
-            "",
-            Some("Image caption"),
-        ),
+        image_content("asset-0", 800, 600),
         content(TemplateKind::Black, None, "", None),
     ];
 
@@ -416,20 +411,11 @@ fn general_text_and_image_use_zones_as_given() {
     assert_eq!(text.body_lines()[0].x, text.safe_area().x as i32);
     assert_eq!(text.footer_lines()[0].text, "General footer");
 
-    // The image slide carries no body text: the empty body rect reserves the
-    // contained foreground bounds between header and caption.
-    let (image, _) = render_template(
-        &content(
-            TemplateKind::GeneralImage,
-            Some("Image header"),
-            "",
-            Some("Image caption"),
-        ),
-        &theme,
-        density,
-    )
-    .unwrap();
+    // The image slide carries its foreground element: the empty body rect
+    // reserves the contained bounds asserted below, between header and caption.
+    let (image, _) = render_template(&image_content("asset-4", 800, 600), &theme, density).unwrap();
     assert!(image.body_lines().is_empty());
+    assert!(image.image().is_some());
     assert_eq!(image.header_lines()[0].text, "Image header");
     assert_eq!(image.footer_lines()[0].text, "Image caption");
     let safe = image.safe_area();
@@ -889,22 +875,22 @@ fn general_image_contains_tall_assets_by_width() {
 }
 
 #[test]
-fn general_image_without_an_asset_serializes_its_absence() {
+fn general_image_without_an_asset_fails_structurally() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    let (frame, _) = render_template(
-        &content(
-            TemplateKind::GeneralImage,
-            Some("Image header"),
-            "",
-            Some("Image caption"),
+    assert_eq!(
+        render_template(
+            &content(
+                TemplateKind::GeneralImage,
+                Some("Image header"),
+                "",
+                Some("Image caption"),
+            ),
+            &theme,
+            density,
         ),
-        &theme,
-        density,
-    )
-    .unwrap();
-    assert_eq!(frame.image(), None);
-    assert!(frame.serialize().contains("\nimage-absent\n"));
+        Err(RenderError::MissingForegroundImage)
+    );
 }
 
 #[test]
