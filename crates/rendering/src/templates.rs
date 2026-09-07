@@ -26,8 +26,9 @@
 //! - Celebration title: uppercase title optically centered in the body,
 //!   localized date at bottom-left.
 //! - General text: optional header, center-left body, and optional footer as given.
-//! - General image: optional header and caption footer; the empty body rect
-//!   reserves the contained foreground bounds the raster pass fills in PR 7.
+//! - General image: optional header and caption footer, plus the resolved
+//!   foreground element, which joins the frame with aspect-ratio-contained
+//!   bounds inside the body zone for the raster pass to resolve.
 //! - Black: everything empty. Black paint is raster-side; the logical frame
 //!   is an empty composition that fits without warnings.
 //!
@@ -59,8 +60,8 @@
 //! past it warns.
 
 use crate::interface::{
-    self, CompositionPlan, Diagnostics, Frame, RenderError, SemanticContent, TargetDensity, Theme,
-    ZoneStyle,
+    self, CompositionPlan, Diagnostics, ForegroundImage, Frame, RenderError, SemanticContent,
+    TargetDensity, Theme, ZoneStyle,
 };
 use crate::shaping::{self, Alignment, VAlign};
 
@@ -96,13 +97,16 @@ pub enum TemplateKind {
 /// chrome; `body` is the main resolved text (the song title for
 /// SongIdentification, empty for GeneralImage and Black); `footer` is the
 /// reference, credit block, localized date, caption, or general footer.
-/// Absent chrome is `None`, never an invented default.
+/// `image` is the resolved foreground element, recorded only for
+/// GeneralImage; other kinds leave it `None`. Absent chrome is `None`, never
+/// an invented default.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateContent {
     pub kind: TemplateKind,
     pub header: Option<String>,
     pub body: String,
     pub footer: Option<String>,
+    pub image: Option<ForegroundImage>,
 }
 
 /// One template's zone plan: per-zone styles, the footer lead for the song
@@ -301,8 +305,15 @@ pub fn render_template(
         footer_lead: composition.footer_lead,
         body_valign: composition.body_valign,
     };
+    // Only the image slide records a foreground element; any other kind
+    // leaves the frame imageless even if one was supplied.
+    let image = if content.kind == TemplateKind::GeneralImage {
+        content.image.clone()
+    } else {
+        None
+    };
     let (frame, mut diagnostics) =
-        interface::compose_zoned(&composition.semantic, &plan, theme, density)?;
+        interface::compose_zoned(&composition.semantic, &plan, image.as_ref(), theme, density)?;
     match content.kind {
         TemplateKind::Lyrics => {
             let phrases = composition

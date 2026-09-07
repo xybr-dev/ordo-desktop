@@ -176,8 +176,9 @@ pub struct Diagnostics {
 /// only way to obtain one is [`render`], which returns every zone at once.
 /// `header` and `footer` are `None` exactly when the corresponding input was
 /// absent; the body then covers their share. The shaped lines carry every
-/// glyph position, and [`Frame::serialize`] pins the whole composition in a
-/// form stable enough to compare byte-for-byte.
+/// glyph position, `image` carries the resolved foreground element with its
+/// contained bounds, and [`Frame::serialize`] pins the whole composition in
+/// a form stable enough to compare byte-for-byte.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Frame {
     safe_area: Rect,
@@ -188,6 +189,26 @@ pub struct Frame {
     body_lines: Vec<ShapedLine>,
     footer_lines: Vec<ShapedLine>,
     pagination: PaginationInputs,
+    image: Option<PlacedImage>,
+}
+
+/// A resolved foreground image, as the template corpus accepts it: the
+/// single-line asset identity the raster pass resolves, with the natural
+/// dimensions the logical bounds contain. No bytes travel here and nothing
+/// is fetched; PR 7 rasterizes from the recorded bounds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForegroundImage {
+    pub id: String,
+    pub natural_width: u32,
+    pub natural_height: u32,
+}
+
+/// One foreground image placed in the completed frame: the resolved identity
+/// with aspect-ratio-contained logical bounds inside the body zone.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlacedImage {
+    pub id: String,
+    pub bounds: Rect,
 }
 
 impl Frame {
@@ -223,21 +244,25 @@ impl Frame {
         &self.pagination
     }
 
+    pub fn image(&self) -> Option<&PlacedImage> {
+        self.image.as_ref()
+    }
+
     /// The logical canvas size this frame was composed for.
     pub fn logical_size(&self) -> (u32, u32) {
         (LOGICAL_WIDTH, LOGICAL_HEIGHT)
     }
 
     /// Serialize the completed logical frame: safe area, element bounds,
-    /// glyph positions, wrapping, and pagination inputs. The output uses only
-    /// integers and `'\n'` separators with glyphs in visual order, so the
-    /// same content, Theme, and density produce byte-identical output in
-    /// every process on both packaged targets. Density never appears here:
-    /// it must not alter the logical composition.
+    /// glyph positions, wrapping, pagination inputs, and the foreground
+    /// image. The output uses only integers and `'\n'` separators with glyphs
+    /// in visual order, so the same content, Theme, and density produce
+    /// byte-identical output in every process on both packaged targets.
+    /// Density never appears here: it must not alter the logical composition.
     pub fn serialize(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
-        let _ = writeln!(out, "ordo-canonical-frame/1");
+        let _ = writeln!(out, "ordo-canonical-frame/2");
         let _ = writeln!(out, "logical {LOGICAL_WIDTH} {LOGICAL_HEIGHT}");
         let safe = self.safe_area;
         let _ = writeln!(
@@ -295,6 +320,19 @@ impl Frame {
             pagination.body_available_height,
             pagination.hard_split,
         );
+        match &self.image {
+            Some(image) => {
+                let bounds = image.bounds;
+                let _ = writeln!(
+                    out,
+                    "image id={} {} {} {} {}",
+                    image.id, bounds.x, bounds.y, bounds.width, bounds.height
+                );
+            }
+            None => {
+                let _ = writeln!(out, "image-absent");
+            }
+        }
         for (zone, lines) in [
             ("header", self.header_lines.as_slice()),
             ("body", self.body_lines.as_slice()),
@@ -353,6 +391,10 @@ pub enum RenderError {
         footer_height: u32,
         safe_height: u32,
     },
+    InvalidImageDimensions {
+        natural_width: u32,
+        natural_height: u32,
+    },
 }
 
 impl std::fmt::Display for RenderError {
@@ -386,6 +428,13 @@ impl std::fmt::Display for RenderError {
                 f,
                 "header ({header_height}px) and footer ({footer_height}px) exceed the {safe_height}px safe area"
             ),
+            Self::InvalidImageDimensions {
+                natural_width,
+                natural_height,
+            } => write!(
+                f,
+                "foreground image has no extent to contain: {natural_width}x{natural_height}"
+            ),
         }
     }
 }
@@ -399,11 +448,14 @@ impl std::error::Error for RenderError {}
 /// `footer_lead` handles the one mixed-size zone in the corpus, the song
 /// identity block: when present, the footer's first `u32` authored lines lay
 /// out at the lead style and the rest at the footer style, keeping one
-/// bottom-left block. Density is accepted and ignored for composition: the
-/// same content and Theme always yield the same frame regardless of density.
+/// bottom-left block. `image` carries the resolved foreground element, if
+/// any, whose contained bounds join the frame. Density is accepted and
+/// ignored for composition: the same content and Theme always yield the same
+/// frame regardless of density.
 pub(crate) fn compose_zoned(
     content: &SemanticContent,
     plan: &CompositionPlan,
+    image: Option<&ForegroundImage>,
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
@@ -608,6 +660,25 @@ pub(crate) fn compose_zoned(
         hard_split: laid_out.hard_split,
         first_hard_split: laid_out.first_hard_split,
     };
+    // The foreground element joins the completed frame with contained bounds,
+    // so the raster pass never recovers semantics the logical frame dropped.
+    // Zero natural extent cannot contain and fails structurally, like chrome
+    // that cannot paginate.
+    let image = match image {
+        None => None,
+        Some(requested) => {
+            if requested.natural_width == 0 || requested.natural_height == 0 {
+                return Err(RenderError::InvalidImageDimensions {
+                    natural_width: requested.natural_width,
+                    natural_height: requested.natural_height,
+                });
+            }
+            Some(PlacedImage {
+                id: requested.id.clone(),
+                bounds: contain(requested.natural_width, requested.natural_height, body),
+            })
+        }
+    };
     Ok((
         Frame {
             safe_area,
@@ -618,9 +689,31 @@ pub(crate) fn compose_zoned(
             body_lines: laid_out.lines,
             footer_lines,
             pagination,
+            image,
         },
         diagnostics,
     ))
+}
+
+/// Fit natural dimensions inside `bounds` preserving aspect ratio, centered.
+/// The narrower fit wins; u64 intermediates with truncating division keep the
+/// result deterministic on both packaged targets.
+fn contain(natural_width: u32, natural_height: u32, bounds: Rect) -> Rect {
+    let (avail_w, avail_h) = (u64::from(bounds.width), u64::from(bounds.height));
+    let (nat_w, nat_h) = (u64::from(natural_width), u64::from(natural_height));
+    // Natural dimensions are nonzero here, so both divisors are nonzero.
+    let (contained_w, contained_h) = if nat_w * avail_h <= avail_w * nat_h {
+        (avail_h * nat_w / nat_h, avail_h)
+    } else {
+        (avail_w, avail_w * nat_h / nat_w)
+    };
+    let (contained_w, contained_h) = (contained_w as u32, contained_h as u32);
+    Rect {
+        x: bounds.x + bounds.width.saturating_sub(contained_w) / 2,
+        y: bounds.y + bounds.height.saturating_sub(contained_h) / 2,
+        width: contained_w,
+        height: contained_h,
+    }
 }
 
 /// Lay out a present footer and measure its height. Without a lead the whole
@@ -685,5 +778,5 @@ pub fn render(
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
-    compose_zoned(content, &CompositionPlan::neutral(), theme, density)
+    compose_zoned(content, &CompositionPlan::neutral(), None, theme, density)
 }

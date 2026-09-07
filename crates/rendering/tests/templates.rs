@@ -7,9 +7,9 @@
 //! at the ceiling stays quiet, one past it warns.
 
 use rendering::{
-    BODY_FONT_SIZE, PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
-    RenderError, TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for,
-    render_template,
+    BODY_FONT_SIZE, ForegroundImage, PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE,
+    PROVISIONAL_PASSAGE_SIZE, RenderError, TargetDensity, TemplateContent, TemplateKind, Theme,
+    line_height_for, render_template,
 };
 
 fn content(
@@ -23,6 +23,21 @@ fn content(
         header: header.map(str::to_owned),
         body: body.to_owned(),
         footer: footer.map(str::to_owned),
+        image: None,
+    }
+}
+
+fn image_content(id: &str, natural_width: u32, natural_height: u32) -> TemplateContent {
+    TemplateContent {
+        kind: TemplateKind::GeneralImage,
+        header: Some("Image header".to_owned()),
+        body: String::new(),
+        footer: Some("Image caption".to_owned()),
+        image: Some(ForegroundImage {
+            id: id.to_owned(),
+            natural_width,
+            natural_height,
+        }),
     }
 }
 
@@ -95,7 +110,7 @@ fn every_template_composes_through_the_same_interface() {
         assert_eq!(frame.safe_area().y, 80);
         // The serialized artifact carries the whole composition for the
         // fixture corpus PR 6 builds on this.
-        assert!(frame.serialize().starts_with("ordo-canonical-frame/1\n"));
+        assert!(frame.serialize().starts_with("ordo-canonical-frame/2\n"));
     }
 }
 
@@ -771,4 +786,119 @@ fn omissions_are_structural_not_conventional() {
             }
         }
     }
+}
+
+#[test]
+fn general_image_carries_the_foreground_element_with_contained_bounds() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    // Body zone: full width with one meta header and one meta caption line.
+    let body = rendering::Rect {
+        x: 120,
+        y: 126,
+        width: 1680,
+        height: 828,
+    };
+    let (frame, diagnostics) =
+        render_template(&image_content("asset-1", 800, 600), &theme, density)
+            .expect("resolved image must compose");
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body(), body);
+    // 800x600 in 1680x828 fits by height: 1104x828, centered horizontally.
+    let placed = frame.image().expect("frame carries the foreground element");
+    assert_eq!(placed.id, "asset-1");
+    assert_eq!(
+        placed.bounds,
+        rendering::Rect {
+            x: 408,
+            y: 126,
+            width: 1104,
+            height: 828,
+        }
+    );
+    assert!(
+        frame
+            .serialize()
+            .contains("\nimage id=asset-1 408 126 1104 828\n"),
+        "serialization pins the identity and bounds"
+    );
+    // Same content twice: byte-identical, density-free.
+    let (second, _) =
+        render_template(&image_content("asset-1", 800, 600), &theme, density).unwrap();
+    assert_eq!(frame.serialize(), second.serialize());
+    let dense = TargetDensity::from_percent(200).unwrap();
+    let (at_dense, _) =
+        render_template(&image_content("asset-1", 800, 600), &theme, dense).unwrap();
+    assert_eq!(frame, at_dense);
+}
+
+#[test]
+fn general_image_contains_tall_assets_by_width() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    // 600x800 in 1680x828 fits by width: 621x828, centered horizontally.
+    let (frame, _) = render_template(&image_content("asset-2", 600, 800), &theme, density).unwrap();
+    let placed = frame.image().expect("frame carries the foreground element");
+    assert_eq!(
+        placed.bounds,
+        rendering::Rect {
+            x: 649,
+            y: 126,
+            width: 621,
+            height: 828,
+        }
+    );
+}
+
+#[test]
+fn general_image_without_an_asset_serializes_its_absence() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let (frame, _) = render_template(
+        &content(
+            TemplateKind::GeneralImage,
+            Some("Image header"),
+            "",
+            Some("Image caption"),
+        ),
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(frame.image(), None);
+    assert!(frame.serialize().contains("\nimage-absent\n"));
+}
+
+#[test]
+fn foreground_images_without_extent_fail_structurally() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    for (natural_width, natural_height) in [(0, 600), (800, 0), (0, 0)] {
+        assert_eq!(
+            render_template(
+                &image_content("asset-3", natural_width, natural_height),
+                &theme,
+                density,
+            ),
+            Err(RenderError::InvalidImageDimensions {
+                natural_width,
+                natural_height,
+            })
+        );
+    }
+}
+
+#[test]
+fn foreground_images_outside_general_image_stay_out_of_the_frame() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let mut case = lyrics("short line");
+    case.image = Some(ForegroundImage {
+        id: "stray".to_owned(),
+        natural_width: 800,
+        natural_height: 600,
+    });
+    let (frame, _) = render_template(&case, &theme, density).unwrap();
+    assert_eq!(frame.image(), None);
+    assert!(frame.serialize().contains("\nimage-absent\n"));
 }
