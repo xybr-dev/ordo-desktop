@@ -4,7 +4,10 @@
 //! never through shaping internals. Serialized comparisons are in-memory
 //! strings, so no fixture file or line-ending pinning participates.
 
-use rendering::{BODY_LINE_HEIGHT, Fit, SemanticContent, TargetDensity, Theme, render};
+use rendering::{
+    BODY_LINE_HEIGHT, Fit, LOGICAL_HEIGHT, LOGICAL_WIDTH, SemanticContent, TargetDensity, Theme,
+    render,
+};
 
 fn body_only(body: &str) -> SemanticContent {
     SemanticContent {
@@ -79,6 +82,19 @@ fn authored_line_breaks_are_preserved_and_blank_lines_mark_hard_split() {
     assert_eq!(split.pagination().body_lines, 2);
     assert_eq!(split.body_lines()[0].authored_index, 0);
     assert_eq!(split.body_lines()[1].authored_index, 2);
+
+    // A whitespace-only line is still blank: invisible spacing must not
+    // become same-slide vertical spacing. Real spacing belongs in explicit
+    // semantic input, not raw whitespace.
+    let (spaced, _) = render(
+        &body_only("unang linya\n \nikalawang linya"),
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert!(spaced.pagination().hard_split);
+    assert_eq!(spaced.pagination().first_hard_split, Some(1));
+    assert_eq!(spaced.pagination().body_lines, 2);
 }
 
 #[test]
@@ -177,4 +193,160 @@ fn overlong_words_break_between_characters_without_clipping() {
         .map(|line| line.glyphs.len())
         .sum();
     assert_eq!(glyphs, 60, "every character must survive the break");
+}
+
+#[test]
+fn combining_marks_shape_in_their_base_face() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+
+    // Decomposed alpha plus acute: the acute alone resolves to the primary
+    // face, but split shaping would detach it from its base, so the whole
+    // cluster must stay in the fallback face with its base. (The pinned
+    // fallback face composes the pair into one glyph; the pinned property
+    // is the face, not the count.)
+    let (frame, _) = render(&body_only("A \u{3B1}\u{301}"), &theme, density).unwrap();
+    assert_eq!(frame.body_lines().len(), 1);
+    let line = &frame.body_lines()[0];
+    let primary = line
+        .glyphs
+        .iter()
+        .filter(|glyph| glyph.font == rendering::fonts::CanonicalFont::Primary)
+        .count();
+    let fallback = line
+        .glyphs
+        .iter()
+        .filter(|glyph| glyph.font == rendering::fonts::CanonicalFont::Fallback)
+        .count();
+    assert_eq!(primary, 1, "only the Latin base stays primary");
+    assert!(
+        fallback >= 1,
+        "the fallback base and its mark must share one face"
+    );
+}
+
+#[test]
+fn oversized_header_and_footer_diagnose_instead_of_wrapping_coordinates() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let tall = (1..=20)
+        .map(|n| format!("header {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let content = SemanticContent {
+        response_header: Some(tall.clone()),
+        footer: Some(tall),
+        ..body_only("")
+    };
+
+    let (frame, diagnostics) = render(&content, &theme, density).unwrap();
+
+    assert_eq!(frame.pagination().fit, Fit::Overflows);
+    assert!(
+        !diagnostics.warnings.is_empty(),
+        "impossible chrome must diagnose, not pass silently"
+    );
+    // Every line stays present in the complete frame.
+    assert_eq!(frame.header_lines().len(), 20);
+    assert_eq!(frame.footer_lines().len(), 20);
+    // Rect origins saturate inside the canvas instead of wrapping around it.
+    for rect in [frame.safe_area(), frame.body()]
+        .into_iter()
+        .chain(frame.header())
+        .chain(frame.footer())
+    {
+        assert!(
+            rect.x <= LOGICAL_WIDTH && rect.y <= LOGICAL_HEIGHT,
+            "zone rect left the canvas: {rect:?}"
+        );
+    }
+    assert_eq!(frame.footer().map(|rect| rect.y), Some(80));
+    assert_eq!(frame.body().height, 0);
+}
+
+#[test]
+fn narrow_safe_area_reports_horizontal_overflow_without_dropping_glyphs() {
+    let theme = Theme {
+        safe_inset_x: 959,
+        safe_inset_y: 80,
+    };
+    let density = TargetDensity::SCALE_100;
+
+    let (frame, diagnostics) = render(&body_only("W"), &theme, density).unwrap();
+
+    assert_eq!(frame.safe_area().width, 2);
+    assert_eq!(frame.pagination().fit, Fit::Overflows);
+    assert!(
+        !diagnostics.warnings.is_empty(),
+        "a glyph wider than the safe area must diagnose"
+    );
+    // Nothing is dropped: the overwide line stays present with its glyph.
+    assert_eq!(frame.body_lines().len(), 1);
+    assert!(!frame.body_lines()[0].glyphs.is_empty());
+    assert!(frame.body_lines()[0].width > 2);
+}
+
+/// Fixed probe content for the cross-process determinism check below.
+fn serializer_probe_content() -> SemanticContent {
+    SemanticContent {
+        response_header: Some("Authored header".to_owned()),
+        footer: Some("Authored footer".to_owned()),
+        ..body_only("Maayong buntag, mga igsoon! Awit \u{3B1} 123 \u{4E2D}")
+    }
+}
+
+/// Child entry for the cross-process check: when this test binary re-runs
+/// itself with the output variable set, it writes one serialized artifact to
+/// the given path instead of asserting. Without the variable it passes
+/// trivially so the ordinary suite is unaffected.
+#[test]
+fn cross_process_serializer_child() {
+    let Some(out) = std::env::var_os("ORDO_CANONICAL_SERIALIZER_CHILD_OUT") else {
+        return;
+    };
+    let (frame, _) = render(
+        &serializer_probe_content(),
+        &Theme::default(),
+        TargetDensity::SCALE_100,
+    )
+    .expect("fixed serializer content must compose");
+    std::fs::write(out, frame.serialize()).expect("child artifact must be writable");
+}
+
+#[test]
+fn serialized_frames_are_identical_across_processes() {
+    let scratch =
+        std::env::temp_dir().join(format!("ordo-canonical-serializer-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch dir must be writable");
+    let first_path = scratch.join("first.txt");
+    let second_path = scratch.join("second.txt");
+    for path in [&first_path, &second_path] {
+        let status = std::process::Command::new(
+            std::env::current_exe().expect("serializer test binary must have a path"),
+        )
+        .args(["cross_process_serializer_child", "--exact"])
+        .env("ORDO_CANONICAL_SERIALIZER_CHILD_OUT", path)
+        .status()
+        .expect("serializer child must run");
+        assert!(status.success(), "serializer child must succeed");
+    }
+    let first = std::fs::read_to_string(&first_path).expect("first artifact must exist");
+    let second = std::fs::read_to_string(&second_path).expect("second artifact must exist");
+    std::fs::remove_dir_all(&scratch).ok();
+
+    assert_eq!(
+        first, second,
+        "two fresh processes must serialize byte-identically"
+    );
+    let (frame, _) = render(
+        &serializer_probe_content(),
+        &Theme::default(),
+        TargetDensity::SCALE_100,
+    )
+    .unwrap();
+    assert_eq!(
+        frame.serialize(),
+        first,
+        "fresh processes must match this process"
+    );
 }

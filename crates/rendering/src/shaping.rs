@@ -17,6 +17,8 @@
 //! - Blank authored lines contribute no rendered lines. In the body zone they
 //!   additionally mark a hard split that overrides any automatic proposal
 //!   derived from fit; header and footer zones ignore the split flag.
+//! - Combining marks shape in their base's face, and breaks never separate a
+//!   mark from its base, so decomposed characters survive fallback intact.
 //! - Overlong words break between characters and overlong zones keep every
 //!   line: this path never shrinks and never clips. Overflow is reported, not
 //!   hidden.
@@ -203,6 +205,21 @@ fn shape_run(run: &str, font: CanonicalFont, faces: &Faces) -> Vec<RelativeGlyph
         .collect()
 }
 
+/// A combining mark extends its base character: it must shape in the base's
+/// face so the shaper can attach it, even when the mark alone would resolve
+/// to the other bundled face. Covers the combining-mark blocks (diacritical
+/// marks, extensions, supplement, symbols, half marks); a dangling mark with
+/// no base keeps its own resolution.
+fn is_combining_mark(c: char) -> bool {
+    matches!(c as u32,
+        0x0300..=0x036F
+        | 0x1AB0..=0x1AFF
+        | 0x1DC0..=0x1DFF
+        | 0x20D0..=0x20FF
+        | 0xFE20..=0xFE2F
+    )
+}
+
 /// One word shaped once, with clusters rebased to word byte offsets.
 struct ShapedWord {
     text: String,
@@ -213,10 +230,16 @@ struct ShapedWord {
 fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
     let mut runs: Vec<(CanonicalFont, usize, usize)> = Vec::new();
     for (byte, c) in word.char_indices() {
-        let font = fonts::resolve_font_for(c);
+        let end = byte + c.len_utf8();
         match runs.last_mut() {
-            Some((run_font, _, end)) if *run_font == font => *end = byte + c.len_utf8(),
-            _ => runs.push((font, byte, byte + c.len_utf8())),
+            // A combining mark extends the open run so it shapes in its
+            // base's face; a dangling mark with no base falls through to
+            // its own resolution below.
+            Some((_, _, run_end)) if is_combining_mark(c) => *run_end = end,
+            Some((run_font, _, run_end)) if *run_font == fonts::resolve_font_for(c) => {
+                *run_end = end;
+            }
+            _ => runs.push((fonts::resolve_font_for(c), byte, end)),
         }
     }
     let mut glyphs = Vec::new();
@@ -269,16 +292,23 @@ fn push_line(plans: &mut Vec<LinePlan>, words: &[ShapedWord], indices: &[usize],
 
 /// Break one overlong word between characters so no text is ever dropped.
 /// Each fragment is re-shaped so its advances stay truthful to the fragment.
+/// Base characters cluster with their combining marks so a break never
+/// separates a mark from its base.
 fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces) -> Vec<LinePlan> {
-    let chars: Vec<(usize, char)> = word.text.char_indices().collect();
+    let mut units: Vec<(usize, usize)> = Vec::new();
+    for (byte, c) in word.text.char_indices() {
+        match units.last_mut() {
+            Some((_, end)) if is_combining_mark(c) => *end = byte + c.len_utf8(),
+            _ => units.push((byte, byte + c.len_utf8())),
+        }
+    }
     let mut plans = Vec::new();
     let mut start = 0;
-    while start < chars.len() {
-        let (byte, c) = chars[start];
+    while start < units.len() {
         let mut end = start + 1;
-        let mut shaped = shape_word(&word.text[byte..byte + c.len_utf8()], faces);
-        while end < chars.len() {
-            let candidate = &word.text[chars[start].0..chars[end].0 + chars[end].1.len_utf8()];
+        let mut shaped = shape_word(&word.text[units[start].0..units[start].1], faces);
+        while end < units.len() {
+            let candidate = &word.text[units[start].0..units[end].1];
             let candidate_shaped = shape_word(candidate, faces);
             if candidate_shaped.width > max_width {
                 break;
@@ -286,7 +316,7 @@ fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces) -> Vec<LinePlan>
             shaped = candidate_shaped;
             end += 1;
         }
-        let base = chars[start].0 as u32;
+        let base = units[start].0 as u32;
         let mut glyphs = shaped.glyphs;
         for glyph in &mut glyphs {
             glyph.cluster += base;

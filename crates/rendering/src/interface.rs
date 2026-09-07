@@ -21,8 +21,9 @@
 //!
 //! Zone heights are measured, not proportional: each present zone occupies its
 //! wrapped lines at the provisional body size, and the body receives whatever
-//! safe-area height remains. Overflow keeps every line and reports a warning
-//! beside the complete frame; nothing shrinks and nothing clips.
+//! safe-area height remains. Overflow — vertical, horizontal, or chrome taller
+//! than the safe area — keeps every line and reports a warning beside the
+//! complete frame; nothing shrinks and nothing clips.
 
 use crate::fonts::CanonicalFont;
 use crate::shaping::{self, Fit, PaginationInputs, ShapedLine};
@@ -439,11 +440,22 @@ pub fn render(
     let laid_out = shaping::layout_body(&content.body, max_width, safe_x, body_y, &faces);
     let body_content_height =
         (laid_out.lines.len() as u32).saturating_mul(shaping::BODY_LINE_HEIGHT);
-    let fit = if body_content_height <= body_available {
-        Fit::Fits
-    } else {
-        Fit::Overflows
-    };
+    // Horizontal overflow is possible only when a single glyph exceeds the
+    // safe width; like every other overflow it is reported, never dropped.
+    let widest = header_lines
+        .iter()
+        .chain(laid_out.lines.iter())
+        .chain(footer_lines.iter())
+        .map(|line| line.width)
+        .max()
+        .unwrap_or(0);
+    let chrome_overflow = header_height.saturating_add(footer_height) > safe_height;
+
+    // Rect origins saturate inside the safe area so impossible totals stay
+    // denormalized but never wrap; heights stay measured and every line
+    // stays present while the warnings below name the overflow.
+    let footer_rect_y = safe_area.y + safe_height.saturating_sub(footer_height);
+    let body_rect_y = safe_area.y + header_height.min(safe_height);
 
     let header = header_text.map(|_| Rect {
         x: safe_area.x,
@@ -453,15 +465,38 @@ pub fn render(
     });
     let footer = content.footer.as_deref().map(|_| Rect {
         x: safe_area.x,
-        y: (footer_y as u32).max(safe_area.y),
+        y: footer_rect_y,
         width: safe_area.width,
         height: footer_height,
     });
     let body = Rect {
         x: safe_area.x,
-        y: (body_y as u32).max(safe_area.y),
+        y: body_rect_y,
         width: safe_area.width,
         height: body_available,
+    };
+
+    let mut diagnostics = Diagnostics::default();
+    if chrome_overflow {
+        diagnostics.warnings.push(format!(
+            "header and footer need {}px but the safe area offers {safe_height}px at the approved minimum; split before shrinking",
+            header_height.saturating_add(footer_height)
+        ));
+    }
+    if widest > max_width {
+        diagnostics.warnings.push(format!(
+            "a line needs {widest}px but the safe area offers {max_width}px at the approved minimum; split before shrinking"
+        ));
+    }
+    if body_content_height > body_available {
+        diagnostics.warnings.push(format!(
+            "body content needs {body_content_height}px but the body zone offers {body_available}px at the approved minimum; split before shrinking"
+        ));
+    }
+    let fit = if diagnostics.warnings.is_empty() {
+        Fit::Fits
+    } else {
+        Fit::Overflows
     };
 
     let pagination = PaginationInputs {
@@ -475,12 +510,6 @@ pub fn render(
         hard_split: laid_out.hard_split,
         first_hard_split: laid_out.first_hard_split,
     };
-    let mut diagnostics = Diagnostics::default();
-    if fit == Fit::Overflows {
-        diagnostics.warnings.push(format!(
-            "body content needs {body_content_height}px but the body zone offers {body_available}px at the approved minimum; split before shrinking"
-        ));
-    }
     Ok((
         Frame {
             safe_area,
