@@ -4,3 +4,9 @@
 //! must not acquire GPUI operator-layout behavior.
 
 pub mod fonts;
+pub mod interface;
+
+pub use interface::{
+    Diagnostics, Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X, MIN_SAFE_INSET_Y, Rect,
+    RenderError, SemanticContent, TargetDensity, Theme, render,
+};
