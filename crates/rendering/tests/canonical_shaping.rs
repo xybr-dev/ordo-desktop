@@ -31,7 +31,7 @@ fn same_inputs_yield_byte_identical_serialized_frames() {
     // The artifact carries glyphs, wrapping, pagination inputs, safe area,
     // and element bounds together.
     let serialized = first.serialize();
-    assert!(serialized.starts_with("ordo-canonical-frame/1\n"));
+    assert!(serialized.starts_with("ordo-canonical-frame/2\n"));
     assert!(serialized.contains("safe-area 120 80 1680 920\n"));
     assert!(serialized.contains("body-rect "));
     assert!(serialized.contains("pagination "));

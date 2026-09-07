@@ -1,4 +1,4 @@
-//! Canonical Slide Renderer Interface (T0.4 PRs 3-4).
+//! Canonical Slide Renderer Interface (T0.4 PRs 3-5).
 //!
 //! The single seam every later T0.4 PR builds on: resolved semantic content, a
 //! Theme, and a target density go in, and either one complete frame plus
@@ -27,7 +27,7 @@
 //! header and footer content and anything else would misbound the frame.
 
 use crate::fonts::CanonicalFont;
-use crate::shaping::{self, Fit, PaginationInputs, ShapedLine};
+use crate::shaping::{self, Alignment, Fit, PaginationInputs, ShapedLine, VAlign};
 
 /// Logical canvas width every slide composes in.
 pub const LOGICAL_WIDTH: u32 = 1920;
@@ -70,7 +70,7 @@ pub struct SemanticContent {
 ///
 /// PR 3 carries only the safe-area insets: a Theme may increase them and is
 /// rejected for reducing them below the minimum. Typography, colors, and
-/// backgrounds belong to the template corpus (PR 5).
+/// backgrounds belong to the template corpus (see `templates`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
     pub safe_inset_x: u32,
@@ -117,6 +117,52 @@ impl TargetDensity {
     }
 }
 
+/// Per-zone composition style: the provisional size the zone measures at and
+/// the alignment its lines take inside the zone width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ZoneStyle {
+    pub(crate) size: u32,
+    pub(crate) align: Alignment,
+}
+
+impl ZoneStyle {
+    /// The PR 4 neutral style: the 72px baseline, left-origin lines.
+    pub(crate) const fn neutral() -> Self {
+        Self {
+            size: shaping::BODY_FONT_SIZE,
+            align: Alignment::Left,
+        }
+    }
+}
+
+/// Per-composition zone plan: per-zone styles, the song identity-block lead,
+/// the body's vertical placement inside its rect, and the slide background
+/// the raster pass paints.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CompositionPlan {
+    pub(crate) header: ZoneStyle,
+    pub(crate) body: ZoneStyle,
+    pub(crate) footer: ZoneStyle,
+    pub(crate) footer_lead: Option<(ZoneStyle, u32)>,
+    pub(crate) body_valign: VAlign,
+    pub(crate) background: SlideBackground,
+}
+
+impl CompositionPlan {
+    /// The PR 4 neutral plan: the baseline size, left-origin lines starting
+    /// at the top of each zone, on the theme background.
+    pub(crate) const fn neutral() -> Self {
+        Self {
+            header: ZoneStyle::neutral(),
+            body: ZoneStyle::neutral(),
+            footer: ZoneStyle::neutral(),
+            footer_lead: None,
+            body_valign: VAlign::Top,
+            background: SlideBackground::Theme,
+        }
+    }
+}
+
 /// Diagnostics riding beside a complete frame.
 ///
 /// Diagnostics never stand in for missing content: they accompany [`Frame`],
@@ -127,14 +173,25 @@ pub struct Diagnostics {
     pub warnings: Vec<String>,
 }
 
+/// Slide background intent, as the completed frame carries it: the theme
+/// background or the required black slide. The raster pass paints from this;
+/// an empty text slide and a black slide serialize differently because only
+/// one carries the black intent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlideBackground {
+    Theme,
+    Black,
+}
+
 /// One complete logical composition.
 ///
 /// Fields are private so a partially composed frame cannot be named: the
 /// only way to obtain one is [`render`], which returns every zone at once.
 /// `header` and `footer` are `None` exactly when the corresponding input was
 /// absent; the body then covers their share. The shaped lines carry every
-/// glyph position, and [`Frame::serialize`] pins the whole composition in a
-/// form stable enough to compare byte-for-byte.
+/// glyph position, `image` carries the resolved foreground element with its
+/// contained bounds, and [`Frame::serialize`] pins the whole composition in
+/// a form stable enough to compare byte-for-byte.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Frame {
     safe_area: Rect,
@@ -145,6 +202,30 @@ pub struct Frame {
     body_lines: Vec<ShapedLine>,
     footer_lines: Vec<ShapedLine>,
     pagination: PaginationInputs,
+    image: Option<PlacedImage>,
+    background: SlideBackground,
+}
+
+/// A resolved foreground image, as the template corpus accepts it: the
+/// single-line asset identity the raster pass resolves, with the natural
+/// dimensions the logical bounds contain. No bytes travel here and nothing
+/// is fetched. PR 7 rasterizes the completed frame with a separate
+/// raster-time image source that maps this identity to encoded bytes and
+/// paints them into the frame's contained bounds; the logical frame carries
+/// geometry only, so no decode pipeline or pixel store enters this crate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForegroundImage {
+    pub id: String,
+    pub natural_width: u32,
+    pub natural_height: u32,
+}
+
+/// One foreground image placed in the completed frame: the resolved identity
+/// with aspect-ratio-contained logical bounds inside the body zone.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlacedImage {
+    pub id: String,
+    pub bounds: Rect,
 }
 
 impl Frame {
@@ -180,21 +261,29 @@ impl Frame {
         &self.pagination
     }
 
+    pub fn image(&self) -> Option<&PlacedImage> {
+        self.image.as_ref()
+    }
+
+    pub fn background(&self) -> SlideBackground {
+        self.background
+    }
+
     /// The logical canvas size this frame was composed for.
     pub fn logical_size(&self) -> (u32, u32) {
         (LOGICAL_WIDTH, LOGICAL_HEIGHT)
     }
 
     /// Serialize the completed logical frame: safe area, element bounds,
-    /// glyph positions, wrapping, and pagination inputs. The output uses only
-    /// integers and `'\n'` separators with glyphs in visual order, so the
-    /// same content, Theme, and density produce byte-identical output in
-    /// every process on both packaged targets. Density never appears here:
-    /// it must not alter the logical composition.
+    /// glyph positions, wrapping, pagination inputs, and the foreground
+    /// image. The output uses only integers and `'\n'` separators with glyphs
+    /// in visual order, so the same content, Theme, and density produce
+    /// byte-identical output in every process on both packaged targets.
+    /// Density never appears here: it must not alter the logical composition.
     pub fn serialize(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
-        let _ = writeln!(out, "ordo-canonical-frame/1");
+        let _ = writeln!(out, "ordo-canonical-frame/2");
         let _ = writeln!(out, "logical {LOGICAL_WIDTH} {LOGICAL_HEIGHT}");
         let safe = self.safe_area;
         let _ = writeln!(
@@ -252,6 +341,24 @@ impl Frame {
             pagination.body_available_height,
             pagination.hard_split,
         );
+        match &self.image {
+            Some(image) => {
+                let bounds = image.bounds;
+                let _ = writeln!(
+                    out,
+                    "image id={} {} {} {} {}",
+                    image.id, bounds.x, bounds.y, bounds.width, bounds.height
+                );
+            }
+            None => {
+                let _ = writeln!(out, "image-absent");
+            }
+        }
+        let background = match self.background {
+            SlideBackground::Theme => "theme",
+            SlideBackground::Black => "black",
+        };
+        let _ = writeln!(out, "background {background}");
         for (zone, lines) in [
             ("header", self.header_lines.as_slice()),
             ("body", self.body_lines.as_slice()),
@@ -310,6 +417,11 @@ pub enum RenderError {
         footer_height: u32,
         safe_height: u32,
     },
+    InvalidImageDimensions {
+        natural_width: u32,
+        natural_height: u32,
+    },
+    MissingForegroundImage,
 }
 
 impl std::fmt::Display for RenderError {
@@ -343,6 +455,16 @@ impl std::fmt::Display for RenderError {
                 f,
                 "header ({header_height}px) and footer ({footer_height}px) exceed the {safe_height}px safe area"
             ),
+            Self::InvalidImageDimensions {
+                natural_width,
+                natural_height,
+            } => write!(
+                f,
+                "foreground image has no extent to contain: {natural_width}x{natural_height}"
+            ),
+            Self::MissingForegroundImage => {
+                write!(f, "general image slide is missing its foreground image")
+            }
         }
     }
 }
@@ -351,14 +473,26 @@ impl std::error::Error for RenderError {}
 
 /// Compose one complete logical frame from resolved content.
 ///
-/// Density is accepted and ignored for composition: the same content and
-/// Theme always yield the same frame regardless of density.
-pub fn render(
+/// `plan` carries the per-zone size, alignment, and body vertical placement
+/// the template corpus assigns; [`render`] passes the neutral plan.
+/// `footer_lead` handles the one mixed-size zone in the corpus, the song
+/// identity block: when present, the footer's first `u32` authored lines lay
+/// out at the lead style and the rest at the footer style, keeping one
+/// bottom-left block. `image` carries the resolved foreground element, if
+/// any, whose contained bounds join the frame. Density is accepted and
+/// ignored for composition: the same content and Theme always yield the same
+/// frame regardless of density.
+pub(crate) fn compose_zoned(
     content: &SemanticContent,
+    plan: &CompositionPlan,
+    image: Option<&ForegroundImage>,
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
     let _ = density;
+    let header = plan.header;
+    let body = plan.body;
+    let footer = plan.footer;
     if theme.safe_inset_x < MIN_SAFE_INSET_X || theme.safe_inset_y < MIN_SAFE_INSET_Y {
         return Err(RenderError::SafeAreaBelowMinimum {
             requested_x: theme.safe_inset_x,
@@ -418,24 +552,30 @@ pub fn render(
         .as_deref()
         .or(content.psalm_header.as_deref());
     let header_lines = header_text
-        .map(|text| shaping::layout_zone(text, max_width, safe_x, safe_y, &faces))
+        .map(|text| {
+            shaping::layout_zone(
+                text,
+                header.size,
+                max_width,
+                safe_x,
+                safe_y,
+                &faces,
+                header.align,
+            )
+        })
         .unwrap_or_default();
     // A present header reserves at least one line even when its string is
     // empty; an absent header collapses to zero so the body keeps the space.
     let header_height = header_text
-        .map(|_| (header_lines.len().max(1) as u32).saturating_mul(shaping::BODY_LINE_HEIGHT))
+        .map(|_| {
+            (header_lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(header.size))
+        })
         .unwrap_or(0);
 
-    let footer_lines = content
-        .footer
-        .as_deref()
-        .map(|text| shaping::layout_zone(text, max_width, 0, 0, &faces))
-        .unwrap_or_default();
-    let footer_height = content
-        .footer
-        .as_deref()
-        .map(|_| (footer_lines.len().max(1) as u32).saturating_mul(shaping::BODY_LINE_HEIGHT))
-        .unwrap_or(0);
+    let (footer_lines, footer_height) = match content.footer.as_deref() {
+        None => (Vec::new(), 0),
+        Some(text) => layout_footer(text, footer, plan.footer_lead, max_width, &faces),
+    };
     // Chrome taller than the safe area cannot be paginated away, so it fails
     // structurally instead of warning beside misbounded zones.
     if header_height.saturating_add(footer_height) > safe_height {
@@ -460,9 +600,32 @@ pub fn render(
     let body_available = safe_height
         .saturating_sub(header_height)
         .saturating_sub(footer_height);
-    let laid_out = shaping::layout_body(&content.body, max_width, safe_x, body_y, &faces);
+    let mut laid_out = shaping::layout_body(
+        &content.body,
+        body.size,
+        max_width,
+        safe_x,
+        body_y,
+        &faces,
+        body.align,
+    );
     let body_content_height =
-        (laid_out.lines.len() as u32).saturating_mul(shaping::BODY_LINE_HEIGHT);
+        (laid_out.lines.len() as u32).saturating_mul(shaping::line_height_for(body.size));
+    // Centered templates offset the shaped block from its measured height so
+    // short content sits in the middle of the remaining region instead of
+    // hugging its top edge. Truncating division keeps it deterministic, and
+    // an overflowing block stays top-anchored beside its warning.
+    if plan.body_valign == VAlign::Center {
+        let shift = body_available.saturating_sub(body_content_height) / 2;
+        if shift > 0 {
+            for line in &mut laid_out.lines {
+                line.y += shift as i32;
+                for glyph in &mut line.glyphs {
+                    glyph.y += shift as i32;
+                }
+            }
+        }
+    }
     // Horizontal overflow is possible only when a single glyph exceeds the
     // safe width; like every other overflow it is reported, never dropped.
     let widest = header_lines
@@ -527,6 +690,25 @@ pub fn render(
         hard_split: laid_out.hard_split,
         first_hard_split: laid_out.first_hard_split,
     };
+    // The foreground element joins the completed frame with contained bounds,
+    // so the raster pass never recovers semantics the logical frame dropped.
+    // Zero natural extent cannot contain and fails structurally, like chrome
+    // that cannot paginate.
+    let image = match image {
+        None => None,
+        Some(requested) => {
+            if requested.natural_width == 0 || requested.natural_height == 0 {
+                return Err(RenderError::InvalidImageDimensions {
+                    natural_width: requested.natural_width,
+                    natural_height: requested.natural_height,
+                });
+            }
+            Some(PlacedImage {
+                id: requested.id.clone(),
+                bounds: contain(requested.natural_width, requested.natural_height, body),
+            })
+        }
+    };
     Ok((
         Frame {
             safe_area,
@@ -537,7 +719,95 @@ pub fn render(
             body_lines: laid_out.lines,
             footer_lines,
             pagination,
+            image,
+            background: plan.background,
         },
         diagnostics,
     ))
+}
+
+/// Fit natural dimensions inside `bounds` preserving aspect ratio, centered.
+/// The narrower fit wins; u64 intermediates with truncating division keep the
+/// result deterministic on both packaged targets.
+fn contain(natural_width: u32, natural_height: u32, bounds: Rect) -> Rect {
+    let (avail_w, avail_h) = (u64::from(bounds.width), u64::from(bounds.height));
+    let (nat_w, nat_h) = (u64::from(natural_width), u64::from(natural_height));
+    // Natural dimensions are nonzero here, so both divisors are nonzero.
+    let (contained_w, contained_h) = if nat_w * avail_h <= avail_w * nat_h {
+        (avail_h * nat_w / nat_h, avail_h)
+    } else {
+        (avail_w, avail_w * nat_h / nat_w)
+    };
+    let (contained_w, contained_h) = (contained_w as u32, contained_h as u32);
+    Rect {
+        x: bounds.x + bounds.width.saturating_sub(contained_w) / 2,
+        y: bounds.y + bounds.height.saturating_sub(contained_h) / 2,
+        width: contained_w,
+        height: contained_h,
+    }
+}
+
+/// Lay out a present footer and measure its height. Without a lead the whole
+/// zone measures at one style and reserves at least one line, exactly as PR 4
+/// did. With a lead, the first `lead_authored` authored lines measure at the
+/// lead style and the rest stack beneath at the footer style; the lead
+/// reserves the line, so the rest adds only its rendered lines. Rest authored
+/// indices shift past the lead so serialized lines stay attributable.
+fn layout_footer(
+    text: &str,
+    style: ZoneStyle,
+    lead: Option<(ZoneStyle, u32)>,
+    max_width: i32,
+    faces: &shaping::Faces,
+) -> (Vec<ShapedLine>, u32) {
+    let Some((lead_style, lead_authored)) = lead else {
+        let lines = shaping::layout_zone(text, style.size, max_width, 0, 0, faces, style.align);
+        let height =
+            (lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(style.size));
+        return (lines, height);
+    };
+    let authored: Vec<&str> = text.split('\n').collect();
+    let split_at = (lead_authored as usize).min(authored.len());
+    let (lead_part, rest_part) = authored.split_at(split_at);
+    let mut lead_lines = shaping::layout_zone(
+        &lead_part.join("\n"),
+        lead_style.size,
+        max_width,
+        0,
+        0,
+        faces,
+        lead_style.align,
+    );
+    let lead_height =
+        (lead_lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(lead_style.size));
+    let mut rest_lines = shaping::layout_zone(
+        &rest_part.join("\n"),
+        style.size,
+        max_width,
+        0,
+        lead_height as i32,
+        faces,
+        style.align,
+    );
+    for line in &mut rest_lines {
+        line.authored_index += split_at as u32;
+    }
+    let rest_height =
+        (rest_lines.len() as u32).saturating_mul(shaping::line_height_for(style.size));
+    lead_lines.extend(rest_lines);
+    (lead_lines, lead_height.saturating_add(rest_height))
+}
+
+/// Compose one complete logical frame from resolved content.
+///
+/// Every zone measures at the 72px baseline with left-origin lines starting
+/// at the top of each zone; the template corpus (see `templates`) varies
+/// size, alignment, and vertical placement per zone through the same
+/// composition core.
+pub fn render(
+    content: &SemanticContent,
+    theme: &Theme,
+    density: TargetDensity,
+) -> Result<(Frame, Diagnostics), RenderError> {
+    compose_zoned(content, &CompositionPlan::neutral(), None, theme, density)
 }

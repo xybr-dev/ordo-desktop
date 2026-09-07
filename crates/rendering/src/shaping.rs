@@ -8,12 +8,14 @@
 //! targets.
 //!
 //! Scope notes:
-//! - One provisional body size carries PR 4: the 72px projected-response token
-//!   with its 1.15 line height, ceil(72 * 1.15) = 83px per line. The template
-//!   corpus refines the hierarchy later; the measured-not-counted rule it
-//!   refines is the pinned part.
-//! - Neutral placement only: lines start at the zone's left edge and stack by
-//!   the fixed line height. Alignment variants belong to the template corpus.
+//! - Sizes are provisional parameters, not frozen levels: the 72px
+//!   projected-response token is the first gallery baseline, and the template
+//!   corpus chooses per-zone sizes from it. Line advance stays
+//!   `ceil(size * 1.15)` at every size. The measured-not-counted rule the
+//!   corpus refines is the pinned part.
+//! - Placement is neutral by default: lines start at the zone's left edge
+//!   unless the caller passes another [`Alignment`]. Alignment shifts come
+//!   from measured widths only, so identical inputs stay identical everywhere.
 //! - Blank authored lines contribute no rendered lines. In the body zone they
 //!   additionally mark a hard split that overrides any automatic proposal
 //!   derived from fit; header and footer zones ignore the split flag.
@@ -28,8 +30,12 @@ use crate::fonts::{self, CanonicalFont};
 /// Provisional body size: the 72px projected-response token. The template
 /// corpus carries the full hierarchy later.
 pub const BODY_FONT_SIZE: u32 = 72;
-/// Line advance for the provisional size: ceil(72 * 1.15) logical units.
-pub const BODY_LINE_HEIGHT: u32 = 83;
+/// Line advance for a size: `ceil(size * 1.15)` logical units.
+pub const fn line_height_for(size: u32) -> u32 {
+    (size * 115).div_ceil(100)
+}
+/// Line advance for the provisional size: ceil(72 * 1.15) = 83 logical units.
+pub const BODY_LINE_HEIGHT: u32 = line_height_for(BODY_FONT_SIZE);
 
 /// How body content relates to its zone: it fits, or it overflows with every
 /// line still present and a warning riding beside the frame.
@@ -37,6 +43,32 @@ pub const BODY_LINE_HEIGHT: u32 = 83;
 pub enum Fit {
     Fits,
     Overflows,
+}
+
+/// Horizontal alignment inside a zone, applied from measured widths with
+/// truncating integer arithmetic, so identical inputs stay identical on both
+/// packaged targets.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Alignment {
+    /// Lines start at the zone's left edge.
+    Left,
+    /// Each line centers in the zone: `x = zone + (zone_width - line_width) / 2`.
+    Center,
+    /// Lines stay left-aligned inside one block, and the block centers: every
+    /// line shifts by `(zone_width - widest_line_width) / 2`.
+    CenterBlock,
+}
+
+/// Vertical placement of a zone's shaped block inside its rect, applied from
+/// measured content height. Rects never move; only lines do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VAlign {
+    /// Lines start at the zone's top edge.
+    Top,
+    /// The block centers: lines shift down by half the leftover height,
+    /// truncating, and an overflowing block stays at the top edge beside
+    /// its warning.
+    Center,
 }
 
 /// Measured pagination inputs for one composition: geometry, line counts, and
@@ -98,16 +130,30 @@ pub struct LaidOutBody {
     pub first_hard_split: Option<u32>,
 }
 
-/// Parsed faces plus the integer scale derived from them.
+/// Parsed faces plus the integer scales derived from them. Advances depend
+/// on the requested size, so ascent and inter-word gap are computed per size
+/// rather than stored.
 pub struct Faces<'a> {
     primary: rustybuzz::Face<'a>,
     fallback: rustybuzz::Face<'a>,
     upem_primary: i32,
     upem_fallback: i32,
+    ascender_units: i32,
+}
+
+impl Faces<'_> {
     /// Baseline offset within a line box, from the primary ascender.
-    pub ascent_px: i32,
+    fn ascent_px(&self, size: u32) -> i32 {
+        scale_units(self.ascender_units, self.upem_primary, size)
+    }
+
     /// Advance of one inter-word gap, from the primary face.
-    pub space_px: i32,
+    fn space_px(&self, size: u32) -> i32 {
+        shape_run(" ", CanonicalFont::Primary, self, size)
+            .iter()
+            .map(|glyph| glyph.x_advance)
+            .sum()
+    }
 }
 
 /// Parse both bundled faces once per composition. `None` means the bundle
@@ -122,23 +168,19 @@ pub fn load_faces() -> Option<Faces<'static>> {
     if upem_primary <= 0 || upem_fallback <= 0 {
         return None;
     }
-    let mut faces = Faces {
+    Some(Faces {
         primary,
         fallback,
         upem_primary,
         upem_fallback,
-        ascent_px: scale_units(i32::from(parsed.ascender()), upem_primary),
-        space_px: 0,
-    };
-    let gap = shape_run(" ", CanonicalFont::Primary, &faces);
-    faces.space_px = gap.iter().map(|glyph| glyph.x_advance).sum();
-    Some(faces)
+        ascender_units: i32::from(parsed.ascender()),
+    })
 }
 
-/// Scale font units to logical units at the provisional size. Truncating
+/// Scale font units to logical units at the requested size. Truncating
 /// integer division is deterministic on every target for identical inputs.
-fn scale_units(units: i32, upem: i32) -> i32 {
-    ((i64::from(units) * i64::from(BODY_FONT_SIZE)) / i64::from(upem)) as i32
+fn scale_units(units: i32, upem: i32, size: u32) -> i32 {
+    ((i64::from(units) * i64::from(size)) / i64::from(upem)) as i32
 }
 
 /// The shaper script for a run: Han when any CJK ideograph is present, Greek
@@ -174,7 +216,7 @@ struct RelativeGlyph {
 
 /// Shape one single-face run. Direction is always left-to-right: the
 /// congregation corpus for this milestone reads that way.
-fn shape_run(run: &str, font: CanonicalFont, faces: &Faces) -> Vec<RelativeGlyph> {
+fn shape_run(run: &str, font: CanonicalFont, faces: &Faces, size: u32) -> Vec<RelativeGlyph> {
     let (face, upem) = match font {
         CanonicalFont::Primary => (&faces.primary, faces.upem_primary),
         CanonicalFont::Fallback => (&faces.fallback, faces.upem_fallback),
@@ -191,10 +233,10 @@ fn shape_run(run: &str, font: CanonicalFont, faces: &Faces) -> Vec<RelativeGlyph
         .map(|(info, position)| RelativeGlyph {
             id: info.glyph_id,
             font,
-            x_advance: scale_units(position.x_advance, upem),
-            y_advance: scale_units(position.y_advance, upem),
-            x_offset: scale_units(position.x_offset, upem),
-            y_offset: scale_units(position.y_offset, upem),
+            x_advance: scale_units(position.x_advance, upem, size),
+            y_advance: scale_units(position.y_advance, upem, size),
+            x_offset: scale_units(position.x_offset, upem, size),
+            y_offset: scale_units(position.y_offset, upem, size),
             cluster: info.cluster,
         })
         .collect()
@@ -251,7 +293,7 @@ struct ShapedWord {
     width: i32,
 }
 
-fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
+fn shape_word(word: &str, faces: &Faces, size: u32) -> ShapedWord {
     // Cluster base characters with their combining marks, then choose one
     // face per cluster: primary only when it carries every member,
     // otherwise the whole cluster shapes in fallback (which stays the
@@ -302,7 +344,7 @@ fn shape_word(word: &str, faces: &Faces) -> ShapedWord {
     }
     let mut glyphs = Vec::new();
     for (font, _, start, end) in runs {
-        for mut glyph in shape_run(&word[start..end], font, faces) {
+        for mut glyph in shape_run(&word[start..end], font, faces, size) {
             glyph.cluster += start as u32;
             glyphs.push(glyph);
         }
@@ -352,7 +394,7 @@ fn push_line(plans: &mut Vec<LinePlan>, words: &[ShapedWord], indices: &[usize],
 /// Each fragment is re-shaped so its advances stay truthful to the fragment.
 /// Base characters cluster with their combining marks so a break never
 /// separates a mark from its base.
-fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces) -> Vec<LinePlan> {
+fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces, size: u32) -> Vec<LinePlan> {
     let mut units: Vec<(usize, usize)> = Vec::new();
     for (byte, c) in word.text.char_indices() {
         match units.last_mut() {
@@ -364,10 +406,10 @@ fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces) -> Vec<LinePlan>
     let mut start = 0;
     while start < units.len() {
         let mut end = start + 1;
-        let mut shaped = shape_word(&word.text[units[start].0..units[start].1], faces);
+        let mut shaped = shape_word(&word.text[units[start].0..units[start].1], faces, size);
         while end < units.len() {
             let candidate = &word.text[units[start].0..units[end].1];
-            let candidate_shaped = shape_word(candidate, faces);
+            let candidate_shaped = shape_word(candidate, faces, size);
             if candidate_shaped.width > max_width {
                 break;
             }
@@ -391,52 +433,59 @@ fn split_word(word: &ShapedWord, max_width: i32, faces: &Faces) -> Vec<LinePlan>
 }
 
 /// Wrap one authored line (no newlines, non-blank) into line plans.
-fn wrap_authored_line(line: &str, max_width: i32, faces: &Faces) -> Vec<LinePlan> {
+fn wrap_authored_line(line: &str, max_width: i32, faces: &Faces, size: u32) -> Vec<LinePlan> {
     let words: Vec<ShapedWord> = line
         .split_whitespace()
-        .map(|word| shape_word(word, faces))
+        .map(|word| shape_word(word, faces, size))
         .collect();
     let mut plans = Vec::new();
     let mut current: Vec<usize> = Vec::new();
     let mut current_width: i32 = 0;
+    let space_px = faces.space_px(size);
     for (i, word) in words.iter().enumerate() {
         if word.width > max_width {
             if !current.is_empty() {
-                push_line(&mut plans, &words, &current, faces.space_px);
+                push_line(&mut plans, &words, &current, space_px);
                 current.clear();
                 current_width = 0;
             }
-            plans.extend(split_word(word, max_width, faces));
+            plans.extend(split_word(word, max_width, faces, size));
         } else if current.is_empty() {
             current.push(i);
             current_width = word.width;
-        } else if current_width + faces.space_px + word.width <= max_width {
+        } else if current_width + space_px + word.width <= max_width {
             current.push(i);
-            current_width += faces.space_px + word.width;
+            current_width += space_px + word.width;
         } else {
-            push_line(&mut plans, &words, &current, faces.space_px);
+            push_line(&mut plans, &words, &current, space_px);
             current.clear();
             current.push(i);
             current_width = word.width;
         }
     }
     if !current.is_empty() {
-        push_line(&mut plans, &words, &current, faces.space_px);
+        push_line(&mut plans, &words, &current, space_px);
     }
     plans
 }
 
-/// Assign logical positions to one planned line.
-fn place(
-    plan: LinePlan,
+/// Assign logical positions to one planned line. `x_shift` moves the whole
+/// line right inside its zone; it comes from the zone's [`Alignment`] and its
+/// measured widths, and there is no other input it could come from.
+struct LinePlacement {
     authored_index: u32,
     origin_x: i32,
     line_y: i32,
-    faces: &Faces,
-) -> ShapedLine {
-    let baseline = line_y + faces.ascent_px;
+    line_height: u32,
+    ascent_px: i32,
+    space_px: i32,
+    x_shift: i32,
+}
+
+fn place(plan: LinePlan, at: LinePlacement) -> ShapedLine {
+    let baseline = at.line_y + at.ascent_px;
     let mut glyphs = Vec::with_capacity(plan.glyphs.len());
-    let mut cursor = origin_x;
+    let mut cursor = at.origin_x + at.x_shift;
     for (i, glyph) in plan.glyphs.into_iter().enumerate() {
         glyphs.push(PlacedGlyph {
             x: cursor + glyph.x_offset,
@@ -451,17 +500,28 @@ fn place(
         });
         cursor += glyph.x_advance;
         if plan.gaps.contains(&i) {
-            cursor += faces.space_px;
+            cursor += at.space_px;
         }
     }
     ShapedLine {
         text: plan.text,
-        authored_index,
-        x: origin_x,
-        y: line_y,
+        authored_index: at.authored_index,
+        x: at.origin_x + at.x_shift,
+        y: at.line_y,
         width: plan.width,
-        height: BODY_LINE_HEIGHT,
+        height: at.line_height,
         glyphs,
+    }
+}
+
+/// Horizontal shift for one line under an alignment: truncating division
+/// keeps it deterministic, and an overwide line keeps a negative shift so
+/// the measured geometry stays truthful beside the overflow warning.
+fn shift_for(align: Alignment, zone_width: i32, line_width: i32, block_width: i32) -> i32 {
+    match align {
+        Alignment::Left => 0,
+        Alignment::Center => (zone_width - line_width) / 2,
+        Alignment::CenterBlock => (zone_width - block_width) / 2,
     }
 }
 
@@ -469,33 +529,66 @@ fn place(
 /// lines contribute nothing.
 pub fn layout_zone(
     text: &str,
+    size: u32,
     max_width: i32,
     origin_x: i32,
     origin_y: i32,
     faces: &Faces,
+    align: Alignment,
 ) -> Vec<ShapedLine> {
-    let mut lines = Vec::new();
+    let line_height = line_height_for(size);
+    let ascent_px = faces.ascent_px(size);
+    let space_px = faces.space_px(size);
+    let mut planned: Vec<(LinePlan, u32)> = Vec::new();
     for (authored_index, authored) in text.split('\n').enumerate() {
         if authored.trim().is_empty() {
             continue;
         }
-        for plan in wrap_authored_line(authored, max_width, faces) {
-            let y = origin_y + lines.len() as i32 * BODY_LINE_HEIGHT as i32;
-            lines.push(place(plan, authored_index as u32, origin_x, y, faces));
+        for plan in wrap_authored_line(authored, max_width, faces, size) {
+            planned.push((plan, authored_index as u32));
         }
     }
-    lines
+    let block_width = planned
+        .iter()
+        .map(|(plan, _)| plan.width)
+        .max()
+        .unwrap_or(0);
+    planned
+        .into_iter()
+        .enumerate()
+        .map(|(index, (plan, authored_index))| {
+            let line_y = origin_y + index as i32 * line_height as i32;
+            let x_shift = shift_for(align, max_width, plan.width, block_width);
+            place(
+                plan,
+                LinePlacement {
+                    authored_index,
+                    origin_x,
+                    line_y,
+                    line_height,
+                    ascent_px,
+                    space_px,
+                    x_shift,
+                },
+            )
+        })
+        .collect()
 }
 
 /// Wrap the body zone, recording the hard split blank lines mark.
 pub fn layout_body(
     text: &str,
+    size: u32,
     max_width: i32,
     origin_x: i32,
     origin_y: i32,
     faces: &Faces,
+    align: Alignment,
 ) -> LaidOutBody {
-    let mut lines = Vec::new();
+    let line_height = line_height_for(size);
+    let ascent_px = faces.ascent_px(size);
+    let space_px = faces.space_px(size);
+    let mut planned: Vec<(LinePlan, u32)> = Vec::new();
     let mut authored_line_count = 0;
     let mut hard_split = false;
     let mut first_hard_split = None;
@@ -508,11 +601,35 @@ pub fn layout_body(
             }
             continue;
         }
-        for plan in wrap_authored_line(authored, max_width, faces) {
-            let y = origin_y + lines.len() as i32 * BODY_LINE_HEIGHT as i32;
-            lines.push(place(plan, authored_index as u32, origin_x, y, faces));
+        for plan in wrap_authored_line(authored, max_width, faces, size) {
+            planned.push((plan, authored_index as u32));
         }
     }
+    let block_width = planned
+        .iter()
+        .map(|(plan, _)| plan.width)
+        .max()
+        .unwrap_or(0);
+    let lines = planned
+        .into_iter()
+        .enumerate()
+        .map(|(index, (plan, authored_index))| {
+            let line_y = origin_y + index as i32 * line_height as i32;
+            let x_shift = shift_for(align, max_width, plan.width, block_width);
+            place(
+                plan,
+                LinePlacement {
+                    authored_index,
+                    origin_x,
+                    line_y,
+                    line_height,
+                    ascent_px,
+                    space_px,
+                    x_shift,
+                },
+            )
+        })
+        .collect();
     LaidOutBody {
         lines,
         authored_line_count,
