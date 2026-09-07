@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Psalm
+header:SALMO RESPONSORYO: Awit 95
+body-lines:1
+Panginoon ang aking pastol, hindi ako magkukulang
+footer-lines:1
+Salmo 95:1-3
+image-absent

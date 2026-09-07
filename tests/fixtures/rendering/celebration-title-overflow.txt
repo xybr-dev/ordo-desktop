@@ -1,0 +1,11 @@
+ordo-fixture/1
+kind:CelebrationTitle
+header-absent
+body-lines:4
+line one
+line two
+line three
+line four
+footer-lines:1
+Localized date
+image-absent

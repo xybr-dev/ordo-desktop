@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:TUBAG:
+body-lines:1
+Ang ginoo maanaa kaninyo
+footer-absent
+image-absent

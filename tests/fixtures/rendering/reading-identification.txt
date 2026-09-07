@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:ReadingIdentification
+header-absent
+body-lines:1
+The Proclamation of the Holy Gospel
+footer-lines:1
+Juan 1:1-5
+image-absent

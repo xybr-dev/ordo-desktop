@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralImage
+header:Image header
+body-lines:0
+footer-lines:1
+Image caption
+image:fixture-image-800x600
+image-size:800x600

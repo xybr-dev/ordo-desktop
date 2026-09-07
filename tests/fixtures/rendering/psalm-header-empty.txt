@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Psalm
+header:
+body-lines:1
+refrain text
+footer-lines:1
+Reference text
+image-absent

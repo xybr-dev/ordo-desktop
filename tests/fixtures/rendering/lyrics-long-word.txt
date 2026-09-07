@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse
+body-lines:1
+WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
+footer-absent
+image-absent
