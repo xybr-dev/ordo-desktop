@@ -1,4 +1,4 @@
-//! Canonical Slide Renderer Interface (T0.4 PRs 3-4).
+//! Canonical Slide Renderer Interface (T0.4 PRs 3-5).
 //!
 //! The single seam every later T0.4 PR builds on: resolved semantic content, a
 //! Theme, and a target density go in, and either one complete frame plus
@@ -70,7 +70,7 @@ pub struct SemanticContent {
 ///
 /// PR 3 carries only the safe-area insets: a Theme may increase them and is
 /// rejected for reducing them below the minimum. Typography, colors, and
-/// backgrounds belong to the template corpus (PR 5).
+/// backgrounds belong to the template corpus (see `templates`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
     pub safe_inset_x: u32,
@@ -114,6 +114,24 @@ impl TargetDensity {
 
     pub fn scale_percent(self) -> u16 {
         self.scale_percent
+    }
+}
+
+/// Per-zone composition style: the provisional size the zone measures at and
+/// the alignment its lines take inside the zone width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ZoneStyle {
+    pub(crate) size: u32,
+    pub(crate) align: Alignment,
+}
+
+impl ZoneStyle {
+    /// The PR 4 neutral style: the 72px baseline, left-origin lines.
+    pub(crate) const fn neutral() -> Self {
+        Self {
+            size: shaping::BODY_FONT_SIZE,
+            align: Alignment::Left,
+        }
     }
 }
 
@@ -351,10 +369,19 @@ impl std::error::Error for RenderError {}
 
 /// Compose one complete logical frame from resolved content.
 ///
-/// Density is accepted and ignored for composition: the same content and
-/// Theme always yield the same frame regardless of density.
-pub fn render(
+/// `header`, `body`, and `footer` carry the per-zone size and alignment the
+/// template corpus assigns; [`render`] passes the neutral style everywhere.
+/// `footer_lead` handles the one mixed-size zone in the corpus, the song
+/// identity block: when present, the footer's first `u32` authored lines lay
+/// out at the lead style and the rest at the footer style, keeping one
+/// bottom-left block. Density is accepted and ignored for composition: the
+/// same content and Theme always yield the same frame regardless of density.
+pub(crate) fn compose_zoned(
     content: &SemanticContent,
+    header: ZoneStyle,
+    body: ZoneStyle,
+    footer: ZoneStyle,
+    footer_lead: Option<(ZoneStyle, u32)>,
     theme: &Theme,
     density: TargetDensity,
 ) -> Result<(Frame, Diagnostics), RenderError> {
@@ -421,41 +448,27 @@ pub fn render(
         .map(|text| {
             shaping::layout_zone(
                 text,
-                shaping::BODY_FONT_SIZE,
+                header.size,
                 max_width,
                 safe_x,
                 safe_y,
                 &faces,
-                Alignment::Left,
+                header.align,
             )
         })
         .unwrap_or_default();
     // A present header reserves at least one line even when its string is
     // empty; an absent header collapses to zero so the body keeps the space.
     let header_height = header_text
-        .map(|_| (header_lines.len().max(1) as u32).saturating_mul(shaping::BODY_LINE_HEIGHT))
+        .map(|_| {
+            (header_lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(header.size))
+        })
         .unwrap_or(0);
 
-    let footer_lines = content
-        .footer
-        .as_deref()
-        .map(|text| {
-            shaping::layout_zone(
-                text,
-                shaping::BODY_FONT_SIZE,
-                max_width,
-                0,
-                0,
-                &faces,
-                Alignment::Left,
-            )
-        })
-        .unwrap_or_default();
-    let footer_height = content
-        .footer
-        .as_deref()
-        .map(|_| (footer_lines.len().max(1) as u32).saturating_mul(shaping::BODY_LINE_HEIGHT))
-        .unwrap_or(0);
+    let (footer_lines, footer_height) = match content.footer.as_deref() {
+        None => (Vec::new(), 0),
+        Some(text) => layout_footer(text, footer, footer_lead, max_width, &faces),
+    };
     // Chrome taller than the safe area cannot be paginated away, so it fails
     // structurally instead of warning beside misbounded zones.
     if header_height.saturating_add(footer_height) > safe_height {
@@ -482,15 +495,15 @@ pub fn render(
         .saturating_sub(footer_height);
     let laid_out = shaping::layout_body(
         &content.body,
-        shaping::BODY_FONT_SIZE,
+        body.size,
         max_width,
         safe_x,
         body_y,
         &faces,
-        Alignment::Left,
+        body.align,
     );
     let body_content_height =
-        (laid_out.lines.len() as u32).saturating_mul(shaping::BODY_LINE_HEIGHT);
+        (laid_out.lines.len() as u32).saturating_mul(shaping::line_height_for(body.size));
     // Horizontal overflow is possible only when a single glyph exceeds the
     // safe width; like every other overflow it is reported, never dropped.
     let widest = header_lines
@@ -568,4 +581,69 @@ pub fn render(
         },
         diagnostics,
     ))
+}
+
+/// Lay out a present footer and measure its height. Without a lead the whole
+/// zone measures at one style and reserves at least one line, exactly as PR 4
+/// did. With a lead, the first `lead_authored` authored lines measure at the
+/// lead style and the rest stack beneath at the footer style; the lead
+/// reserves the line, so the rest adds only its rendered lines. Rest authored
+/// indices shift past the lead so serialized lines stay attributable.
+fn layout_footer(
+    text: &str,
+    style: ZoneStyle,
+    lead: Option<(ZoneStyle, u32)>,
+    max_width: i32,
+    faces: &shaping::Faces,
+) -> (Vec<ShapedLine>, u32) {
+    let Some((lead_style, lead_authored)) = lead else {
+        let lines = shaping::layout_zone(text, style.size, max_width, 0, 0, faces, style.align);
+        let height =
+            (lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(style.size));
+        return (lines, height);
+    };
+    let authored: Vec<&str> = text.split('\n').collect();
+    let split_at = (lead_authored as usize).min(authored.len());
+    let (lead_part, rest_part) = authored.split_at(split_at);
+    let mut lead_lines = shaping::layout_zone(
+        &lead_part.join("\n"),
+        lead_style.size,
+        max_width,
+        0,
+        0,
+        faces,
+        lead_style.align,
+    );
+    let lead_height =
+        (lead_lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(lead_style.size));
+    let mut rest_lines = shaping::layout_zone(
+        &rest_part.join("\n"),
+        style.size,
+        max_width,
+        0,
+        lead_height as i32,
+        faces,
+        style.align,
+    );
+    for line in &mut rest_lines {
+        line.authored_index += split_at as u32;
+    }
+    let rest_height =
+        (rest_lines.len() as u32).saturating_mul(shaping::line_height_for(style.size));
+    lead_lines.extend(rest_lines);
+    (lead_lines, lead_height.saturating_add(rest_height))
+}
+
+/// Compose one complete logical frame from resolved content.
+///
+/// Every zone measures at the 72px baseline with left-origin lines; the
+/// template corpus (see `templates`) varies size and alignment per zone
+/// through the same composition core.
+pub fn render(
+    content: &SemanticContent,
+    theme: &Theme,
+    density: TargetDensity,
+) -> Result<(Frame, Diagnostics), RenderError> {
+    let neutral = ZoneStyle::neutral();
+    compose_zoned(content, neutral, neutral, neutral, None, theme, density)
 }
