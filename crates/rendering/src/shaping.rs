@@ -118,6 +118,10 @@ pub struct ShapedLine {
     pub y: i32,
     pub width: i32,
     pub height: u32,
+    /// Logical font size the line was shaped at, for the raster pass to
+    /// scale. It never enters [`crate::Frame::serialize`], so goldens are
+    /// unaffected; the raster pass needs the size that produced the advances.
+    pub size: u32,
     pub glyphs: Vec<PlacedGlyph>,
 }
 
@@ -477,6 +481,7 @@ struct LinePlacement {
     origin_x: i32,
     line_y: i32,
     line_height: u32,
+    size: u32,
     ascent_px: i32,
     space_px: i32,
     x_shift: i32,
@@ -510,6 +515,7 @@ fn place(plan: LinePlan, at: LinePlacement) -> ShapedLine {
         y: at.line_y,
         width: plan.width,
         height: at.line_height,
+        size: at.size,
         glyphs,
     }
 }
@@ -566,6 +572,7 @@ pub fn layout_zone(
                     origin_x,
                     line_y,
                     line_height,
+                    size,
                     ascent_px,
                     space_px,
                     x_shift,
@@ -623,6 +630,7 @@ pub fn layout_body(
                     origin_x,
                     line_y,
                     line_height,
+                    size,
                     ascent_px,
                     space_px,
                     x_shift,

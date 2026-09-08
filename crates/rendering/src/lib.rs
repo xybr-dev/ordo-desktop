@@ -5,6 +5,7 @@
 
 pub mod fonts;
 pub mod interface;
+pub mod raster;
 pub mod shaping;
 pub mod templates;
 
@@ -13,6 +14,7 @@ pub use interface::{
     MIN_SAFE_INSET_Y, PlacedImage, Rect, RenderError, SemanticContent, SlideBackground,
     TargetDensity, Theme, render,
 };
+pub use raster::{RasterError, RasterizedFrame, rasterize};
 pub use shaping::{
     Alignment, BODY_FONT_SIZE, BODY_LINE_HEIGHT, Fit, PaginationInputs, PlacedGlyph, ShapedLine,
     line_height_for,

@@ -99,7 +99,7 @@ async fn runtime_restores_and_persists_installation_preferences(cx: &mut TestApp
 #[gpui::test]
 fn congregation_surface_has_only_program_and_output_status(cx: &mut TestAppContext) {
     let state = CongregationState::new(
-        ProgramFrame::new(7, vec![0, 0, 0, 255]).expect("complete frame"),
+        ProgramFrame::new(7, 1, 1, vec![0, 0, 0, 255]).expect("complete frame"),
         OutputStatus::Connected,
     );
     let (view, cx) = cx.add_window_view(|_, cx| CongregationView::new(state, cx));
