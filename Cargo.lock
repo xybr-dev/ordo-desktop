@@ -4026,6 +4026,7 @@ dependencies = [
  "platform",
  "presentation",
  "rendering",
+ "tiny-skia",
  "ui",
 ]
 
