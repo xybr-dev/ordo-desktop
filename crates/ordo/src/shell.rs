@@ -191,37 +191,6 @@ impl ShellView {
         self.environment
     }
 
-    /// Serialize one canonical frame for this runtime's current operator state.
-    ///
-    /// T0.4 PR 8 packaged-invariance boundary: the single production path
-    /// from live runtime state to the canonical renderer. Neither the
-    /// operator Interface scale nor the window display scale may enter
-    /// composition — both are read here, so any future use of either value
-    /// fails the packaged invariance gate naming its axis. PR 9's viewport
-    /// consumers resolve real slide content through this boundary.
-    ///
-    /// Gate use only: rendering stays off the GPUI thread, so production
-    /// frame paths must compose behind workers rather than calling this
-    /// from a render path.
-    pub fn canonical_serialization(
-        &self,
-        window: &Window,
-        content: &rendering::TemplateContent,
-    ) -> Result<String, rendering::RenderError> {
-        let _ = (self.environment.preferences().scale, window.scale_factor());
-        let (frame, diagnostics) = rendering::render_template(
-            content,
-            &rendering::Theme::default(),
-            rendering::TargetDensity::SCALE_100,
-        )?;
-        let mut out = frame.serialize();
-        out.push_str(&format!("warnings {}\n", diagnostics.warnings.len()));
-        for warning in &diagnostics.warnings {
-            out.push_str(&format!("warning {warning}\n"));
-        }
-        Ok(out)
-    }
-
     fn local_views(&self) -> Option<&SelectionState> {
         match self.destination {
             Destination::Masses => Some(&self.masses_views),

@@ -22,6 +22,7 @@ use presentation::{CongregationState, OutputStatus, ProgramFrame};
 use shell::ShellView;
 use ui::environment::UiPreferences;
 
+pub mod canonical;
 pub mod settings;
 pub mod shell;
 
@@ -97,6 +98,7 @@ impl From<WorkerStartError> for RuntimeError {
 pub struct NativeRuntime {
     operator: WindowHandle<ShellView>,
     congregation: Option<WindowHandle<CongregationView>>,
+    canonical_commands: Sender<canonical::CanonicalCommand>,
     shutdown_report: Rc<RefCell<Option<Vec<WorkerFailure>>>>,
 }
 
@@ -107,6 +109,14 @@ impl NativeRuntime {
 
     pub fn congregation(&self) -> Option<WindowHandle<CongregationView>> {
         self.congregation
+    }
+
+    /// The runtime-owned canonical composition channel: snapshot operator
+    /// state, send [`canonical::CanonicalCommand::Compose`], and receive the
+    /// serialized frame the worker composed off the GPUI thread. PR 9's
+    /// viewport consumers compose through this same channel.
+    pub fn canonical_commands(&self) -> Sender<canonical::CanonicalCommand> {
+        self.canonical_commands.clone()
     }
 
     pub fn shutdown_report(&self) -> Option<Vec<WorkerFailure>> {
@@ -121,6 +131,7 @@ enum PreferenceCommand {
 
 struct RuntimeWorkers {
     preference_commands: Sender<PreferenceCommand>,
+    canonical_commands: Sender<canonical::CanonicalCommand>,
     workers: Vec<OwnedWorker<()>>,
 }
 
@@ -130,6 +141,7 @@ impl RuntimeWorkers {
         restored_preferences: AsyncSender<std::io::Result<Option<String>>>,
     ) -> Result<Self, WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
+        let (canonical_commands, canonical_requests) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
             let _ = restored_preferences.send_blocking(preferences.read());
@@ -144,9 +156,13 @@ impl RuntimeWorkers {
                 WorkerExit::Completed(())
             })
         })?;
+        let canonical = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+            canonical::serve_canonical(canonical_requests, cancel)
+        })?;
         Ok(Self {
             preference_commands,
-            workers: vec![storage, background],
+            canonical_commands,
+            workers: vec![storage, background, canonical],
         })
     }
 
@@ -155,6 +171,9 @@ impl RuntimeWorkers {
             worker.cancel();
         }
         let _ = self.preference_commands.send(PreferenceCommand::Shutdown);
+        let _ = self
+            .canonical_commands
+            .send(canonical::CanonicalCommand::Stop);
         let mut failures = Vec::new();
         for worker in &mut self.workers {
             if let Err(failure) = worker.join() {
@@ -168,6 +187,9 @@ impl RuntimeWorkers {
 impl Drop for RuntimeWorkers {
     fn drop(&mut self) {
         let _ = self.preference_commands.send(PreferenceCommand::Shutdown);
+        let _ = self
+            .canonical_commands
+            .send(canonical::CanonicalCommand::Stop);
     }
 }
 
@@ -203,6 +225,7 @@ pub fn open_native_runtime_at(
     let workers =
         RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()), restore_tx)?;
     let workers = Rc::new(RefCell::new(workers));
+    let canonical_commands = workers.borrow().canonical_commands.clone();
     let save_preferences = {
         let commands = workers.borrow().preference_commands.clone();
         Rc::new(move |preferences: UiPreferences| {
@@ -303,6 +326,7 @@ pub fn open_native_runtime_at(
     Ok(NativeRuntime {
         operator,
         congregation,
+        canonical_commands,
         shutdown_report,
     })
 }
@@ -402,8 +426,10 @@ mod tests {
         .unwrap();
 
         let (commands, _) = mpsc::channel();
+        let (canonical_commands, _) = mpsc::channel();
         let report = RuntimeWorkers {
             preference_commands: commands,
+            canonical_commands,
             workers: vec![storage, background],
         }
         .shutdown();
@@ -421,8 +447,10 @@ mod tests {
             .unwrap();
 
         let (commands, _) = mpsc::channel();
+        let (canonical_commands, _) = mpsc::channel();
         let report = RuntimeWorkers {
             preference_commands: commands,
+            canonical_commands,
             workers: vec![failed],
         }
         .shutdown();
@@ -444,8 +472,10 @@ mod tests {
             Ok(WorkerExit::Completed(()))
         })
         .unwrap();
+        let (canonical_commands, _) = mpsc::channel();
         let workers = RuntimeWorkers {
             preference_commands: commands,
+            canonical_commands,
             workers: vec![storage],
         };
         let surviving_sender = workers.preference_commands.clone();

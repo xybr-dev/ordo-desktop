@@ -7,7 +7,10 @@
 //!
 //! This runs where the packaged binary runs: the `native-runtime` harness
 //! builds the `ordo` closure (`ordo` + `rendering` + `ui` together) rather
-//! than testing `rendering` alone. The platform axis compares against the
+//! than testing `rendering` alone. Scale bytes come out of the worker-owned
+//! production path — live operator state snapshotted through production
+//! plumbing, composed on the runtime-owned `ordo-canonical` worker thread,
+//! never on the GPUI thread. The platform axis compares against the
 //! committed `golden/canonical-invariance.txt`, which both CI targets check;
 //! a platform-dependent composition re-opens
 //! `docs/qualification/RENDERING-T0.4.md` instead of updating that artifact.
@@ -22,7 +25,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui::{Pixels, TestAppContext};
-use ordo::{NativeRuntime, open_native_runtime_at};
+use ordo::{NativeRuntime, canonical::CanonicalCommand, open_native_runtime_at};
 use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
 use ui::{DecreaseInterfaceScale, IncreaseInterfaceScale};
 
@@ -56,16 +59,31 @@ fn probe_serialization(density: TargetDensity) -> String {
     out
 }
 
-/// Bytes out of the production runtime path: the live `ShellView`
-/// serializing through its canonical boundary on its live window. Every
-/// scale byte under test flows through this call.
-fn canonical_through_runtime(cx: &mut TestAppContext, runtime: &NativeRuntime) -> String {
-    runtime
+/// Bytes out of the worker-owned production path: snapshot live operator
+/// state through production plumbing, send one composition request on the
+/// runtime-owned channel, and receive the frame the `ordo-canonical` worker
+/// composed off the GPUI thread. Every scale byte under test flows through
+/// this call.
+fn compose_through_worker(cx: &mut TestAppContext, runtime: &NativeRuntime) -> String {
+    let (environment, window_scale) = runtime
         .operator()
         .update(cx, |root, window, _| {
-            root.canonical_serialization(window, &probe_content())
+            (root.environment(), window.scale_factor())
         })
-        .expect("operator window should still be open")
+        .expect("operator window should still be open");
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    runtime
+        .canonical_commands()
+        .send(CanonicalCommand::Compose {
+            environment,
+            window_scale,
+            content: probe_content(),
+            reply: reply_tx,
+        })
+        .expect("canonical worker should still be running");
+    reply_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("canonical worker must answer")
         .expect("probe must compose through the runtime path")
 }
 
@@ -199,19 +217,19 @@ fn operator_shadow_offset_y(cx: &mut TestAppContext, runtime: &NativeRuntime) ->
 fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
     // T0.3 PR 3 deferred this isolation proof for want of a render path. It
     // lands here, in the packaged runtime against real 1920x1080 geometry,
-    // where it can fail: every byte under test comes out of the production
-    // runtime path — the live `ShellView` serializing through its canonical
-    // boundary after each real scale action — while operator chrome geometry
-    // demonstrably moves with each step.
+    // where it can fail: every byte under test is composed by the
+    // runtime-owned worker from live operator state after each real scale
+    // action — while operator chrome geometry demonstrably moves with each
+    // step.
     let preferences =
         std::env::temp_dir().join(format!("ordo-canonical-invariance-{}", std::process::id()));
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
-    let baseline = canonical_through_runtime(cx, &runtime);
+    let baseline = compose_through_worker(cx, &runtime);
     assert_eq!(
         baseline,
         probe_serialization(TargetDensity::SCALE_100),
-        "the runtime path must agree with the pinned composition"
+        "the worker path must agree with the pinned composition"
     );
     let mut previous_offset = operator_shadow_offset_y(cx, &runtime);
 
@@ -229,7 +247,7 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             "operator chrome must move with live operator scale {expected}%"
         );
         previous_offset = offset;
-        let actual = canonical_through_runtime(cx, &runtime);
+        let actual = compose_through_worker(cx, &runtime);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
@@ -250,7 +268,7 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             "operator chrome must move with live operator scale {expected}%"
         );
         previous_offset = offset;
-        let actual = canonical_through_runtime(cx, &runtime);
+        let actual = compose_through_worker(cx, &runtime);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
@@ -270,40 +288,38 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
 fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
     // Representative Windows display-scale and Linux fractional-scale steps.
     // Each step reconfigures the packaged operator window through gpui's own
-    // display scale seam and captures the bytes out of the production runtime
-    // path on that same window: the renderer sees distinct host
-    // configurations, not one unchanged setting, and the composition must
-    // not move under any of them.
+    // display scale seam; the worker then composes from that window's live
+    // scale, so the renderer sees distinct host configurations — not one
+    // unchanged setting — and the composition must not move under any of
+    // them.
     let preferences = std::env::temp_dir().join(format!(
         "ordo-canonical-display-scale-{}",
         std::process::id()
     ));
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
-    let baseline = canonical_through_runtime(cx, &runtime);
+    let baseline = compose_through_worker(cx, &runtime);
     assert_eq!(
         baseline,
         probe_serialization(TargetDensity::SCALE_100),
-        "the runtime path must agree with the pinned composition"
+        "the worker path must agree with the pinned composition"
     );
 
     for factor in [1.0f32, 1.25, 1.5, 1.75, 2.0] {
-        let (observed, actual) = runtime
+        runtime
             .operator()
-            .update(cx, |root, window, _| {
-                window.set_scale_factor(factor);
-                (
-                    window.scale_factor(),
-                    root.canonical_serialization(window, &probe_content()),
-                )
-            })
+            .update(cx, |_, window, _| window.set_scale_factor(factor))
             .expect("operator window should still be open");
         cx.run_until_parked();
+        let actual = compose_through_worker(cx, &runtime);
+        let observed = runtime
+            .operator()
+            .update(cx, |_, window, _| window.scale_factor())
+            .expect("operator window should still be open");
         assert_eq!(
             observed, factor,
             "display-scale configuration {factor} must take effect on the packaged window"
         );
-        let actual = actual.expect("probe must compose through the runtime path");
         assert!(
             actual == baseline,
             "canonical composition moved with system scale {}%: {}\nWindow scale must never reach the renderer",

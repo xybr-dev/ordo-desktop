@@ -107,12 +107,14 @@ zero new packages, zero version changes).
 
 One test asserts the density and platform axes, and two live-runtime tests
 assert the scale axes against real geometry; each failure names the axis
-that moved. Every scale byte flows through the production runtime path:
-`ShellView::canonical_serialization` in `ordo` — the single production
-boundary from live runtime state to the canonical renderer, reading the
-live environment and the live window scale factor — with the tests invoking
-it on the packaged operator window after each transition. PR 9's viewport
-consumers resolve real slide content through this same boundary.
+that moved. Every scale byte is composed by the worker-owned production
+path: the runtime-owned `ordo-canonical` worker thread serves
+`CanonicalCommand::Compose` requests carrying a live environment snapshot,
+the live window scale, and content, deriving renderer inputs through the
+`ordo::canonical` production boundary and rendering off the GPUI thread.
+The tests snapshot live operator state through production plumbing after
+each transition and receive the worker-composed bytes. PR 9's viewport
+consumers compose real slide content through this same worker.
 
 | Axis | Values exercised | How the failure reads |
 | --- | --- | --- |
