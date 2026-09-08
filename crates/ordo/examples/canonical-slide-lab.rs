@@ -226,6 +226,15 @@ struct Rendered {
 fn spawn_worker(requests: Receiver<Request>) {
     thread::spawn(move || {
         while let Ok(request) = requests.recv_blocking() {
+            // Coalesce rapid selector changes: a dev-build render costs up
+            // to seconds, so mashing keys would otherwise queue expensive
+            // rasters faster than they drain and the display would look
+            // frozen. Only the newest pending request renders; skipped
+            // replies are dropped by the view's sequence guard.
+            let mut request = request;
+            while let Ok(newer) = requests.try_recv() {
+                request = newer;
+            }
             let density = TargetDensity::from_percent(request.density_percent)
                 .unwrap_or(TargetDensity::SCALE_100);
             let rendered = match rendering::render_template(
@@ -432,7 +441,11 @@ impl LabView {
             .p(px(scale.apply(tokens::spacing::GROUP)))
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .text_color(rgb(palette.text))
-            .child(self.status())
+            .child(
+                div()
+                    .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                    .child(self.status()),
+            )
             .child(
                 div()
                     .pt(px(scale.apply(tokens::spacing::RELATED)))
@@ -441,7 +454,7 @@ impl LabView {
             .child(
                 div()
                     .pt(px(scale.apply(tokens::spacing::GROUP)))
-                    .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                    .text_size(px(scale.apply(tokens::typography::BODY.size)))
                     .text_color(rgb(palette.text_muted))
                     .child("F2 fixture · F3 viewport · F4 scale · F5 density"),
             )
@@ -611,6 +624,39 @@ mod tests {
         lab.read_with(cx, |lab, _| {
             let rendered = lab.rendered.as_ref().expect("latest selection must render");
             assert_eq!(rendered.density_percent, DENSITIES[1]);
+        });
+
+        // A density change followed by a fixture change must still render
+        // the new fixture: the stale-sequence guard must drop the late
+        // density reply without wedging later selections.
+        cx.simulate_keystrokes("f5 f2");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 2));
+        cx.condition(&lab, |lab, _| {
+            lab.rendered
+                .as_ref()
+                .is_some_and(|rendered| rendered.sequence == lab.sequence)
+        })
+        .await;
+
+        // Mashing selectors must converge on the latest one: the worker
+        // coalesces to the newest pending request instead of queueing a
+        // seconds-long render per keypress.
+        cx.simulate_keystrokes("f5 f5 f5 f2");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| {
+            assert_eq!(lab.fixture_idx, 3);
+            assert_eq!(lab.density_idx, 0);
+        });
+        cx.condition(&lab, |lab, _| {
+            lab.rendered
+                .as_ref()
+                .is_some_and(|rendered| rendered.sequence == lab.sequence)
+        })
+        .await;
+        lab.read_with(cx, |lab, _| {
+            let rendered = lab.rendered.as_ref().expect("latest selection must render");
+            assert_eq!(rendered.density_percent, DENSITIES[0]);
         });
     }
 }
