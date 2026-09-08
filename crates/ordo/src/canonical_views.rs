@@ -17,8 +17,43 @@ use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment};
 /// raster's own density-dependent extent; the logical size stays the
 /// `1920x1080` invariant the wrapper owns. `None` when the raster has no
 /// backing store to finish.
+///
+/// Finished rows are padded rightward with opaque black to a multiple of
+/// 64px: the pinned GPUI revision uploads viewport images with an unpadded
+/// `bytes_per_row`, which its wgpu atlas rejects unless `width * 4` is a
+/// multiple of 256, and the failed tile stays cached under its image id, so
+/// an unaligned width paints black forever instead of failing loudly.
+/// Densities whose widths already align (100/150/200%) encode
+/// byte-identically to the unpadded raster.
 pub fn finish_frame(raster: &rendering::RasterizedFrame) -> Option<FinishedFrame> {
-    FinishedFrame::new(raster.encode_png().ok()?, raster.width(), raster.height())
+    let (width, height) = (raster.width(), raster.height());
+    let aligned = width.next_multiple_of(64);
+    let png = if aligned == width {
+        raster.encode_png().ok()?
+    } else {
+        let padded = pad_rows(raster.rgba(), width, height, aligned)?;
+        tiny_skia::Pixmap::from_vec(padded, tiny_skia::IntSize::from_wh(aligned, height)?)?
+            .encode_png()
+            .ok()?
+    };
+    FinishedFrame::new(png, aligned, height)
+}
+
+/// Pad one row-major RGBA buffer rightward to `aligned_width` with opaque
+/// black, keeping every original pixel byte-identical.
+fn pad_rows(rgba: &[u8], width: u32, height: u32, aligned_width: u32) -> Option<Vec<u8>> {
+    let (width, height, aligned) = (width as usize, height as usize, aligned_width as usize);
+    if aligned < width || rgba.len() != width * height * 4 {
+        return None;
+    }
+    let mut padded = vec![0u8; aligned * height.saturating_mul(4)];
+    for (row, dest) in padded.chunks_exact_mut(aligned * 4).enumerate() {
+        dest[..width * 4].copy_from_slice(&rgba[row * width * 4..(row + 1) * width * 4]);
+        for pixel in dest[width * 4..].chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+    }
+    Some(padded)
 }
 
 /// One timeline cell: the finished frame at grid width. `index` scopes the
@@ -140,6 +175,84 @@ mod tests {
         assert_eq!(finished.logical_size(), (1920, 1080));
         assert_eq!(finished.pixel_size(), (1920, 1080));
         assert!(!finished.image().bytes().is_empty());
+    }
+
+    fn finished_at_density(percent: u16) -> rendering::RasterizedFrame {
+        use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+
+        let content = TemplateContent {
+            kind: TemplateKind::Lyrics,
+            header: Some("Bersikulo".to_owned()),
+            body: "Maayong buntag, mga igsoon!\nPagdayeg sa Ginoo \u{2014} awit 95".to_owned(),
+            footer: None,
+            image: None,
+        };
+        let density = TargetDensity::from_percent(percent).expect("valid density");
+        let (frame, _) = rendering::render_template(&content, &Theme::default(), density)
+            .expect("fixture must compose");
+        rendering::rasterize(&frame, density, &HashMap::new()).expect("fixture must rasterize")
+    }
+
+    #[test]
+    fn every_finished_width_survives_the_upload_alignment() {
+        // The pinned GPUI revision uploads viewport images with an unpadded
+        // bytes_per_row, which wgpu rejects unless width * 4 is a multiple
+        // of 256: an unaligned width paints black forever under its cached
+        // image id instead of failing loudly.
+        for percent in [100, 125, 150, 175, 200] {
+            let finished = finish_frame(&finished_at_density(percent)).expect("raster must finish");
+            let (pixel_w, pixel_h) = finished.pixel_size();
+            assert_eq!(
+                pixel_w % 64,
+                0,
+                "{percent}% finished width must stay upload-aligned"
+            );
+            let decoded = tiny_skia::Pixmap::decode_png(finished.image().bytes())
+                .expect("finished bytes must stay a decodable PNG");
+            assert_eq!((decoded.width(), decoded.height()), (pixel_w, pixel_h));
+        }
+    }
+
+    #[test]
+    fn aligned_densities_finish_byte_identical_to_the_raster() {
+        // Padding must be a no-op where the raster already aligns: 100, 150,
+        // and 200% keep their exact finished bytes.
+        for percent in [100, 150, 200] {
+            let raster = finished_at_density(percent);
+            let expected = raster.encode_png().expect("raster must encode");
+            let finished = finish_frame(&raster).expect("raster must finish");
+            assert_eq!(finished.image().bytes(), expected.as_slice());
+            assert_eq!(
+                finished.pixel_size(),
+                (raster.width(), raster.height()),
+                "{percent}% keeps its density-scaled extent"
+            );
+        }
+    }
+
+    #[test]
+    fn padding_preserves_content_beside_opaque_black() {
+        // 125% rasterizes 2400 wide and finishes 2432: the original columns
+        // keep their ink and the pad column is opaque black, invisible
+        // against the slide background.
+        let raster = finished_at_density(125);
+        let finished = finish_frame(&raster).expect("raster must finish");
+        assert_eq!(finished.pixel_size(), (2432, 1350));
+        let decoded = tiny_skia::Pixmap::decode_png(finished.image().bytes())
+            .expect("finished bytes must stay a decodable PNG");
+        let (width, data) = (decoded.width(), decoded.data());
+        assert!(
+            data.chunks_exact(4).any(|pixel| pixel[0] > 32),
+            "the finished slide must keep its glyph ink"
+        );
+        for y in 0..decoded.height() {
+            let at = ((y * width + 2400) * 4) as usize;
+            assert_eq!(
+                &data[at..at + 4],
+                &[0, 0, 0, 255],
+                "the first pad column must stay opaque black on row {y}"
+            );
+        }
     }
 
     #[test]
