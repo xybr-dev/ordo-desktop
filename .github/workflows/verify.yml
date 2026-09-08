@@ -61,5 +61,5 @@ jobs:
       - name: Compare packaged canonical composition
         shell: pwsh
         run: |
-          cargo test -p native-runtime-tests --locked --test canonical_invariance canonical_composition_is_invariant_across_density_and_platform -- --exact || exit $LASTEXITCODE
+          cargo test -p native-runtime-tests --locked --test canonical_invariance || exit $LASTEXITCODE
           (Get-FileHash tests/native-runtime/golden/canonical-invariance.txt -Algorithm SHA256).Hash.ToLower()
