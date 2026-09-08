@@ -464,6 +464,7 @@ impl Render for LabView {
 
         div()
             .id("canonical-slide-lab")
+            .track_focus(&self.focus_handle)
             .size_full()
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
@@ -546,4 +547,70 @@ fn main() {
         .expect("the canonical slide lab window should open");
         cx.activate(true);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::TestAppContext;
+
+    fn open(cx: &mut TestAppContext) -> (gpui::Entity<LabView>, &mut gpui::VisualTestContext) {
+        // The composition worker is a real OS thread, so the test executor
+        // must park for its replies the way the runtime tests do.
+        cx.executor().allow_parking();
+        cx.update(ui::init).unwrap();
+        cx.update(|cx| {
+            cx.bind_keys([
+                KeyBinding::new("f2", NextFixture, None),
+                KeyBinding::new("f3", NextViewport, None),
+                KeyBinding::new("f4", NextScale, None),
+                KeyBinding::new("f5", NextDensity, None),
+            ]);
+        });
+        let fixtures = load_fixtures();
+        let (requests, receiver) = async_channel::unbounded();
+        spawn_worker(receiver);
+        let (lab, cx) = cx.add_window_view(|window, cx| {
+            let lab = LabView::new(fixtures, requests, window, cx);
+            window.focus(&lab.focus_handle, cx);
+            lab
+        });
+        cx.simulate_resize(size(px(1400.0), px(900.0)));
+        (lab, cx)
+    }
+
+    #[gpui::test]
+    async fn lab_keys_cycle_fixture_viewport_scale_and_density(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        cx.condition(&lab, |lab, _| lab.rendered.is_some()).await;
+
+        cx.simulate_keystrokes("f2");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 1));
+
+        cx.simulate_keystrokes("f3");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.viewport_idx, 1));
+
+        cx.simulate_keystrokes("f4");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.scale_idx, 1));
+
+        cx.simulate_keystrokes("f5");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.density_idx, 1));
+
+        // The worker round-trips the latest selection: the stale guard must
+        // not drop it.
+        cx.condition(&lab, |lab, _| {
+            lab.rendered
+                .as_ref()
+                .is_some_and(|rendered| rendered.sequence == lab.sequence)
+        })
+        .await;
+        lab.read_with(cx, |lab, _| {
+            let rendered = lab.rendered.as_ref().expect("latest selection must render");
+            assert_eq!(rendered.density_percent, DENSITIES[1]);
+        });
+    }
 }

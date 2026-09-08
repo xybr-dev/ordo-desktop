@@ -138,6 +138,21 @@ pub fn verify() -> XtaskResult<()> {
     )?;
     println!("[8/9] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
+    // The canonical-slide lab lives in an example, which the workspace suite
+    // builds but never runs; drive its headless key test explicitly so the
+    // review tool's shortcuts cannot rot silently.
+    run(
+        &root,
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "ordo",
+            "--example",
+            "canonical-slide-lab",
+            "--locked",
+        ],
+    )?;
     println!("[9/9] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
