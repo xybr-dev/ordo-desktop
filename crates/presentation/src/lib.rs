@@ -30,7 +30,10 @@ impl ProgramFrame {
         if !rgba.len().is_multiple_of(4) {
             return Err(FrameError::InvalidRgbaLength);
         }
-        if rgba.len() as u64 != u64::from(width) * u64::from(height) * 4 {
+        let expected = u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|pixels| pixels.checked_mul(4));
+        if expected != Some(rgba.len() as u64) {
             return Err(FrameError::DimensionMismatch {
                 width,
                 height,
@@ -45,18 +48,14 @@ impl ProgramFrame {
         })
     }
 
-    /// Feed a rasterized canonical frame into the Program seam, keeping its
-    /// density-dependent dimensions beside the bytes.
+    /// Feed a rasterized canonical frame into the Program seam, moving its
+    /// density-dependent dimensions and bytes across without copying them.
     pub fn from_raster(
         revision: u64,
-        raster: &rendering::RasterizedFrame,
+        raster: rendering::RasterizedFrame,
     ) -> Result<Self, FrameError> {
-        Self::new(
-            revision,
-            raster.width(),
-            raster.height(),
-            raster.rgba().to_vec(),
-        )
+        let (width, height, rgba) = raster.into_parts();
+        Self::new(revision, width, height, rgba)
     }
 
     pub fn revision(&self) -> u64 {
@@ -192,6 +191,15 @@ mod tests {
                 len: 4,
             })
         );
+        // A dimension product that overflows is a mismatch, never a panic.
+        assert_eq!(
+            ProgramFrame::new(1, u32::MAX, u32::MAX, vec![0, 0, 0, 255]),
+            Err(FrameError::DimensionMismatch {
+                width: u32::MAX,
+                height: u32::MAX,
+                len: 4,
+            })
+        );
     }
 
     #[test]
@@ -215,10 +223,16 @@ mod tests {
         let raster = rendering::rasterize(&frame, TargetDensity::SCALE_100, &HashMap::new())
             .expect("black slide must rasterize");
         let program =
-            ProgramFrame::from_raster(3, &raster).expect("a real raster must feed the seam");
+            ProgramFrame::from_raster(3, raster).expect("a real raster must feed the seam");
 
         assert_eq!(program.revision(), 3);
         assert_eq!((program.width(), program.height()), (1920, 1080));
-        assert_eq!(program.rgba(), raster.rgba());
+        assert!(
+            program
+                .rgba()
+                .chunks_exact(4)
+                .all(|pixel| pixel == [0, 0, 0, 255]),
+            "a black slide feeds black bytes"
+        );
     }
 }

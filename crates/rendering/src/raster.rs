@@ -52,6 +52,14 @@ impl RasterizedFrame {
         &self.rgba
     }
 
+    /// Split the frame into its dimensions and owned RGBA bytes.
+    ///
+    /// The handoff to the Program seam moves this buffer instead of cloning
+    /// it: a 200% sampling is tens of mebibytes a copy would double.
+    pub fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.width, self.height, self.rgba)
+    }
+
     /// The logical composition size the pixels were sampled from.
     pub fn logical_size(&self) -> (u32, u32) {
         (LOGICAL_WIDTH, LOGICAL_HEIGHT)

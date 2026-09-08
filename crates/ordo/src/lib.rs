@@ -339,8 +339,12 @@ mod tests {
 
         let raster_light = rendering::rasterize(&at_light, light_density, &images).unwrap();
         let raster_dense = rendering::rasterize(&at_light, dense_density, &images).unwrap();
-        let program_light = ProgramFrame::from_raster(1, &raster_light).unwrap();
-        let program_dense = ProgramFrame::from_raster(2, &raster_dense).unwrap();
+        // Ground truth for the byte-intact checks below; the seam itself
+        // moves its buffers without copying them.
+        let expected_light = raster_light.rgba().to_vec();
+        let expected_dense = raster_dense.rgba().to_vec();
+        let program_light = ProgramFrame::from_raster(1, raster_light).unwrap();
+        let program_dense = ProgramFrame::from_raster(2, raster_dense).unwrap();
 
         // The density-dependent extent survives the seam instead of collapsing
         // into an undimensioned byte buffer.
@@ -352,8 +356,8 @@ mod tests {
             (program_dense.width(), program_dense.height()),
             (3840, 2160)
         );
-        assert_eq!(program_light.rgba(), raster_light.rgba());
-        assert_eq!(program_dense.rgba(), raster_dense.rgba());
+        assert_eq!(program_light.rgba(), expected_light.as_slice());
+        assert_eq!(program_dense.rgba(), expected_dense.as_slice());
 
         // Both densities ride the live engine with their dimensions intact.
         let mut engine = PresentationEngine::new(program_light, OutputStatus::Connected);
@@ -363,7 +367,7 @@ mod tests {
             (state.program().width(), state.program().height()),
             (3840, 2160)
         );
-        assert_eq!(state.program().rgba(), raster_dense.rgba());
+        assert_eq!(state.program().rgba(), expected_dense.as_slice());
         assert_eq!(state.output_status(), OutputStatus::Connected);
     }
 
