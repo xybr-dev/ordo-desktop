@@ -27,11 +27,11 @@ fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
 }
 
-fn assert_program_frame_shaped(width: u32, height: u32, rgba: &[u8]) {
-    // The immutable RGBA seam every presentation consumer takes: non-empty
-    // bytes with length a multiple of four, sized to the raster extent. The
-    // `ordo` layer wraps exactly this into `ProgramFrame` without
-    // `rendering` naming that type.
+fn assert_rgba_extent(width: u32, height: u32, rgba: &[u8]) {
+    // Plain byte shape: non-empty, RGBA-aligned, and sized to the raster
+    // extent. The presentation seam wraps these bytes with their dimensions
+    // beside them; that real conversion is proven where the crates meet,
+    // never from inside `rendering`.
     assert!(width > 0 && height > 0);
     assert!(!rgba.is_empty(), "raster must carry pixels");
     assert_eq!(
@@ -77,8 +77,8 @@ fn density_changes_pixels_not_composition() {
     assert_eq!((dense.width(), dense.height()), (3840, 2160));
     assert_eq!(light.logical_size(), (1920, 1080));
     assert_eq!(dense.logical_size(), (1920, 1080));
-    assert_program_frame_shaped(light.width(), light.height(), light.rgba());
-    assert_program_frame_shaped(dense.width(), dense.height(), dense.rgba());
+    assert_rgba_extent(light.width(), light.height(), light.rgba());
+    assert_rgba_extent(dense.width(), dense.height(), dense.rgba());
     assert_ne!(light.rgba().len(), dense.rgba().len());
 }
 

@@ -6,28 +6,69 @@
 use std::sync::Arc;
 
 /// A complete immutable RGBA Program frame ready for every presentation view.
+///
+/// The pixel extent travels with the bytes: density-dependent `width` and
+/// `height` say whether the buffer holds `1920x1080` or a sharper sampling
+/// of the same composition, so no consumer has to guess from the length.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProgramFrame {
     revision: u64,
+    width: u32,
+    height: u32,
     rgba: Arc<[u8]>,
 }
 
 impl ProgramFrame {
-    pub fn new(revision: u64, rgba: Vec<u8>) -> Result<Self, FrameError> {
-        if rgba.is_empty() {
+    /// Build a frame from explicit dimensions and row-major RGBA bytes.
+    ///
+    /// Rejects zero extents and empty buffers, non-RGBA lengths, and buffers
+    /// whose length is not exactly `width * height * 4`.
+    pub fn new(revision: u64, width: u32, height: u32, rgba: Vec<u8>) -> Result<Self, FrameError> {
+        if width == 0 || height == 0 || rgba.is_empty() {
             return Err(FrameError::Empty);
         }
         if !rgba.len().is_multiple_of(4) {
             return Err(FrameError::InvalidRgbaLength);
         }
+        if rgba.len() as u64 != u64::from(width) * u64::from(height) * 4 {
+            return Err(FrameError::DimensionMismatch {
+                width,
+                height,
+                len: rgba.len(),
+            });
+        }
         Ok(Self {
             revision,
+            width,
+            height,
             rgba: rgba.into(),
         })
     }
 
+    /// Feed a rasterized canonical frame into the Program seam, keeping its
+    /// density-dependent dimensions beside the bytes.
+    pub fn from_raster(
+        revision: u64,
+        raster: &rendering::RasterizedFrame,
+    ) -> Result<Self, FrameError> {
+        Self::new(
+            revision,
+            raster.width(),
+            raster.height(),
+            raster.rgba().to_vec(),
+        )
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     pub fn rgba(&self) -> &[u8] {
@@ -39,6 +80,7 @@ impl ProgramFrame {
 pub enum FrameError {
     Empty,
     InvalidRgbaLength,
+    DimensionMismatch { width: u32, height: u32, len: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -111,8 +153,8 @@ mod tests {
 
     #[test]
     fn complete_program_frames_replace_atomically() {
-        let black = ProgramFrame::new(1, vec![0, 0, 0, 255]).unwrap();
-        let live = ProgramFrame::new(2, vec![255, 255, 255, 255]).unwrap();
+        let black = ProgramFrame::new(1, 1, 1, vec![0, 0, 0, 255]).unwrap();
+        let live = ProgramFrame::new(2, 1, 1, vec![255, 255, 255, 255]).unwrap();
         let mut engine = PresentationEngine::new(black, OutputStatus::Connected);
 
         let state = engine.apply(PresentationCommand::TakeLive(live));
@@ -130,10 +172,53 @@ mod tests {
 
     #[test]
     fn incomplete_program_frames_are_rejected() {
-        assert_eq!(ProgramFrame::new(1, Vec::new()), Err(FrameError::Empty));
         assert_eq!(
-            ProgramFrame::new(1, vec![0, 0, 0]),
+            ProgramFrame::new(1, 1, 1, Vec::new()),
+            Err(FrameError::Empty)
+        );
+        assert_eq!(
+            ProgramFrame::new(1, 0, 0, vec![0, 0, 0, 255]),
+            Err(FrameError::Empty)
+        );
+        assert_eq!(
+            ProgramFrame::new(1, 1, 1, vec![0, 0, 0]),
             Err(FrameError::InvalidRgbaLength)
         );
+        assert_eq!(
+            ProgramFrame::new(1, 2, 1, vec![0, 0, 0, 255]),
+            Err(FrameError::DimensionMismatch {
+                width: 2,
+                height: 1,
+                len: 4,
+            })
+        );
+    }
+
+    #[test]
+    fn raster_feeds_program_with_its_dimensions() {
+        use std::collections::HashMap;
+
+        use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+
+        let (frame, _) = rendering::render_template(
+            &TemplateContent {
+                kind: TemplateKind::Black,
+                header: None,
+                body: String::new(),
+                footer: None,
+                image: None,
+            },
+            &Theme::default(),
+            TargetDensity::SCALE_100,
+        )
+        .unwrap();
+        let raster = rendering::rasterize(&frame, TargetDensity::SCALE_100, &HashMap::new())
+            .expect("black slide must rasterize");
+        let program =
+            ProgramFrame::from_raster(3, &raster).expect("a real raster must feed the seam");
+
+        assert_eq!(program.revision(), 3);
+        assert_eq!((program.width(), program.height()), (1920, 1080));
+        assert_eq!(program.rgba(), raster.rgba());
     }
 }

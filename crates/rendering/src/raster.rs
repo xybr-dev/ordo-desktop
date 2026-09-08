@@ -12,10 +12,11 @@
 //! operator chrome radius belongs to the later operator wrapper; it never
 //! enters the render, saved content, or an export.
 //!
-//! Output is a plain width, height, and RGBA byte vector sized exactly for
-//! `presentation::ProgramFrame`: non-empty with length a multiple of four,
-//! so the `ordo` composition layer can wrap it without `rendering` naming
-//! that type. There is no frame cache, thumbnail path, or export flow here.
+//! Output is a plain width, height, and RGBA byte vector: non-empty with
+//! length exactly `width * height * 4`, so `presentation::ProgramFrame`
+//! can wrap the bytes with their density-dependent dimensions beside them
+//! without `rendering` naming that type. There is no frame cache,
+//! thumbnail path, or export flow here.
 
 use std::collections::HashMap;
 

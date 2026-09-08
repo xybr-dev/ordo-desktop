@@ -263,7 +263,7 @@ pub fn open_native_runtime_at(
     let congregation = if with_congregation {
         let bounds = gpui::Bounds::centered(None, size(px(1920.0), px(1080.0)), cx);
         let state = CongregationState::new(
-            ProgramFrame::new(0, vec![0, 0, 0, 255]).expect("black frame is complete"),
+            ProgramFrame::new(0, 1, 1, vec![0, 0, 0, 255]).expect("black frame is complete"),
             OutputStatus::Connected,
         );
         match cx.open_window(presenter_window_options(bounds), |_, cx| {
@@ -310,7 +310,62 @@ pub fn open_native_runtime_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use presentation::{PresentationCommand, PresentationEngine};
     use std::{sync::mpsc, time::Duration};
+
+    #[test]
+    fn raster_feeds_live_program_with_its_dimensions() {
+        use std::collections::HashMap;
+
+        use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+
+        // One mixed-language fixture through the real path: compose once per
+        // density, rasterize the completed frame, and feed the Program seam.
+        let content = TemplateContent {
+            kind: TemplateKind::Lyrics,
+            header: Some("Section label".to_owned()),
+            body: "Maayong buntag, mga igsoon!\nPagdayeg sa Ginoo — awit 95 α 中".to_owned(),
+            footer: None,
+            image: None,
+        };
+        let theme = Theme::default();
+        let images: HashMap<String, Vec<u8>> = HashMap::new();
+
+        let light_density = TargetDensity::from_percent(100).unwrap();
+        let dense_density = TargetDensity::from_percent(200).unwrap();
+        let (at_light, _) = rendering::render_template(&content, &theme, light_density).unwrap();
+        let (at_dense, _) = rendering::render_template(&content, &theme, dense_density).unwrap();
+        assert_eq!(at_light.serialize(), at_dense.serialize());
+
+        let raster_light = rendering::rasterize(&at_light, light_density, &images).unwrap();
+        let raster_dense = rendering::rasterize(&at_light, dense_density, &images).unwrap();
+        let program_light = ProgramFrame::from_raster(1, &raster_light).unwrap();
+        let program_dense = ProgramFrame::from_raster(2, &raster_dense).unwrap();
+
+        // The density-dependent extent survives the seam instead of collapsing
+        // into an undimensioned byte buffer.
+        assert_eq!(
+            (program_light.width(), program_light.height()),
+            (1920, 1080)
+        );
+        assert_eq!(
+            (program_dense.width(), program_dense.height()),
+            (3840, 2160)
+        );
+        assert_eq!(program_light.rgba(), raster_light.rgba());
+        assert_eq!(program_dense.rgba(), raster_dense.rgba());
+
+        // Both densities ride the live engine with their dimensions intact.
+        let mut engine = PresentationEngine::new(program_light, OutputStatus::Connected);
+        let state = engine.apply(PresentationCommand::TakeLive(program_dense));
+        assert_eq!(state.program().revision(), 2);
+        assert_eq!(
+            (state.program().width(), state.program().height()),
+            (3840, 2160)
+        );
+        assert_eq!(state.program().rgba(), raster_dense.rgba());
+        assert_eq!(state.output_status(), OutputStatus::Connected);
+    }
 
     #[test]
     fn build_identity_uses_the_ordo_version() {
