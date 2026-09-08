@@ -207,16 +207,17 @@ fn solid_png(width: u32, height: u32) -> Vec<u8> {
 
 struct Request {
     sequence: u64,
+    key: (usize, u16),
     content: TemplateContent,
-    density_percent: u16,
     reply: Sender<Rendered>,
 }
 
+#[derive(Clone)]
 struct Rendered {
     sequence: u64,
+    key: (usize, u16),
     frame: FinishedFrame,
     diagnostics: Diagnostics,
-    density_percent: u16,
 }
 
 /// The lab's composition worker: the real `render_template` plus `rasterize`
@@ -235,8 +236,8 @@ fn spawn_worker(requests: Receiver<Request>) {
             while let Ok(newer) = requests.try_recv() {
                 request = newer;
             }
-            let density = TargetDensity::from_percent(request.density_percent)
-                .unwrap_or(TargetDensity::SCALE_100);
+            let density =
+                TargetDensity::from_percent(request.key.1).unwrap_or(TargetDensity::SCALE_100);
             let rendered = match rendering::render_template(
                 &request.content,
                 &Theme::default(),
@@ -254,9 +255,9 @@ fn spawn_worker(requests: Receiver<Request>) {
                         Ok(raster) => {
                             canonical_views::finish_frame(&raster).map(|frame| Rendered {
                                 sequence: request.sequence,
+                                key: request.key,
                                 frame,
                                 diagnostics,
-                                density_percent: request.density_percent,
                             })
                         }
                         Err(error) => {
@@ -287,6 +288,10 @@ struct LabView {
     density_idx: usize,
     sequence: u64,
     rendered: Option<Rendered>,
+    /// Finished pixels by (fixture, density): the key space is bounded by
+    /// the fixture matrix times the five densities, so revisits never
+    /// re-render and need no eviction.
+    cache: HashMap<(usize, u16), Rendered>,
     requests: Sender<Request>,
     focus_handle: FocusHandle,
 }
@@ -306,6 +311,7 @@ impl LabView {
             density_idx: 0,
             sequence: 0,
             rendered: None,
+            cache: HashMap::new(),
             requests,
             focus_handle: cx.focus_handle(),
         };
@@ -323,22 +329,29 @@ impl LabView {
         )
     }
 
-    /// Send the current selection to the worker. Replies carry the request
-    /// sequence, so a stale composition that finishes late cannot overwrite a
-    /// newer one.
+    /// Show the current selection: a cached (fixture, density) pair displays
+    /// synchronously, otherwise the worker composes it. Replies carry the
+    /// request sequence, so a stale composition that finishes late cannot
+    /// overwrite a newer one; the sequence always advances, even on a hit,
+    /// so a late reply can never collide with a later request.
     fn request(&mut self, cx: &mut Context<Self>) {
         self.sequence += 1;
         let sequence = self.sequence;
+        let key = (self.fixture_idx, DENSITIES[self.density_idx]);
+        if let Some(rendered) = self.cache.get(&key) {
+            self.rendered = Some(rendered.clone());
+            cx.notify();
+            return;
+        }
         let content = self.fixtures[self.fixture_idx].1.clone();
-        let density_percent = DENSITIES[self.density_idx];
         let (reply_tx, reply_rx) = async_channel::bounded(1);
         let requests = self.requests.clone();
         cx.spawn(async move |view, cx| {
             if requests
                 .send(Request {
                     sequence,
+                    key,
                     content,
-                    density_percent,
                     reply: reply_tx,
                 })
                 .await
@@ -350,6 +363,7 @@ impl LabView {
                 return;
             };
             view.update(cx, |view: &mut LabView, cx| {
+                view.cache.insert(rendered.key, rendered.clone());
                 if rendered.sequence == view.sequence {
                     view.rendered = Some(rendered);
                     cx.notify();
@@ -414,10 +428,7 @@ impl LabView {
                 let (pixel_w, pixel_h) = rendered.frame.pixel_size();
                 let (logical_w, logical_h) = rendered.frame.logical_size();
                 let mut lines = vec![
-                    format!(
-                        "raster {pixel_w}x{pixel_h} at {}%",
-                        rendered.density_percent
-                    ),
+                    format!("raster {pixel_w}x{pixel_h} at {}%", rendered.key.1),
                     format!("logical {logical_w}x{logical_h}"),
                 ];
                 if rendered.diagnostics.warnings.is_empty() {
@@ -623,7 +634,7 @@ mod tests {
         .await;
         lab.read_with(cx, |lab, _| {
             let rendered = lab.rendered.as_ref().expect("latest selection must render");
-            assert_eq!(rendered.density_percent, DENSITIES[1]);
+            assert_eq!(rendered.key.1, DENSITIES[1]);
         });
 
         // A density change followed by a fixture change must still render
@@ -656,7 +667,48 @@ mod tests {
         .await;
         lab.read_with(cx, |lab, _| {
             let rendered = lab.rendered.as_ref().expect("latest selection must render");
-            assert_eq!(rendered.density_percent, DENSITIES[0]);
+            assert_eq!(rendered.key.1, DENSITIES[0]);
+        });
+
+        // Chrome-only changes keep the same pixels: viewport and scale
+        // selectors display synchronously instead of re-rendering. The
+        // sequence still advances, so a late in-flight reply can never
+        // collide with a later request.
+        let sequence = lab.read_with(cx, |lab, _| lab.sequence);
+        cx.simulate_keystrokes("f3");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| {
+            assert_eq!(lab.sequence, sequence + 1);
+            assert_eq!(
+                lab.rendered.as_ref().map(|rendered| rendered.key),
+                Some((3, DENSITIES[0])),
+                "same pixels must display without a worker round-trip"
+            );
+        });
+        cx.simulate_keystrokes("f4");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| {
+            assert_eq!(lab.sequence, sequence + 2);
+            assert_eq!(
+                lab.rendered.as_ref().map(|rendered| rendered.key),
+                Some((3, DENSITIES[0]))
+            );
+        });
+
+        // Revisiting a composed pair is instant too: walk away through
+        // every other density and back. The four stops each render once;
+        // the return to (3, 100) hits the cache, so it displays without
+        // waiting on the worker — and late replies from the walk-away
+        // renders cannot overwrite it.
+        cx.simulate_keystrokes("f5 f5 f5 f5 f5");
+        cx.run_until_parked();
+        lab.read_with(cx, |lab, _| {
+            assert_eq!(lab.density_idx, 0);
+            assert_eq!(
+                lab.rendered.as_ref().map(|rendered| rendered.key),
+                Some((3, DENSITIES[0])),
+                "the cached return must display without waiting on the worker"
+            );
         });
     }
 }
