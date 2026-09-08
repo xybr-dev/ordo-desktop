@@ -26,7 +26,7 @@ use std::path::PathBuf;
 
 use gpui::{Pixels, TestAppContext};
 use ordo::{NativeRuntime, canonical::CanonicalCommand, open_native_runtime_at};
-use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+use rendering::{Diagnostics, Frame, TargetDensity, TemplateContent, TemplateKind, Theme};
 use ui::{DecreaseInterfaceScale, IncreaseInterfaceScale};
 
 /// The probe: Cebuano/English/Tagalog Latin plus digits, punctuation, an
@@ -44,13 +44,12 @@ fn probe_content() -> TemplateContent {
     }
 }
 
-/// The pinned artifact for the probe: the serialized logical frame plus the
-/// diagnostics riding beside it, the same shape `rendering`'s golden harness
-/// pins per fixture.
-fn probe_serialization(density: TargetDensity) -> String {
-    let (frame, diagnostics) =
-        rendering::render_template(&probe_content(), &Theme::default(), density)
-            .expect("invariance probe must compose");
+/// The pinned artifact shape for one completed frame: the serialized logical
+/// frame plus the diagnostics riding beside it, the same shape `rendering`'s
+/// golden harness pins per fixture. The worker returns the payload; pins and
+/// handoff serialize it at the edge, exactly as PR 9's consumers will take
+/// the frame itself.
+fn format_probe(frame: &Frame, diagnostics: &Diagnostics) -> String {
     let mut out = frame.serialize();
     out.push_str(&format!("warnings {}\n", diagnostics.warnings.len()));
     for warning in &diagnostics.warnings {
@@ -59,12 +58,26 @@ fn probe_serialization(density: TargetDensity) -> String {
     out
 }
 
+/// The pinned artifact for the probe: the serialized logical frame plus the
+/// diagnostics riding beside it, the same shape `rendering`'s golden harness
+/// pins per fixture.
+fn probe_serialization(density: TargetDensity) -> String {
+    let (frame, diagnostics) =
+        rendering::render_template(&probe_content(), &Theme::default(), density)
+            .expect("invariance probe must compose");
+    format_probe(&frame, &diagnostics)
+}
+
 /// Bytes out of the worker-owned production path: snapshot live operator
 /// state through production plumbing, send one composition request on the
-/// runtime-owned channel, and receive the frame the `ordo-canonical` worker
-/// composed off the GPUI thread. Every scale byte under test flows through
-/// this call.
-fn compose_through_worker(cx: &mut TestAppContext, runtime: &NativeRuntime) -> String {
+/// runtime-owned channel, and receive the completed frame plus diagnostics
+/// the `ordo-canonical` worker composed off the GPUI thread. Every scale
+/// byte under test flows through this call; the pin serializes the payload
+/// here at the edge.
+fn compose_through_worker(
+    cx: &mut TestAppContext,
+    runtime: &NativeRuntime,
+) -> (Frame, Diagnostics) {
     let (environment, window_scale) = runtime
         .operator()
         .update(cx, |root, window, _| {
@@ -225,7 +238,8 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
         std::env::temp_dir().join(format!("ordo-canonical-invariance-{}", std::process::id()));
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
-    let baseline = compose_through_worker(cx, &runtime);
+    let (baseline_frame, baseline_diagnostics) = compose_through_worker(cx, &runtime);
+    let baseline = format_probe(&baseline_frame, &baseline_diagnostics);
     assert_eq!(
         baseline,
         probe_serialization(TargetDensity::SCALE_100),
@@ -247,7 +261,8 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             "operator chrome must move with live operator scale {expected}%"
         );
         previous_offset = offset;
-        let actual = compose_through_worker(cx, &runtime);
+        let (actual_frame, actual_diagnostics) = compose_through_worker(cx, &runtime);
+        let actual = format_probe(&actual_frame, &actual_diagnostics);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
@@ -268,7 +283,8 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             "operator chrome must move with live operator scale {expected}%"
         );
         previous_offset = offset;
-        let actual = compose_through_worker(cx, &runtime);
+        let (actual_frame, actual_diagnostics) = compose_through_worker(cx, &runtime);
+        let actual = format_probe(&actual_frame, &actual_diagnostics);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
@@ -298,7 +314,8 @@ fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
     ));
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
-    let baseline = compose_through_worker(cx, &runtime);
+    let (baseline_frame, baseline_diagnostics) = compose_through_worker(cx, &runtime);
+    let baseline = format_probe(&baseline_frame, &baseline_diagnostics);
     assert_eq!(
         baseline,
         probe_serialization(TargetDensity::SCALE_100),
@@ -311,7 +328,8 @@ fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             .update(cx, |_, window, _| window.set_scale_factor(factor))
             .expect("operator window should still be open");
         cx.run_until_parked();
-        let actual = compose_through_worker(cx, &runtime);
+        let (actual_frame, actual_diagnostics) = compose_through_worker(cx, &runtime);
+        let actual = format_probe(&actual_frame, &actual_diagnostics);
         let observed = runtime
             .operator()
             .update(cx, |_, window, _| window.scale_factor())

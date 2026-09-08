@@ -110,11 +110,15 @@ assert the scale axes against real geometry; each failure names the axis
 that moved. Every scale byte is composed by the worker-owned production
 path: the runtime-owned `ordo-canonical` worker thread serves
 `CanonicalCommand::Compose` requests carrying a live environment snapshot,
-the live window scale, and content, deriving renderer inputs through the
-`ordo::canonical` production boundary and rendering off the GPUI thread.
-The tests snapshot live operator state through production plumbing after
-each transition and receive the worker-composed bytes. PR 9's viewport
-consumers compose real slide content through this same worker.
+the live window scale, and content, and replies with the completed frame
+plus its diagnostics — the real production payload PR 9's viewport
+consumers take (and rasterize from). The boundary derives renderer inputs
+through the `ordo::canonical` production seam and renders off the GPUI
+thread. The tests snapshot live operator state through production plumbing
+after each transition, receive the worker-composed payload, and serialize
+it for the pin at the edge — so the gates and future consumers exercise
+the same worker path. PR 9's viewport consumers compose real slide content
+through this same worker.
 
 | Axis | Values exercised | How the failure reads |
 | --- | --- | --- |

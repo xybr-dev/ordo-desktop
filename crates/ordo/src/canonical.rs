@@ -4,12 +4,13 @@
 //! canonical renderer. Composition runs on the `ordo-canonical` worker
 //! thread — rendering never blocks the GPUI thread — behind a request
 //! channel the runtime owns: callers snapshot operator state, send
-//! [`CanonicalCommand::Compose`], and receive the serialized logical frame.
-//! Neither the operator Interface scale nor the window display scale may
-//! enter composition; both cross this boundary on every request, so any
-//! future use of either value fails the packaged invariance gate naming
-//! its axis. PR 9's viewport consumers compose real slide content through
-//! this same worker.
+//! [`CanonicalCommand::Compose`], and receive the completed frame plus its
+//! diagnostics. Neither the operator Interface scale nor the window display
+//! scale may enter composition; both cross this boundary on every request,
+//! so any future use of either value fails the packaged invariance gate
+//! naming its axis. PR 9's viewport consumers take the frame itself (and
+//! rasterize from it) through this same worker; pins and handoff serialize
+//! the payload at the edge.
 
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -24,7 +25,7 @@ pub enum CanonicalCommand {
         environment: UiEnvironment,
         window_scale: f32,
         content: rendering::TemplateContent,
-        reply: Sender<Result<String, rendering::RenderError>>,
+        reply: Sender<Result<(rendering::Frame, rendering::Diagnostics), rendering::RenderError>>,
     },
     Stop,
 }
@@ -45,22 +46,18 @@ pub fn canonical_inputs_for(
     )
 }
 
-/// Serialize one completed logical frame: glyph positions, wrapping,
-/// pagination inputs, safe area, and element bounds, plus the diagnostics
-/// riding beside the frame.
-pub fn compose_serialization(
+/// Compose one completed logical frame plus its diagnostics: glyph
+/// positions, wrapping, pagination inputs, safe area, and element bounds.
+/// Callers serialize the payload for pins and handoff; PR 9's viewport
+/// consumers take the frame itself (and rasterize from it) through this
+/// same worker.
+pub fn compose_frame(
     environment: UiEnvironment,
     window_scale: f32,
     content: &rendering::TemplateContent,
-) -> Result<String, rendering::RenderError> {
+) -> Result<(rendering::Frame, rendering::Diagnostics), rendering::RenderError> {
     let (theme, density) = canonical_inputs_for(environment, window_scale);
-    let (frame, diagnostics) = rendering::render_template(content, &theme, density)?;
-    let mut out = frame.serialize();
-    out.push_str(&format!("warnings {}\n", diagnostics.warnings.len()));
-    for warning in &diagnostics.warnings {
-        out.push_str(&format!("warning {warning}\n"));
-    }
-    Ok(out)
+    rendering::render_template(content, &theme, density)
 }
 
 /// Serve composition requests until `Stop` (or sender drop) ends the loop.
@@ -78,7 +75,7 @@ pub fn serve_canonical(
                 content,
                 reply,
             } => {
-                let _ = reply.send(compose_serialization(environment, window_scale, &content));
+                let _ = reply.send(compose_frame(environment, window_scale, &content));
             }
         }
     }

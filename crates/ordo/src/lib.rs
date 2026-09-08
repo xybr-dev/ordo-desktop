@@ -156,9 +156,26 @@ impl RuntimeWorkers {
                 WorkerExit::Completed(())
             })
         })?;
-        let canonical = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+        let canonical = match OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
             canonical::serve_canonical(canonical_requests, cancel)
-        })?;
+        }) {
+            Ok(worker) => worker,
+            Err(error) => {
+                // Roll back through the tested shutdown path: the storage
+                // worker is blocked in `recv`, which cancel/unpark cannot
+                // wake while this sender is live, so only the Shutdown
+                // message unblocks it before its join. Never rely on drop
+                // order here — joining a still-blocked worker hangs instead
+                // of returning the startup error.
+                let mut partial = Self {
+                    preference_commands,
+                    canonical_commands,
+                    workers: vec![storage, background],
+                };
+                partial.shutdown();
+                return Err(error);
+            }
+        };
         Ok(Self {
             preference_commands,
             canonical_commands,
@@ -435,6 +452,33 @@ mod tests {
         .shutdown();
 
         assert!(report.is_empty());
+    }
+
+    #[test]
+    fn canonical_stop_ends_the_worker_with_a_live_sender() {
+        // Rollback coverage for `RuntimeWorkers::start`: when a later spawn
+        // fails, teardown joins a channel-blocked worker while senders may
+        // still be live. Cancel/unpark cannot wake `recv`, so only the Stop
+        // message may end the loop — stopping must not depend on sender
+        // drop, or failed startup hangs instead of returning its error.
+        let (commands, requests) = mpsc::channel();
+        let live_sender = commands.clone();
+        let mut worker = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+            canonical::serve_canonical(requests, cancel)
+        })
+        .unwrap();
+        commands.send(canonical::CanonicalCommand::Stop).unwrap();
+        // Join off-thread with a timeout so a regression fails instead of
+        // hanging the suite the way the startup path would.
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = done_tx.send(worker.join());
+        });
+        let exit = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Stop must end the canonical worker while a sender stays live");
+        assert_eq!(exit, Ok(WorkerExit::Completed(())));
+        drop(live_sender);
     }
 
     #[test]
