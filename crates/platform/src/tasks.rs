@@ -11,6 +11,7 @@ use std::{
 pub enum WorkerKind {
     Storage,
     Background,
+    Canonical,
 }
 
 impl WorkerKind {
@@ -18,6 +19,7 @@ impl WorkerKind {
         match self {
             Self::Storage => "ordo-storage",
             Self::Background => "ordo-background",
+            Self::Canonical => "ordo-canonical",
         }
     }
 }

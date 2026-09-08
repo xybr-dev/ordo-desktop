@@ -10,13 +10,13 @@ publish.workspace = true
 async-channel.workspace = true
 platform.workspace = true
 presentation.workspace = true
+rendering.workspace = true
 ui.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
-rendering.workspace = true
 
 [lints]
 workspace = true

@@ -89,6 +89,76 @@ the same `d3976b55459555c19f617f636f2a5e41b78ea1dd95ebea6d7858504efa834b71`
 digest. PR 8 expands this early probe to the packaged canonical renderer; a
 mismatch there re-opens this decision rather than adjusting the artifact.
 
+## Packaged invariance (PR 8)
+
+`tests/native-runtime/tests/canonical_invariance.rs` renders one
+mixed-language Lyrics probe (Cebuano/English/Tagalog Latin, digits,
+punctuation, em-dash, plus Greek alpha and peso sign resolved through the
+bundled Noto fallback with real glyph ids — the faces `rendering`'s
+`tests/fonts.rs` pins as fallback-carried) through `render_template` at the
+default Theme, and pins the serialized logical frame plus its diagnostics in
+`tests/native-runtime/golden/canonical-invariance.txt` (LF-pinned in
+`.gitattributes`). The harness additionally asserts the serialization
+contains no `id=0`, so a `.notdef` can never hide inside a passing pin. The
+probe runs where the packaged binary runs: the `native-runtime` harness
+builds the `ordo` closure, and the lockfile change is edge-only
+(`native-runtime-tests` gains the `rendering` dev-edge for the pure gate,
+zero new packages, zero version changes).
+
+One test asserts the density and platform axes, and two live-runtime tests
+assert the scale axes against real geometry; each failure names the axis
+that moved. Every scale byte is composed by the worker-owned production
+path: the runtime-owned `ordo-canonical` worker thread serves
+`CanonicalCommand::Compose` requests carrying a live environment snapshot,
+the live window scale, and content, and replies with the completed frame
+plus its diagnostics — the real production payload PR 9's viewport
+consumers take (and rasterize from). The boundary derives renderer inputs
+through the `ordo::canonical` production seam and renders off the GPUI
+thread. The tests snapshot live operator state through production plumbing
+after each transition, receive the worker-composed payload, and serialize
+it for the pin at the edge — so the gates and future consumers exercise
+the same worker path. PR 9's viewport consumers compose real slide content
+through this same worker.
+
+| Axis | Values exercised | How the failure reads |
+| --- | --- | --- |
+| Output density | `100`–`200` in `25` steps | `canonical composition moved with output density N%` |
+| Ordo Interface scale | live `100%`→`200%`→`100%` through the real scale actions; operator token geometry is read back per step and must move while the production-path bytes must not | `canonical composition moved with live operator scale N%` |
+| System scale | window scale factors `1.0`–`2.0` applied to the packaged operator window through gpui's display-scale seam; the production-path bytes are captured on that same window per step | `canonical composition moved with system scale N%` |
+| Packaged platform | committed golden compared on both CI targets | `packaged <os> serialization differs from ...` |
+
+The renderer exposes no input for either scale (no parameter, no
+environment read, no GPUI type), and the production boundary spends neither
+value: a change that routes either scale into composition inputs edits that
+boundary and fails naming the scale — verified by spending operator scale
+on the safe-area inset and watching the gate fail at `live operator scale
+200%`. Density additionally pins the raster extent (`100%` → `1920x1080`,
+`200%` → `3840x2160`) to prove it reaches pixels only. The operator-scale
+test is the isolation proof T0.3's PR 3 deferred for want of a render path.
+The lockfile change stays edge-only (`ordo` gains the `rendering` edge the
+crate-graph contract already permits, zero new packages, zero version
+changes).
+
+Linux run, `rustc 1.96.0`, x86_64:
+
+```text
+sha256 95f876442694cc3a96d7b08e4faf7fe7e8dcf5dc0eb109b30942633d86a93448  canonical-invariance.txt
+```
+
+Windows Server 2022 CI enforces the same digest through the
+`windows-canonical-invariance` job, which runs the full invariance suite —
+density, platform, and both live scale tests — and prints the artifact hash;
+a mismatch fails the test before hashing. Linux runs the same suite under
+`cargo xtask verify`, which executes the whole workspace suite. The golden
+regenerates only
+with `ORDO_UPDATE_CANONICAL_INVARIANCE=1`, and only after review: a
+platform mismatch re-opens this decision rather than adjusting the
+artifact.
+
+Sharpness disclaimer, per the plan: this gate claims serialized *logical*
+composition only and makes no claim about raster pixels. Per-platform
+raster sharpness is qualified separately in the PR 10 manual gate.
+
 ## Policy
 
 `xtask` guards `rendering` the way `QUALIFIED_UI_DEPENDENCIES` guards `ui`:

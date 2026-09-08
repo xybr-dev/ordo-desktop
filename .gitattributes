@@ -7,3 +7,7 @@ crates/rendering/tests/fixtures/shaping-probe.txt text eol=lf
 # the comparison without any composition drift.
 tests/fixtures/rendering/*.txt text eol=lf
 tests/golden-frames/*.txt text eol=lf
+# The packaged invariance golden is byte-compared against in-memory `writeln!`
+# output (LF) on Linux and Windows alike; a CRLF checkout would fail the
+# comparison without any composition drift.
+tests/native-runtime/golden/*.txt text eol=lf

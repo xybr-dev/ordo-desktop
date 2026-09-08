@@ -50,3 +50,16 @@ jobs:
           cargo test -p rendering --locked --test shaping_probe || exit $LASTEXITCODE
           git diff --exit-code -- crates/rendering/tests/fixtures/shaping-probe.txt || exit $LASTEXITCODE
           (Get-FileHash crates/rendering/tests/fixtures/shaping-probe.txt -Algorithm SHA256).Hash.ToLower()
+
+  windows-canonical-invariance:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Compare packaged canonical composition
+        shell: pwsh
+        run: |
+          cargo test -p native-runtime-tests --locked --test canonical_invariance || exit $LASTEXITCODE
+          (Get-FileHash tests/native-runtime/golden/canonical-invariance.txt -Algorithm SHA256).Hash.ToLower()
