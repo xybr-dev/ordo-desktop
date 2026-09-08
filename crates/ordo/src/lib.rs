@@ -113,8 +113,9 @@ impl NativeRuntime {
 
     /// The runtime-owned canonical composition channel: snapshot operator
     /// state, send [`canonical::CanonicalCommand::Compose`], and receive the
-    /// serialized frame the worker composed off the GPUI thread. PR 9's
-    /// viewport consumers compose through this same channel.
+    /// completed frame plus diagnostics the worker composed off the GPUI
+    /// thread. Serialize only at the pin/handoff edge; PR 9's viewport
+    /// consumers take the frame itself through this same channel.
     pub fn canonical_commands(&self) -> Sender<canonical::CanonicalCommand> {
         self.canonical_commands.clone()
     }
@@ -455,30 +456,31 @@ mod tests {
     }
 
     #[test]
-    fn canonical_stop_ends_the_worker_with_a_live_sender() {
-        // Rollback coverage for `RuntimeWorkers::start`: when a later spawn
-        // fails, teardown joins a channel-blocked worker while senders may
-        // still be live. Cancel/unpark cannot wake `recv`, so only the Stop
-        // message may end the loop — stopping must not depend on sender
-        // drop, or failed startup hangs instead of returning its error.
-        let (commands, requests) = mpsc::channel();
-        let live_sender = commands.clone();
-        let mut worker = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
-            canonical::serve_canonical(requests, cancel)
-        })
-        .unwrap();
-        commands.send(canonical::CanonicalCommand::Stop).unwrap();
+    fn shutdown_unblocks_channel_workers_with_live_senders() {
+        // Startup-rollback coverage: `start`'s failure path delegates to
+        // `shutdown`, which must end every channel-blocked worker while
+        // senders stay live. Cancel/unpark cannot wake `recv`; without each
+        // stop message this times out instead of hanging the suite the way
+        // failed startup would.
+        let preferences =
+            std::env::temp_dir().join(format!("ordo-shutdown-rollback-{}", std::process::id()));
+        let (restore_tx, _restore_rx) = async_channel::bounded(1);
+        let mut workers = RuntimeWorkers::start(PreferencesFile::new(&preferences), restore_tx)
+            .expect("workers must start");
+        let live_preferences = workers.preference_commands.clone();
+        let live_canonical = workers.canonical_commands.clone();
         // Join off-thread with a timeout so a regression fails instead of
         // hanging the suite the way the startup path would.
         let (done_tx, done_rx) = mpsc::channel();
         thread::spawn(move || {
-            let _ = done_tx.send(worker.join());
+            let _ = done_tx.send(workers.shutdown());
         });
-        let exit = done_rx
+        let report = done_rx
             .recv_timeout(Duration::from_secs(5))
-            .expect("Stop must end the canonical worker while a sender stays live");
-        assert_eq!(exit, Ok(WorkerExit::Completed(())));
-        drop(live_sender);
+            .expect("shutdown must unblock channel-blocked workers while senders stay live");
+        assert!(report.is_empty());
+        drop((live_preferences, live_canonical));
+        std::fs::remove_file(preferences).ok();
     }
 
     #[test]
