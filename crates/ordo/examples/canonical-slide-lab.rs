@@ -24,7 +24,7 @@ use gpui::{
 };
 use gpui_platform::application;
 use ordo::canonical_views;
-use rendering::{Diagnostics, TargetDensity, TemplateContent, TemplateKind, Theme};
+use rendering::{Diagnostics, TargetDensity, TemplateContent, TemplateKind};
 use ui::{
     canonical_frame::FinishedFrame,
     environment::{
@@ -209,6 +209,8 @@ struct Request {
     sequence: u64,
     key: (usize, u16),
     content: TemplateContent,
+    environment: UiEnvironment,
+    window_scale: f32,
     reply: Sender<Rendered>,
 }
 
@@ -220,64 +222,81 @@ struct Rendered {
     diagnostics: Diagnostics,
 }
 
-/// The lab's composition worker: the real `render_template` plus `rasterize`
-/// path on a background thread, so rendering never blocks the GPUI thread.
-/// Density reaches only the raster extent; the logical composition is
-/// density-independent by construction.
-fn spawn_worker(requests: Receiver<Request>) {
-    thread::spawn(move || {
-        while let Ok(request) = requests.recv_blocking() {
-            // Coalesce rapid selector changes: a dev-build render costs up
-            // to seconds, so mashing keys would otherwise queue expensive
-            // rasters faster than they drain and the display would look
-            // frozen. Only the newest pending request renders; skipped
-            // replies are dropped by the view's sequence guard.
-            let mut request = request;
-            while let Ok(newer) = requests.try_recv() {
-                request = newer;
-            }
-            let density =
-                TargetDensity::from_percent(request.key.1).unwrap_or(TargetDensity::SCALE_100);
-            let rendered = match rendering::render_template(
-                &request.content,
-                &Theme::default(),
-                TargetDensity::SCALE_100,
-            ) {
-                Ok((frame, diagnostics)) => {
-                    let mut images = HashMap::new();
-                    if let Some(placed) = frame.image() {
-                        images.insert(
-                            placed.id.clone(),
-                            solid_png(placed.bounds.width.max(1), placed.bounds.height.max(1)),
-                        );
-                    }
-                    match rendering::rasterize(&frame, density, &images) {
-                        Ok(raster) => {
-                            canonical_views::finish_frame(&raster).map(|frame| Rendered {
-                                sequence: request.sequence,
-                                key: request.key,
-                                frame,
-                                diagnostics,
-                            })
-                        }
-                        Err(error) => {
-                            eprintln!("lab raster failed: {error}");
-                            None
-                        }
-                    }
+/// The lab's raster stage: composition runs on the production canonical
+/// worker behind `CanonicalCommand::Compose` — the same seam the packaged
+/// runtime owns, carrying live operator state and the window scale — and
+/// this thread rasterizes and finishes that payload, so rendering never
+/// blocks the GPUI thread. Density reaches only the raster extent; the
+/// logical composition is density-independent by construction.
+fn spawn_worker(
+    requests: Receiver<Request>,
+    canonical: std::sync::mpsc::Sender<ordo::canonical::CanonicalCommand>,
+) {
+    thread::Builder::new()
+        .name("ordo-lab-raster".to_owned())
+        .spawn(move || {
+            while let Ok(request) = requests.recv_blocking() {
+                // Coalesce rapid selector changes: a dev-build render costs up
+                // to seconds, so mashing keys would otherwise queue expensive
+                // rasters faster than they drain and the display would look
+                // frozen. Only the newest pending request renders; skipped
+                // replies are dropped by the view's sequence guard.
+                let mut request = request;
+                while let Ok(newer) = requests.try_recv() {
+                    request = newer;
                 }
-                Err(error) => {
-                    eprintln!("lab composition failed: {error}");
-                    None
+                let density =
+                    TargetDensity::from_percent(request.key.1).unwrap_or(TargetDensity::SCALE_100);
+                let (compose_tx, compose_rx) = std::sync::mpsc::channel();
+                if canonical
+                    .send(ordo::canonical::CanonicalCommand::Compose {
+                        environment: request.environment,
+                        window_scale: request.window_scale,
+                        content: request.content,
+                        reply: compose_tx,
+                    })
+                    .is_err()
+                {
+                    break;
                 }
-            };
-            if let Some(rendered) = rendered
-                && request.reply.send_blocking(rendered).is_err()
-            {
-                break;
+                let rendered = match compose_rx.recv() {
+                    Ok(Ok((frame, diagnostics))) => {
+                        let mut images = HashMap::new();
+                        if let Some(placed) = frame.image() {
+                            images.insert(
+                                placed.id.clone(),
+                                solid_png(placed.bounds.width.max(1), placed.bounds.height.max(1)),
+                            );
+                        }
+                        match rendering::rasterize(&frame, density, &images) {
+                            Ok(raster) => {
+                                canonical_views::finish_frame(&raster).map(|frame| Rendered {
+                                    sequence: request.sequence,
+                                    key: request.key,
+                                    frame,
+                                    diagnostics,
+                                })
+                            }
+                            Err(error) => {
+                                eprintln!("lab raster failed: {error}");
+                                None
+                            }
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        eprintln!("lab composition failed: {error}");
+                        None
+                    }
+                    Err(_) => break,
+                };
+                if let Some(rendered) = rendered
+                    && request.reply.send_blocking(rendered).is_err()
+                {
+                    break;
+                }
             }
-        }
-    });
+        })
+        .expect("lab raster thread must start");
 }
 
 struct LabView {
@@ -295,6 +314,11 @@ struct LabView {
     /// `displayed`, which retires the outgoing slide.
     cache: HashMap<(usize, u16), Rendered>,
     displayed: Option<DisplayedImage>,
+    /// The live window scale, re-read on every selector: it crosses the
+    /// production boundary with the environment on each request, so the
+    /// lab exercises the same input derivation as the packaged runtime
+    /// (which spends neither value in composition).
+    window_scale: f32,
     requests: Sender<Request>,
     focus_handle: FocusHandle,
 }
@@ -313,7 +337,7 @@ impl LabView {
     fn new(
         fixtures: Vec<(String, TemplateContent)>,
         requests: Sender<Request>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut view = Self {
@@ -326,6 +350,7 @@ impl LabView {
             rendered: None,
             cache: HashMap::new(),
             displayed: None,
+            window_scale: window.scale_factor(),
             requests,
             focus_handle: cx.focus_handle(),
         };
@@ -358,6 +383,8 @@ impl LabView {
             return;
         }
         let content = self.fixtures[self.fixture_idx].1.clone();
+        let environment = self.environment();
+        let window_scale = self.window_scale;
         let (reply_tx, reply_rx) = async_channel::bounded(1);
         let requests = self.requests.clone();
         cx.spawn(async move |view, cx| {
@@ -366,6 +393,8 @@ impl LabView {
                     sequence,
                     key,
                     content,
+                    environment,
+                    window_scale,
                     reply: reply_tx,
                 })
                 .await
@@ -428,26 +457,30 @@ impl LabView {
         cx.notify();
     }
 
-    fn next_fixture(&mut self, _: &NextFixture, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_fixture(&mut self, _: &NextFixture, window: &mut Window, cx: &mut Context<Self>) {
         let count = self.fixtures.len();
+        self.window_scale = window.scale_factor();
         self.cycle(|view| view.fixture_idx = (view.fixture_idx + 1) % count, cx);
     }
 
-    fn next_viewport(&mut self, _: &NextViewport, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_viewport(&mut self, _: &NextViewport, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_scale = window.scale_factor();
         self.cycle(
             |view| view.viewport_idx = (view.viewport_idx + 1) % VIEWPORTS.len(),
             cx,
         );
     }
 
-    fn next_scale(&mut self, _: &NextScale, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_scale(&mut self, _: &NextScale, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_scale = window.scale_factor();
         self.cycle(
             |view| view.scale_idx = (view.scale_idx + 1) % SCALES.len(),
             cx,
         );
     }
 
-    fn next_density(&mut self, _: &NextDensity, _: &mut Window, cx: &mut Context<Self>) {
+    fn next_density(&mut self, _: &NextDensity, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_scale = window.scale_factor();
         self.cycle(
             |view| view.density_idx = (view.density_idx + 1) % DENSITIES.len(),
             cx,
@@ -594,9 +627,20 @@ impl Render for LabView {
 }
 
 fn main() {
+    use platform::tasks::{OwnedWorker, WorkerKind};
+
     let fixtures = load_fixtures();
+    // The production canonical worker, owned exactly as the packaged
+    // runtime owns it: composition runs on the `ordo-canonical` thread
+    // behind `CanonicalCommand`, never on the GPUI thread.
+    let (canonical_tx, canonical_rx) = std::sync::mpsc::channel();
+    let canonical = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+        ordo::canonical::serve_canonical(canonical_rx, cancel)
+    })
+    .expect("canonical worker must start");
     let (requests, receiver) = async_channel::unbounded();
-    spawn_worker(receiver);
+    spawn_worker(receiver, canonical_tx.clone());
+    let stop_canonical = canonical_tx;
     application().run(move |cx: &mut App| {
         ui::init(cx).expect("the UI environment should initialize");
         cx.bind_keys([
@@ -624,6 +668,12 @@ fn main() {
         .expect("the canonical slide lab window should open");
         cx.activate(true);
     });
+    // The app has quit: stop the canonical worker before joining it. (If
+    // the loop above never returns, the process exit ends both threads.)
+    stop_canonical
+        .send(ordo::canonical::CanonicalCommand::Stop)
+        .ok();
+    drop(canonical);
 }
 
 #[cfg(test)]
@@ -646,7 +696,19 @@ mod tests {
         });
         let fixtures = load_fixtures();
         let (requests, receiver) = async_channel::unbounded();
-        spawn_worker(receiver);
+        // The production canonical worker, exactly as the packaged runtime
+        // owns it. The handle is leaked on purpose: joining it here could
+        // hang teardown (the raster thread holds a sender until the view
+        // dies), while channel close always ends the thread once every
+        // sender is gone.
+        let (canonical_tx, canonical_rx) = std::sync::mpsc::channel();
+        let canonical = platform::tasks::OwnedWorker::spawn(
+            platform::tasks::WorkerKind::Canonical,
+            move |cancel| ordo::canonical::serve_canonical(canonical_rx, cancel),
+        )
+        .expect("canonical worker must start");
+        let _leaked: &'static _ = Box::leak(Box::new(canonical));
+        spawn_worker(receiver, canonical_tx);
         let (lab, cx) = cx.add_window_view(|window, cx| {
             let lab = LabView::new(fixtures, requests, window, cx);
             window.focus(&lab.focus_handle, cx);

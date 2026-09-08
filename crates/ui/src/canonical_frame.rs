@@ -17,30 +17,46 @@ use crate::{environment::UiEnvironment, tokens};
 
 /// Finished canonical pixels plus their sizes.
 ///
-/// `png` is the finished raster encoded as PNG bytes; `pixel_width` and
-/// `pixel_height` are the density-dependent raster extent, while the logical
-/// composition size is always the `1920x1080` invariant from
-/// [`tokens::canonical_slide`]. The bytes are shared across the timeline
-/// thumbnail, Inspector, Preview, and Program viewports, so every consumer
-/// shows identical internal pixels.
+/// `png` is the finished raster encoded as PNG bytes. `pixel_width` and
+/// `pixel_height` are the true density-dependent raster extent — the visible
+/// `16:9` content — while the logical composition size is always the
+/// `1920x1080` invariant from [`tokens::canonical_slide`]. `upload_width` is
+/// the row stride the bytes are stored with: a multiple of 64px, equal to
+/// `pixel_width` when the raster already aligns and wider by opaque-black
+/// right padding otherwise (the pinned GPUI revision uploads viewport images
+/// with an unpadded `bytes_per_row`, which its wgpu atlas rejects unless
+/// `width * 4` is a multiple of 256). The wrapper crops that upload-only
+/// padding, so it never enters layout: every density fills the viewport
+/// exactly. The bytes are shared across the timeline thumbnail, Inspector,
+/// Preview, and Program viewports, so every consumer shows identical
+/// internal pixels.
 #[derive(Clone, Debug)]
 pub struct FinishedFrame {
     image: Arc<gpui::Image>,
     pixel_width: u32,
     pixel_height: u32,
+    upload_width: u32,
 }
 
 impl FinishedFrame {
-    /// Wrap finished PNG bytes with their raster extent. Rejects empty bytes
-    /// and zero extents, so an incomplete frame cannot reach a viewport.
-    pub fn new(png: Vec<u8>, pixel_width: u32, pixel_height: u32) -> Option<Self> {
-        if png.is_empty() || pixel_width == 0 || pixel_height == 0 {
+    /// Wrap finished PNG bytes with their true raster extent and upload
+    /// stride. Rejects empty bytes and zero extents, and an upload stride
+    /// narrower than the visible content, so an incomplete frame cannot
+    /// reach a viewport.
+    pub fn new(
+        png: Vec<u8>,
+        pixel_width: u32,
+        pixel_height: u32,
+        upload_width: u32,
+    ) -> Option<Self> {
+        if png.is_empty() || pixel_width == 0 || pixel_height == 0 || upload_width < pixel_width {
             return None;
         }
         Some(Self {
             image: Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)),
             pixel_width,
             pixel_height,
+            upload_width,
         })
     }
 
@@ -49,9 +65,16 @@ impl FinishedFrame {
         &self.image
     }
 
-    /// The density-dependent raster extent the bytes sample.
+    /// The true density-dependent raster extent: the visible content.
     pub fn pixel_size(&self) -> (u32, u32) {
         (self.pixel_width, self.pixel_height)
+    }
+
+    /// The upload stride the bytes are stored with, always a multiple of
+    /// 64px. Upload-only right padding is cropped by the wrapper and never
+    /// reaches layout.
+    pub fn upload_size(&self) -> (u32, u32) {
+        (self.upload_width, self.pixel_height)
     }
 
     /// The logical composition size the pixels were sampled from.
@@ -80,11 +103,15 @@ impl FinishedFrame {
 /// clipped inside the `4px` operator-only slide-viewport chrome.
 ///
 /// `width` is the outer viewport width in px; the height follows at exactly
-/// `16:9`, so the contained image fills the box without letterboxing and
-/// Interface scale, OS scale, and viewport presets can only resize the box,
-/// never reflow what is inside it. The caller scopes the viewport with its
-/// own id and debug selector when several share a window; the inner frame
-/// keeps the one shared `canonical-frame` selector.
+/// `16:9` from the true raster extent, so the contained image fills the box
+/// without letterboxing and Interface scale, OS scale, and viewport presets
+/// can only resize the box, never reflow what is inside it. Upload-only
+/// right padding rides wider than the box and is clipped away on the right,
+/// so padded densities show the same `16:9` content as aligned ones. The
+/// caller scopes the viewport with its own id and debug selector when
+/// several share a window; the inner frame keeps the one shared
+/// `canonical-frame` selector, with the painted pixels under
+/// `canonical-frame-pixels`.
 pub fn canonical_frame(
     frame: &FinishedFrame,
     width: f32,
@@ -93,6 +120,10 @@ pub fn canonical_frame(
     let scale = environment.preferences().scale;
     let height =
         width * tokens::canonical_slide::HEIGHT as f32 / tokens::canonical_slide::WIDTH as f32;
+    // The painted bytes are wider than the box exactly by the upload-only
+    // right padding; laid out left-aligned, the padding bleeds off the
+    // clipped right edge instead of letterboxing the content.
+    let img_width = width * frame.upload_width as f32 / frame.pixel_width as f32;
     div()
         .debug_selector(|| "canonical-frame".into())
         .w(px(width))
@@ -102,8 +133,9 @@ pub fn canonical_frame(
         .bg(gpui::rgb(tokens::color::PROJECTION_BACKGROUND))
         .child(
             img(frame.image.clone())
-                .w_full()
-                .h_full()
+                .debug_selector(|| "canonical-frame-pixels".into())
+                .w(px(img_width))
+                .h(px(height))
                 .object_fit(gpui::ObjectFit::Contain),
         )
         .into_any_element()
@@ -125,20 +157,31 @@ mod tests {
     }
 
     fn finished() -> FinishedFrame {
-        FinishedFrame::new(vec![0x89, b'P', b'N', b'G'], 1920, 1080).expect("complete pixels")
+        FinishedFrame::new(vec![0x89, b'P', b'N', b'G'], 1920, 1080, 1920).expect("complete pixels")
+    }
+
+    /// A 125% finishing: 2400x1350 of visible content with the upload-only
+    /// right padding the GPU stride requires.
+    fn finished_padded() -> FinishedFrame {
+        FinishedFrame::new(vec![0x89, b'P', b'N', b'G'], 2400, 1350, 2432).expect("complete pixels")
     }
 
     #[test]
     fn incomplete_pixels_cannot_reach_a_viewport() {
-        assert!(FinishedFrame::new(Vec::new(), 1920, 1080).is_none());
-        assert!(FinishedFrame::new(vec![1], 0, 1080).is_none());
-        assert!(FinishedFrame::new(vec![1], 1920, 0).is_none());
+        assert!(FinishedFrame::new(Vec::new(), 1920, 1080, 1920).is_none());
+        assert!(FinishedFrame::new(vec![1], 0, 1080, 1920).is_none());
+        assert!(FinishedFrame::new(vec![1], 1920, 0, 1920).is_none());
+        assert!(FinishedFrame::new(vec![1], 2400, 1350, 2400 - 1).is_none());
     }
 
     #[test]
     fn logical_size_is_the_canonical_invariant() {
         assert_eq!(finished().logical_size(), (1920, 1080));
         assert_eq!(finished().pixel_size(), (1920, 1080));
+        assert_eq!(finished().upload_size(), (1920, 1080));
+        // The padded density reports its true extent, not the stride.
+        assert_eq!(finished_padded().pixel_size(), (2400, 1350));
+        assert_eq!(finished_padded().upload_size(), (2432, 1350));
     }
 
     #[test]
@@ -229,5 +272,52 @@ mod tests {
         ) -> impl IntoElement {
             canonical_frame(&self.frame, self.width, self.environment)
         }
+    }
+
+    /// Upload-only padding is cropped, not letterboxed: at an unaligned
+    /// density the outer box still holds exactly `16:9`, and the painted
+    /// pixels start at the box's left edge, run wider by the padding, and
+    /// share the box height.
+    #[gpui::test]
+    fn padded_densities_crop_the_stride_instead_of_letterboxing(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init).expect("ui must initialize");
+        let frame = finished_padded();
+        let environment = environment_at(InterfaceScale::Percent100);
+        let (_host, cx) = cx.add_window_view(|_, _| WrapperHost {
+            frame: frame.clone(),
+            width: 640.0,
+            environment,
+        });
+        cx.simulate_resize(gpui::size(gpui::px(2400.0), gpui::px(1400.0)));
+        cx.run_until_parked();
+
+        let outer = cx
+            .debug_bounds("canonical-frame")
+            .expect("the wrapper must render");
+        let pixels = cx
+            .debug_bounds("canonical-frame-pixels")
+            .expect("the painted pixels must render");
+        let (outer_w, outer_h) = (f32::from(outer.size.width), f32::from(outer.size.height));
+        let (pixels_x, pixels_w, pixels_h) = (
+            f32::from(pixels.origin.x),
+            f32::from(pixels.size.width),
+            f32::from(pixels.size.height),
+        );
+        assert!(
+            (outer_h - outer_w * 9.0 / 16.0).abs() < 1.0,
+            "the outer box must hold 16:9 at a padded density, got {outer_h} for {outer_w}"
+        );
+        assert!(
+            (pixels_x - f32::from(outer.origin.x)).abs() < 1.0,
+            "painted pixels must start at the box's left edge"
+        );
+        assert!(
+            (pixels_w - outer_w * 2432.0 / 2400.0).abs() < 1.0,
+            "painted pixels must run wider by exactly the padding, got {pixels_w} for {outer_w}"
+        );
+        assert!(
+            (pixels_h - outer_h).abs() < 1.0,
+            "painted pixels must share the box height instead of letterboxing"
+        );
     }
 }

@@ -22,9 +22,11 @@ use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment};
 /// 64px: the pinned GPUI revision uploads viewport images with an unpadded
 /// `bytes_per_row`, which its wgpu atlas rejects unless `width * 4` is a
 /// multiple of 256, and the failed tile stays cached under its image id, so
-/// an unaligned width paints black forever instead of failing loudly.
-/// Densities whose widths already align (100/150/200%) encode
-/// byte-identically to the unpadded raster.
+/// an unaligned width paints black forever instead of failing loudly. The
+/// finished frame keeps the true raster extent as its visible size and
+/// records the stride separately, so the wrapper crops the upload-only
+/// padding instead of letterboxing it. Densities whose widths already align
+/// (100/150/200%) encode byte-identically to the unpadded raster.
 pub fn finish_frame(raster: &rendering::RasterizedFrame) -> Option<FinishedFrame> {
     let (width, height) = (raster.width(), raster.height());
     let aligned = width.next_multiple_of(64);
@@ -36,7 +38,7 @@ pub fn finish_frame(raster: &rendering::RasterizedFrame) -> Option<FinishedFrame
             .encode_png()
             .ok()?
     };
-    FinishedFrame::new(png, aligned, height)
+    FinishedFrame::new(png, width, height, aligned)
 }
 
 /// Pad one row-major RGBA buffer rightward to `aligned_width` with opaque
@@ -149,10 +151,14 @@ mod tests {
         )
     }
 
-    /// One mixed-language fixture through the real path: compose, rasterize,
-    /// and finish, the way the runtime worker hands a frame to these views.
-    fn finished_fixture() -> FinishedFrame {
-        use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+    /// One mixed-language fixture through the production path: the
+    /// runtime-owned canonical worker composes from live operator state,
+    /// and these views rasterize and finish from that payload — never from
+    /// a direct renderer call.
+    fn compose_through_worker() -> (rendering::Frame, rendering::Diagnostics) {
+        use crate::canonical::CanonicalCommand;
+        use platform::tasks::{OwnedWorker, WorkerKind};
+        use rendering::{TemplateContent, TemplateKind};
 
         let content = TemplateContent {
             kind: TemplateKind::Lyrics,
@@ -161,9 +167,37 @@ mod tests {
             footer: None,
             image: None,
         };
-        let (frame, _) =
-            rendering::render_template(&content, &Theme::default(), TargetDensity::SCALE_100)
-                .expect("fixture must compose");
+        let (commands, requests) = std::sync::mpsc::channel();
+        let mut worker = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+            crate::canonical::serve_canonical(requests, cancel)
+        })
+        .expect("canonical worker must start");
+        let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        commands
+            .send(CanonicalCommand::Compose {
+                environment,
+                window_scale: 1.0,
+                content,
+                reply: reply_tx,
+            })
+            .expect("canonical worker must accept the probe");
+        let composed = reply_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("canonical worker must answer")
+            .expect("fixture must compose through the worker");
+        commands.send(CanonicalCommand::Stop).ok();
+        let _ = worker.cancel_and_join();
+        composed
+    }
+
+    /// One mixed-language fixture through the real path: compose on the
+    /// production worker, then rasterize and finish, the way the runtime
+    /// hands a frame to these views.
+    fn finished_fixture() -> FinishedFrame {
+        use rendering::TargetDensity;
+
+        let (frame, _) = compose_through_worker();
         let raster = rendering::rasterize(&frame, TargetDensity::SCALE_100, &HashMap::new())
             .expect("fixture must rasterize");
         finish_frame(&raster).expect("raster must finish")
@@ -178,18 +212,10 @@ mod tests {
     }
 
     fn finished_at_density(percent: u16) -> rendering::RasterizedFrame {
-        use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+        use rendering::TargetDensity;
 
-        let content = TemplateContent {
-            kind: TemplateKind::Lyrics,
-            header: Some("Bersikulo".to_owned()),
-            body: "Maayong buntag, mga igsoon!\nPagdayeg sa Ginoo \u{2014} awit 95".to_owned(),
-            footer: None,
-            image: None,
-        };
         let density = TargetDensity::from_percent(percent).expect("valid density");
-        let (frame, _) = rendering::render_template(&content, &Theme::default(), density)
-            .expect("fixture must compose");
+        let (frame, _) = compose_through_worker();
         rendering::rasterize(&frame, density, &HashMap::new()).expect("fixture must rasterize")
     }
 
@@ -197,19 +223,27 @@ mod tests {
     fn every_finished_width_survives_the_upload_alignment() {
         // The pinned GPUI revision uploads viewport images with an unpadded
         // bytes_per_row, which wgpu rejects unless width * 4 is a multiple
-        // of 256: an unaligned width paints black forever under its cached
-        // image id instead of failing loudly.
-        for percent in [100, 125, 150, 175, 200] {
+        // of 256: an unaligned stride paints black forever under its cached
+        // image id instead of failing loudly. The finished frame keeps the
+        // true density-derived extent as its visible size and carries the
+        // stride separately for the wrapper to crop.
+        for (percent, extent) in [
+            (100, (1920, 1080)),
+            (125, (2400, 1350)),
+            (150, (2880, 1620)),
+            (175, (3360, 1890)),
+            (200, (3840, 2160)),
+        ] {
             let finished = finish_frame(&finished_at_density(percent)).expect("raster must finish");
             let (pixel_w, pixel_h) = finished.pixel_size();
-            assert_eq!(
-                pixel_w % 64,
-                0,
-                "{percent}% finished width must stay upload-aligned"
-            );
+            assert_eq!((pixel_w, pixel_h), extent);
+            let (upload_w, upload_h) = finished.upload_size();
+            assert_eq!(upload_h, pixel_h);
+            assert_eq!(upload_w % 64, 0);
+            assert!(upload_w >= pixel_w);
             let decoded = tiny_skia::Pixmap::decode_png(finished.image().bytes())
                 .expect("finished bytes must stay a decodable PNG");
-            assert_eq!((decoded.width(), decoded.height()), (pixel_w, pixel_h));
+            assert_eq!((decoded.width(), decoded.height()), (upload_w, upload_h));
         }
     }
 
@@ -232,12 +266,14 @@ mod tests {
 
     #[test]
     fn padding_preserves_content_beside_opaque_black() {
-        // 125% rasterizes 2400 wide and finishes 2432: the original columns
-        // keep their ink and the pad column is opaque black, invisible
-        // against the slide background.
+        // 125% rasterizes 2400 wide and uploads 2432: the finished frame
+        // keeps the true extent as its visible size, the original columns
+        // keep their ink, and the stride's pad column is opaque black,
+        // invisible against the slide background once cropped.
         let raster = finished_at_density(125);
         let finished = finish_frame(&raster).expect("raster must finish");
-        assert_eq!(finished.pixel_size(), (2432, 1350));
+        assert_eq!(finished.pixel_size(), (2400, 1350));
+        assert_eq!(finished.upload_size(), (2432, 1350));
         let decoded = tiny_skia::Pixmap::decode_png(finished.image().bytes())
             .expect("finished bytes must stay a decodable PNG");
         let (width, data) = (decoded.width(), decoded.data());
