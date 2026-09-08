@@ -89,6 +89,57 @@ the same `d3976b55459555c19f617f636f2a5e41b78ea1dd95ebea6d7858504efa834b71`
 digest. PR 8 expands this early probe to the packaged canonical renderer; a
 mismatch there re-opens this decision rather than adjusting the artifact.
 
+## Packaged invariance (PR 8)
+
+`tests/native-runtime/tests/canonical_invariance.rs` renders one
+mixed-language Lyrics probe (Cebuano/English/Tagalog Latin, digits,
+punctuation, em-dash, plus Greek alpha and Han resolved through the bundled
+Noto fallback, never `.notdef`) through `render_template` at the default
+Theme, and pins the serialized logical frame plus its diagnostics in
+`tests/native-runtime/golden/canonical-invariance.txt` (LF-pinned in
+`.gitattributes`). The probe runs where the packaged binary runs: the
+`native-runtime` harness builds the `ordo` closure, and the lockfile change
+is edge-only (`native-runtime-tests` gains the `rendering` dev-edge, zero
+new packages, zero version changes).
+
+One test asserts all four axes, and each axis failure names the axis that
+moved:
+
+| Axis | Values exercised | How the failure reads |
+| --- | --- | --- |
+| Output density | `100`–`200` in `25` steps | `canonical composition moved with output density N%` |
+| Ordo Interface scale | all five steps, driven through the real `UiEnvironment` state machine | `canonical composition moved with Ordo Interface scale N%` |
+| System scale | representative `100`–`200` display-scale steps | `canonical composition moved with system scale N%` |
+| Packaged platform | committed golden compared on both CI targets | `packaged <os> serialization differs from ...` |
+
+The renderer exposes no input for system scale (no parameter, no
+environment read, no GPUI type), so that loop pins the invariant a future
+input would break. Density additionally pins the raster extent
+(`100%` → `1920x1080`, `200%` → `3840x2160`) to prove it reaches pixels
+only. A second test opens the packaged runtime and steps live operator
+scale `100%`→`200%`→`100%` through the real scale actions, asserting
+identical bytes at each step: the isolation proof T0.3's PR 3 deferred for
+want of a render path.
+
+Linux run, `rustc 1.96.0`, x86_64:
+
+```text
+sha256 2974bd6966abf063ebfeb8c9f5573ca9c2bb523155c82f3c63af04f17c30379b  canonical-invariance.txt
+```
+
+Windows Server 2022 CI enforces the same digest through the
+`windows-canonical-invariance` job, which runs the pure composition gate
+and prints the artifact hash; a mismatch fails the test before hashing.
+The live-runtime isolation test runs on Linux under `cargo xtask verify`,
+which executes the whole workspace suite. The golden regenerates only
+with `ORDO_UPDATE_CANONICAL_INVARIANCE=1`, and only after review: a
+platform mismatch re-opens this decision rather than adjusting the
+artifact.
+
+Sharpness disclaimer, per the plan: this gate claims serialized *logical*
+composition only and makes no claim about raster pixels. Per-platform
+raster sharpness is qualified separately in the PR 10 manual gate.
+
 ## Policy
 
 `xtask` guards `rendering` the way `QUALIFIED_UI_DEPENDENCIES` guards `ui`:

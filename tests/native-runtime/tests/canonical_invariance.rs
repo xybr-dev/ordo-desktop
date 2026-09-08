@@ -1,0 +1,256 @@
+//! T0.4 PR 8: packaged cross-platform invariance.
+//!
+//! One mixed-language probe through the real `rendering` path must serialize
+//! byte-identically across all four axes: packaged platform (Windows/Linux),
+//! Ordo Interface scale (`100%`–`200%`), representative system scale, and
+//! every output density. Each axis failure names the axis that moved.
+//!
+//! This runs where the packaged binary runs: the `native-runtime` harness
+//! builds the `ordo` closure (`ordo` + `rendering` + `ui` together) rather
+//! than testing `rendering` alone. The platform axis compares against the
+//! committed `golden/canonical-invariance.txt`, which both CI targets check;
+//! a platform-dependent composition re-opens
+//! `docs/qualification/RENDERING-T0.4.md` instead of updating that artifact.
+//! The artifact regenerates only with `ORDO_UPDATE_CANONICAL_INVARIANCE=1`,
+//! and only when the new composition is reviewed as correct.
+//!
+//! No claim about pixels here: density may change raster dimensions and
+//! sharpness, and per-platform sharpness is qualified separately (PR 10).
+//! Only the serialized logical composition is pinned.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use gpui::TestAppContext;
+use ordo::open_native_runtime_at;
+use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
+use ui::{
+    DecreaseInterfaceScale, IncreaseInterfaceScale,
+    environment::{
+        EnvironmentChange, InterfaceScale, ResolvedAppearance, UiEnvironment, UiPreferences,
+    },
+};
+
+/// The probe: Cebuano/English/Tagalog Latin plus digits, punctuation, an
+/// em-dash, and fallback glyphs (Greek alpha, Han) that must resolve through
+/// the bundled Noto face on every platform, never `.notdef` or an installed
+/// font.
+fn probe_content() -> TemplateContent {
+    TemplateContent {
+        kind: TemplateKind::Lyrics,
+        header: Some("Mixed".to_owned()),
+        body: "Maayong buntag, mga igsoon!\nmagandang umaga, mga kapatid \u{2014} awit 95 \u{3B1}\nthe choir sings, salmo 7 \u{4E2D}"
+            .to_owned(),
+        footer: None,
+        image: None,
+    }
+}
+
+/// The pinned artifact for the probe: the serialized logical frame plus the
+/// diagnostics riding beside it, the same shape `rendering`'s golden harness
+/// pins per fixture.
+fn probe_serialization(density: TargetDensity) -> String {
+    let (frame, diagnostics) =
+        rendering::render_template(&probe_content(), &Theme::default(), density)
+            .expect("invariance probe must compose");
+    let mut out = frame.serialize();
+    out.push_str(&format!("warnings {}\n", diagnostics.warnings.len()));
+    for warning in &diagnostics.warnings {
+        out.push_str(&format!("warning {warning}\n"));
+    }
+    out
+}
+
+fn golden_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("golden/canonical-invariance.txt")
+}
+
+/// The first differing line — which names the element and coordinates that
+/// moved — instead of reporting that two serializations differ.
+fn first_mismatch(actual: &str, expected: &str) -> String {
+    let actual_lines: Vec<&str> = actual.lines().collect();
+    let expected_lines: Vec<&str> = expected.lines().collect();
+    if let Some(index) = actual_lines
+        .iter()
+        .zip(expected_lines.iter())
+        .position(|(first, second)| first != second)
+    {
+        return format!(
+            "line {}:\n  expected: {}\n  actual:   {}",
+            index + 1,
+            expected_lines[index],
+            actual_lines[index]
+        );
+    }
+    let shared = actual_lines.len().min(expected_lines.len());
+    let (side, line) = if actual_lines.len() > expected_lines.len() {
+        ("actual-only", actual_lines[shared])
+    } else {
+        ("expected-only", expected_lines[shared])
+    };
+    format!(
+        "same first {shared} lines but different length (expected {} lines, actual {} lines); first {side} line {}: {line}",
+        expected_lines.len(),
+        actual_lines.len(),
+        shared + 1
+    )
+}
+
+#[test]
+fn canonical_composition_is_invariant_across_packaged_axes() {
+    let baseline = probe_serialization(TargetDensity::SCALE_100);
+    // The probe carries fallback glyphs, so a platform shaper or fallback
+    // regression changes the pinned bytes rather than passing quietly.
+    assert!(
+        baseline.contains("font=fallback"),
+        "probe must exercise the bundled fallback path"
+    );
+
+    // Output density: every qualified step must rerasterize without recomposing.
+    for percent in [100, 125, 150, 175, 200] {
+        let density = TargetDensity::from_percent(percent).expect("valid density");
+        let actual = probe_serialization(density);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with output density {percent}%: {}\nTargetDensity must change raster dimensions and sharpness only",
+            first_mismatch(&actual, &baseline)
+        );
+    }
+
+    // Ordo Interface scale: drive the real operator state machine through all
+    // five steps while renderer inputs stay fixed. The frame must not move.
+    let mut environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+    for scale in [
+        InterfaceScale::Percent100,
+        InterfaceScale::Percent125,
+        InterfaceScale::Percent150,
+        InterfaceScale::Percent175,
+        InterfaceScale::Percent200,
+    ] {
+        environment.apply(EnvironmentChange::SetScale(scale));
+        assert_eq!(environment.preferences().scale, scale);
+        let actual = probe_serialization(TargetDensity::SCALE_100);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with Ordo Interface scale {}%: {}\nOperator scale must never reach the renderer",
+            scale.percent(),
+            first_mismatch(&actual, &baseline)
+        );
+    }
+
+    // System scale: representative Windows display-scale and Linux
+    // fractional-scale steps. The renderer exposes no input for them — no
+    // parameter, no environment read, no GPUI type — so each step re-renders
+    // identical inputs and must match; a future input would fail here naming
+    // this axis.
+    for percent in [100, 125, 150, 175, 200] {
+        let actual = probe_serialization(TargetDensity::SCALE_100);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with system scale {percent}%: {}",
+            first_mismatch(&actual, &baseline)
+        );
+    }
+
+    // Density reaches the raster extent only: 100% samples the 1920x1080
+    // logical composition 1:1, 200% samples the same composition at 2x.
+    let (frame, _) = rendering::render_template(
+        &probe_content(),
+        &Theme::default(),
+        TargetDensity::SCALE_100,
+    )
+    .expect("invariance probe must compose");
+    let images = HashMap::new();
+    let light = rendering::rasterize(&frame, TargetDensity::SCALE_100, &images)
+        .expect("probe must rasterize");
+    let dense = rendering::rasterize(
+        &frame,
+        TargetDensity::from_percent(200).expect("valid density"),
+        &images,
+    )
+    .expect("probe must rasterize");
+    assert_eq!(
+        (light.width(), light.height()),
+        (1920, 1080),
+        "100% raster extent must stay the logical extent"
+    );
+    assert_eq!(
+        (dense.width(), dense.height()),
+        (3840, 2160),
+        "200% raster extent must double the logical extent"
+    );
+
+    // Packaged platform: both CI targets compare their run against this
+    // committed artifact. A mismatch names the platform, not a diff of blobs.
+    let golden = golden_path();
+    if std::env::var_os("ORDO_UPDATE_CANONICAL_INVARIANCE").is_some() {
+        std::fs::create_dir_all(golden.parent().expect("golden must have a parent"))
+            .expect("golden dir must be writable");
+        std::fs::write(&golden, &baseline).expect("golden must be writable");
+        return;
+    }
+    let expected = std::fs::read_to_string(&golden).unwrap_or_else(|_| {
+        panic!(
+            "missing invariance golden at {}: run with ORDO_UPDATE_CANONICAL_INVARIANCE=1 to create it, then review the diff",
+            golden.display()
+        )
+    });
+    assert!(
+        baseline == expected,
+        "packaged {} serialization differs from {}: {}\nA platform-dependent composition re-opens docs/qualification/RENDERING-T0.4.md instead of updating this artifact",
+        std::env::consts::OS,
+        golden.display(),
+        first_mismatch(&baseline, &expected)
+    );
+}
+
+#[gpui::test]
+fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
+    // T0.3 PR 3 deferred this isolation proof for want of a render path. It
+    // lands here, in the packaged runtime against real 1920x1080 geometry,
+    // where it can fail: operator scale demonstrably steps 100% to 200% and
+    // back while the canonical bytes never move.
+    let preferences =
+        std::env::temp_dir().join(format!("ordo-canonical-invariance-{}", std::process::id()));
+    let runtime = cx
+        .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
+    let baseline = probe_serialization(TargetDensity::SCALE_100);
+
+    for expected in [125, 150, 175, 200] {
+        cx.dispatch_action(runtime.operator().into(), IncreaseInterfaceScale);
+        cx.run_until_parked();
+        let scale = runtime
+            .operator()
+            .update(cx, |root, _, _| root.environment().preferences().scale)
+            .expect("operator window should still be open");
+        assert_eq!(scale.percent(), expected);
+        let actual = probe_serialization(TargetDensity::SCALE_100);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with live operator scale {expected}%: {}",
+            first_mismatch(&actual, &baseline)
+        );
+    }
+    for expected in [175, 150, 125, 100] {
+        cx.dispatch_action(runtime.operator().into(), DecreaseInterfaceScale);
+        cx.run_until_parked();
+        let scale = runtime
+            .operator()
+            .update(cx, |root, _, _| root.environment().preferences().scale)
+            .expect("operator window should still be open");
+        assert_eq!(scale.percent(), expected);
+        let actual = probe_serialization(TargetDensity::SCALE_100);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with live operator scale {expected}%: {}",
+            first_mismatch(&actual, &baseline)
+        );
+    }
+
+    runtime
+        .operator()
+        .update(cx, |_, window, _| window.remove_window())
+        .expect("operator window should still be open");
+    cx.run_until_parked();
+    std::fs::remove_file(preferences).ok();
+}
