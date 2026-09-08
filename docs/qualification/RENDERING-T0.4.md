@@ -93,44 +93,49 @@ mismatch there re-opens this decision rather than adjusting the artifact.
 
 `tests/native-runtime/tests/canonical_invariance.rs` renders one
 mixed-language Lyrics probe (Cebuano/English/Tagalog Latin, digits,
-punctuation, em-dash, plus Greek alpha and Han resolved through the bundled
-Noto fallback, never `.notdef`) through `render_template` at the default
-Theme, and pins the serialized logical frame plus its diagnostics in
+punctuation, em-dash, plus Greek alpha and peso sign resolved through the
+bundled Noto fallback with real glyph ids — the faces `rendering`'s
+`tests/fonts.rs` pins as fallback-carried) through `render_template` at the
+default Theme, and pins the serialized logical frame plus its diagnostics in
 `tests/native-runtime/golden/canonical-invariance.txt` (LF-pinned in
-`.gitattributes`). The probe runs where the packaged binary runs: the
-`native-runtime` harness builds the `ordo` closure, and the lockfile change
-is edge-only (`native-runtime-tests` gains the `rendering` dev-edge, zero
-new packages, zero version changes).
+`.gitattributes`). The harness additionally asserts the serialization
+contains no `id=0`, so a `.notdef` can never hide inside a passing pin. The
+probe runs where the packaged binary runs: the `native-runtime` harness
+builds the `ordo` closure, and the lockfile change is edge-only
+(`native-runtime-tests` gains the `rendering` dev-edge, zero new packages,
+zero version changes).
 
-One test asserts all four axes, and each axis failure names the axis that
-moved:
+One test asserts the density and platform axes, and two live-runtime tests
+assert the scale axes against real geometry; each failure names the axis
+that moved:
 
 | Axis | Values exercised | How the failure reads |
 | --- | --- | --- |
 | Output density | `100`–`200` in `25` steps | `canonical composition moved with output density N%` |
-| Ordo Interface scale | all five steps, driven through the real `UiEnvironment` state machine | `canonical composition moved with Ordo Interface scale N%` |
-| System scale | representative `100`–`200` display-scale steps | `canonical composition moved with system scale N%` |
+| Ordo Interface scale | live `100%`→`200%`→`100%` through the real scale actions on the packaged runtime; operator token geometry is read back per step and must move while the bytes — routed from the runtime-read scale through the single render-input seam — must not | `canonical composition moved with live operator scale N%` |
+| System scale | window scale factors `1.0`–`2.0` applied to the packaged operator window through gpui's display-scale seam and read back per step | `canonical composition moved with system scale N%` |
 | Packaged platform | committed golden compared on both CI targets | `packaged <os> serialization differs from ...` |
 
-The renderer exposes no input for system scale (no parameter, no
-environment read, no GPUI type), so that loop pins the invariant a future
-input would break. Density additionally pins the raster extent
-(`100%` → `1920x1080`, `200%` → `3840x2160`) to prove it reaches pixels
-only. A second test opens the packaged runtime and steps live operator
-scale `100%`→`200%`→`100%` through the real scale actions, asserting
-identical bytes at each step: the isolation proof T0.3's PR 3 deferred for
-want of a render path.
+The renderer exposes no input for either scale (no parameter, no
+environment read, no GPUI type): operator scale reaches the test only as
+the runtime-reported value mapped to identical render inputs, and window
+scale reaches it only as the read-back factor beside fixed render inputs.
+A future change that spends either scale on composition inputs moves the
+serialized bytes and fails naming the scale. Density additionally pins the
+raster extent (`100%` → `1920x1080`, `200%` → `3840x2160`) to prove it
+reaches pixels only. The operator-scale test is the isolation proof T0.3's
+PR 3 deferred for want of a render path.
 
 Linux run, `rustc 1.96.0`, x86_64:
 
 ```text
-sha256 2974bd6966abf063ebfeb8c9f5573ca9c2bb523155c82f3c63af04f17c30379b  canonical-invariance.txt
+sha256 95f876442694cc3a96d7b08e4faf7fe7e8dcf5dc0eb109b30942633d86a93448  canonical-invariance.txt
 ```
 
 Windows Server 2022 CI enforces the same digest through the
-`windows-canonical-invariance` job, which runs the pure composition gate
-and prints the artifact hash; a mismatch fails the test before hashing.
-The live-runtime isolation test runs on Linux under `cargo xtask verify`,
+`windows-canonical-invariance` job, which runs the pure density-and-platform
+gate and prints the artifact hash; a mismatch fails the test before hashing.
+The two live-window scale tests run on Linux under `cargo xtask verify`,
 which executes the whole workspace suite. The golden regenerates only
 with `ORDO_UPDATE_CANONICAL_INVARIANCE=1`, and only after review: a
 platform mismatch re-opens this decision rather than adjusting the

@@ -72,7 +72,7 @@ glyph zone=body line=1 font=primary id=196 x=1477 y=591 x-advance=23 y-advance=0
 glyph zone=body line=1 font=primary id=374 x=1520 y=591 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
 glyph zone=body line=1 font=primary id=370 x=1562 y=591 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
 glyph zone=body line=1 font=fallback id=381 x=1624 y=591 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=2 authored=2 x=251 y=604 width=801 height=83 text=the choir sings, salmo 7 中
+line zone=body index=2 authored=2 x=251 y=604 width=799 height=83 text=the choir sings, salmo 7 ₱
 glyph zone=body line=2 font=primary id=196 x=251 y=674 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=0
 glyph zone=body line=2 font=primary id=147 x=274 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
 glyph zone=body line=2 font=primary id=133 x=313 y=674 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
@@ -93,6 +93,6 @@ glyph zone=body line=2 font=primary id=164 x=816 y=674 x-advance=18 y-advance=0 
 glyph zone=body line=2 font=primary id=169 x=834 y=674 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=3
 glyph zone=body line=2 font=primary id=175 x=894 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
 glyph zone=body line=2 font=primary id=372 x=953 y=674 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=fallback id=0 x=1009 y=674 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=2 font=fallback id=1572 x=1009 y=674 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
 warnings 1
 warning lyric body carries 3 phrases against a two-phrase target; split before shrinking

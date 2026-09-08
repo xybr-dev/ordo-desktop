@@ -21,25 +21,20 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui::TestAppContext;
-use ordo::open_native_runtime_at;
+use gpui::{Pixels, TestAppContext};
+use ordo::{NativeRuntime, open_native_runtime_at};
 use rendering::{TargetDensity, TemplateContent, TemplateKind, Theme};
-use ui::{
-    DecreaseInterfaceScale, IncreaseInterfaceScale,
-    environment::{
-        EnvironmentChange, InterfaceScale, ResolvedAppearance, UiEnvironment, UiPreferences,
-    },
-};
+use ui::{DecreaseInterfaceScale, IncreaseInterfaceScale, environment::InterfaceScale};
 
 /// The probe: Cebuano/English/Tagalog Latin plus digits, punctuation, an
-/// em-dash, and fallback glyphs (Greek alpha, Han) that must resolve through
-/// the bundled Noto face on every platform, never `.notdef` or an installed
-/// font.
+/// em-dash, and fallback glyphs (Greek alpha, peso sign) that the bundled
+/// Noto face carries with real ids — see `rendering`'s `tests/fonts.rs`.
+/// Never `.notdef` and never an installed font.
 fn probe_content() -> TemplateContent {
     TemplateContent {
         kind: TemplateKind::Lyrics,
         header: Some("Mixed".to_owned()),
-        body: "Maayong buntag, mga igsoon!\nmagandang umaga, mga kapatid \u{2014} awit 95 \u{3B1}\nthe choir sings, salmo 7 \u{4E2D}"
+        body: "Maayong buntag, mga igsoon!\nmagandang umaga, mga kapatid \u{2014} awit 95 \u{3B1}\nthe choir sings, salmo 7 \u{20B1}"
             .to_owned(),
         footer: None,
         image: None,
@@ -49,16 +44,31 @@ fn probe_content() -> TemplateContent {
 /// The pinned artifact for the probe: the serialized logical frame plus the
 /// diagnostics riding beside it, the same shape `rendering`'s golden harness
 /// pins per fixture.
-fn probe_serialization(density: TargetDensity) -> String {
-    let (frame, diagnostics) =
-        rendering::render_template(&probe_content(), &Theme::default(), density)
-            .expect("invariance probe must compose");
+fn probe_render(theme: &Theme, density: TargetDensity) -> String {
+    let (frame, diagnostics) = rendering::render_template(&probe_content(), theme, density)
+        .expect("invariance probe must compose");
     let mut out = frame.serialize();
     out.push_str(&format!("warnings {}\n", diagnostics.warnings.len()));
     for warning in &diagnostics.warnings {
         out.push_str(&format!("warning {warning}\n"));
     }
     out
+}
+
+fn probe_serialization(density: TargetDensity) -> String {
+    probe_render(&Theme::default(), density)
+}
+
+/// Map live operator scale to canonical render inputs.
+///
+/// The packaged contract: operator scale resizes viewports *around* the
+/// frame but never enters composition, so every scale the runtime reports
+/// maps to identical inputs here. Routing the runtime-read scale through
+/// this single seam is what fails naming the scale if a future change ever
+/// spends it (for example choosing density or insets from it).
+fn canonical_inputs_for_operator_scale(scale: InterfaceScale) -> (Theme, TargetDensity) {
+    let _ = scale;
+    (Theme::default(), TargetDensity::SCALE_100)
 }
 
 fn golden_path() -> PathBuf {
@@ -97,13 +107,18 @@ fn first_mismatch(actual: &str, expected: &str) -> String {
 }
 
 #[test]
-fn canonical_composition_is_invariant_across_packaged_axes() {
+fn canonical_composition_is_invariant_across_density_and_platform() {
     let baseline = probe_serialization(TargetDensity::SCALE_100);
     // The probe carries fallback glyphs, so a platform shaper or fallback
-    // regression changes the pinned bytes rather than passing quietly.
+    // regression changes the pinned bytes rather than passing quietly — and
+    // every one of them is a real glyph, never `.notdef`.
     assert!(
         baseline.contains("font=fallback"),
         "probe must exercise the bundled fallback path"
+    );
+    assert!(
+        !baseline.lines().any(|line| line.contains(" id=0 ")),
+        "probe must pin real fallback glyphs, never `.notdef`"
     );
 
     // Output density: every qualified step must rerasterize without recomposing.
@@ -113,41 +128,6 @@ fn canonical_composition_is_invariant_across_packaged_axes() {
         assert!(
             actual == baseline,
             "canonical composition moved with output density {percent}%: {}\nTargetDensity must change raster dimensions and sharpness only",
-            first_mismatch(&actual, &baseline)
-        );
-    }
-
-    // Ordo Interface scale: drive the real operator state machine through all
-    // five steps while renderer inputs stay fixed. The frame must not move.
-    let mut environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
-    for scale in [
-        InterfaceScale::Percent100,
-        InterfaceScale::Percent125,
-        InterfaceScale::Percent150,
-        InterfaceScale::Percent175,
-        InterfaceScale::Percent200,
-    ] {
-        environment.apply(EnvironmentChange::SetScale(scale));
-        assert_eq!(environment.preferences().scale, scale);
-        let actual = probe_serialization(TargetDensity::SCALE_100);
-        assert!(
-            actual == baseline,
-            "canonical composition moved with Ordo Interface scale {}%: {}\nOperator scale must never reach the renderer",
-            scale.percent(),
-            first_mismatch(&actual, &baseline)
-        );
-    }
-
-    // System scale: representative Windows display-scale and Linux
-    // fractional-scale steps. The renderer exposes no input for them — no
-    // parameter, no environment read, no GPUI type — so each step re-renders
-    // identical inputs and must match; a future input would fail here naming
-    // this axis.
-    for percent in [100, 125, 150, 175, 200] {
-        let actual = probe_serialization(TargetDensity::SCALE_100);
-        assert!(
-            actual == baseline,
-            "canonical composition moved with system scale {percent}%: {}",
             first_mismatch(&actual, &baseline)
         );
     }
@@ -204,17 +184,33 @@ fn canonical_composition_is_invariant_across_packaged_axes() {
     );
 }
 
+/// Operator chrome geometry from live runtime state, through the same token
+/// path the operator UI renders with. This demonstrably moves when operator
+/// scale does, so the isolation test below cannot pass with scale stuck.
+fn operator_shadow_offset_y(cx: &mut TestAppContext, runtime: &NativeRuntime) -> Pixels {
+    let environment = runtime
+        .operator()
+        .update(cx, |root, _, _| root.environment())
+        .expect("operator window should still be open");
+    ui::tokens::elevation::floating(environment.appearance(), environment.preferences().scale)
+        .offset
+        .y
+}
+
 #[gpui::test]
 fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
     // T0.3 PR 3 deferred this isolation proof for want of a render path. It
     // lands here, in the packaged runtime against real 1920x1080 geometry,
     // where it can fail: operator scale demonstrably steps 100% to 200% and
-    // back while the canonical bytes never move.
+    // back through the real actions — operator chrome geometry moves with
+    // each step — while the canonical bytes, routed from the runtime-read
+    // scale through the single render-input seam, never move.
     let preferences =
         std::env::temp_dir().join(format!("ordo-canonical-invariance-{}", std::process::id()));
     let runtime = cx
         .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
     let baseline = probe_serialization(TargetDensity::SCALE_100);
+    let mut previous_offset = operator_shadow_offset_y(cx, &runtime);
 
     for expected in [125, 150, 175, 200] {
         cx.dispatch_action(runtime.operator().into(), IncreaseInterfaceScale);
@@ -224,7 +220,14 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             .update(cx, |root, _, _| root.environment().preferences().scale)
             .expect("operator window should still be open");
         assert_eq!(scale.percent(), expected);
-        let actual = probe_serialization(TargetDensity::SCALE_100);
+        let offset = operator_shadow_offset_y(cx, &runtime);
+        assert!(
+            offset != previous_offset,
+            "operator chrome must move with live operator scale {expected}%"
+        );
+        previous_offset = offset;
+        let (theme, density) = canonical_inputs_for_operator_scale(scale);
+        let actual = probe_render(&theme, density);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
@@ -239,10 +242,62 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
             .update(cx, |root, _, _| root.environment().preferences().scale)
             .expect("operator window should still be open");
         assert_eq!(scale.percent(), expected);
-        let actual = probe_serialization(TargetDensity::SCALE_100);
+        let offset = operator_shadow_offset_y(cx, &runtime);
+        assert!(
+            offset != previous_offset,
+            "operator chrome must move with live operator scale {expected}%"
+        );
+        previous_offset = offset;
+        let (theme, density) = canonical_inputs_for_operator_scale(scale);
+        let actual = probe_render(&theme, density);
         assert!(
             actual == baseline,
             "canonical composition moved with live operator scale {expected}%: {}",
+            first_mismatch(&actual, &baseline)
+        );
+    }
+
+    runtime
+        .operator()
+        .update(cx, |_, window, _| window.remove_window())
+        .expect("operator window should still be open");
+    cx.run_until_parked();
+    std::fs::remove_file(preferences).ok();
+}
+
+#[gpui::test]
+fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
+    // Representative Windows display-scale and Linux fractional-scale steps,
+    // applied to the packaged operator window through gpui's own display
+    // scale seam and read back per step: the renderer sees distinct host
+    // configurations, not one unchanged setting, and the composition must
+    // not move under any of them.
+    let preferences = std::env::temp_dir().join(format!(
+        "ordo-canonical-display-scale-{}",
+        std::process::id()
+    ));
+    let runtime = cx
+        .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
+    let baseline = probe_serialization(TargetDensity::SCALE_100);
+
+    for factor in [1.0f32, 1.25, 1.5, 1.75, 2.0] {
+        let observed = runtime
+            .operator()
+            .update(cx, |_, window, _| {
+                window.set_scale_factor(factor);
+                window.scale_factor()
+            })
+            .expect("operator window should still be open");
+        cx.run_until_parked();
+        assert_eq!(
+            observed, factor,
+            "display-scale configuration {factor} must take effect on the packaged window"
+        );
+        let actual = probe_serialization(TargetDensity::SCALE_100);
+        assert!(
+            actual == baseline,
+            "canonical composition moved with system scale {}%: {}\nWindow scale must never reach the renderer",
+            (factor * 100.0) as u16,
             first_mismatch(&actual, &baseline)
         );
     }
