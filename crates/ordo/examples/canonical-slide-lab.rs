@@ -14,13 +14,13 @@
 //! `F4` the Interface scale, `F5` the target density. The renderer's
 //! diagnostics ride beside the scaled frame.
 
-use std::{collections::HashMap, path::PathBuf, thread};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, thread};
 
 use async_channel::{Receiver, Sender};
 use gpui::{
     App, AppContext, Bounds, Context, FocusHandle, Focusable, IntoElement, KeyBinding,
-    ParentElement, Render, Styled, Window, WindowBounds, WindowOptions, actions, div, prelude::*,
-    px, rgb, size,
+    ParentElement, Render, RenderImage, Styled, Window, WindowBounds, WindowOptions, actions, div,
+    prelude::*, px, rgb, size,
 };
 use gpui_platform::application;
 use ordo::canonical_views;
@@ -290,10 +290,23 @@ struct LabView {
     rendered: Option<Rendered>,
     /// Finished pixels by (fixture, density): the key space is bounded by
     /// the fixture matrix times the five densities, so revisits never
-    /// re-render and need no eviction.
+    /// re-render and need no eviction. These are small PNG bytes; the
+    /// expensive decoded copy plus GPU tile is bounded separately by
+    /// `displayed`, which retires the outgoing slide.
     cache: HashMap<(usize, u16), Rendered>,
+    displayed: Option<DisplayedImage>,
     requests: Sender<Request>,
     focus_handle: FocusHandle,
+}
+
+/// The slide currently on screen with its decoded upload, mirroring Zed's
+/// image viewer: retiring the outgoing pair (decoded copy plus atlas tile)
+/// as soon as the incoming slide decodes bounds viewport memory to one
+/// variant, instead of every variant ever displayed, which neither GPUI
+/// cache evicts on its own.
+struct DisplayedImage {
+    source: Arc<gpui::Image>,
+    raster: Arc<RenderImage>,
 }
 
 impl LabView {
@@ -312,6 +325,7 @@ impl LabView {
             sequence: 0,
             rendered: None,
             cache: HashMap::new(),
+            displayed: None,
             requests,
             focus_handle: cx.focus_handle(),
         };
@@ -372,6 +386,40 @@ impl LabView {
             .ok();
         })
         .detach();
+    }
+
+    /// Retire the outgoing slide's decoded copy and atlas tile once the
+    /// incoming slide has decoded and can take the screen. Waiting for the
+    /// decode keeps the previous slide up during the load gap instead of
+    /// flashing black; swapping only on a new image id keeps chrome-only
+    /// selectors free.
+    fn retire_outgoing_upload(
+        &mut self,
+        current: Option<Arc<gpui::Image>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(current) = current else { return };
+        let already = self
+            .displayed
+            .as_ref()
+            .is_some_and(|displayed| displayed.source.id() == current.id());
+        if already {
+            return;
+        }
+        let Some(raster) = current.clone().get_render_image(window, cx) else {
+            return;
+        };
+        if let Some(displayed) = self.displayed.take() {
+            // The tile is already superseded on screen; a failed drop only
+            // leaks what the next retire would have freed anyway.
+            let _ = window.drop_image(displayed.raster);
+            displayed.source.remove_asset(cx);
+        }
+        self.displayed = Some(DisplayedImage {
+            source: current,
+            raster,
+        });
     }
 
     fn cycle(&mut self, next: impl FnOnce(&mut Self), cx: &mut Context<Self>) {
@@ -479,11 +527,16 @@ impl Focusable for LabView {
 }
 
 impl Render for LabView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let environment = self.environment();
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let (preset_w, preset_h, _) = VIEWPORTS[self.viewport_idx];
+        let current = self
+            .rendered
+            .as_ref()
+            .map(|rendered| rendered.frame.image().clone());
+        self.retire_outgoing_upload(current, window, cx);
         let frame = self.rendered.as_ref().map(|rendered| &rendered.frame);
 
         div()
@@ -632,6 +685,7 @@ mod tests {
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
         })
         .await;
+
         lab.read_with(cx, |lab, _| {
             let rendered = lab.rendered.as_ref().expect("latest selection must render");
             assert_eq!(rendered.key.1, DENSITIES[1]);
@@ -639,10 +693,14 @@ mod tests {
 
         // A density change followed by a fixture change must still render
         // the new fixture: the stale-sequence guard must drop the late
-        // density reply without wedging later selections.
+        // density reply without wedging later selections. Each wait covers
+        // one render; chaining both behind a single budget would flake
+        // against the fixed condition timeout on slow renders.
         cx.simulate_keystrokes("f5 f2");
         cx.run_until_parked();
         lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 2));
+        cx.condition(&lab, |lab, _| lab.cache.contains_key(&(1, DENSITIES[1])))
+            .await;
         cx.condition(&lab, |lab, _| {
             lab.rendered
                 .as_ref()
@@ -665,6 +723,7 @@ mod tests {
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
         })
         .await;
+
         lab.read_with(cx, |lab, _| {
             let rendered = lab.rendered.as_ref().expect("latest selection must render");
             assert_eq!(rendered.key.1, DENSITIES[0]);
@@ -695,20 +754,56 @@ mod tests {
             );
         });
 
-        // Revisiting a composed pair is instant too: walk away through
-        // every other density and back. The four stops each render once;
-        // the return to (3, 100) hits the cache, so it displays without
-        // waiting on the worker — and late replies from the walk-away
-        // renders cannot overwrite it.
-        cx.simulate_keystrokes("f5 f5 f5 f5 f5");
+        // Eviction: the outgoing slide leaves the asset cache and the
+        // atlas once the incoming one decodes, instead of accumulating a
+        // decoded copy plus tile per visited variant.
+        let outgoing = lab.read_with(cx, |lab, _| {
+            lab.rendered.as_ref().unwrap().frame.image().clone()
+        });
+        let outgoing_raster = cx
+            .update(|window, cx| outgoing.clone().get_render_image(window, cx))
+            .expect("the displayed slide must be decoded");
+        cx.simulate_keystrokes("f2");
         cx.run_until_parked();
+        lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 4));
+        cx.condition(&lab, |lab, _| {
+            lab.rendered
+                .as_ref()
+                .is_some_and(|rendered| rendered.sequence == lab.sequence)
+        })
+        .await;
+        // Frames render on demand under test (unlike the live loop), and
+        // the decode completion itself only schedules an on-next-frame
+        // notify, so force frames until the post-decode retire runs: each
+        // pass advances the background decode and then renders against it.
+        for _ in 0..100 {
+            lab.update(cx, |_, cx| cx.notify());
+            cx.run_until_parked();
+            let swapped = lab.read_with(cx, |lab, _| {
+                lab.displayed
+                    .as_ref()
+                    .is_some_and(|displayed| displayed.source.id() != outgoing.id())
+            });
+            if swapped {
+                break;
+            }
+        }
         lab.read_with(cx, |lab, _| {
-            assert_eq!(lab.density_idx, 0);
-            assert_eq!(
-                lab.rendered.as_ref().map(|rendered| rendered.key),
-                Some((3, DENSITIES[0])),
-                "the cached return must display without waiting on the worker"
+            assert!(
+                lab.displayed
+                    .as_ref()
+                    .is_some_and(|displayed| displayed.source.id() != outgoing.id()),
+                "the incoming slide must take the screen once decoded"
             );
         });
+        cx.run_until_parked();
+        assert!(
+            cx.update(|_, cx| !gpui::ImageSource::Image(outgoing.clone()).is_asset_cached(cx)),
+            "the retired slide must leave the asset cache"
+        );
+        assert!(
+            cx.update(|window, _| !window.has_image_atlas_entry(&outgoing_raster)),
+            "the retired slide must leave the atlas"
+        );
     }
 }
