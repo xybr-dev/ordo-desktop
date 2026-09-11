@@ -421,7 +421,12 @@ impl LabView {
     /// incoming slide has decoded and can take the screen. Waiting for the
     /// decode keeps the previous slide up during the load gap instead of
     /// flashing black; swapping only on a new image id keeps chrome-only
-    /// selectors free.
+    /// selectors free. This must go through `use_render_image` (like Zed's
+    /// image viewer and the `img` elements below), not `get_render_image`:
+    /// `get` creates the asset task without scheduling the on-next-frame
+    /// notify, stealing `is_first` from the viewports' `use_asset` calls in
+    /// the same frame, so a fresh decode would complete with no re-render
+    /// scheduled and the viewport would stay black.
     fn retire_outgoing_upload(
         &mut self,
         current: Option<Arc<gpui::Image>>,
@@ -436,7 +441,7 @@ impl LabView {
         if already {
             return;
         }
-        let Some(raster) = current.clone().get_render_image(window, cx) else {
+        let Some(raster) = current.clone().use_render_image(window, cx) else {
             return;
         };
         if let Some(displayed) = self.displayed.take() {
@@ -836,10 +841,19 @@ mod tests {
         .await;
         // Frames render on demand under test (unlike the live loop), and
         // the decode completion itself only schedules an on-next-frame
-        // notify, so force frames until the post-decode retire runs: each
-        // pass advances the background decode and then renders against it.
+        // notify, so deliver those scheduled frames until the post-decode
+        // retire runs: each pass advances the background decode and then
+        // renders against it. No explicit notify is issued here on purpose:
+        // the retire path must schedule its own re-render through
+        // `use_render_image`, like the viewports' `img` elements. A `get`
+        // would create the asset task without a waiter, stealing `is_first`
+        // from the same frame's `use_asset` calls, so the decode would
+        // finish with nothing scheduled and the viewport would stay black.
+        let mut scheduled_any = false;
         for _ in 0..100 {
-            lab.update(cx, |_, cx| cx.notify());
+            cx.run_until_parked();
+            let delivered = cx.update(|window, cx| window.simulate_next_frame(cx));
+            scheduled_any |= delivered > 0;
             cx.run_until_parked();
             let swapped = lab.read_with(cx, |lab, _| {
                 lab.displayed
@@ -850,6 +864,10 @@ mod tests {
                 break;
             }
         }
+        assert!(
+            scheduled_any,
+            "the incoming decode must schedule its own re-render instead of staying black"
+        );
         lab.read_with(cx, |lab, _| {
             assert!(
                 lab.displayed
