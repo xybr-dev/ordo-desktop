@@ -381,6 +381,21 @@ baseline before full UI construction.
       queue latency, and idle CPU.
 - [ ] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
       genuinely lower-resolution, virtualized, and released when obsolete.
+- [ ] `[AUTO]` Compare the two candidate display paths for the same canonical
+      frame and record latency and held bytes for each: the CPU raster path
+      (`rendering::rasterize` composited to RGBA, encoded, decoded, uploaded)
+      and a retained path that walks the logical `Frame` straight into the
+      GPUI scene through its already-shaped glyph, quad, and image painting,
+      letting the GPUI sprite atlas cache glyph masks. Every surveyed
+      presentation engine draws its live output from a retained scene and
+      rasterizes only for thumbnails, transitions, capture, and export; this
+      measurement decides whether Ordo does the same. Record the per-slide
+      cost of each path separately, because it sets T1.3's scope.
+- [ ] `[AUTO]` If the retained path is measured, confirm the GPUI text system
+      resolves the bundled Atkinson Hyperlegible Next and Noto Sans faces the
+      canonical shaper uses, rather than a same-named system installation, on
+      both packaged targets. Shaped glyph IDs are face-intrinsic, so a silent
+      substitution would mispaint without failing.
 - [ ] `[NATIVE-AUTO]` On minimum-profile Windows and Linux test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling.
@@ -614,6 +629,18 @@ verify no command sequence exposes an error frame or operator-only content.
 
 **Goal:** Deliver frames fast without letting preloading, failure, or memory
 pressure weaken Program safety.
+
+**Scope is conditional on T0.6's display-path measurement.** This task was
+written assuming every viewport consumes a full-resolution CPU raster, which
+makes that raster the expensive artifact worth scheduling, bounding, and
+evicting. If T0.6 adopts the retained path, no such artifact exists on the
+display path: the sprite atlas caches glyph masks across every slide and
+viewport, and the remaining caches are decoded foreground images by asset hash
+and logical `Frame` values by frame identity, neither of which needs a byte
+budget or a preload window. The raster and thumbnail cache criteria below then
+drop, and the failure-propagation and cancellation criteria stay, since they
+are independent of how pixels are produced. Reconcile this task against the
+T0.6 result before starting it; do not implement both designs.
 
 **Changes:** `crates/rendering/src/frame_scheduler.rs`, `crates/rendering/src/frame_cache.rs`,
 `crates/rendering/src/thumbnail_cache.rs`, `tests/rendering/cache.*`
