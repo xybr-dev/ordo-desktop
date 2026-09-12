@@ -2,50 +2,51 @@ ordo-canonical-frame/2
 logical 1920 1080
 safe-area 120 80 1680 920
 header-absent
-body-rect 120 80 1680 874
-footer-rect 120 954 1680 46
-pagination authored-body=1 header-lines=0 body-lines=1 footer-lines=1 content-height=83 available-height=874 fit=fits hard-split=false first-hard-split=none
+body-rect 120 80 1680 862
+footer-rect 120 942 1680 58
+pagination authored-body=1 header-lines=0 body-lines=2 footer-lines=1 content-height=208 available-height=862 fit=fits hard-split=false first-hard-split=none
 image-absent
 background theme
-line zone=body index=0 authored=0 x=252 y=475 width=1416 height=83 text=THE PROCLAMATION OF THE HOLY GOSPEL
-glyph zone=body line=0 font=primary id=83 x=252 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=36 x=292 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=22 x=341 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=71 x=401 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=74 x=443 y=545 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=62 x=486 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=13 x=537 y=545 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=51 x=583 y=545 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=1 x=622 y=545 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=0 font=primary id=56 x=667 y=545 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=0 font=primary id=1 x=726 y=545 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=7
-glyph zone=body line=0 font=primary id=83 x=767 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=8
-glyph zone=body line=0 font=primary id=38 x=807 y=545 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=9
-glyph zone=body line=0 font=primary id=62 x=833 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=10
-glyph zone=body line=0 font=primary id=57 x=884 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=11
-glyph zone=body line=0 font=primary id=62 x=953 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=31 x=1004 y=545 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=83 x=1063 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=36 x=1103 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=22 x=1152 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=36 x=1212 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=62 x=1261 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=51 x=1312 y=545 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=103 x=1345 y=545 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=32 x=1406 y=545 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=62 x=1455 y=545 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=77 x=1506 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=71 x=1548 y=545 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=22 x=1590 y=545 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=51 x=1630 y=545 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=5
-line zone=footer index=0 authored=0 x=120 y=954 width=172 height=46 text=Juan 1:1-5
-glyph zone=footer line=0 font=primary id=47 x=120 y=993 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=200 x=140 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=112 x=161 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=footer line=0 font=primary id=170 x=182 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=footer line=0 font=primary id=366 x=215 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=236 x=231 y=993 x-advance=8 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=366 x=239 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=footer line=0 font=primary id=251 x=255 y=993 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=footer line=0 font=primary id=370 x=269 y=993 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=0 authored=0 x=248 y=407 width=1424 height=104 text=THE PROCLAMATION OF THE HOLY
+glyph zone=body line=0 font=primary id=83 x=248 y=495 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=36 x=298 y=495 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=22 x=360 y=495 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=71 x=436 y=495 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=74 x=489 y=495 x-advance=54 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=62 x=543 y=495 x-advance=64 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=13 x=607 y=495 x-advance=58 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=51 x=665 y=495 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=1 x=714 y=495 x-advance=56 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=56 x=770 y=495 x-advance=74 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=1 x=844 y=495 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=83 x=895 y=495 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=38 x=945 y=495 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=9
+glyph zone=body line=0 font=primary id=62 x=977 y=495 x-advance=64 y-advance=0 x-offset=0 y-offset=0 cluster=10
+glyph zone=body line=0 font=primary id=57 x=1041 y=495 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=11
+glyph zone=body line=0 font=primary id=62 x=1128 y=495 x-advance=64 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=31 x=1192 y=495 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=83 x=1266 y=495 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=36 x=1316 y=495 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=22 x=1378 y=495 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=36 x=1454 y=495 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=62 x=1516 y=495 x-advance=64 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=51 x=1580 y=495 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=103 x=1621 y=495 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=3
+line zone=body index=1 authored=0 x=794 y=511 width=331 height=104 text=GOSPEL
+glyph zone=body line=1 font=primary id=32 x=794 y=599 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=62 x=856 y=599 x-advance=64 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=77 x=920 y=599 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=71 x=973 y=599 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=22 x=1026 y=599 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=51 x=1077 y=599 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=5
+line zone=footer index=0 authored=0 x=120 y=942 width=216 height=58 text=Juan 1:1-5
+glyph zone=footer line=0 font=primary id=47 x=120 y=991 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=200 x=145 y=991 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=112 x=172 y=991 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=170 x=198 y=991 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=366 x=239 y=991 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=236 x=259 y=991 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=366 x=269 y=991 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=251 x=289 y=991 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=370 x=307 y=991 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=4
 warnings 0

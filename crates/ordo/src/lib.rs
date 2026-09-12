@@ -4,14 +4,17 @@ use std::{
     fmt,
     path::Path,
     rc::Rc,
-    sync::mpsc::{self, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Sender},
+    },
     thread,
 };
 
 use async_channel::Sender as AsyncSender;
 use gpui::{
-    App, AppContext, Context, Focusable, QuitMode, Render, Window, WindowHandle, div, prelude::*,
-    px, rgb, size,
+    App, AppContext, Context, Focusable, QuitMode, Render, StyledImage, Window, WindowHandle, div,
+    img, prelude::*, px, rgb, size,
 };
 use platform::{
     preferences::{PreferencesFile, installation_preferences_path},
@@ -30,18 +33,59 @@ pub mod shell;
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
 /// Passive congregation surface: complete Program plus output status, nothing else.
+///
+/// The Program frame paints edge-to-edge with square corners: the `4px`
+/// operator viewport radius never enters congregation output. Operator-only
+/// chrome, diagnostics, and focus never mount here.
 pub struct CongregationView {
     state: CongregationState,
+    image: Option<Arc<gpui::Image>>,
 }
 
 impl CongregationView {
-    pub fn new(state: CongregationState, _: &mut Context<Self>) -> Self {
-        Self { state }
+    pub fn new(state: CongregationState, cx: &mut Context<Self>) -> Self {
+        // The Program bytes (an `Arc` bump, no pixel copy) cross to the
+        // Context background executor; the RGBA copy plus `tiny-skia` PNG
+        // encode run there, never on the GPUI thread. The surface stays
+        // black until that complete image arrives — no partial frames.
+        let program = state.program().clone();
+        let background = cx.background_spawn(async move { congregation_image(&program) });
+        cx.spawn(async move |view, cx| {
+            let image = background.await;
+            view.update(cx, |view: &mut Self, cx| {
+                view.image = Some(image);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        Self { state, image: None }
     }
 
     pub fn state(&self) -> &CongregationState {
         &self.state
     }
+
+    /// The exact finished pixels this surface paints once the background
+    /// encode lands: the congregation half of the milestone E2E compares
+    /// these against the one rasterization. `None` while the surface holds
+    /// black waiting for the complete image.
+    pub fn image(&self) -> Option<&Arc<gpui::Image>> {
+        self.image.as_ref()
+    }
+}
+
+/// Encode one Program frame to the PNG bytes the congregation `img` paints:
+/// the same qualified `tiny-skia` edge the raster path encodes through, so
+/// the surface shows the exact sampling the canonical worker composed. An
+/// unencodable frame (unreachable behind `ProgramFrame`'s invariants) paints
+/// nothing rather than a partial frame.
+fn congregation_image(program: &ProgramFrame) -> Arc<gpui::Image> {
+    let png = tiny_skia::IntSize::from_wh(program.width(), program.height())
+        .and_then(|size| tiny_skia::Pixmap::from_vec(program.rgba().to_vec(), size))
+        .and_then(|pixmap| pixmap.encode_png().ok())
+        .unwrap_or_default();
+    Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png))
 }
 
 impl Render for CongregationView {
@@ -52,7 +96,23 @@ impl Render for CongregationView {
             .id("congregation-root")
             .size_full()
             .bg(rgb(0x000000))
-            .child(div().debug_selector(move || format!("program-frame-{revision}")))
+            .child(
+                div()
+                    .debug_selector(move || format!("program-frame-{revision}"))
+                    .size_full()
+                    // Black until the background encode lands: the pixels box
+                    // always mounts for geometry, the `img` only with the
+                    // complete image, so no partial frame ever publishes.
+                    .child(
+                        div()
+                            .debug_selector(|| "congregation-frame-pixels".into())
+                            .size_full()
+                            .bg(rgb(0x000000))
+                            .children(self.image.clone().map(|image| {
+                                img(image).size_full().object_fit(gpui::ObjectFit::Contain)
+                            })),
+                    ),
+            )
             .child(div().debug_selector(move || format!("output-status-{status:?}")))
     }
 }

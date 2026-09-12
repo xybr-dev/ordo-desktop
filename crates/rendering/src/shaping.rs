@@ -8,9 +8,11 @@
 //! targets.
 //!
 //! Scope notes:
-//! - Sizes are provisional parameters, not frozen levels: the 72px
-//!   projected-response token is the first gallery baseline, and the template
-//!   corpus chooses per-zone sizes from it. Line advance stays
+//! - Sizes are candidate at T0.4.10 at display 90px / passage 70px / meta 50px
+//!   (PR 5 provisional 72/56/40, each +25%), pending human approval per
+//!   `docs/qualification/T0.4-MANUAL-GATE.md`: the 90px projected-response
+//!   token is the gallery baseline, and the template corpus chooses per-zone
+//!   sizes from it. Line advance stays
 //!   `ceil(size * 1.15)` at every size. The measured-not-counted rule the
 //!   corpus refines is the pinned part.
 //! - Placement is neutral by default: lines start at the zone's left edge
@@ -27,14 +29,15 @@
 
 use crate::fonts::{self, CanonicalFont};
 
-/// Provisional body size: the 72px projected-response token. The template
-/// corpus carries the full hierarchy later.
-pub const BODY_FONT_SIZE: u32 = 72;
+/// Provisional body size: the 90px projected-response token (candidate at T0.4.10
+/// from the 72px PR 5 baseline, +25%, pending approval). The template corpus carries the full
+/// hierarchy later.
+pub const BODY_FONT_SIZE: u32 = 90;
 /// Line advance for a size: `ceil(size * 1.15)` logical units.
 pub const fn line_height_for(size: u32) -> u32 {
     (size * 115).div_ceil(100)
 }
-/// Line advance for the provisional size: ceil(72 * 1.15) = 83 logical units.
+/// Line advance for the provisional size: ceil(90 * 1.15) = 104 logical units.
 pub const BODY_LINE_HEIGHT: u32 = line_height_for(BODY_FONT_SIZE);
 
 /// How body content relates to its zone: it fits, or it overflows with every

@@ -95,7 +95,7 @@ typography:
     lineHeight: 1.3
   projected-response:
     fontFamily: Atkinson Hyperlegible Next
-    fontSize: 72px
+    fontSize: 90px
     fontWeight: 800
     lineHeight: 1.15
 ---
@@ -289,10 +289,14 @@ the approved minimum. Limit Song and Celebration titles to three rendered lines
 before warning. Validate measured canonical geometry rather than character
 counts.
 
-The relative hierarchy is adopted, but exact projected font sizes remain under
-visual qualification. Use the current `72px` projected-response token as the
-first gallery baseline rather than treating every provisional numeric level as
-final.
+The relative hierarchy is adopted, and the projected levels are candidate at
+T0.4.10 at display `90px` / passage `70px` / meta `50px` (each exactly +25%
+from the PR 5 provisional `72px` / `56px` / `40px`), proposed for the
+fixture-backed gallery candidate. Whether long Cebuano and English cases are
+comfortably readable at these levels is a pending human visual judgment,
+recorded in `docs/qualification/T0.4-MANUAL-GATE.md` — nothing here claims
+them frozen or qualified.
+Operator, UI, and lab-control typography are unchanged by that candidacy.
 
 ## Elevation & Depth
 

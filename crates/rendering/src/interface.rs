@@ -126,7 +126,7 @@ pub(crate) struct ZoneStyle {
 }
 
 impl ZoneStyle {
-    /// The PR 4 neutral style: the 72px baseline, left-origin lines.
+    /// The neutral style: the candidate 90px baseline, left-origin lines.
     pub(crate) const fn neutral() -> Self {
         Self {
             size: shaping::BODY_FONT_SIZE,
@@ -800,7 +800,7 @@ fn layout_footer(
 
 /// Compose one complete logical frame from resolved content.
 ///
-/// Every zone measures at the 72px baseline with left-origin lines starting
+/// Every zone measures at the candidate 90px baseline with left-origin lines starting
 /// at the top of each zone; the template corpus (see `templates`) varies
 /// size, alignment, and vertical placement per zone through the same
 /// composition core.

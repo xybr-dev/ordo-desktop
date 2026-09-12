@@ -612,12 +612,12 @@ fn headers_are_copied_verbatim_never_derived() {
 #[test]
 fn provisional_hierarchy_carries_the_response_baseline() {
     assert_eq!(PROVISIONAL_DISPLAY_SIZE, BODY_FONT_SIZE);
-    assert_eq!(BODY_FONT_SIZE, 72);
-    assert_eq!(line_height_for(PROVISIONAL_DISPLAY_SIZE), 83);
-    assert_eq!(PROVISIONAL_PASSAGE_SIZE, 56);
-    assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 65);
-    assert_eq!(PROVISIONAL_META_SIZE, 40);
-    assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 46);
+    assert_eq!(BODY_FONT_SIZE, 90);
+    assert_eq!(line_height_for(PROVISIONAL_DISPLAY_SIZE), 104);
+    assert_eq!(PROVISIONAL_PASSAGE_SIZE, 70);
+    assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 81);
+    assert_eq!(PROVISIONAL_META_SIZE, 50);
+    assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 58);
 
     // The emphasized response body still measures at the baseline token.
     let (frame, _) = render_template(
@@ -626,7 +626,7 @@ fn provisional_hierarchy_carries_the_response_baseline() {
         TargetDensity::SCALE_100,
     )
     .unwrap();
-    assert_eq!(frame.body_lines()[0].height, 83);
+    assert_eq!(frame.body_lines()[0].height, 104);
 }
 
 #[test]
@@ -816,34 +816,35 @@ fn omissions_are_structural_not_conventional() {
 fn general_image_carries_the_foreground_element_with_contained_bounds() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // Body zone: full width with one meta header and one meta caption line.
+    // Body zone: full width with one meta header and one meta caption line
+    // (58px each at the candidate meta size).
     let body = rendering::Rect {
         x: 120,
-        y: 126,
+        y: 138,
         width: 1680,
-        height: 828,
+        height: 804,
     };
     let (frame, diagnostics) =
         render_template(&image_content("asset-1", 800, 600), &theme, density)
             .expect("resolved image must compose");
     assert!(diagnostics.warnings.is_empty());
     assert_eq!(frame.body(), body);
-    // 800x600 in 1680x828 fits by height: 1104x828, centered horizontally.
+    // 800x600 in 1680x804 fits by height: 1072x804, centered horizontally.
     let placed = frame.image().expect("frame carries the foreground element");
     assert_eq!(placed.id, "asset-1");
     assert_eq!(
         placed.bounds,
         rendering::Rect {
-            x: 408,
-            y: 126,
-            width: 1104,
-            height: 828,
+            x: 424,
+            y: 138,
+            width: 1072,
+            height: 804,
         }
     );
     assert!(
         frame
             .serialize()
-            .contains("\nimage id=asset-1 408 126 1104 828\n"),
+            .contains("\nimage id=asset-1 424 138 1072 804\n"),
         "serialization pins the identity and bounds"
     );
     // Same content twice: byte-identical, density-free.
@@ -860,16 +861,16 @@ fn general_image_carries_the_foreground_element_with_contained_bounds() {
 fn general_image_contains_tall_assets_by_width() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // 600x800 in 1680x828 fits by width: 621x828, centered horizontally.
+    // 600x800 in 1680x804 fits by height: 603x804, centered horizontally.
     let (frame, _) = render_template(&image_content("asset-2", 600, 800), &theme, density).unwrap();
     let placed = frame.image().expect("frame carries the foreground element");
     assert_eq!(
         placed.bounds,
         rendering::Rect {
-            x: 649,
-            y: 126,
-            width: 621,
-            height: 828,
+            x: 658,
+            y: 138,
+            width: 603,
+            height: 804,
         }
     );
 }

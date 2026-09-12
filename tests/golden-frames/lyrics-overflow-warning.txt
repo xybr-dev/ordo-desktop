@@ -1,250 +1,250 @@
 ordo-canonical-frame/2
 logical 1920 1080
 safe-area 120 80 1680 920
-header-rect 120 80 1680 46
-body-rect 120 126 1680 874
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
 footer-absent
-pagination authored-body=20 header-lines=1 body-lines=20 footer-lines=0 content-height=1660 available-height=874 fit=overflows hard-split=false first-hard-split=none
+pagination authored-body=20 header-lines=1 body-lines=20 footer-lines=0 content-height=2080 available-height=862 fit=overflows hard-split=false first-hard-split=none
 image-absent
 background theme
-line zone=header index=0 authored=0 x=120 y=80 width=95 height=46 text=Verse
-glyph zone=header line=0 font=primary id=96 x=120 y=119 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=header line=0 font=primary id=133 x=142 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=header line=0 font=primary id=187 x=163 y=119 x-advance=13 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=header line=0 font=primary id=190 x=176 y=119 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=header line=0 font=primary id=133 x=194 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=4
-line zone=body index=0 authored=0 x=776 y=126 width=312 height=83 text=lyric line 1
-glyph zone=body line=0 font=primary id=164 x=776 y=196 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=216 x=794 y=196 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=187 x=826 y=196 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=149 x=853 y=196 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=124 x=871 y=196 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=164 x=925 y=196 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=149 x=944 y=196 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=170 x=962 y=196 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=133 x=1001 y=196 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=366 x=1059 y=196 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=1 authored=1 x=776 y=209 width=322 height=83 text=lyric line 2
-glyph zone=body line=1 font=primary id=164 x=776 y=279 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=216 x=794 y=279 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=187 x=826 y=279 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=149 x=853 y=279 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=124 x=871 y=279 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=164 x=925 y=279 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=149 x=944 y=279 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=170 x=962 y=279 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=133 x=1001 y=279 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=367 x=1059 y=279 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=2 authored=2 x=776 y=292 width=324 height=83 text=lyric line 3
-glyph zone=body line=2 font=primary id=164 x=776 y=362 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=216 x=794 y=362 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=187 x=826 y=362 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=149 x=853 y=362 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=2 font=primary id=124 x=871 y=362 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=2 font=primary id=164 x=925 y=362 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=149 x=944 y=362 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=170 x=962 y=362 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=133 x=1001 y=362 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=2 font=primary id=368 x=1059 y=362 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=3 authored=3 x=776 y=375 width=327 height=83 text=lyric line 4
-glyph zone=body line=3 font=primary id=164 x=776 y=445 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=3 font=primary id=216 x=794 y=445 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=3 font=primary id=187 x=826 y=445 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=3 font=primary id=149 x=853 y=445 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=3 font=primary id=124 x=871 y=445 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=3 font=primary id=164 x=925 y=445 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=3 font=primary id=149 x=944 y=445 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=3 font=primary id=170 x=962 y=445 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=3 font=primary id=133 x=1001 y=445 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=3 font=primary id=369 x=1059 y=445 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=4 authored=4 x=776 y=458 width=325 height=83 text=lyric line 5
-glyph zone=body line=4 font=primary id=164 x=776 y=528 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=4 font=primary id=216 x=794 y=528 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=4 font=primary id=187 x=826 y=528 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=4 font=primary id=149 x=853 y=528 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=4 font=primary id=124 x=871 y=528 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=4 font=primary id=164 x=925 y=528 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=4 font=primary id=149 x=944 y=528 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=4 font=primary id=170 x=962 y=528 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=4 font=primary id=133 x=1001 y=528 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=4 font=primary id=370 x=1059 y=528 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=5 authored=5 x=776 y=541 width=326 height=83 text=lyric line 6
-glyph zone=body line=5 font=primary id=164 x=776 y=611 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=5 font=primary id=216 x=794 y=611 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=5 font=primary id=187 x=826 y=611 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=5 font=primary id=149 x=853 y=611 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=5 font=primary id=124 x=871 y=611 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=5 font=primary id=164 x=925 y=611 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=5 font=primary id=149 x=944 y=611 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=5 font=primary id=170 x=962 y=611 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=5 font=primary id=133 x=1001 y=611 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=5 font=primary id=371 x=1059 y=611 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=6 authored=6 x=776 y=624 width=319 height=83 text=lyric line 7
-glyph zone=body line=6 font=primary id=164 x=776 y=694 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=6 font=primary id=216 x=794 y=694 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=6 font=primary id=187 x=826 y=694 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=6 font=primary id=149 x=853 y=694 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=6 font=primary id=124 x=871 y=694 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=6 font=primary id=164 x=925 y=694 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=6 font=primary id=149 x=944 y=694 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=6 font=primary id=170 x=962 y=694 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=6 font=primary id=133 x=1001 y=694 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=6 font=primary id=372 x=1059 y=694 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=7 authored=7 x=776 y=707 width=327 height=83 text=lyric line 8
-glyph zone=body line=7 font=primary id=164 x=776 y=777 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=7 font=primary id=216 x=794 y=777 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=7 font=primary id=187 x=826 y=777 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=7 font=primary id=149 x=853 y=777 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=7 font=primary id=124 x=871 y=777 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=7 font=primary id=164 x=925 y=777 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=7 font=primary id=149 x=944 y=777 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=7 font=primary id=170 x=962 y=777 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=7 font=primary id=133 x=1001 y=777 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=7 font=primary id=373 x=1059 y=777 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=8 authored=8 x=776 y=790 width=325 height=83 text=lyric line 9
-glyph zone=body line=8 font=primary id=164 x=776 y=860 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=8 font=primary id=216 x=794 y=860 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=8 font=primary id=187 x=826 y=860 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=8 font=primary id=149 x=853 y=860 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=8 font=primary id=124 x=871 y=860 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=8 font=primary id=164 x=925 y=860 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=8 font=primary id=149 x=944 y=860 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=8 font=primary id=170 x=962 y=860 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=8 font=primary id=133 x=1001 y=860 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=8 font=primary id=374 x=1059 y=860 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=9 authored=9 x=776 y=873 width=358 height=83 text=lyric line 10
-glyph zone=body line=9 font=primary id=164 x=776 y=943 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=9 font=primary id=216 x=794 y=943 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=9 font=primary id=187 x=826 y=943 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=9 font=primary id=149 x=853 y=943 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=9 font=primary id=124 x=871 y=943 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=9 font=primary id=164 x=925 y=943 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=9 font=primary id=149 x=944 y=943 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=9 font=primary id=170 x=962 y=943 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=9 font=primary id=133 x=1001 y=943 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=9 font=primary id=366 x=1059 y=943 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=9 font=primary id=365 x=1088 y=943 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=10 authored=10 x=776 y=956 width=341 height=83 text=lyric line 11
-glyph zone=body line=10 font=primary id=164 x=776 y=1026 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=10 font=primary id=216 x=794 y=1026 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=10 font=primary id=187 x=826 y=1026 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=10 font=primary id=149 x=853 y=1026 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=10 font=primary id=124 x=871 y=1026 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=10 font=primary id=164 x=925 y=1026 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=10 font=primary id=149 x=944 y=1026 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=10 font=primary id=170 x=962 y=1026 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=10 font=primary id=133 x=1001 y=1026 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=10 font=primary id=366 x=1059 y=1026 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=10 font=primary id=366 x=1088 y=1026 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=11 authored=11 x=776 y=1039 width=351 height=83 text=lyric line 12
-glyph zone=body line=11 font=primary id=164 x=776 y=1109 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=11 font=primary id=216 x=794 y=1109 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=11 font=primary id=187 x=826 y=1109 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=11 font=primary id=149 x=853 y=1109 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=11 font=primary id=124 x=871 y=1109 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=11 font=primary id=164 x=925 y=1109 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=11 font=primary id=149 x=944 y=1109 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=11 font=primary id=170 x=962 y=1109 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=11 font=primary id=133 x=1001 y=1109 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=11 font=primary id=366 x=1059 y=1109 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=11 font=primary id=367 x=1088 y=1109 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=12 authored=12 x=776 y=1122 width=353 height=83 text=lyric line 13
-glyph zone=body line=12 font=primary id=164 x=776 y=1192 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=12 font=primary id=216 x=794 y=1192 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=12 font=primary id=187 x=826 y=1192 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=12 font=primary id=149 x=853 y=1192 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=12 font=primary id=124 x=871 y=1192 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=12 font=primary id=164 x=925 y=1192 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=12 font=primary id=149 x=944 y=1192 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=12 font=primary id=170 x=962 y=1192 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=12 font=primary id=133 x=1001 y=1192 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=12 font=primary id=366 x=1059 y=1192 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=12 font=primary id=368 x=1088 y=1192 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=13 authored=13 x=776 y=1205 width=356 height=83 text=lyric line 14
-glyph zone=body line=13 font=primary id=164 x=776 y=1275 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=13 font=primary id=216 x=794 y=1275 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=13 font=primary id=187 x=826 y=1275 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=13 font=primary id=149 x=853 y=1275 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=13 font=primary id=124 x=871 y=1275 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=13 font=primary id=164 x=925 y=1275 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=13 font=primary id=149 x=944 y=1275 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=13 font=primary id=170 x=962 y=1275 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=13 font=primary id=133 x=1001 y=1275 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=13 font=primary id=366 x=1059 y=1275 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=13 font=primary id=369 x=1088 y=1275 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=14 authored=14 x=776 y=1288 width=354 height=83 text=lyric line 15
-glyph zone=body line=14 font=primary id=164 x=776 y=1358 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=14 font=primary id=216 x=794 y=1358 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=14 font=primary id=187 x=826 y=1358 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=14 font=primary id=149 x=853 y=1358 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=14 font=primary id=124 x=871 y=1358 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=14 font=primary id=164 x=925 y=1358 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=14 font=primary id=149 x=944 y=1358 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=14 font=primary id=170 x=962 y=1358 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=14 font=primary id=133 x=1001 y=1358 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=14 font=primary id=366 x=1059 y=1358 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=14 font=primary id=370 x=1088 y=1358 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=15 authored=15 x=776 y=1371 width=355 height=83 text=lyric line 16
-glyph zone=body line=15 font=primary id=164 x=776 y=1441 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=15 font=primary id=216 x=794 y=1441 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=15 font=primary id=187 x=826 y=1441 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=15 font=primary id=149 x=853 y=1441 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=15 font=primary id=124 x=871 y=1441 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=15 font=primary id=164 x=925 y=1441 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=15 font=primary id=149 x=944 y=1441 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=15 font=primary id=170 x=962 y=1441 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=15 font=primary id=133 x=1001 y=1441 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=15 font=primary id=366 x=1059 y=1441 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=15 font=primary id=371 x=1088 y=1441 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=16 authored=16 x=776 y=1454 width=348 height=83 text=lyric line 17
-glyph zone=body line=16 font=primary id=164 x=776 y=1524 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=16 font=primary id=216 x=794 y=1524 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=16 font=primary id=187 x=826 y=1524 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=16 font=primary id=149 x=853 y=1524 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=16 font=primary id=124 x=871 y=1524 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=16 font=primary id=164 x=925 y=1524 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=16 font=primary id=149 x=944 y=1524 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=16 font=primary id=170 x=962 y=1524 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=16 font=primary id=133 x=1001 y=1524 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=16 font=primary id=366 x=1059 y=1524 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=16 font=primary id=372 x=1088 y=1524 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=17 authored=17 x=776 y=1537 width=356 height=83 text=lyric line 18
-glyph zone=body line=17 font=primary id=164 x=776 y=1607 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=17 font=primary id=216 x=794 y=1607 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=17 font=primary id=187 x=826 y=1607 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=17 font=primary id=149 x=853 y=1607 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=17 font=primary id=124 x=871 y=1607 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=17 font=primary id=164 x=925 y=1607 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=17 font=primary id=149 x=944 y=1607 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=17 font=primary id=170 x=962 y=1607 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=17 font=primary id=133 x=1001 y=1607 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=17 font=primary id=366 x=1059 y=1607 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=17 font=primary id=373 x=1088 y=1607 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=18 authored=18 x=776 y=1620 width=354 height=83 text=lyric line 19
-glyph zone=body line=18 font=primary id=164 x=776 y=1690 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=18 font=primary id=216 x=794 y=1690 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=18 font=primary id=187 x=826 y=1690 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=18 font=primary id=149 x=853 y=1690 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=18 font=primary id=124 x=871 y=1690 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=18 font=primary id=164 x=925 y=1690 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=18 font=primary id=149 x=944 y=1690 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=18 font=primary id=170 x=962 y=1690 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=18 font=primary id=133 x=1001 y=1690 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=18 font=primary id=366 x=1059 y=1690 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=18 font=primary id=374 x=1088 y=1690 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
-line zone=body index=19 authored=19 x=776 y=1703 width=368 height=83 text=lyric line 20
-glyph zone=body line=19 font=primary id=164 x=776 y=1773 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=19 font=primary id=216 x=794 y=1773 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=19 font=primary id=187 x=826 y=1773 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=19 font=primary id=149 x=853 y=1773 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=19 font=primary id=124 x=871 y=1773 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=19 font=primary id=164 x=925 y=1773 x-advance=19 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=19 font=primary id=149 x=944 y=1773 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=19 font=primary id=170 x=962 y=1773 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=19 font=primary id=133 x=1001 y=1773 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=19 font=primary id=367 x=1059 y=1773 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=19 font=primary id=365 x=1098 y=1773 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=header index=0 authored=0 x=120 y=80 width=120 height=58 text=Verse
+glyph zone=header line=0 font=primary id=96 x=120 y=129 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=148 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=174 y=129 x-advance=17 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=191 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=214 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=0 authored=0 x=729 y=138 width=390 height=104 text=lyric line 1
+glyph zone=body line=0 font=primary id=164 x=729 y=226 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=216 x=751 y=226 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=187 x=791 y=226 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=825 y=226 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=124 x=847 y=226 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=164 x=915 y=226 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=939 y=226 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=961 y=226 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=133 x=1010 y=226 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=366 x=1083 y=226 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=1 authored=1 x=729 y=242 width=403 height=104 text=lyric line 2
+glyph zone=body line=1 font=primary id=164 x=729 y=330 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=216 x=751 y=330 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=791 y=330 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=149 x=825 y=330 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=124 x=847 y=330 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=164 x=915 y=330 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=939 y=330 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=170 x=961 y=330 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=133 x=1010 y=330 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=367 x=1083 y=330 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=2 authored=2 x=729 y=346 width=405 height=104 text=lyric line 3
+glyph zone=body line=2 font=primary id=164 x=729 y=434 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=2 font=primary id=216 x=751 y=434 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=2 font=primary id=187 x=791 y=434 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=2 font=primary id=149 x=825 y=434 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=2 font=primary id=124 x=847 y=434 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=2 font=primary id=164 x=915 y=434 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=2 font=primary id=149 x=939 y=434 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=2 font=primary id=170 x=961 y=434 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=2 font=primary id=133 x=1010 y=434 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=2 font=primary id=368 x=1083 y=434 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=3 authored=3 x=729 y=450 width=409 height=104 text=lyric line 4
+glyph zone=body line=3 font=primary id=164 x=729 y=538 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=216 x=751 y=538 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=187 x=791 y=538 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=149 x=825 y=538 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=3 font=primary id=124 x=847 y=538 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=3 font=primary id=164 x=915 y=538 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=149 x=939 y=538 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=170 x=961 y=538 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=133 x=1010 y=538 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=3 font=primary id=369 x=1083 y=538 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=4 authored=4 x=729 y=554 width=406 height=104 text=lyric line 5
+glyph zone=body line=4 font=primary id=164 x=729 y=642 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=4 font=primary id=216 x=751 y=642 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=4 font=primary id=187 x=791 y=642 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=4 font=primary id=149 x=825 y=642 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=4 font=primary id=124 x=847 y=642 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=4 font=primary id=164 x=915 y=642 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=4 font=primary id=149 x=939 y=642 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=4 font=primary id=170 x=961 y=642 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=4 font=primary id=133 x=1010 y=642 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=4 font=primary id=370 x=1083 y=642 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=5 authored=5 x=729 y=658 width=407 height=104 text=lyric line 6
+glyph zone=body line=5 font=primary id=164 x=729 y=746 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=5 font=primary id=216 x=751 y=746 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=5 font=primary id=187 x=791 y=746 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=5 font=primary id=149 x=825 y=746 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=5 font=primary id=124 x=847 y=746 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=5 font=primary id=164 x=915 y=746 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=5 font=primary id=149 x=939 y=746 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=5 font=primary id=170 x=961 y=746 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=5 font=primary id=133 x=1010 y=746 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=5 font=primary id=371 x=1083 y=746 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=6 authored=6 x=729 y=762 width=399 height=104 text=lyric line 7
+glyph zone=body line=6 font=primary id=164 x=729 y=850 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=6 font=primary id=216 x=751 y=850 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=6 font=primary id=187 x=791 y=850 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=6 font=primary id=149 x=825 y=850 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=6 font=primary id=124 x=847 y=850 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=6 font=primary id=164 x=915 y=850 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=6 font=primary id=149 x=939 y=850 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=6 font=primary id=170 x=961 y=850 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=6 font=primary id=133 x=1010 y=850 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=6 font=primary id=372 x=1083 y=850 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=7 authored=7 x=729 y=866 width=409 height=104 text=lyric line 8
+glyph zone=body line=7 font=primary id=164 x=729 y=954 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=7 font=primary id=216 x=751 y=954 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=7 font=primary id=187 x=791 y=954 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=7 font=primary id=149 x=825 y=954 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=7 font=primary id=124 x=847 y=954 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=7 font=primary id=164 x=915 y=954 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=7 font=primary id=149 x=939 y=954 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=7 font=primary id=170 x=961 y=954 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=7 font=primary id=133 x=1010 y=954 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=7 font=primary id=373 x=1083 y=954 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=8 authored=8 x=729 y=970 width=407 height=104 text=lyric line 9
+glyph zone=body line=8 font=primary id=164 x=729 y=1058 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=8 font=primary id=216 x=751 y=1058 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=8 font=primary id=187 x=791 y=1058 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=8 font=primary id=149 x=825 y=1058 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=8 font=primary id=124 x=847 y=1058 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=8 font=primary id=164 x=915 y=1058 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=8 font=primary id=149 x=939 y=1058 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=8 font=primary id=170 x=961 y=1058 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=8 font=primary id=133 x=1010 y=1058 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=8 font=primary id=374 x=1083 y=1058 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=9 authored=9 x=729 y=1074 width=448 height=104 text=lyric line 10
+glyph zone=body line=9 font=primary id=164 x=729 y=1162 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=9 font=primary id=216 x=751 y=1162 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=9 font=primary id=187 x=791 y=1162 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=9 font=primary id=149 x=825 y=1162 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=9 font=primary id=124 x=847 y=1162 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=9 font=primary id=164 x=915 y=1162 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=9 font=primary id=149 x=939 y=1162 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=9 font=primary id=170 x=961 y=1162 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=9 font=primary id=133 x=1010 y=1162 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=9 font=primary id=366 x=1083 y=1162 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=9 font=primary id=365 x=1119 y=1162 x-advance=58 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=10 authored=10 x=729 y=1178 width=426 height=104 text=lyric line 11
+glyph zone=body line=10 font=primary id=164 x=729 y=1266 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=10 font=primary id=216 x=751 y=1266 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=10 font=primary id=187 x=791 y=1266 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=10 font=primary id=149 x=825 y=1266 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=10 font=primary id=124 x=847 y=1266 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=10 font=primary id=164 x=915 y=1266 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=10 font=primary id=149 x=939 y=1266 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=10 font=primary id=170 x=961 y=1266 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=10 font=primary id=133 x=1010 y=1266 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=10 font=primary id=366 x=1083 y=1266 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=10 font=primary id=366 x=1119 y=1266 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=11 authored=11 x=729 y=1282 width=439 height=104 text=lyric line 12
+glyph zone=body line=11 font=primary id=164 x=729 y=1370 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=11 font=primary id=216 x=751 y=1370 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=11 font=primary id=187 x=791 y=1370 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=11 font=primary id=149 x=825 y=1370 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=11 font=primary id=124 x=847 y=1370 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=11 font=primary id=164 x=915 y=1370 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=11 font=primary id=149 x=939 y=1370 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=11 font=primary id=170 x=961 y=1370 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=11 font=primary id=133 x=1010 y=1370 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=11 font=primary id=366 x=1083 y=1370 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=11 font=primary id=367 x=1119 y=1370 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=12 authored=12 x=729 y=1386 width=441 height=104 text=lyric line 13
+glyph zone=body line=12 font=primary id=164 x=729 y=1474 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=12 font=primary id=216 x=751 y=1474 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=12 font=primary id=187 x=791 y=1474 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=12 font=primary id=149 x=825 y=1474 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=12 font=primary id=124 x=847 y=1474 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=12 font=primary id=164 x=915 y=1474 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=12 font=primary id=149 x=939 y=1474 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=12 font=primary id=170 x=961 y=1474 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=12 font=primary id=133 x=1010 y=1474 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=12 font=primary id=366 x=1083 y=1474 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=12 font=primary id=368 x=1119 y=1474 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=13 authored=13 x=729 y=1490 width=445 height=104 text=lyric line 14
+glyph zone=body line=13 font=primary id=164 x=729 y=1578 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=13 font=primary id=216 x=751 y=1578 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=13 font=primary id=187 x=791 y=1578 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=13 font=primary id=149 x=825 y=1578 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=13 font=primary id=124 x=847 y=1578 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=13 font=primary id=164 x=915 y=1578 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=13 font=primary id=149 x=939 y=1578 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=13 font=primary id=170 x=961 y=1578 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=13 font=primary id=133 x=1010 y=1578 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=13 font=primary id=366 x=1083 y=1578 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=13 font=primary id=369 x=1119 y=1578 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=14 authored=14 x=729 y=1594 width=442 height=104 text=lyric line 15
+glyph zone=body line=14 font=primary id=164 x=729 y=1682 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=14 font=primary id=216 x=751 y=1682 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=14 font=primary id=187 x=791 y=1682 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=14 font=primary id=149 x=825 y=1682 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=14 font=primary id=124 x=847 y=1682 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=14 font=primary id=164 x=915 y=1682 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=14 font=primary id=149 x=939 y=1682 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=14 font=primary id=170 x=961 y=1682 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=14 font=primary id=133 x=1010 y=1682 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=14 font=primary id=366 x=1083 y=1682 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=14 font=primary id=370 x=1119 y=1682 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=15 authored=15 x=729 y=1698 width=443 height=104 text=lyric line 16
+glyph zone=body line=15 font=primary id=164 x=729 y=1786 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=15 font=primary id=216 x=751 y=1786 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=15 font=primary id=187 x=791 y=1786 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=15 font=primary id=149 x=825 y=1786 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=15 font=primary id=124 x=847 y=1786 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=15 font=primary id=164 x=915 y=1786 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=15 font=primary id=149 x=939 y=1786 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=15 font=primary id=170 x=961 y=1786 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=15 font=primary id=133 x=1010 y=1786 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=15 font=primary id=366 x=1083 y=1786 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=15 font=primary id=371 x=1119 y=1786 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=16 authored=16 x=729 y=1802 width=435 height=104 text=lyric line 17
+glyph zone=body line=16 font=primary id=164 x=729 y=1890 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=16 font=primary id=216 x=751 y=1890 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=16 font=primary id=187 x=791 y=1890 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=16 font=primary id=149 x=825 y=1890 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=16 font=primary id=124 x=847 y=1890 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=16 font=primary id=164 x=915 y=1890 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=16 font=primary id=149 x=939 y=1890 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=16 font=primary id=170 x=961 y=1890 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=16 font=primary id=133 x=1010 y=1890 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=16 font=primary id=366 x=1083 y=1890 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=16 font=primary id=372 x=1119 y=1890 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=17 authored=17 x=729 y=1906 width=445 height=104 text=lyric line 18
+glyph zone=body line=17 font=primary id=164 x=729 y=1994 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=17 font=primary id=216 x=751 y=1994 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=17 font=primary id=187 x=791 y=1994 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=17 font=primary id=149 x=825 y=1994 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=17 font=primary id=124 x=847 y=1994 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=17 font=primary id=164 x=915 y=1994 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=17 font=primary id=149 x=939 y=1994 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=17 font=primary id=170 x=961 y=1994 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=17 font=primary id=133 x=1010 y=1994 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=17 font=primary id=366 x=1083 y=1994 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=17 font=primary id=373 x=1119 y=1994 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=18 authored=18 x=729 y=2010 width=443 height=104 text=lyric line 19
+glyph zone=body line=18 font=primary id=164 x=729 y=2098 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=18 font=primary id=216 x=751 y=2098 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=18 font=primary id=187 x=791 y=2098 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=18 font=primary id=149 x=825 y=2098 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=18 font=primary id=124 x=847 y=2098 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=18 font=primary id=164 x=915 y=2098 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=18 font=primary id=149 x=939 y=2098 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=18 font=primary id=170 x=961 y=2098 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=18 font=primary id=133 x=1010 y=2098 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=18 font=primary id=366 x=1083 y=2098 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=18 font=primary id=374 x=1119 y=2098 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=19 authored=19 x=729 y=2114 width=461 height=104 text=lyric line 20
+glyph zone=body line=19 font=primary id=164 x=729 y=2202 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=19 font=primary id=216 x=751 y=2202 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=19 font=primary id=187 x=791 y=2202 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=19 font=primary id=149 x=825 y=2202 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=19 font=primary id=124 x=847 y=2202 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=19 font=primary id=164 x=915 y=2202 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=19 font=primary id=149 x=939 y=2202 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=19 font=primary id=170 x=961 y=2202 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=19 font=primary id=133 x=1010 y=2202 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=19 font=primary id=367 x=1083 y=2202 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=19 font=primary id=365 x=1132 y=2202 x-advance=58 y-advance=0 x-offset=0 y-offset=0 cluster=1
 warnings 3
-warning body content needs 1660px but the body zone offers 874px at the approved minimum; split before shrinking
+warning body content needs 2080px but the body zone offers 862px at the approved minimum; split before shrinking
 warning lyric body carries 20 phrases against a two-phrase target; split before shrinking
 warning lyric body has 20 rendered lines against a four-line ceiling; split before shrinking

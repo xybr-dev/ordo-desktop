@@ -1,98 +1,99 @@
 ordo-canonical-frame/2
 logical 1920 1080
 safe-area 120 80 1680 920
-header-rect 120 80 1680 46
-body-rect 120 126 1680 874
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
 footer-absent
-pagination authored-body=3 header-lines=1 body-lines=3 footer-lines=0 content-height=249 available-height=874 fit=fits hard-split=false first-hard-split=none
+pagination authored-body=3 header-lines=1 body-lines=4 footer-lines=0 content-height=416 available-height=862 fit=fits hard-split=false first-hard-split=none
 image-absent
 background theme
-line zone=header index=0 authored=0 x=120 y=80 width=103 height=46 text=Mixed
-glyph zone=header line=0 font=primary id=56 x=120 y=119 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=header line=0 font=primary id=149 x=152 y=119 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=header line=0 font=primary id=215 x=162 y=119 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=header line=0 font=primary id=133 x=180 y=119 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=header line=0 font=primary id=129 x=201 y=119 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=4
-line zone=body index=0 authored=0 x=251 y=438 width=938 height=83 text=Maayong buntag, mga igsoon!
-glyph zone=body line=0 font=primary id=56 x=251 y=508 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=112 x=310 y=508 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=112 x=347 y=508 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=216 x=384 y=508 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=175 x=415 y=508 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=170 x=454 y=508 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=0 font=primary id=143 x=493 y=508 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=0 font=primary id=123 x=553 y=508 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=200 x=593 y=508 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=170 x=631 y=508 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=196 x=669 y=508 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=112 x=692 y=508 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=143 x=729 y=508 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=0 font=primary id=235 x=769 y=508 x-advance=15 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=0 font=primary id=169 x=804 y=508 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=143 x=864 y=508 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=112 x=904 y=508 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=149 x=961 y=508 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=143 x=979 y=508 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=190 x=1019 y=508 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=175 x=1052 y=508 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=175 x=1091 y=508 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=170 x=1130 y=508 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=0 font=primary id=239 x=1169 y=508 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=6
-line zone=body index=1 authored=1 x=251 y=521 width=1417 height=83 text=magandang umaga, mga kapatid — awit 95 α
-glyph zone=body line=1 font=primary id=169 x=251 y=591 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=112 x=311 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=143 x=348 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=112 x=388 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=170 x=425 y=591 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=129 x=464 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=1 font=primary id=112 x=504 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=1 font=primary id=170 x=541 y=591 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=7
-glyph zone=body line=1 font=primary id=143 x=580 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=8
-glyph zone=body line=1 font=primary id=200 x=640 y=591 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=169 x=678 y=591 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=112 x=738 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=143 x=775 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=112 x=815 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=235 x=852 y=591 x-advance=15 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=1 font=primary id=169 x=887 y=591 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=143 x=947 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=112 x=987 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=162 x=1044 y=591 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=112 x=1078 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=184 x=1115 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=112 x=1155 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=196 x=1192 y=591 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=149 x=1215 y=591 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=1 font=primary id=129 x=1233 y=591 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=1 font=primary id=253 x=1293 y=591 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=112 x=1372 y=591 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=210 x=1409 y=591 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=149 x=1459 y=591 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=196 x=1477 y=591 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=374 x=1520 y=591 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=370 x=1562 y=591 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=fallback id=381 x=1624 y=591 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=0
-line zone=body index=2 authored=2 x=251 y=604 width=799 height=83 text=the choir sings, salmo 7 ₱
-glyph zone=body line=2 font=primary id=196 x=251 y=674 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=147 x=274 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=133 x=313 y=674 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=124 x=371 y=674 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=147 x=407 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=175 x=446 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=149 x=485 y=674 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=2 font=primary id=187 x=503 y=674 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=2 font=primary id=190 x=548 y=674 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=149 x=581 y=674 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=170 x=599 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=143 x=638 y=674 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=2 font=primary id=190 x=678 y=674 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=2 font=primary id=235 x=711 y=674 x-advance=15 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=2 font=primary id=190 x=746 y=674 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=primary id=112 x=779 y=674 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=2 font=primary id=164 x=816 y=674 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=2 font=primary id=169 x=834 y=674 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=2 font=primary id=175 x=894 y=674 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=2 font=primary id=372 x=953 y=674 x-advance=36 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=2 font=fallback id=1572 x=1009 y=674 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=header index=0 authored=0 x=120 y=80 width=130 height=58 text=Mixed
+glyph zone=header line=0 font=primary id=56 x=120 y=129 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=149 x=161 y=129 x-advance=12 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=215 x=173 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=133 x=196 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=129 x=222 y=129 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=0 authored=0 x=175 y=361 width=1177 height=104 text=Maayong buntag, mga igsoon!
+glyph zone=body line=0 font=primary id=56 x=175 y=449 x-advance=74 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=249 y=449 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=296 y=449 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=216 x=342 y=449 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=175 x=381 y=449 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=170 x=430 y=449 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=143 x=479 y=449 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=123 x=554 y=449 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=200 x=604 y=449 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=652 y=449 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=196 x=699 y=449 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=112 x=728 y=449 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=143 x=775 y=449 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=235 x=825 y=449 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=169 x=868 y=449 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=143 x=944 y=449 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=994 y=449 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=1066 y=449 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=143 x=1088 y=449 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=190 x=1138 y=449 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=175 x=1180 y=449 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=175 x=1229 y=449 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=170 x=1278 y=449 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=239 x=1327 y=449 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=6
+line zone=body index=1 authored=1 x=175 y=465 width=1570 height=104 text=magandang umaga, mga kapatid — awit
+glyph zone=body line=1 font=primary id=169 x=175 y=553 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=251 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=143 x=298 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=348 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=170 x=395 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=129 x=444 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=112 x=494 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=170 x=541 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=1 font=primary id=143 x=590 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=1 font=primary id=200 x=665 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=169 x=713 y=553 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=112 x=789 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=143 x=836 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=112 x=886 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=235 x=933 y=553 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=169 x=976 y=553 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=143 x=1052 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=112 x=1102 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=162 x=1174 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=1217 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=184 x=1264 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=1314 y=553 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=196 x=1360 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=149 x=1389 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=129 x=1411 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=253 x=1486 y=553 x-advance=74 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=1585 y=553 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=210 x=1631 y=553 x-advance=63 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=149 x=1694 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=196 x=1716 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
+line zone=body index=2 authored=1 x=175 y=569 width=186 height=104 text=95 α
+glyph zone=body line=2 font=primary id=374 x=175 y=657 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=2 font=primary id=370 x=228 y=657 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=2 font=fallback id=381 x=305 y=657 x-advance=56 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=3 authored=2 x=175 y=673 width=1002 height=104 text=the choir sings, salmo 7 ₱
+glyph zone=body line=3 font=primary id=196 x=175 y=761 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=147 x=204 y=761 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=133 x=253 y=761 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=124 x=326 y=761 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=147 x=371 y=761 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=175 x=420 y=761 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=149 x=468 y=761 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=3 font=primary id=187 x=490 y=761 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=3 font=primary id=190 x=546 y=761 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=149 x=588 y=761 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=170 x=610 y=761 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=143 x=659 y=761 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=3 font=primary id=190 x=709 y=761 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=3 font=primary id=235 x=751 y=761 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=3 font=primary id=190 x=794 y=761 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=primary id=112 x=836 y=761 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=3 font=primary id=164 x=883 y=761 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=3 font=primary id=169 x=906 y=761 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=3 font=primary id=175 x=982 y=761 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=3 font=primary id=372 x=1056 y=761 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=3 font=fallback id=1572 x=1126 y=761 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=0
 warnings 1
 warning lyric body carries 3 phrases against a two-phrase target; split before shrinking

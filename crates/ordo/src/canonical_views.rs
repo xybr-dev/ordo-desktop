@@ -111,6 +111,10 @@ pub fn preview_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
 
 /// The operator Program monitor: the finished frame that is live. The
 /// congregation window is not this; it stays a separate passive surface.
+/// Production Preview and Program share the 720 width, so production holds
+/// three distinct operator outer sizes (320 / 480 / 720 before Interface
+/// scale); the milestone's four different-size viewports remain an open
+/// acceptance gate (see the milestone E2E below).
 pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyElement {
     let width = environment.preferences().scale.apply(720.0);
     div()
@@ -295,7 +299,8 @@ mod tests {
     fn every_viewport_takes_the_same_finished_pixels() {
         // The data-level half of the exit check: at both viewport presets and
         // every Interface scale, all four consumers take the one shared frame,
-        // so identical internal pixels is structural, not coincidental.
+        // so identical source bytes is structural, not coincidental. No
+        // compositor output is claimed here, only the shared image source.
         let finished = finished_fixture();
         let expected = finished.image().bytes().to_vec();
         for scale in SCALES {
@@ -309,7 +314,7 @@ mod tests {
                 assert_eq!(
                     finished.image().bytes(),
                     expected.as_slice(),
-                    "shared pixels must survive {viewport:?} at {scale:?}"
+                    "shared source bytes must survive {viewport:?} at {scale:?}"
                 );
             }
         }
@@ -336,10 +341,43 @@ mod tests {
         }
     }
 
+    /// One operator viewport mounted alone, so its inner `canonical-frame`
+    /// pixels box is unambiguous (the combined host reuses the same inner
+    /// selectors four times). `which`: 0 thumbnail, 1 inspector, 2 preview,
+    /// 3 program.
+    struct SingleViewportHost {
+        frame: FinishedFrame,
+        environment: UiEnvironment,
+        which: u8,
+    }
+
+    impl gpui::Render for SingleViewportHost {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            // The viewport must not be the window root: a width-only root
+            // stretches to the window height, hiding the viewport's own
+            // 16:9 box. Nesting it under a full-size parent keeps the
+            // measured outer box honest.
+            div().size_full().child(match self.which {
+                0 => timeline_thumbnail(&self.frame, 0, self.environment),
+                1 => inspector_frame(&self.frame, self.environment),
+                2 => preview_frame(&self.frame, self.environment),
+                _ => program_frame(&self.frame, self.environment),
+            })
+        }
+    }
+
     /// The rendered half of the exit check: one fixture in all four viewports
     /// at both viewport presets and every Interface scale. Each outer box
     /// holds `16:9` and differs only in outer scale; the shared frame inside
-    /// never moves.
+    /// never moves. Production Preview and Program share the 720 width, so
+    /// only three distinct outer sizes exist here; the milestone's four
+    /// different-size viewports remain an open gate (see the milestone E2E).
+    /// Source bytes plus geometry only, never compositor output (see the
+    /// milestone E2E below for why no screenshot exists on this host).
     #[gpui::test]
     fn four_viewports_hold_one_frame_across_presets_and_scales(cx: &mut gpui::TestAppContext) {
         cx.update(ui::init).unwrap();
@@ -389,15 +427,16 @@ mod tests {
                 assert_eq!(
                     frame.image().bytes(),
                     expected.as_slice(),
-                    "shared pixels must not move with preset or scale"
+                    "shared source bytes must not move with preset or scale"
                 );
             }
         }
     }
 
     /// No operator-only node reaches the congregation window: it mounts no
-    /// canonical viewport, keeps its Program and status selectors, and takes
-    /// no focus.
+    /// canonical viewport, keeps its Program and status selectors, reserves
+    /// the Program pixels box edge-to-edge (black until the background
+    /// encode lands, then the complete image), and takes no focus.
     #[gpui::test]
     fn congregation_mounts_no_operator_viewport(cx: &mut gpui::TestAppContext) {
         use presentation::{CongregationState, OutputStatus, ProgramFrame};
@@ -424,6 +463,483 @@ mod tests {
         }
         assert!(cx.debug_bounds("program-frame-7").is_some());
         assert!(cx.debug_bounds("output-status-Connected").is_some());
+        assert!(
+            cx.debug_bounds("congregation-frame-pixels").is_some(),
+            "congregation must paint the complete Program pixels"
+        );
         assert!(cx.update(|window, cx| window.focused(cx).is_none()));
+    }
+
+    /// T0.4 milestone E2E (`MILESTONES.md` T0.4 `[UI-AUTO]`): render one
+    /// mixed-language fixture once, display it in the four operator viewports
+    /// plus the production congregation renderer, check every surface's
+    /// image source plus geometry, and assert identical canonical content
+    /// and unchanged pagination.
+    ///
+    /// Composition runs once on the production canonical worker; the raster,
+    /// the operator [`FinishedFrame`], and the congregation
+    /// [`presentation::ProgramFrame`] each derive once from that single
+    /// frame. All five surfaces mount for real: the four operator viewports
+    /// through their production wrappers at production sizes (timeline 320 /
+    /// Inspector 480 / Preview 720 / Program 720, before Interface scale;
+    /// Preview and Program share 720, so only three distinct operator outer
+    /// sizes exist), and the congregation output through the production
+    /// [`crate::CongregationView`], which reserves the Program pixels box
+    /// edge-to-edge (black until the background encode lands). The
+    /// milestone's four different-size operator viewports therefore remain
+    /// an open acceptance gate: this E2E proves the shared content and
+    /// pagination at production sizes without manufacturing a fourth
+    /// production size, and does not claim that gate.
+    /// This is source-byte plus geometry inspection only, NOT a compositor
+    /// screenshot: `gpui::TestAppContext` always constructs `TestPlatform`
+    /// without any headless renderer on every OS, so
+    /// `window.render_to_image` returns `Err` on macOS too and no compositor
+    /// pixel readback exists to claim here. No screenshot is attempted and
+    /// no mocked pixels are claimed as compositor output; the gate is each
+    /// surface's measured outer/inner bounds plus its `img` image source
+    /// (id and decodable backing bytes) against the one rasterization.
+    /// Actual compositor captures plus outer-scale-normalized pixel
+    /// equivalence stay the pending manual gate
+    /// (`docs/qualification/T0.4-MANUAL-GATE.md` script C plus the gallery
+    /// candidate); this host only proves the sources and boxes those
+    /// captures would read. Only outer bounds may differ; everything inside
+    /// must stay identical. Mounted congregation isolation stays
+    /// pinned by `congregation_mounts_no_operator_viewport` and window
+    /// topology by `native-runtime/tests/runtime.rs`; this E2E pins the
+    /// shared content and pagination.
+    #[gpui::test]
+    fn milestone_e2e_one_fixture_feeds_four_viewports_and_congregation(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use crate::canonical::CanonicalCommand;
+        use platform::tasks::{OwnedWorker, WorkerKind};
+        use presentation::{CongregationState, OutputStatus, ProgramFrame};
+        use rendering::{TargetDensity, TemplateContent, TemplateKind};
+
+        cx.update(ui::init).unwrap();
+
+        // One mixed-language fixture: Cebuano, Tagalog, and English lines
+        // plus bundled-fallback glyphs (peso sign, Greek alpha), so the
+        // composition exercises the Noto path with real ids, never `.notdef`.
+        let content = TemplateContent {
+            kind: TemplateKind::Lyrics,
+            header: Some("Mixed".to_owned()),
+            body: "Maayong buntag, mga igsoon!\nmagandang umaga, mga kapatid \u{2014} awit 95 \u{3B1}\nthe choir sings, salmo 7 \u{20B1}".to_owned(),
+            footer: None,
+            image: None,
+        };
+
+        // Compose once, on the production worker off the GPUI thread.
+        let (commands, requests) = std::sync::mpsc::channel();
+        let mut worker = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+            crate::canonical::serve_canonical(requests, cancel)
+        })
+        .expect("canonical worker must start");
+        let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        commands
+            .send(CanonicalCommand::Compose {
+                environment,
+                window_scale: 1.0,
+                content,
+                reply: reply_tx,
+            })
+            .expect("canonical worker must accept the fixture");
+        let (frame, diagnostics) = reply_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("canonical worker must answer")
+            .expect("fixture must compose through the worker");
+        commands.send(CanonicalCommand::Stop).ok();
+        let _ = worker.cancel_and_join();
+
+        // Capture the canonical output and pagination once, at the edge.
+        let baseline_serialization = frame.serialize();
+        let baseline_pagination = frame.pagination().clone();
+        let baseline_warnings = diagnostics.warnings.clone();
+        assert!(
+            baseline_serialization.contains("font=fallback"),
+            "the mixed-language fixture must exercise the bundled fallback"
+        );
+        assert!(
+            !baseline_serialization
+                .lines()
+                .any(|line| line.contains(" id=0 ")),
+            "the fixture must pin real fallback glyphs, never `.notdef`"
+        );
+
+        // Rasterize once; both renderers derive from this single sampling.
+        let raster = rendering::rasterize(&frame, TargetDensity::SCALE_100, &HashMap::new())
+            .expect("fixture must rasterize");
+        assert_eq!(raster.logical_size(), (1920, 1080));
+        let raster_bytes = raster.rgba().to_vec();
+        let (raster_w, raster_h) = (raster.width(), raster.height());
+
+        // Finish once per renderer from the one composition.
+        let finished = finish_frame(&raster).expect("raster must finish");
+        let finished_bytes = finished.image().bytes().to_vec();
+        let program =
+            ProgramFrame::from_raster(1, raster).expect("raster must feed the congregation seam");
+        // The congregation renderer shows the same sampling: identical bytes
+        // and extent under the one revision.
+        assert_eq!(program.revision(), 1);
+        assert_eq!((program.width(), program.height()), (raster_w, raster_h));
+        assert_eq!(
+            program.rgba(),
+            raster_bytes.as_slice(),
+            "congregation bytes must equal the rasterized canonical output"
+        );
+        let congregation = CongregationState::new(program, OutputStatus::Connected);
+        assert_eq!(
+            congregation.program().rgba(),
+            raster_bytes.as_slice(),
+            "congregation state must carry the one composition"
+        );
+
+        // Measure the one finished frame in all four operator viewports,
+        // then mount the production congregation renderer on the same
+        // composition: each `add_window_view` borrows the app context, so
+        // the operator assertions close out before the second window opens.
+        {
+            let (_, cx) = cx.add_window_view(|_, _| ViewportsHost {
+                frame: finished.clone(),
+                environment: environment_at(InterfaceScale::Percent100),
+            });
+            // Measure every operator surface at both qualified viewport presets;
+            // only the outer scale is normalized, everything inside must stay
+            // identical. Backing bytes plus bounds here, not a screenshot.
+            for (width, height) in [(1366.0f32, 768.0f32), (1920.0, 1080.0)] {
+                cx.simulate_resize(gpui::size(gpui::px(width), gpui::px(height)));
+                cx.run_until_parked();
+                let mut outers = Vec::new();
+                for (selector, base) in [
+                    ("canonical-thumbnail-0", 320.0f32),
+                    ("canonical-inspector", 480.0),
+                    ("canonical-preview", 720.0),
+                    ("canonical-program", 720.0),
+                ] {
+                    let leaked: &'static str = Box::leak(selector.to_owned().into_boxed_str());
+                    let bounds = cx
+                        .debug_bounds(leaked)
+                        .unwrap_or_else(|| panic!("{selector} must render at {width}x{height}"));
+                    let (actual_w, actual_h) =
+                        (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                    assert!(
+                        (actual_w - base).abs() < 1.0,
+                        "{selector} outer width must follow its viewport: got {actual_w} for {base}"
+                    );
+                    assert!(
+                        (actual_h - base * 9.0 / 16.0).abs() < 1.0,
+                        "{selector} must hold 16:9: got {actual_h} for {base}"
+                    );
+                    outers.push(actual_w);
+                }
+                // Production Preview and Program share the 720 width by design,
+                // so only three distinct operator outer sizes exist. The
+                // milestone's four different-size viewports remain an open
+                // acceptance gate and are not claimed here; the shared frame
+                // inside never moves.
+                assert!(
+                    (outers[2] - outers[3]).abs() < 1.0,
+                    "production Preview and Program share 720: {outers:?}"
+                );
+                let mut sorted = outers.clone();
+                sorted.sort_by(|left, right| left.total_cmp(right));
+                let mut distinct: Vec<f32> = Vec::with_capacity(4);
+                for width in sorted {
+                    let is_new = match distinct.last() {
+                        None => true,
+                        Some(last) => (width - *last).abs() > 1.0,
+                    };
+                    if is_new {
+                        distinct.push(width);
+                    }
+                }
+                assert_eq!(
+                    distinct.len(),
+                    3,
+                    "production holds three distinct operator outer sizes: {outers:?}"
+                );
+                for pair in distinct.windows(2) {
+                    assert!(
+                        pair[1] - pair[0] > 1.0,
+                        "viewports must differ only in outer scale: {outers:?}"
+                    );
+                }
+                assert_eq!(
+                    finished.image().bytes(),
+                    finished_bytes.as_slice(),
+                    "shared operator source bytes must not move with the preset"
+                );
+            }
+        }
+
+        // Per-surface image-source plus geometry only, never compositor
+        // output: each operator viewport mounts alone so its inner pixels
+        // box is unambiguous. The mounted `img` source (id and decodable
+        // backing bytes) must equal the one rasterization beside each
+        // surface's measured bounds. No compositor screenshot is attempted:
+        // `TestAppContext` supplies no headless renderer on any OS, so
+        // `render_to_image` would return `Err` everywhere.
+        for (which, selector, base) in [
+            (0u8, "canonical-thumbnail-0", 320.0f32),
+            (1, "canonical-inspector", 480.0),
+            (2, "canonical-preview", 720.0),
+            (3, "canonical-program", 720.0),
+        ] {
+            let (host, cx) = cx.add_window_view(|_, _| SingleViewportHost {
+                frame: finished.clone(),
+                environment: environment_at(InterfaceScale::Percent100),
+                which,
+            });
+            cx.simulate_resize(gpui::size(gpui::px(1920.0), gpui::px(1080.0)));
+            cx.run_until_parked();
+            let leaked: &'static str = Box::leak(selector.to_owned().into_boxed_str());
+            let outer = cx
+                .debug_bounds(leaked)
+                .unwrap_or_else(|| panic!("{selector} must render alone"));
+            let (outer_w, outer_h) = (f32::from(outer.size.width), f32::from(outer.size.height));
+            assert!(
+                (outer_w - base).abs() < 1.0 && (outer_h - base * 9.0 / 16.0).abs() < 1.0,
+                "{selector} alone must hold its viewport box: got {outer_w}x{outer_h} for {base}"
+            );
+            let inner = cx
+                .debug_bounds("canonical-frame-pixels")
+                .unwrap_or_else(|| panic!("{selector} must paint its pixels box"));
+            let (inner_w, inner_h) = (f32::from(inner.size.width), f32::from(inner.size.height));
+            assert!(
+                (inner_w - base).abs() < 1.0 && (inner_h - base * 9.0 / 16.0).abs() < 1.0,
+                "{selector} pixels box must fill its viewport box: got {inner_w}x{inner_h} for {base}"
+            );
+            let (source_id, source_bytes) = host.read_with(cx, |host, _| {
+                (host.frame.image().id(), host.frame.image().bytes().to_vec())
+            });
+            assert_eq!(
+                source_id,
+                finished.image().id(),
+                "{selector} must show the shared image source"
+            );
+            let decoded = tiny_skia::Pixmap::decode_png(&source_bytes)
+                .unwrap_or_else(|_| panic!("{selector} bytes must stay a decodable PNG"));
+            assert_eq!(
+                decoded.data(),
+                raster_bytes.as_slice(),
+                "{selector} backing bytes must equal the one rasterization"
+            );
+        }
+
+        // The congregation surface's boxes plus backing bytes: the pixels
+        // box must fill the 16:9 window edge-to-edge, and the exact backing
+        // bytes the background encode publishes must decode to the one
+        // rasterization. Source bytes plus bounds only, never compositor
+        // output; no compositor screenshot is attempted here either.
+        let (congregation_view, cx) =
+            cx.add_window_view(|_, cx| crate::CongregationView::new(congregation.clone(), cx));
+        cx.simulate_resize(gpui::size(gpui::px(1920.0), gpui::px(1080.0)));
+        cx.run_until_parked();
+        let pixels = cx
+            .debug_bounds("congregation-frame-pixels")
+            .expect("congregation must reserve the Program pixels box");
+        let (actual_w, actual_h) = (f32::from(pixels.size.width), f32::from(pixels.size.height));
+        assert!(
+            (actual_w - 1920.0).abs() < 1.0 && (actual_h - 1080.0).abs() < 1.0,
+            "congregation pixels box must fill the output: got {actual_w}x{actual_h}"
+        );
+        // The background encode lands via the Context executors; park until
+        // the complete image publishes (the surface holds black until then).
+        for _ in 0..100 {
+            let ready = congregation_view.read_with(cx, |view, _| view.image().is_some());
+            if ready {
+                break;
+            }
+            cx.run_until_parked();
+        }
+        let painted = congregation_view.read_with(cx, |view, _| {
+            view.image()
+                .expect("congregation background encode must land")
+                .bytes()
+                .to_vec()
+        });
+        let decoded = tiny_skia::Pixmap::decode_png(&painted)
+            .expect("congregation bytes must stay a decodable PNG");
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (raster_w, raster_h),
+            "congregation output must carry the raster extent"
+        );
+        assert_eq!(
+            decoded.data(),
+            raster_bytes.as_slice(),
+            "congregation backing bytes must equal the one rasterization"
+        );
+        let decoded = tiny_skia::Pixmap::decode_png(&finished_bytes)
+            .expect("operator bytes must stay a decodable PNG");
+        assert_eq!(
+            decoded.data(),
+            raster_bytes.as_slice(),
+            "operator backing bytes must equal the one rasterization"
+        );
+
+        // Unchanged pagination: the one logical frame still serializes and
+        // paginates exactly as composed, after every surface consumed it.
+        assert_eq!(
+            frame.serialize(),
+            baseline_serialization,
+            "canonical content must be identical on every surface"
+        );
+        assert_eq!(
+            frame.pagination(),
+            &baseline_pagination,
+            "pagination inputs must be unchanged on every surface"
+        );
+        assert_eq!(
+            diagnostics.warnings, baseline_warnings,
+            "diagnostics must ride beside the complete frame unchanged"
+        );
+        assert_eq!(
+            congregation.program().rgba(),
+            raster_bytes.as_slice(),
+            "congregation backing bytes must still equal the one rasterization"
+        );
+    }
+
+    /// macOS-only compositor readback through the pinned visual harness.
+    ///
+    /// `gpui::TestAppContext` always constructs `TestPlatform` with no
+    /// renderer on every OS, so the E2E above deliberately never calls
+    /// `window.render_to_image`. This separate test proves the pinned
+    /// compositor capture path instead: `gpui::VisualTestAppContext::new`
+    /// over `gpui_platform::current_platform(false)`, the pinned
+    /// `open_offscreen_window` API, and `capture_screenshot`.
+    ///
+    /// One mixed-language fixture composes once on the production canonical
+    /// worker; the raster, the operator [`FinishedFrame`], and the
+    /// congregation [`presentation::ProgramFrame`] each derive once from that
+    /// single frame. All five production surfaces mount for real in their own
+    /// offscreen windows at production sizes (thumbnail 320x180 / Inspector
+    /// 480x270 / Preview 720x405 / Program 720x405 at 100% Interface scale,
+    /// plus congregation 1920x1080), and each window captures real compositor
+    /// pixels. This proves the capture path yields real pixels per surface;
+    /// outer-scale-normalized pixel equivalence across the five captures
+    /// remains the open manual gate
+    /// (`docs/qualification/T0.4-MANUAL-GATE.md` script C plus the gallery
+    /// candidate) and is not claimed here: without macOS verification there
+    /// is no safe threshold for resampling differences, so this host asserts
+    /// nonzero real pixels only and never fakes equivalence.
+    ///
+    /// Requires the macOS main thread plus a compositor, so it stays
+    /// `#[ignore]`d. Run on a Mac with:
+    /// `cargo test -p ordo --lib canonical_views::tests::macos_offscreen_capture -- --ignored --test-threads=1`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore] // Requires the macOS main thread plus a compositor.
+    fn macos_offscreen_capture_reads_compositor_pixels() {
+        use crate::canonical::CanonicalCommand;
+        use platform::tasks::{OwnedWorker, WorkerKind};
+        use presentation::{CongregationState, OutputStatus, ProgramFrame};
+        use rendering::{TargetDensity, TemplateContent, TemplateKind};
+
+        let mut cx = gpui::VisualTestAppContext::new(gpui_platform::current_platform(false));
+        cx.update(|cx| ui::init(cx)).expect("UI must init");
+
+        // One mixed-language fixture through the production worker, so all
+        // five captures derive from a single composition.
+        let content = TemplateContent {
+            kind: TemplateKind::Lyrics,
+            header: Some("Mixed".to_owned()),
+            body: "Maayong buntag, mga igsoon!\nmagandang umaga, mga kapatid \u{2014} awit 95 \u{3B1}\nthe choir sings, salmo 7 \u{20B1}".to_owned(),
+            footer: None,
+            image: None,
+        };
+        let (commands, requests) = std::sync::mpsc::channel();
+        let mut worker = OwnedWorker::spawn(WorkerKind::Canonical, move |cancel| {
+            crate::canonical::serve_canonical(requests, cancel)
+        })
+        .expect("canonical worker must start");
+        let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        commands
+            .send(CanonicalCommand::Compose {
+                environment,
+                window_scale: 1.0,
+                content,
+                reply: reply_tx,
+            })
+            .expect("canonical worker must accept the fixture");
+        let (frame, _) = reply_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("canonical worker must answer")
+            .expect("fixture must compose through the worker");
+        commands.send(CanonicalCommand::Stop).ok();
+        let _ = worker.cancel_and_join();
+
+        let raster = rendering::rasterize(&frame, TargetDensity::SCALE_100, &HashMap::new())
+            .expect("fixture must rasterize");
+        let finished = finish_frame(&raster).expect("raster must finish");
+        let program =
+            ProgramFrame::from_raster(1, raster).expect("raster must feed the congregation seam");
+        let congregation = CongregationState::new(program, OutputStatus::Connected);
+
+        // Each production surface in its own offscreen window at its
+        // production outer size; the capture below reads real compositor
+        // pixels per surface, never mocked bytes.
+        let operator_windows: [(u8, f32, f32, &'static str); 4] = [
+            (0, 320.0, 180.0, "thumbnail"),
+            (1, 480.0, 270.0, "inspector"),
+            (2, 720.0, 405.0, "preview"),
+            (3, 720.0, 405.0, "program"),
+        ];
+        for (which, width, height, name) in operator_windows {
+            let frame = finished.clone();
+            let window = cx
+                .open_offscreen_window(
+                    gpui::size(gpui::px(width), gpui::px(height)),
+                    move |_, cx| {
+                        cx.new(|_| SingleViewportHost {
+                            frame: frame.clone(),
+                            environment: environment_at(InterfaceScale::Percent100),
+                            which,
+                        })
+                    },
+                )
+                .unwrap_or_else(|_| panic!("{name} offscreen window must open"));
+            cx.run_until_parked();
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .unwrap_or_else(|_| panic!("{name} offscreen window must refresh"));
+            cx.run_until_parked();
+            let shot = cx
+                .capture_screenshot(window.into())
+                .unwrap_or_else(|_| panic!("{name} compositor capture must succeed"));
+            assert!(
+                shot.width() > 0 && shot.height() > 0,
+                "{name} compositor must return real pixels, got {}x{}",
+                shot.width(),
+                shot.height()
+            );
+        }
+
+        // The congregation surface through the production renderer. Park
+        // repeatedly so the background PNG encode has a chance to land; the
+        // capture still proves only real pixels, never equivalence, which
+        // stays the open manual gate.
+        let window = cx
+            .open_offscreen_window(gpui::size(gpui::px(1920.0), gpui::px(1080.0)), |_, cx| {
+                cx.new(|cx| crate::CongregationView::new(congregation.clone(), cx))
+            })
+            .expect("congregation offscreen window must open");
+        for _ in 0..100 {
+            cx.run_until_parked();
+        }
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("congregation offscreen window must refresh");
+        cx.run_until_parked();
+        let shot = cx
+            .capture_screenshot(window.into())
+            .expect("congregation compositor capture must succeed");
+        assert!(
+            shot.width() > 0 && shot.height() > 0,
+            "congregation compositor must return real pixels, got {}x{}",
+            shot.width(),
+            shot.height()
+        );
     }
 }

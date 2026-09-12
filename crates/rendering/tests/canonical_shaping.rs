@@ -374,8 +374,10 @@ fn oversized_header_and_footer_fail_instead_of_misbounding_zones() {
             safe_height: 920,
         })
     );
-    // Chrome that exactly fills the safe area still stacks coherently.
-    let snug = (1..=11)
+    // Chrome that exactly fills the safe area still stacks coherently: at the
+    // candidate 104px line height the safe 920px holds 8 header lines (832px)
+    // with 88px of body, while 9 lines (936px) fail like the tall case above.
+    let snug = (1..=8)
         .map(|n| format!("line {n}"))
         .collect::<Vec<_>>()
         .join("\n");
@@ -390,7 +392,7 @@ fn oversized_header_and_footer_fail_instead_of_misbounding_zones() {
     .unwrap();
     assert_eq!(frame.pagination().fit, Fit::Fits);
     assert!(diagnostics.warnings.is_empty());
-    assert_eq!(frame.body().height, 920 - 11 * BODY_LINE_HEIGHT);
+    assert_eq!(frame.body().height, 920 - 8 * BODY_LINE_HEIGHT);
 }
 
 #[test]

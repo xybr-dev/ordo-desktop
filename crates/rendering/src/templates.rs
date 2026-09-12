@@ -46,13 +46,16 @@
 //!   paint outside this module, so a theme picture can never arrive as
 //!   foreground content.
 //!
-//! Relative hierarchy with provisional numbers: display (72px, the
-//! projected-response token and first gallery baseline) carries emphasized
-//! bodies and large titles; passage (56px) carries running scripture and
-//! general text, smaller than identification titles; meta (40px) carries
-//! labels, headers, references, credits, dates, and captions. Every number
-//! except the 72px baseline is provisional: the PR 10 gallery qualifies them
-//! and only then do they freeze.
+//! Relative hierarchy with candidate numbers (T0.4.10, pending human approval
+//! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
+//! projected-response token and gallery baseline, +25% from the 72px PR 5
+//! provisional) carries emphasized bodies and large titles; passage (70px,
+//! +25% from 56px) carries running scripture and general text, smaller than
+//! identification titles; meta (50px, +25% from 40px) carries labels,
+//! headers, references, credits, dates, and captions. PR 5 carried the
+//! provisional 72/56/40 levels; PR 10 proposes 90/70/50 as candidate for
+//! gallery review — whether long Cebuano/English cases are comfortably
+//! readable there is a pending human judgment.
 //!
 //! Line ceilings warn beside a complete frame without changing its fit:
 //! lyrics target two logical phrases and no more than four rendered lines,
@@ -66,16 +69,16 @@ use crate::interface::{
 };
 use crate::shaping::{self, Alignment, VAlign};
 
-/// Provisional display size: the 72px projected-response token. Emphasized
-/// bodies and large titles measure here until the PR 10 gallery freezes the
-/// levels.
+/// Candidate display size (T0.4.10, pending approval): the 90px projected-response token (+25%
+/// from the 72px PR 5 provisional baseline). Emphasized bodies and large
+/// titles measure here.
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
-/// Provisional passage size: running scripture and general text, smaller than
-/// identification titles.
-pub const PROVISIONAL_PASSAGE_SIZE: u32 = 56;
-/// Provisional meta size: section labels, resolved headers, references,
-/// credits, dates, and captions.
-pub const PROVISIONAL_META_SIZE: u32 = 40;
+/// Candidate passage size (T0.4.10, pending approval): running scripture and general text, smaller
+/// than identification titles. 70px, +25% from the 56px PR 5 provisional.
+pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
+/// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
+/// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
+pub const PROVISIONAL_META_SIZE: u32 = 50;
 
 /// The adopted congregation templates, plus the black slide.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
