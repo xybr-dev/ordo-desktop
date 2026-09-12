@@ -2,6 +2,7 @@
 
 pub mod accessibility;
 pub mod assets;
+pub mod canonical_frame;
 pub mod environment;
 /// Development-only scenario host; `ui-lab` enables it, operator builds do not.
 #[cfg(any(test, feature = "lab"))]
