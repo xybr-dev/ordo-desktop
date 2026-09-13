@@ -581,12 +581,12 @@ pub fn layout_zone(
     text: &str,
     size: u32,
     max_width: i32,
-    origin_x: i32,
-    origin_y: i32,
+    origin: (i32, i32),
     faces: &Faces,
     align: Alignment,
     weight: u16,
 ) -> Vec<ShapedLine> {
+    let (origin_x, origin_y) = origin;
     let line_height = line_height_for(size);
     let ascent_px = faces.ascent_px(size);
     let space_px = faces.space_px(size);
@@ -635,12 +635,12 @@ pub fn layout_body(
     text: &str,
     size: u32,
     max_width: i32,
-    origin_x: i32,
-    origin_y: i32,
+    origin: (i32, i32),
     faces: &Faces,
     align: Alignment,
     weight: u16,
 ) -> LaidOutBody {
+    let (origin_x, origin_y) = origin;
     let line_height = line_height_for(size);
     let ascent_px = faces.ascent_px(size);
     let space_px = faces.space_px(size);
