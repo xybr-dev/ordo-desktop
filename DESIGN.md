@@ -275,8 +275,14 @@ Use these fixed template relationships:
   treatment.
 - **Song identification:** a bottom-left identity block with large uppercase
   Song title, smaller composer/source, and optional Arrangement/Choir credit.
-- **Celebration title:** uppercase, left-aligned title optically centered above
-  the bottom-left localized date.
+- **Celebration title:** title preserved exactly as authored (mixed case,
+  never uppercased) at candidate `135px`/weight `800`, left-aligned to the
+  safe-area left edge, plus an optional Normal-Case subtitle at candidate
+  `68px`/weight `300` on the same left edge below the title; title plus
+  subtitle center together vertically above the unchanged bottom-left
+  localized date. The subtitle reuses the header slot renderer-locally with
+  no new product field: absent, empty, or whitespace-only reserves no
+  vertical space.
 - **General Text:** optional header, center-left body, and optional footer.
   **General Image:** one contained foreground image plus optional header and
   caption. A Theme image is background, not foreground content.
@@ -285,17 +291,20 @@ Preserve authored line breaks. A blank source line is a hard Slide boundary for
 Lyrics and Scripture and overrides automatic proposals. Pagination targets two
 logical lyric phrases and no more than four rendered lines; split before
 shrinking, never clip, and emit a readiness warning when content cannot fit at
-the approved minimum. Limit Song and Celebration titles to three rendered lines
-before warning. Validate measured canonical geometry rather than character
+the approved minimum. Limit Song titles to three rendered lines and Celebration
+titles to three rendered title lines (subtitle lines never count) before
+warning. Validate measured canonical geometry rather than character
 counts.
 
 The relative hierarchy is adopted, and the projected levels are candidate at
 T0.4.10 at display `90px` / passage `70px` / meta `50px` (each exactly +25%
-from the PR 5 provisional `72px` / `56px` / `40px`), proposed for the
-fixture-backed gallery candidate. Whether long Cebuano and English cases are
-comfortably readable at these levels is a pending human visual judgment,
-recorded in `docs/qualification/T0.4-MANUAL-GATE.md` — nothing here claims
-them frozen or qualified.
+from the PR 5 provisional `72px` / `56px` / `40px`), plus the Celebration
+exception at candidate title `135px`/weight `800` (50% above display) with an
+optional Normal-Case subtitle at `68px`/weight `300` (75% of display),
+proposed for the fixture-backed gallery candidate. Whether long Cebuano and
+English cases are comfortably readable at these levels is a pending human
+visual judgment, recorded in `docs/qualification/T0.4-MANUAL-GATE.md` —
+nothing here claims them frozen or qualified.
 Operator, UI, and lab-control typography are unchanged by that candidacy.
 
 ## Elevation & Depth

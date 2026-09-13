@@ -241,7 +241,10 @@ fn blit_contained(
 /// hinting off so both packaged targets agree. Origins scale from the
 /// logical baseline positions; the fractional remainder rides into the
 /// shaper offset the way the shaping path's own probe does, and the
-/// returned placement decides the final integer blit.
+/// returned placement decides the final integer blit. The line's `wght`
+/// matches the shaping faces: regular lines rasterize the default instance
+/// with no variation, while celebration title/subtitle lines apply the same
+/// 800/300 axis value the shaper used.
 fn draw_line(
     canvas: &mut tiny_skia::Pixmap,
     context: &mut swash::scale::ScaleContext,
@@ -262,7 +265,14 @@ fn draw_line(
         let floor_x = origin_x.floor() as i32;
         let floor_y = origin_y.floor() as i32;
         let offset = swash::zeno::Vector::new(origin_x - floor_x as f32, origin_y - floor_y as f32);
-        let mut scaler = context.builder(*face).size(scaled_size).hint(false).build();
+        let builder = context.builder(*face).size(scaled_size).hint(false);
+        let mut scaler = if line.weight == crate::shaping::REGULAR_WEIGHT {
+            builder.build()
+        } else {
+            builder
+                .variations(&[("wght", f32::from(line.weight))])
+                .build()
+        };
         let id = u16::try_from(glyph.id).unwrap_or(0);
         let Some(rendered) = swash::scale::Render::new(&[swash::scale::Source::Outline])
             .format(swash::zeno::Format::Alpha)

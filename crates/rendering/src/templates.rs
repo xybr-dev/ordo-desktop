@@ -23,8 +23,13 @@
 //!   the large uppercase title leading at display size and the
 //!   composer/source plus optional credit following at meta size. The body
 //!   stays empty.
-//! - Celebration title: uppercase title optically centered in the body,
-//!   localized date at bottom-left.
+//! - Celebration title: title preserved exactly as authored (mixed case,
+//!   never uppercased) at the candidate 135px/800 level plus an optional
+//!   Normal-Case subtitle at 68px/300, both left-aligned to the safe-area
+//!   left edge with the subtitle below the title; title plus subtitle center
+//!   together vertically above the bottom-left localized date. The subtitle
+//!   reuses the header slot renderer-locally: absent, empty, or
+//!   whitespace-only reserves no space.
 //! - General text: optional header, center-left body, and optional footer as given.
 //! - General image: optional header and caption footer, plus the required
 //!   resolved foreground element, which joins the frame with
@@ -52,14 +57,18 @@
 //! provisional) carries emphasized bodies and large titles; passage (70px,
 //! +25% from 56px) carries running scripture and general text, smaller than
 //! identification titles; meta (50px, +25% from 40px) carries labels,
-//! headers, references, credits, dates, and captions. PR 5 carried the
+//! headers, references, credits, dates, and captions. Celebration title is
+//! the one exception: candidate title 135px/800 (50% above display) with an
+//! optional Normal-Case subtitle at 68px/300 (75% of display), pending the
+//! same human approval. PR 5 carried the
 //! provisional 72/56/40 levels; PR 10 proposes 90/70/50 as candidate for
 //! gallery review — whether long Cebuano/English cases are comfortably
 //! readable there is a pending human judgment.
 //!
 //! Line ceilings warn beside a complete frame without changing its fit:
 //! lyrics target two logical phrases and no more than four rendered lines,
-//! and song and celebration titles warn past three rendered lines. Each
+//! and song titles warn past three rendered lines while celebration titles
+//! warn past three rendered title lines (subtitle lines never count). Each
 //! warning fires at its boundary: the count at the ceiling is quiet, one
 //! past it warns.
 
@@ -79,6 +88,14 @@ pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
 /// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
 /// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
 pub const PROVISIONAL_META_SIZE: u32 = 50;
+/// Candidate celebration-title size (T0.4.10, pending human approval):
+/// 135px at weight 800, 50% above the 90px display baseline, left-aligned
+/// to the safe-area left edge.
+pub const CELEBRATION_TITLE_SIZE: u32 = 135;
+/// Candidate celebration-subtitle size (T0.4.10, pending human approval):
+/// 68px at weight 300 in Normal Case (75% of the 90px display baseline),
+/// same left edge below the title.
+pub const CELEBRATION_SUBTITLE_SIZE: u32 = 68;
 
 /// The adopted congregation templates, plus the black slide.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,13 +131,15 @@ pub struct TemplateContent {
 }
 
 /// One template's zone plan: per-zone styles, the footer lead for the song
-/// identity block, and the body's vertical placement inside its rect.
+/// identity block, the optional second body segment for the celebration
+/// title plus subtitle, and the body's vertical placement inside its rect.
 struct Composition {
     semantic: SemanticContent,
     header: ZoneStyle,
     body: ZoneStyle,
     footer: ZoneStyle,
     footer_lead: Option<(ZoneStyle, u32)>,
+    body_tail: Option<(ZoneStyle, u32)>,
     body_valign: VAlign,
 }
 
@@ -128,6 +147,7 @@ fn meta_left() -> ZoneStyle {
     ZoneStyle {
         size: PROVISIONAL_META_SIZE,
         align: Alignment::Left,
+        weight: shaping::REGULAR_WEIGHT,
     }
 }
 
@@ -135,18 +155,40 @@ fn display(align: Alignment) -> ZoneStyle {
     ZoneStyle {
         size: PROVISIONAL_DISPLAY_SIZE,
         align,
+        weight: shaping::REGULAR_WEIGHT,
+    }
+}
+
+fn celebration_title() -> ZoneStyle {
+    ZoneStyle {
+        size: CELEBRATION_TITLE_SIZE,
+        align: Alignment::Left,
+        weight: shaping::CELEBRATION_TITLE_WEIGHT,
+    }
+}
+
+fn celebration_subtitle() -> ZoneStyle {
+    ZoneStyle {
+        size: CELEBRATION_SUBTITLE_SIZE,
+        align: Alignment::Left,
+        weight: shaping::CELEBRATION_SUBTITLE_WEIGHT,
     }
 }
 
 /// Map one template onto resolved zones. Uppercase kinds transform only
 /// their title/body text with the pinned Unicode mapping, which is
 /// deterministic for a pinned toolchain; headers and references always pass
-/// through verbatim.
+/// through verbatim. CelebrationTitle preserves its title exactly as
+/// authored (mixed case, never uppercased) and reuses the header slot
+/// renderer-locally as an optional Normal-Case subtitle: absent, empty, or
+/// whitespace-only reserves no space, and title plus subtitle center
+/// together via the zoned `body_tail` segment.
 fn compose_content(content: &TemplateContent) -> Composition {
     let neutral = ZoneStyle::neutral();
     let passage_left = ZoneStyle {
         size: PROVISIONAL_PASSAGE_SIZE,
         align: Alignment::Left,
+        weight: shaping::REGULAR_WEIGHT,
     };
     match content.kind {
         TemplateKind::Lyrics => Composition {
@@ -160,6 +202,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::CenterBlock),
             footer: neutral,
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Center,
         },
         TemplateKind::Response => Composition {
@@ -173,6 +216,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: neutral,
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Top,
         },
         TemplateKind::ReadingIdentification => Composition {
@@ -186,6 +230,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: meta_left(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Center,
         },
         TemplateKind::ReadingPassage => Composition {
@@ -199,6 +244,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: passage_left,
             footer: meta_left(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Top,
         },
         TemplateKind::Psalm => Composition {
@@ -212,6 +258,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: display(Alignment::Center),
             footer: meta_left(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Center,
         },
         TemplateKind::SongIdentification => {
@@ -232,22 +279,52 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 body: neutral,
                 footer: meta_left(),
                 footer_lead: Some((display(Alignment::Left), lead_authored)),
+                body_tail: None,
                 body_valign: VAlign::Top,
             }
         }
-        TemplateKind::CelebrationTitle => Composition {
-            semantic: SemanticContent {
-                body: content.body.to_uppercase(),
-                response_header: None,
-                psalm_header: None,
-                footer: content.footer.clone(),
-            },
-            header: neutral,
-            body: display(Alignment::CenterBlock),
-            footer: meta_left(),
-            footer_lead: None,
-            body_valign: VAlign::Center,
-        },
+        TemplateKind::CelebrationTitle => {
+            // The title stays exactly as authored (mixed case, never
+            // uppercased); the header slot becomes an optional Normal-Case
+            // subtitle below it. Absent, empty, or whitespace-only reserves
+            // nothing, and title plus subtitle center together.
+            let title = content.body.clone();
+            let subtitle = match content.header.as_deref() {
+                None => None,
+                Some(header) if header.trim().is_empty() => None,
+                Some(header) => Some(header.to_owned()),
+            };
+            let (body_text, body_tail) = match subtitle {
+                None => (title, None),
+                Some(subtitle) => {
+                    let split_at = if title.is_empty() {
+                        0
+                    } else {
+                        title.split('\n').count() as u32
+                    };
+                    let combined = if title.is_empty() {
+                        subtitle
+                    } else {
+                        format!("{title}\n{subtitle}")
+                    };
+                    (combined, Some((celebration_subtitle(), split_at)))
+                }
+            };
+            Composition {
+                semantic: SemanticContent {
+                    body: body_text,
+                    response_header: None,
+                    psalm_header: None,
+                    footer: content.footer.clone(),
+                },
+                header: neutral,
+                body: celebration_title(),
+                footer: meta_left(),
+                footer_lead: None,
+                body_tail,
+                body_valign: VAlign::Center,
+            }
+        }
         TemplateKind::GeneralText => Composition {
             semantic: SemanticContent {
                 body: content.body.clone(),
@@ -259,6 +336,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: passage_left,
             footer: meta_left(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Center,
         },
         TemplateKind::GeneralImage => Composition {
@@ -272,6 +350,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: neutral,
             footer: meta_left(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Top,
         },
         TemplateKind::Black => Composition {
@@ -285,6 +364,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body: neutral,
             footer: neutral,
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Top,
         },
     }
@@ -313,6 +393,7 @@ pub fn render_template(
         body: composition.body,
         footer: composition.footer,
         footer_lead: composition.footer_lead,
+        body_tail: composition.body_tail,
         body_valign: composition.body_valign,
         // Only the black slide carries the black intent; every other kind,
         // however empty, stays on the theme background.
@@ -365,7 +446,13 @@ pub fn render_template(
             }
         }
         TemplateKind::CelebrationTitle => {
-            let title_lines = frame.pagination().body_lines;
+            // The three-line ceiling counts title-sized lines only; subtitle
+            // lines never trip it.
+            let title_lines = frame
+                .body_lines()
+                .iter()
+                .filter(|line| line.size == CELEBRATION_TITLE_SIZE)
+                .count();
             if title_lines > 3 {
                 diagnostics.warnings.push(format!(
                     "celebration title has {title_lines} rendered lines against a three-line ceiling; split before shrinking"

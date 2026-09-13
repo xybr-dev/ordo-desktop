@@ -7,9 +7,9 @@
 //! at the ceiling stays quiet, one past it warns.
 
 use rendering::{
-    BODY_FONT_SIZE, ForegroundImage, PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE,
-    PROVISIONAL_PASSAGE_SIZE, RenderError, TargetDensity, TemplateContent, TemplateKind, Theme,
-    line_height_for, render_template,
+    BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, ForegroundImage,
+    PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, RenderError,
+    TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for, render_template,
 };
 
 fn content(
@@ -362,9 +362,12 @@ fn song_identification_keeps_one_bottom_left_block_with_mixed_sizes() {
 }
 
 #[test]
-fn celebration_title_centers_above_bottom_left_date() {
+fn celebration_title_left_aligns_title_and_subtitle_above_bottom_left_date() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
+    let safe_x = 120;
+    // Title-only: preserved exactly as authored (mixed case, never
+    // uppercased), left edge, candidate 135/800.
     let (frame, _) = render_template(
         &content(
             TemplateKind::CelebrationTitle,
@@ -378,16 +381,149 @@ fn celebration_title_centers_above_bottom_left_date() {
     .unwrap();
 
     assert_eq!(frame.header(), None);
-    assert_eq!(frame.body_lines()[0].text, "CELEBRATION TITLE");
+    assert_eq!(frame.body_lines()[0].text, "Celebration title");
     let safe = frame.safe_area();
     let title = &frame.body_lines()[0];
-    assert!(title.x > safe.x as i32, "the title block centers");
+    assert_eq!(title.x, safe.x as i32, "title hugs the safe-area left edge");
+    assert_eq!(title.x, safe_x);
+    assert_eq!(title.size, CELEBRATION_TITLE_SIZE);
+    assert_eq!(title.size, 135);
+    assert_eq!(title.weight, 800);
+    assert_eq!(title.height, line_height_for(CELEBRATION_TITLE_SIZE));
     let footer = frame.footer().expect("date reserves the footer");
     assert_eq!(
         (footer.x, footer.y + footer.height),
         (safe.x, safe.y + safe.height)
     );
     assert_eq!(frame.footer_lines()[0].text, "Localized date");
+    assert_eq!(
+        frame.footer_lines()[0].height,
+        line_height_for(PROVISIONAL_META_SIZE)
+    );
+    assert_eq!(frame.footer_lines()[0].x, safe.x as i32);
+
+    // With subtitle: Normal Case, 68/300, same left edge below the title,
+    // and title plus subtitle center together vertically.
+    let (subtitled, _) = render_template(
+        &content(
+            TemplateKind::CelebrationTitle,
+            Some("National Catechetical Day"),
+            "Celebration title",
+            Some("Localized date"),
+        ),
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(subtitled.header(), None);
+    assert_eq!(subtitled.body_lines().len(), 2);
+    let title = &subtitled.body_lines()[0];
+    let subtitle = &subtitled.body_lines()[1];
+    assert_eq!(title.text, "Celebration title");
+    assert_eq!(subtitle.text, "National Catechetical Day");
+    assert_eq!(title.x, safe.x as i32);
+    assert_eq!(subtitle.x, safe.x as i32);
+    assert_eq!(subtitle.size, CELEBRATION_SUBTITLE_SIZE);
+    assert_eq!(subtitle.size, 68);
+    assert_eq!(subtitle.weight, 300);
+    assert_eq!(subtitle.height, line_height_for(CELEBRATION_SUBTITLE_SIZE));
+    assert_eq!(
+        subtitle.y,
+        title.y + title.height as i32,
+        "subtitle stacks directly below the title"
+    );
+    // Combined block centers in the body zone within one unit.
+    let body = subtitled.body();
+    let top_gap = title.y - body.y as i32;
+    let bottom_gap = body.y as i32 + body.height as i32 - (subtitle.y + subtitle.height as i32);
+    assert!(top_gap > 0, "combined block must not hug the top edge");
+    assert!(
+        (top_gap - bottom_gap).abs() <= 1,
+        "title plus subtitle center together: {top_gap} vs {bottom_gap}"
+    );
+}
+
+#[test]
+fn celebration_subtitle_absent_empty_and_whitespace_reserve_no_space() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let bodies = [
+        content(
+            TemplateKind::CelebrationTitle,
+            None,
+            "Celebration title",
+            Some("Localized date"),
+        ),
+        content(
+            TemplateKind::CelebrationTitle,
+            Some(""),
+            "Celebration title",
+            Some("Localized date"),
+        ),
+        content(
+            TemplateKind::CelebrationTitle,
+            Some("   "),
+            "Celebration title",
+            Some("Localized date"),
+        ),
+    ];
+    let mut frames = Vec::new();
+    for body in &bodies {
+        let (frame, diagnostics) = render_template(body, &theme, density).unwrap();
+        assert!(diagnostics.warnings.is_empty());
+        assert_eq!(frame.header(), None);
+        assert_eq!(frame.body_lines().len(), 1);
+        assert_eq!(frame.body_lines()[0].text, "Celebration title");
+        frames.push(frame);
+    }
+    assert_eq!(frames[0].serialize(), frames[1].serialize());
+    assert_eq!(frames[0].serialize(), frames[2].serialize());
+    assert_eq!(frames[0].body(), frames[1].body());
+}
+
+#[test]
+fn celebration_title_ceiling_counts_title_lines_only() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let celebration = |title: &str, subtitle: Option<&str>| {
+        render_template(
+            &content(
+                TemplateKind::CelebrationTitle,
+                subtitle,
+                title,
+                Some("Localized date"),
+            ),
+            &theme,
+            density,
+        )
+        .unwrap()
+    };
+
+    // Three title lines plus a subtitle stays quiet: the subtitle never counts.
+    let (_, three_plus_sub) = celebration("line one\nline two\nline three", Some("Subtitle here"));
+    assert!(
+        three_plus_sub.warnings.is_empty(),
+        "subtitle must not trip the three-line ceiling"
+    );
+
+    // Four title lines plus a subtitle warns about the four title lines.
+    let (frame, four_plus_sub) = celebration(
+        "line one\nline two\nline three\nline four",
+        Some("Subtitle here"),
+    );
+    assert_eq!(four_plus_sub.warnings.len(), 1);
+    assert!(four_plus_sub.warnings[0].contains("three-line"));
+    assert!(four_plus_sub.warnings[0].contains('4'));
+    // Body holds title plus subtitle; the ceiling counts the title-sized lines.
+    assert_eq!(frame.body_lines().len(), 5);
+    assert_eq!(
+        frame
+            .body_lines()
+            .iter()
+            .filter(|line| line.size == CELEBRATION_TITLE_SIZE)
+            .count(),
+        4
+    );
 }
 
 #[test]

@@ -117,33 +117,38 @@ impl TargetDensity {
     }
 }
 
-/// Per-zone composition style: the provisional size the zone measures at and
-/// the alignment its lines take inside the zone width.
+/// Per-zone composition style: the provisional size the zone measures at,
+/// the alignment its lines take inside the zone width, and the variable-font
+/// `wght` its advances were shaped with.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ZoneStyle {
     pub(crate) size: u32,
     pub(crate) align: Alignment,
+    pub(crate) weight: u16,
 }
 
 impl ZoneStyle {
-    /// The neutral style: the candidate 90px baseline, left-origin lines.
+    /// The neutral style: the candidate 90px baseline, left-origin lines at
+    /// the regular (default-instance) weight.
     pub(crate) const fn neutral() -> Self {
         Self {
             size: shaping::BODY_FONT_SIZE,
             align: Alignment::Left,
+            weight: shaping::REGULAR_WEIGHT,
         }
     }
 }
 
 /// Per-composition zone plan: per-zone styles, the song identity-block lead,
-/// the body's vertical placement inside its rect, and the slide background
-/// the raster pass paints.
+/// the optional second body segment, the body's vertical placement inside
+/// its rect, and the slide background the raster pass paints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CompositionPlan {
     pub(crate) header: ZoneStyle,
     pub(crate) body: ZoneStyle,
     pub(crate) footer: ZoneStyle,
     pub(crate) footer_lead: Option<(ZoneStyle, u32)>,
+    pub(crate) body_tail: Option<(ZoneStyle, u32)>,
     pub(crate) body_valign: VAlign,
     pub(crate) background: SlideBackground,
 }
@@ -157,6 +162,7 @@ impl CompositionPlan {
             body: ZoneStyle::neutral(),
             footer: ZoneStyle::neutral(),
             footer_lead: None,
+            body_tail: None,
             body_valign: VAlign::Top,
             background: SlideBackground::Theme,
         }
@@ -475,13 +481,16 @@ impl std::error::Error for RenderError {}
 ///
 /// `plan` carries the per-zone size, alignment, and body vertical placement
 /// the template corpus assigns; [`render`] passes the neutral plan.
-/// `footer_lead` handles the one mixed-size zone in the corpus, the song
+/// `footer_lead` handles the one mixed-size footer in the corpus, the song
 /// identity block: when present, the footer's first `u32` authored lines lay
 /// out at the lead style and the rest at the footer style, keeping one
-/// bottom-left block. `image` carries the resolved foreground element, if
-/// any, whose contained bounds join the frame. Density is accepted and
-/// ignored for composition: the same content and Theme always yield the same
-/// frame regardless of density.
+/// bottom-left block. `body_tail` is the analogous mixed-style body segment:
+/// when present, the body's first `u32` authored lines lay out at the body
+/// style and the rest stack beneath at the tail style, centered together.
+/// `image` carries the resolved foreground element, if any, whose contained
+/// bounds join the frame. Density is accepted and ignored for composition:
+/// the same content and Theme always yield the same frame regardless of
+/// density.
 pub(crate) fn compose_zoned(
     content: &SemanticContent,
     plan: &CompositionPlan,
@@ -525,7 +534,33 @@ pub(crate) fn compose_zoned(
         return Err(RenderError::ConflictingHeaders);
     }
 
-    let faces = shaping::load_faces().ok_or(RenderError::FontUnavailable)?;
+    // Regular faces cover every zone except the celebration body segments;
+    // each distinct non-regular `wght` loads once so shaping advances match
+    // the raster masks per line. Chrome stays regular in the current corpus.
+    let regular_faces = shaping::load_faces().ok_or(RenderError::FontUnavailable)?;
+    let body_faces_owned = if body.weight != shaping::REGULAR_WEIGHT {
+        Some(shaping::load_faces_with_weight(body.weight).ok_or(RenderError::FontUnavailable)?)
+    } else {
+        None
+    };
+    let body_faces = body_faces_owned.as_ref().unwrap_or(&regular_faces);
+    let tail_faces_owned = match plan.body_tail {
+        Some((tail_style, _))
+            if tail_style.weight != body.weight && tail_style.weight != shaping::REGULAR_WEIGHT =>
+        {
+            Some(
+                shaping::load_faces_with_weight(tail_style.weight)
+                    .ok_or(RenderError::FontUnavailable)?,
+            )
+        }
+        _ => None,
+    };
+    let tail_faces: &shaping::Faces = match plan.body_tail {
+        Some((tail_style, _)) if tail_style.weight == body.weight => body_faces,
+        Some((tail_style, _)) if tail_style.weight == shaping::REGULAR_WEIGHT => &regular_faces,
+        Some(_) => tail_faces_owned.as_ref().expect("tail faces must load"),
+        None => &regular_faces,
+    };
     let max_width = i32::try_from(safe_width).map_err(|_| RenderError::SafeAreaExceedsCanvas {
         requested_x: theme.safe_inset_x,
         requested_y: theme.safe_inset_y,
@@ -559,8 +594,9 @@ pub(crate) fn compose_zoned(
                 max_width,
                 safe_x,
                 safe_y,
-                &faces,
+                &regular_faces,
                 header.align,
+                header.weight,
             )
         })
         .unwrap_or_default();
@@ -574,7 +610,7 @@ pub(crate) fn compose_zoned(
 
     let (footer_lines, footer_height) = match content.footer.as_deref() {
         None => (Vec::new(), 0),
-        Some(text) => layout_footer(text, footer, plan.footer_lead, max_width, &faces),
+        Some(text) => layout_footer(text, footer, plan.footer_lead, max_width, &regular_faces),
     };
     // Chrome taller than the safe area cannot be paginated away, so it fails
     // structurally instead of warning beside misbounded zones.
@@ -600,17 +636,29 @@ pub(crate) fn compose_zoned(
     let body_available = safe_height
         .saturating_sub(header_height)
         .saturating_sub(footer_height);
-    let mut laid_out = shaping::layout_body(
-        &content.body,
-        body.size,
-        max_width,
-        safe_x,
-        body_y,
-        &faces,
-        body.align,
-    );
-    let body_content_height =
-        (laid_out.lines.len() as u32).saturating_mul(shaping::line_height_for(body.size));
+    let mut laid_out = match plan.body_tail {
+        None => shaping::layout_body(
+            &content.body,
+            body.size,
+            max_width,
+            safe_x,
+            body_y,
+            body_faces,
+            body.align,
+            body.weight,
+        ),
+        Some(tail) => layout_body_with_tail(
+            &content.body,
+            body,
+            tail,
+            max_width,
+            safe_x,
+            body_y,
+            body_faces,
+            tail_faces,
+        ),
+    };
+    let body_content_height = laid_out.lines.iter().map(|line| line.height).sum::<u32>();
     // Centered templates offset the shaped block from its measured height so
     // short content sits in the middle of the remaining region instead of
     // hugging its top edge. Truncating division keeps it deterministic, and
@@ -726,6 +774,70 @@ pub(crate) fn compose_zoned(
     ))
 }
 
+/// Lay out a mixed-style body: the first `tail.1` authored lines at the body
+/// style plus the rest stacked beneath at the tail style, analogous to
+/// [`layout_footer`] with a lead. The lead keeps body semantics (blank lines
+/// mark a hard split); the tail ignores blank lines like any zone layout.
+/// Tail authored indices shift past the lead so serialized lines stay
+/// attributable. The caller centers the combined lines with the usual
+/// `body_valign` handling.
+fn layout_body_with_tail(
+    text: &str,
+    body: ZoneStyle,
+    tail: (ZoneStyle, u32),
+    max_width: i32,
+    origin_x: i32,
+    origin_y: i32,
+    body_faces: &shaping::Faces,
+    tail_faces: &shaping::Faces,
+) -> shaping::LaidOutBody {
+    let (tail_style, split_at) = tail;
+    let authored: Vec<&str> = text.split('\n').collect();
+    let split_at = (split_at as usize).min(authored.len());
+    let (lead_part, tail_part) = authored.split_at(split_at);
+    let mut lead = if lead_part.is_empty() {
+        shaping::LaidOutBody {
+            lines: Vec::new(),
+            authored_line_count: 0,
+            hard_split: false,
+            first_hard_split: None,
+        }
+    } else {
+        shaping::layout_body(
+            &lead_part.join("\n"),
+            body.size,
+            max_width,
+            origin_x,
+            origin_y,
+            body_faces,
+            body.align,
+            body.weight,
+        )
+    };
+    let lead_height = (lead.lines.len() as u32).saturating_mul(shaping::line_height_for(body.size));
+    let mut tail_lines = shaping::layout_zone(
+        &tail_part.join("\n"),
+        tail_style.size,
+        max_width,
+        origin_x,
+        origin_y + lead_height as i32,
+        tail_faces,
+        tail_style.align,
+        tail_style.weight,
+    );
+    for line in &mut tail_lines {
+        line.authored_index += split_at as u32;
+    }
+    let authored_line_count = authored.len() as u32;
+    lead.lines.extend(tail_lines);
+    shaping::LaidOutBody {
+        lines: lead.lines,
+        authored_line_count,
+        hard_split: lead.hard_split,
+        first_hard_split: lead.first_hard_split,
+    }
+}
+
 /// Fit natural dimensions inside `bounds` preserving aspect ratio, centered.
 /// The narrower fit wins; u64 intermediates with truncating division keep the
 /// result deterministic on both packaged targets.
@@ -761,7 +873,16 @@ fn layout_footer(
     faces: &shaping::Faces,
 ) -> (Vec<ShapedLine>, u32) {
     let Some((lead_style, lead_authored)) = lead else {
-        let lines = shaping::layout_zone(text, style.size, max_width, 0, 0, faces, style.align);
+        let lines = shaping::layout_zone(
+            text,
+            style.size,
+            max_width,
+            0,
+            0,
+            faces,
+            style.align,
+            style.weight,
+        );
         let height =
             (lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(style.size));
         return (lines, height);
@@ -777,6 +898,7 @@ fn layout_footer(
         0,
         faces,
         lead_style.align,
+        lead_style.weight,
     );
     let lead_height =
         (lead_lines.len().max(1) as u32).saturating_mul(shaping::line_height_for(lead_style.size));
@@ -788,6 +910,7 @@ fn layout_footer(
         lead_height as i32,
         faces,
         style.align,
+        style.weight,
     );
     for line in &mut rest_lines {
         line.authored_index += split_at as u32;

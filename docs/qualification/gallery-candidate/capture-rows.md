@@ -11,7 +11,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | black | Black | absent | 0/0 | 0 | none | `gallery-candidate/black.png` |
 | celebration-title-overflow | CelebrationTitle | absent | 4/4 | 1 | celebration title has 4 rendered lines against a three-line ceiling; split before shrinking | `gallery-candidate/celebration-title-overflow.png` |
-| celebration-title | CelebrationTitle | absent | 1/1 | 1 | none | `gallery-candidate/celebration-title.png` |
+| celebration-title | CelebrationTitle | `National Catechetical Day` | 1/4 | 1 | none | `gallery-candidate/celebration-title.png` |
 | general-image | GeneralImage | `Image header` | 0/0 | 1 | none | `gallery-candidate/general-image.png` |
 | general-text-mixed | GeneralText | `Pahibalo` | 1/2 | 1 | none | `gallery-candidate/general-text-mixed.png` |
 | lyrics-cebuano-one-line | Lyrics | `Bersikulo` | 1/1 | 0 | none | `gallery-candidate/lyrics-cebuano-one-line.png` |
