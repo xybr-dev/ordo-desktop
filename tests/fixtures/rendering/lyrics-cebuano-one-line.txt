@@ -2,6 +2,6 @@ ordo-fixture/1
 kind:Lyrics
 header:Bersikulo
 body-lines:1
-Maayong buntag, mga igsoon!
+Dalaygon Ka, Ginoo namo;
 footer-absent
 image-absent

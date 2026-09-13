@@ -2,9 +2,9 @@ ordo-fixture/1
 kind:Lyrics
 header:Mixed
 body-lines:4
-Maayong buntag, mga igsoon
-the choir sings in the morning light
-magandang umaga, mga kapatid
-awit 123, salmo 95, verse 7
+Ginoo, dungga among pag-ampo
+we gather our voices in hope
+kaming tanan nag-ampo sa kalinaw
+lift every heart into song
 footer-absent
 image-absent

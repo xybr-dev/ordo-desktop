@@ -2,7 +2,7 @@ ordo-fixture/1
 kind:Lyrics
 header:Verse
 body-lines:2
-The choir sings in the morning light
-holy is the Lord forevermore
+You gather us in mercy and peace
+we lift our voices as one
 footer-absent
 image-absent
