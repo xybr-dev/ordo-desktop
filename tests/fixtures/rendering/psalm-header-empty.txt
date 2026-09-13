@@ -2,7 +2,7 @@ ordo-fixture/1
 kind:Psalm
 header:
 body-lines:1
-refrain text
+Ang Ginoo maayo ug maluluy-on, dugay nga masuko, ug bahandianon sa pagbati.
 footer-lines:1
-Reference text
+Salmo 103:1-2, 3-4, 9-10, 11-12
 image-absent

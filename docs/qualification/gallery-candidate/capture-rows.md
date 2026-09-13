@@ -23,8 +23,8 @@
 | lyrics-overflow-warning | Lyrics | `Verse` | 20/20 | 0 | body content needs 2080px but the body zone offers 862px at the approved minimum; split before shrinking<br>lyric body carries 20 phrases against a two-phrase target; split before shrinking<br>lyric body has 20 rendered lines against a four-line ceiling; split before shrinking | `gallery-candidate/lyrics-overflow-warning.png` |
 | lyrics-punctuation | Lyrics | `Verse` | 1/2 | 0 | none | `gallery-candidate/lyrics-punctuation.png` |
 | lyrics-tagalog-three-line | Lyrics | `Taludtod` | 3/3 | 0 | lyric body carries 3 phrases against a two-phrase target; split before shrinking | `gallery-candidate/lyrics-tagalog-three-line.png` |
-| psalm-header-empty | Psalm | empty | 1/1 | 1 | none | `gallery-candidate/psalm-header-empty.png` |
-| psalm-tagalog | Psalm | `SALMO RESPONSORYO: Awit 95` | 1/2 | 1 | none | `gallery-candidate/psalm-tagalog.png` |
+| psalm-cebuano | Psalm | `SALMO RESPONSORYO:` | 1/2 | 1 | none | `gallery-candidate/psalm-cebuano.png` |
+| psalm-header-empty | Psalm | empty | 1/2 | 1 | none | `gallery-candidate/psalm-header-empty.png` |
 | reading-identification-mateo | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-mateo.png` |
 | reading-identification-roma | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-roma.png` |
 | reading-identification | ReadingIdentification | absent | 1/2 | 1 | none | `gallery-candidate/reading-identification.png` |
