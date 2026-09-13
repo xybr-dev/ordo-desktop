@@ -263,9 +263,11 @@ Use these fixed template relationships:
 - **Response:** optional repeated ExtraBold authored header resolved before
   rendering (for example, the Cebuano template default `TUBAG:`); stored
   authored text rendered uppercase as the emphasized body.
-- **Reading identification:** large uppercase proclamation title centered in
-  the space above a bottom-left Scripture reference. Do not add First Reading,
-  Second Reading, or Gospel labels to congregation output.
+- **Reading identification:** proclamation title preserved exactly as authored
+  (mixed case, never uppercased) at candidate `135px`/weight `800`,
+  left-aligned to the safe-area left edge and centered vertically in the body
+  region above the unchanged bottom-left Scripture reference. Do not add
+  First Reading, Second Reading, or Gospel labels to congregation output.
 - **Reading passage:** authored-case ordinary-weight Scripture, smaller than
   identification, with the reference at bottom-left on every Slide.
 - **Responsorial Psalm:** optional small ExtraBold authored header resolved
@@ -298,9 +300,10 @@ counts.
 
 The relative hierarchy is adopted, and the projected levels are candidate at
 T0.4.10 at display `90px` / passage `70px` / meta `50px` (each exactly +25%
-from the PR 5 provisional `72px` / `56px` / `40px`), plus the Celebration
-exception at candidate title `135px`/weight `800` (50% above display) with an
-optional Normal-Case subtitle at `68px`/weight `300` (75% of display),
+from the PR 5 provisional `72px` / `56px` / `40px`), plus the shared
+Celebration/Reading-identification exception at candidate title
+`135px`/weight `800` (50% above display) with a Celebration-only optional
+Normal-Case subtitle at `68px`/weight `300` (75% of display),
 proposed for the fixture-backed gallery candidate. Whether long Cebuano and
 English cases are comfortably readable at these levels is a pending human
 visual judgment, recorded in `docs/qualification/T0.4-MANUAL-GATE.md` —

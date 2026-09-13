@@ -2,7 +2,7 @@ ordo-fixture/1
 kind:ReadingIdentification
 header-absent
 body-lines:1
-The Proclamation of the Holy Gospel
+Pagbasa gikan sa basahon ni Sirac
 footer-lines:1
-Juan 1:1-5
+Sirac 27:30-28:7
 image-absent

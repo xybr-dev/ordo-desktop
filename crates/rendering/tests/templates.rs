@@ -189,7 +189,7 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
 }
 
 #[test]
-fn reading_identification_centers_title_above_bottom_left_reference() {
+fn reading_identification_left_aligns_title_above_bottom_left_reference() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
     let (frame, _) = render_template(
@@ -206,16 +206,26 @@ fn reading_identification_centers_title_above_bottom_left_reference() {
 
     assert_eq!(frame.header(), None);
     assert_eq!(frame.body_lines().len(), 1);
-    assert_eq!(frame.body_lines()[0].text, "PROCLAMATION TITLE");
-    let body = frame.body();
+    // Authored mixed case passes through unchanged, never uppercased.
+    assert_eq!(frame.body_lines()[0].text, "Proclamation title");
+    let safe = frame.safe_area();
     let title = &frame.body_lines()[0];
-    assert_eq!(
-        title.x,
-        body.x as i32 + (body.width as i32 - title.width) / 2
+    assert_eq!(title.x, safe.x as i32, "title hugs the safe-area left edge");
+    assert_eq!(title.size, CELEBRATION_TITLE_SIZE);
+    assert_eq!(title.size, 135);
+    assert_eq!(title.weight, 800);
+    assert_eq!(title.height, line_height_for(CELEBRATION_TITLE_SIZE));
+    // Vertically centered in the body zone within one unit.
+    let body = frame.body();
+    let top_gap = title.y - body.y as i32;
+    let bottom_gap = body.y as i32 + body.height as i32 - (title.y + title.height as i32);
+    assert!(top_gap > 0, "title must not hug the top edge");
+    assert!(
+        (top_gap - bottom_gap).abs() <= 1,
+        "title centers vertically: {top_gap} vs {bottom_gap}"
     );
     // The reference sits bottom-left: footer origin at the safe corner and
     // its line starting exactly there.
-    let safe = frame.safe_area();
     let footer = frame.footer().expect("reference reserves the footer zone");
     assert_eq!(
         (footer.x, footer.y + footer.height),
@@ -224,6 +234,10 @@ fn reading_identification_centers_title_above_bottom_left_reference() {
     assert_eq!(frame.footer_lines().len(), 1);
     assert_eq!(frame.footer_lines()[0].text, "Reference text");
     assert_eq!(frame.footer_lines()[0].x, safe.x as i32);
+    assert_eq!(
+        frame.footer_lines()[0].height,
+        line_height_for(PROVISIONAL_META_SIZE)
+    );
 }
 
 #[test]
@@ -259,14 +273,21 @@ fn reading_passage_is_smaller_than_identification_with_the_same_reference() {
     );
     assert_eq!(
         identification.body_lines()[0].height,
-        line_height_for(PROVISIONAL_DISPLAY_SIZE)
+        line_height_for(CELEBRATION_TITLE_SIZE)
     );
     assert!(
         passage.body_lines()[0].height < identification.body_lines()[0].height,
         "passage stays smaller than identification"
     );
-    // Passage body is left-origin; references match bottom-left in both.
+    // Both bodies hug the safe-area left edge; references match bottom-left
+    // in both.
     assert_eq!(passage.body_lines()[0].x, passage.safe_area().x as i32);
+    assert_eq!(
+        identification.body_lines()[0].x,
+        identification.safe_area().x as i32
+    );
+    assert_eq!(identification.body_lines()[0].size, CELEBRATION_TITLE_SIZE);
+    assert_eq!(identification.body_lines()[0].weight, 800);
     for frame in [&passage, &identification] {
         let safe = frame.safe_area();
         let footer = frame.footer().expect("reference reserves a footer");

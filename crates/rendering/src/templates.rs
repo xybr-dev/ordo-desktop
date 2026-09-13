@@ -13,8 +13,10 @@
 //!   space; that absent-label composition is the label-off variant.
 //! - Response: resolved header, stored text rendered uppercase as the
 //!   emphasized body, no footer.
-//! - Reading identification: no header, large uppercase proclamation title
-//!   centered in the body, reference at bottom-left.
+//! - Reading identification: no header, proclamation title preserved
+//!   exactly as authored (mixed case, never uppercased) at the candidate
+//!   135px/800 level, left-aligned to the safe-area left edge and centered
+//!   vertically in the body, reference at bottom-left.
 //! - Reading passage: no header, passage in the body, reference at
 //!   bottom-left on every slide. A projected cantor verse uses this kind.
 //! - Psalm: resolved header at top-left, refrain centered in the remainder,
@@ -54,13 +56,14 @@
 //! Relative hierarchy with candidate numbers (T0.4.10, pending human approval
 //! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
 //! projected-response token and gallery baseline, +25% from the 72px PR 5
-//! provisional) carries emphasized bodies and large titles; passage (70px,
+//! provisional) carries emphasized bodies; passage (70px,
 //! +25% from 56px) carries running scripture and general text, smaller than
 //! identification titles; meta (50px, +25% from 40px) carries labels,
-//! headers, references, credits, dates, and captions. Celebration title is
-//! the one exception: candidate title 135px/800 (50% above display) with an
-//! optional Normal-Case subtitle at 68px/300 (75% of display), pending the
-//! same human approval. PR 5 carried the
+//! headers, references, credits, dates, and captions. Celebration title and
+//! Reading identification share the one exception: candidate title 135px/800
+//! (50% above display), left-aligned to the safe-area left edge, with the
+//! Celebration-only optional Normal-Case subtitle at 68px/300 (75% of
+//! display), pending the same human approval. PR 5 carried the
 //! provisional 72/56/40 levels; PR 10 proposes 90/70/50 as candidate for
 //! gallery review — whether long Cebuano/English cases are comfortably
 //! readable there is a pending human judgment.
@@ -79,8 +82,7 @@ use crate::interface::{
 use crate::shaping::{self, Alignment, VAlign};
 
 /// Candidate display size (T0.4.10, pending approval): the 90px projected-response token (+25%
-/// from the 72px PR 5 provisional baseline). Emphasized bodies and large
-/// titles measure here.
+/// from the 72px PR 5 provisional baseline). Emphasized bodies measure here.
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
 /// Candidate passage size (T0.4.10, pending approval): running scripture and general text, smaller
 /// than identification titles. 70px, +25% from the 56px PR 5 provisional.
@@ -90,7 +92,7 @@ pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
 pub const PROVISIONAL_META_SIZE: u32 = 50;
 /// Candidate celebration-title size (T0.4.10, pending human approval):
 /// 135px at weight 800, 50% above the 90px display baseline, left-aligned
-/// to the safe-area left edge.
+/// to the safe-area left edge. Shared by Reading identification titles.
 pub const CELEBRATION_TITLE_SIZE: u32 = 135;
 /// Candidate celebration-subtitle size (T0.4.10, pending human approval):
 /// 68px at weight 300 in Normal Case (75% of the 90px display baseline),
@@ -175,14 +177,15 @@ fn celebration_subtitle() -> ZoneStyle {
     }
 }
 
-/// Map one template onto resolved zones. Uppercase kinds transform only
-/// their title/body text with the pinned Unicode mapping, which is
-/// deterministic for a pinned toolchain; headers and references always pass
-/// through verbatim. CelebrationTitle preserves its title exactly as
-/// authored (mixed case, never uppercased) and reuses the header slot
-/// renderer-locally as an optional Normal-Case subtitle: absent, empty, or
-/// whitespace-only reserves no space, and title plus subtitle center
-/// together via the zoned `body_tail` segment.
+/// Map one template onto resolved zones. Response and SongIdentification
+/// transform only their title/body text with the pinned Unicode mapping,
+/// which is deterministic for a pinned toolchain; headers and references
+/// always pass through verbatim. ReadingIdentification and CelebrationTitle
+/// preserve their titles exactly as authored (mixed case, never uppercased).
+/// CelebrationTitle reuses the header slot renderer-locally as an optional
+/// Normal-Case subtitle: absent, empty, or whitespace-only reserves no
+/// space, and title plus subtitle center together via the zoned `body_tail`
+/// segment.
 fn compose_content(content: &TemplateContent) -> Composition {
     let neutral = ZoneStyle::neutral();
     let passage_left = ZoneStyle {
@@ -221,13 +224,13 @@ fn compose_content(content: &TemplateContent) -> Composition {
         },
         TemplateKind::ReadingIdentification => Composition {
             semantic: SemanticContent {
-                body: content.body.to_uppercase(),
+                body: content.body.clone(),
                 response_header: None,
                 psalm_header: None,
                 footer: content.footer.clone(),
             },
             header: neutral,
-            body: display(Alignment::Center),
+            body: celebration_title(),
             footer: meta_left(),
             footer_lead: None,
             body_tail: None,

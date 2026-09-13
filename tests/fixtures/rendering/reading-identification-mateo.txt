@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:ReadingIdentification
+header-absent
+body-lines:1
+Pagbasa sa Santos nga Ebanghelyo sumala ni San Mateo
+footer-lines:1
+Mateo 18:21-35
+image-absent

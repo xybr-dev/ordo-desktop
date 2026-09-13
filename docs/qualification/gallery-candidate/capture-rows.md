@@ -25,6 +25,8 @@
 | lyrics-tagalog-three-line | Lyrics | `Taludtod` | 3/3 | 0 | lyric body carries 3 phrases against a two-phrase target; split before shrinking | `gallery-candidate/lyrics-tagalog-three-line.png` |
 | psalm-header-empty | Psalm | empty | 1/1 | 1 | none | `gallery-candidate/psalm-header-empty.png` |
 | psalm-tagalog | Psalm | `SALMO RESPONSORYO: Awit 95` | 1/2 | 1 | none | `gallery-candidate/psalm-tagalog.png` |
+| reading-identification-mateo | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-mateo.png` |
+| reading-identification-roma | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-roma.png` |
 | reading-identification | ReadingIdentification | absent | 1/2 | 1 | none | `gallery-candidate/reading-identification.png` |
 | reading-passage-cebuano | ReadingPassage | absent | 1/2 | 1 | none | `gallery-candidate/reading-passage-cebuano.png` |
 | reading-passage-english | ReadingPassage | absent | 1/2 | 1 | none | `gallery-candidate/reading-passage-english.png` |
