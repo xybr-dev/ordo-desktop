@@ -17,7 +17,8 @@
 //!   exactly as authored (mixed case, never uppercased) at the candidate
 //!   135px/800 level, left-aligned to the safe-area left edge and centered
 //!   vertically in the body, reference at bottom-left.
-//! - Reading passage: no header, passage in the body, reference at
+//! - Reading passage: no header, passage in the body at the pending
+//!   candidate 88px/400 level (ReadingPassage only), reference at
 //!   bottom-left on every slide. A projected cantor verse uses this kind.
 //! - Psalm: resolved header at top-left, refrain centered in the remainder,
 //!   reference at bottom-left.
@@ -32,7 +33,7 @@
 //!   together vertically above the bottom-left localized date. The subtitle
 //!   reuses the header slot renderer-locally: absent, empty, or
 //!   whitespace-only reserves no space.
-//! - General text: optional header, center-left body, and optional footer as given.
+//! - General text: optional header, center-left body at 70px, and optional footer as given.
 //! - General image: optional header and caption footer, plus the required
 //!   resolved foreground element, which joins the frame with
 //!   aspect-ratio-contained bounds inside the body zone for the raster pass
@@ -57,8 +58,10 @@
 //! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
 //! projected-response token and gallery baseline, +25% from the 72px PR 5
 //! provisional) carries emphasized bodies; passage (70px,
-//! +25% from 56px) carries running scripture and general text, smaller than
-//! identification titles; meta (50px, +25% from 40px) carries labels,
+//! +25% from 56px) carries general text, smaller than
+//! identification titles; Reading passage carries its own pending candidate
+//! 88px at regular weight (`70 * 1.25 = 87.5`, rounded), used only for
+//! `ReadingPassage`; meta (50px, +25% from 40px) carries labels,
 //! headers, references, credits, dates, and captions. Celebration title and
 //! Reading identification share the one exception: candidate title 135px/800
 //! (50% above display), left-aligned to the safe-area left edge, with the
@@ -84,9 +87,14 @@ use crate::shaping::{self, Alignment, VAlign};
 /// Candidate display size (T0.4.10, pending approval): the 90px projected-response token (+25%
 /// from the 72px PR 5 provisional baseline). Emphasized bodies measure here.
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
-/// Candidate passage size (T0.4.10, pending approval): running scripture and general text, smaller
+/// Candidate passage size (T0.4.10, pending approval): general text, smaller
 /// than identification titles. 70px, +25% from the 56px PR 5 provisional.
 pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
+/// Candidate Reading-passage-only size (pending approval): 88px at regular
+/// weight (`70 * 1.25 = 87.5`, rounded). Used only for
+/// [`TemplateKind::ReadingPassage`]; [`TemplateKind::GeneralText`] stays at
+/// [`PROVISIONAL_PASSAGE_SIZE`].
+pub const READING_PASSAGE_SIZE: u32 = 88;
 /// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
 /// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
 pub const PROVISIONAL_META_SIZE: u32 = 50;
@@ -193,6 +201,11 @@ fn compose_content(content: &TemplateContent) -> Composition {
         align: Alignment::Left,
         weight: shaping::REGULAR_WEIGHT,
     };
+    let reading_passage_left = ZoneStyle {
+        size: READING_PASSAGE_SIZE,
+        align: Alignment::Left,
+        weight: shaping::REGULAR_WEIGHT,
+    };
     match content.kind {
         TemplateKind::Lyrics => Composition {
             semantic: SemanticContent {
@@ -244,7 +257,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 footer: content.footer.clone(),
             },
             header: neutral,
-            body: passage_left,
+            body: reading_passage_left,
             footer: meta_left(),
             footer_lead: None,
             body_tail: None,

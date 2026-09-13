@@ -268,8 +268,11 @@ Use these fixed template relationships:
   left-aligned to the safe-area left edge and centered vertically in the body
   region above the unchanged bottom-left Scripture reference. Do not add
   First Reading, Second Reading, or Gospel labels to congregation output.
-- **Reading passage:** authored-case ordinary-weight Scripture, smaller than
-  identification, with the reference at bottom-left on every Slide.
+- **Reading passage:** authored-case ordinary-weight Scripture at the pending
+  candidate `88px`/weight `400` (ReadingPassage only, `70 * 1.25 = 87.5`
+  rounded), left-aligned to the safe-area left edge and top-anchored, smaller
+  than identification, with the unchanged `50px` reference at bottom-left on
+  every Slide.
 - **Responsorial Psalm:** optional small ExtraBold authored header resolved
   before rendering (for example, the Cebuano template default `SALMO
   RESPONSORYO`) at top-left, emphasized refrain centered in the remainder, and
@@ -285,7 +288,9 @@ Use these fixed template relationships:
   localized date. The subtitle reuses the header slot renderer-locally with
   no new product field: absent, empty, or whitespace-only reserves no
   vertical space.
-- **General Text:** optional header, center-left body, and optional footer.
+- **General Text:** optional header, center-left body at `70px`, and optional footer.
+  GeneralText stays at `70px` and is untouched by the ReadingPassage-only `88px`
+  candidacy.
   **General Image:** one contained foreground image plus optional header and
   caption. A Theme image is background, not foreground content.
 
@@ -304,11 +309,15 @@ from the PR 5 provisional `72px` / `56px` / `40px`), plus the shared
 Celebration/Reading-identification exception at candidate title
 `135px`/weight `800` (50% above display) with a Celebration-only optional
 Normal-Case subtitle at `68px`/weight `300` (75% of display),
-proposed for the fixture-backed gallery candidate. Whether long Cebuano and
+plus a ReadingPassage-only pending candidate at `88px`/weight `400`
+(`70 * 1.25 = 87.5`, rounded; line advance `102px`) for
+`TemplateKind::ReadingPassage` at regular weight, left-aligned and
+top-anchored, proposed for the fixture-backed gallery candidate. GeneralText
+stays at `70px`; operator, UI, and lab-control typography are unchanged by
+either candidacy. Whether long Cebuano and
 English cases are comfortably readable at these levels is a pending human
 visual judgment, recorded in `docs/qualification/T0.4-MANUAL-GATE.md` —
 nothing here claims them frozen or qualified.
-Operator, UI, and lab-control typography are unchanged by that candidacy.
 
 ## Elevation & Depth
 

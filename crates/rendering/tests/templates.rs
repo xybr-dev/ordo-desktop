@@ -8,8 +8,9 @@
 
 use rendering::{
     BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, ForegroundImage,
-    PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, RenderError,
-    TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for, render_template,
+    PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
+    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RenderError, TargetDensity, TemplateContent,
+    TemplateKind, Theme, line_height_for, render_template,
 };
 
 fn content(
@@ -267,9 +268,22 @@ fn reading_passage_is_smaller_than_identification_with_the_same_reference() {
     )
     .unwrap();
 
+    // ReadingPassage-only candidate: 88px at regular weight, left-aligned
+    // to the safe-area left edge and top-anchored in the body zone.
+    assert_eq!(READING_PASSAGE_SIZE, 88);
+    assert_eq!(line_height_for(READING_PASSAGE_SIZE), 102);
+    for line in passage.body_lines() {
+        assert_eq!(line.size, READING_PASSAGE_SIZE);
+        assert_eq!(line.size, 88);
+        assert_eq!(line.weight, REGULAR_WEIGHT);
+        assert_eq!(line.weight, 400);
+        assert_eq!(line.height, 102);
+        assert_eq!(line.x, passage.safe_area().x as i32);
+    }
     assert_eq!(
-        passage.body_lines()[0].height,
-        line_height_for(PROVISIONAL_PASSAGE_SIZE)
+        passage.body_lines()[0].y,
+        passage.body().y as i32,
+        "reading passage stays top-anchored"
     );
     assert_eq!(
         identification.body_lines()[0].height,
@@ -296,7 +310,54 @@ fn reading_passage_is_smaller_than_identification_with_the_same_reference() {
             (safe.x, safe.y + safe.height)
         );
         assert_eq!(frame.footer_lines()[0].x, safe.x as i32);
+        assert_eq!(
+            frame.footer_lines()[0].height,
+            line_height_for(PROVISIONAL_META_SIZE),
+            "reference stays at the 50px meta size"
+        );
     }
+}
+
+#[test]
+fn reading_passage_keeps_reference_while_general_text_stays_at_70px() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let (passage, _) = render_template(
+        &content(
+            TemplateKind::ReadingPassage,
+            None,
+            "Passage text",
+            Some("Reference text"),
+        ),
+        &theme,
+        density,
+    )
+    .unwrap();
+    let (general, _) = render_template(
+        &content(
+            TemplateKind::GeneralText,
+            Some("General header"),
+            "General body",
+            Some("General footer"),
+        ),
+        &theme,
+        density,
+    )
+    .unwrap();
+
+    // GeneralText is untouched by the ReadingPassage-only candidacy.
+    assert_eq!(general.body_lines()[0].size, PROVISIONAL_PASSAGE_SIZE);
+    assert_eq!(general.body_lines()[0].size, 70);
+    assert_eq!(general.body_lines()[0].weight, REGULAR_WEIGHT);
+    assert_eq!(
+        general.body_lines()[0].height,
+        line_height_for(PROVISIONAL_PASSAGE_SIZE)
+    );
+    assert_ne!(
+        passage.body_lines()[0].size,
+        general.body_lines()[0].size,
+        "the 88px candidate applies to ReadingPassage only"
+    );
 }
 
 #[test]
@@ -773,6 +834,8 @@ fn provisional_hierarchy_carries_the_response_baseline() {
     assert_eq!(line_height_for(PROVISIONAL_DISPLAY_SIZE), 104);
     assert_eq!(PROVISIONAL_PASSAGE_SIZE, 70);
     assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 81);
+    assert_eq!(READING_PASSAGE_SIZE, 88);
+    assert_eq!(line_height_for(READING_PASSAGE_SIZE), 102);
     assert_eq!(PROVISIONAL_META_SIZE, 50);
     assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 58);
 
