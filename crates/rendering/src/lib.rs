@@ -22,6 +22,6 @@ pub use shaping::{
 };
 pub use templates::{
     CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, PROVISIONAL_DISPLAY_SIZE,
-    PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, READING_PASSAGE_SIZE, TemplateContent,
-    TemplateKind, render_template,
+    PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, READING_PASSAGE_SIZE, RESPONSE_SIZE,
+    TemplateContent, TemplateKind, render_template,
 };

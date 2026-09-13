@@ -12,7 +12,8 @@
 //!   in the remainder, no footer. A missing label collapses the header so the body keeps the
 //!   space; that absent-label composition is the label-off variant.
 //! - Response: resolved header, stored text rendered uppercase as the
-//!   emphasized body, no footer.
+//!   emphasized body at the pending candidate 113px/400 level
+//!   (Response only), centered horizontally and vertically, no footer.
 //! - Reading identification: no header, proclamation title preserved
 //!   exactly as authored (mixed case, never uppercased) at the candidate
 //!   135px/800 level, left-aligned to the safe-area left edge and centered
@@ -56,10 +57,13 @@
 //!
 //! Relative hierarchy with candidate numbers (T0.4.10, pending human approval
 //! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
-//! projected-response token and gallery baseline, +25% from the 72px PR 5
-//! provisional) carries emphasized bodies; passage (70px,
+//! shared display baseline and gallery baseline, +25% from the 72px PR 5
+//! provisional) carries Lyrics, Psalm, and Song identification bodies; passage (70px,
 //! +25% from 56px) carries general text, smaller than
-//! identification titles; Reading passage carries its own pending candidate
+//! identification titles; Response carries its own pending candidate 113px
+//! at regular weight (`90 * 1.25 = 112.5`, rounded; line advance `130px`),
+//! the projected-response token used only for `Response`, centered horizontally and vertically; Reading
+//! passage carries its own pending candidate
 //! 88px at regular weight (`70 * 1.25 = 87.5`, rounded), used only for
 //! `ReadingPassage`; meta (50px, +25% from 40px) carries labels,
 //! headers, references, credits, dates, and captions. Celebration title and
@@ -84,8 +88,8 @@ use crate::interface::{
 };
 use crate::shaping::{self, Alignment, VAlign};
 
-/// Candidate display size (T0.4.10, pending approval): the 90px projected-response token (+25%
-/// from the 72px PR 5 provisional baseline). Emphasized bodies measure here.
+/// Candidate display size (T0.4.10, pending approval): the 90px shared display baseline (+25%
+/// from the 72px PR 5 provisional baseline). Lyrics, Psalm, and Song identification bodies measure here; the projected-response token is now the Response-only 113px [`RESPONSE_SIZE`].
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
 /// Candidate passage size (T0.4.10, pending approval): general text, smaller
 /// than identification titles. 70px, +25% from the 56px PR 5 provisional.
@@ -95,6 +99,11 @@ pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
 /// [`TemplateKind::ReadingPassage`]; [`TemplateKind::GeneralText`] stays at
 /// [`PROVISIONAL_PASSAGE_SIZE`].
 pub const READING_PASSAGE_SIZE: u32 = 88;
+/// Candidate Response-only size (pending approval): 113px at regular weight
+/// (`90 * 1.25 = 112.5`, rounded; line advance `130px`). Used only for
+/// [`TemplateKind::Response`]; [`PROVISIONAL_DISPLAY_SIZE`] stays at 90px
+/// for every other emphasized body.
+pub const RESPONSE_SIZE: u32 = 113;
 /// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
 /// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
 pub const PROVISIONAL_META_SIZE: u32 = 50;
@@ -229,11 +238,15 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 footer: None,
             },
             header: meta_left(),
-            body: display(Alignment::Center),
+            body: ZoneStyle {
+                size: RESPONSE_SIZE,
+                align: Alignment::Center,
+                weight: shaping::REGULAR_WEIGHT,
+            },
             footer: neutral,
             footer_lead: None,
             body_tail: None,
-            body_valign: VAlign::Top,
+            body_valign: VAlign::Center,
         },
         TemplateKind::ReadingIdentification => Composition {
             semantic: SemanticContent {

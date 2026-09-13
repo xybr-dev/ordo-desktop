@@ -95,7 +95,7 @@ typography:
     lineHeight: 1.3
   projected-response:
     fontFamily: Atkinson Hyperlegible Next
-    fontSize: 90px
+    fontSize: 113px
     fontWeight: 800
     lineHeight: 1.15
 ---
@@ -262,7 +262,10 @@ Use these fixed template relationships:
   optically centered in the remaining region and left-aligned by default.
 - **Response:** optional repeated ExtraBold authored header resolved before
   rendering (for example, the Cebuano template default `TUBAG:`); stored
-  authored text rendered uppercase as the emphasized body.
+  authored text rendered uppercase as the emphasized body at the pending
+  candidate `113px`/weight `400` (Response only, `90 * 1.25 = 112.5`
+  rounded; line advance `130px`), centered horizontally and centered
+  vertically in the available body zone.
 - **Reading identification:** proclamation title preserved exactly as authored
   (mixed case, never uppercased) at candidate `135px`/weight `800`,
   left-aligned to the safe-area left edge and centered vertically in the body
@@ -313,8 +316,14 @@ plus a ReadingPassage-only pending candidate at `88px`/weight `400`
 (`70 * 1.25 = 87.5`, rounded; line advance `102px`) for
 `TemplateKind::ReadingPassage` at regular weight, left-aligned and
 top-anchored, proposed for the fixture-backed gallery candidate. GeneralText
-stays at `70px`; operator, UI, and lab-control typography are unchanged by
-either candidacy. Whether long Cebuano and
+stays at `70px`; plus a Response-only pending candidate at `113px`/weight
+`400` (`90 * 1.25 = 112.5`, rounded; line advance `130px`) for
+`TemplateKind::Response` at regular weight, centered horizontally and
+centered vertically in the available body zone. The shared
+`PROVISIONAL_DISPLAY_SIZE` stays at `90px` for Lyrics, Psalm, and Song
+identification; operator, UI, and lab-control typography are unchanged by
+any candidacy except the congregation `projected-response` candidate size,
+now `113px` (weight unchanged). Whether long Cebuano and
 English cases are comfortably readable at these levels is a pending human
 visual judgment, recorded in `docs/qualification/T0.4-MANUAL-GATE.md` —
 nothing here claims them frozen or qualified.

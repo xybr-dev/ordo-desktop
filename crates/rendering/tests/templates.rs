@@ -9,8 +9,8 @@
 use rendering::{
     BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, ForegroundImage,
     PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
-    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RenderError, TargetDensity, TemplateContent,
-    TemplateKind, Theme, line_height_for, render_template,
+    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZE, RenderError, TargetDensity,
+    TemplateContent, TemplateKind, Theme, line_height_for, render_template,
 };
 
 fn content(
@@ -166,7 +166,57 @@ fn lyrics_body_is_left_aligned_inside_a_centered_block() {
 fn response_header_passes_through_and_body_renders_uppercase_centered() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    let (frame, _) = render_template(
+    // Response-only candidate: 113px at regular weight, centered
+    // horizontally and vertically. All three header states share the body
+    // treatment; absent collapses the zone while empty reserves it.
+    assert_eq!(RESPONSE_SIZE, 113);
+    assert_eq!(line_height_for(RESPONSE_SIZE), 130);
+    let cases = [
+        (Some("Authored header"), "present"),
+        (None, "absent"),
+        (Some(""), "empty"),
+    ];
+    for (header, what) in cases {
+        let (frame, diagnostics) = render_template(
+            &content(TemplateKind::Response, header, "response text", None),
+            &theme,
+            density,
+        )
+        .unwrap();
+        assert!(
+            diagnostics.warnings.is_empty(),
+            "{what} response must fit without warnings"
+        );
+        assert_eq!(
+            frame.body_lines().len(),
+            1,
+            "{what} response keeps one line"
+        );
+        let line = &frame.body_lines()[0];
+        assert_eq!(line.text, "RESPONSE TEXT", "{what} body uppercases");
+        assert_eq!(line.size, RESPONSE_SIZE, "{what} body measures at 113px");
+        assert_eq!(line.weight, REGULAR_WEIGHT, "{what} body stays regular");
+        assert_eq!(line.height, 130, "{what} advance is 130px");
+        // Centered in the body zone from measured width and height.
+        let body = frame.body();
+        assert_eq!(
+            line.x,
+            body.x as i32 + (body.width as i32 - line.width) / 2,
+            "{what} body centers horizontally"
+        );
+        let top_gap = line.y - body.y as i32;
+        let bottom_gap = body.y as i32 + body.height as i32 - (line.y + line.height as i32);
+        assert!(top_gap > 0, "{what} response must not hug the top edge");
+        assert!(
+            (top_gap - bottom_gap).abs() <= 1,
+            "{what} response centers vertically: {top_gap} vs {bottom_gap}"
+        );
+    }
+
+    // Absent collapses the header zone; present and empty reserve the 58px
+    // meta header. The one-line bodies start centered at y=475 (absent) and
+    // y=504 (present/empty) at the 113px candidate.
+    let (present, _) = render_template(
         &content(
             TemplateKind::Response,
             Some("Authored header"),
@@ -177,16 +227,36 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
         density,
     )
     .unwrap();
+    assert_eq!(present.header_lines().len(), 1);
+    assert_eq!(present.header_lines()[0].text, "Authored header");
+    let present_header = present.header().expect("present header reserves a zone");
+    assert_eq!(
+        present_header.height,
+        line_height_for(PROVISIONAL_META_SIZE)
+    );
+    assert_eq!(present.body().y, present_header.y + present_header.height);
+    assert_eq!(present.body_lines()[0].y, 504);
 
-    assert_eq!(frame.header_lines().len(), 1);
-    assert_eq!(frame.header_lines()[0].text, "Authored header");
-    assert_eq!(frame.body_lines().len(), 1);
-    assert_eq!(frame.body_lines()[0].text, "RESPONSE TEXT");
-    // Centered in the body zone from measured width.
-    let body = frame.body();
-    let line = &frame.body_lines()[0];
-    assert_eq!(line.x, body.x as i32 + (body.width as i32 - line.width) / 2);
-    assert_eq!(line.height, line_height_for(PROVISIONAL_DISPLAY_SIZE));
+    let (empty, _) = render_template(
+        &content(TemplateKind::Response, Some(""), "response text", None),
+        &theme,
+        density,
+    )
+    .unwrap();
+    let empty_header = empty.header().expect("empty header reserves a zone");
+    assert_eq!(empty_header.height, line_height_for(PROVISIONAL_META_SIZE));
+    assert_eq!(empty.body_lines()[0].y, 504);
+    assert_eq!(empty.body(), present.body());
+
+    let (absent, _) = render_template(
+        &content(TemplateKind::Response, None, "response text", None),
+        &theme,
+        density,
+    )
+    .unwrap();
+    assert_eq!(absent.header(), None);
+    assert_eq!(absent.body(), absent.safe_area());
+    assert_eq!(absent.body_lines()[0].y, 475);
 }
 
 #[test]
@@ -836,17 +906,21 @@ fn provisional_hierarchy_carries_the_response_baseline() {
     assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 81);
     assert_eq!(READING_PASSAGE_SIZE, 88);
     assert_eq!(line_height_for(READING_PASSAGE_SIZE), 102);
+    assert_eq!(RESPONSE_SIZE, 113);
+    assert_eq!(line_height_for(RESPONSE_SIZE), 130);
     assert_eq!(PROVISIONAL_META_SIZE, 50);
     assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 58);
 
-    // The emphasized response body still measures at the baseline token.
+    // The Response-only body measures at 113px, while the shared display
+    // baseline stays at 90px for the other emphasized bodies.
     let (frame, _) = render_template(
         &content(TemplateKind::Response, None, "response text", None),
         &Theme::default(),
         TargetDensity::SCALE_100,
     )
     .unwrap();
-    assert_eq!(frame.body_lines()[0].height, 104);
+    assert_eq!(frame.body_lines()[0].height, 130);
+    assert_eq!(frame.body_lines()[0].size, RESPONSE_SIZE);
 }
 
 #[test]
@@ -953,26 +1027,17 @@ fn centered_templates_offset_the_body_block_from_its_measured_height() {
 fn top_templates_start_at_the_body_edge() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // Response and ReadingPassage keep top placement: no vertical offset.
-    let cases = [
-        content(
-            TemplateKind::Response,
-            Some("Authored header"),
-            "response text",
-            None,
-        ),
-        content(
-            TemplateKind::ReadingPassage,
-            None,
-            "Passage text",
-            Some("Reference text"),
-        ),
-    ];
-    for case in &cases {
-        let (frame, diagnostics) = render_template(case, &theme, density).unwrap();
-        assert!(diagnostics.warnings.is_empty());
-        assert_eq!(frame.body_lines()[0].y, frame.body().y as i32);
-    }
+    // ReadingPassage keeps top placement: no vertical offset. Response now
+    // centers (see the Response centering test above).
+    let case = content(
+        TemplateKind::ReadingPassage,
+        None,
+        "Passage text",
+        Some("Reference text"),
+    );
+    let (frame, diagnostics) = render_template(&case, &theme, density).unwrap();
+    assert!(diagnostics.warnings.is_empty());
+    assert_eq!(frame.body_lines()[0].y, frame.body().y as i32);
 }
 
 #[test]
