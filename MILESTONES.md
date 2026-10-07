@@ -315,6 +315,54 @@ different-size operator viewports plus the congregation renderer, capture every
 surface, normalize only outer scaling, and assert identical canonical content
 and unchanged pagination.
 
+### T0.4a — GPUI source migration and `gpui-base` re-qualification
+
+**Goal:** Move Ordo to a GPUI source that `gpui-base` can keep following, and
+re-qualify every adopted behavior, before T0.5 and T0.6 build on and measure
+the shell. Since `0.6`, `gpui-base` declares GPUI through exactly pinned
+`gpui-pre` crates.io snapshots of Zed rather than Zed's git repository, so a
+`gpui-base` upgrade is also a GPUI source migration. Rationale and rejected
+routes: `docs/research/gpui-fast-and-gpui-kit.md`.
+
+**Changes:** `Cargo.toml`, `Cargo.lock`, `deny.toml`, `xtask/src/lib.rs`,
+`crates/ui/`, `crates/ordo/`, `docs/qualification/GPUI-BASE-T0.4a.md`
+
+**Depends on:** T0.4.
+
+**AC**
+
+- [ ] `[AUTO]` `gpui`, `gpui_platform`, and `gpui_macros` resolve to one
+      exactly pinned (`=`) `gpui-pre` snapshot, and `gpui-base` resolves to the
+      exact release built against that snapshot. No `zed-industries/zed` or
+      `gpui-component` git source remains in `Cargo.lock`. `cargo xtask verify`
+      fails on a non-exact GPUI or `gpui-base` requirement, a second GPUI crate
+      family, or a git GPUI source.
+- [ ] `[AUTO]` `gpui-component`, `gpui-kit`, `gpui-shell`, `gpui-wry`, and
+      `gpui-fast` stay absent from the graph; `gpui-base` stays private to
+      `ui`, and no GPUI crate reaches `domain`, `presentation`, or `rendering`.
+- [ ] `[UI-AUTO]` Every behavior adopted in `GPUI-BASE-T0.3.md` is
+      re-qualified at the new revision: its focus, keyboard, AccessKit role,
+      name, and state tests pass unchanged, or each difference is recorded with
+      its resolution.
+- [ ] `[AUTO]` Each documented pin gap is re-checked and recorded as closed or
+      still open: the private test window, tooltip on keyboard focus, the
+      high-contrast signal, AccessKit live regions, the wgpu row-padding
+      workaround, the scroll indicator, and operating-system reduced motion. A
+      closed gap removes its Ordo workaround in this task.
+- [ ] `[AUTO]` The qualification record names the new GPUI supply (the
+      `gpui-pre` snapshot and the Zed commit it reproduces), its license, and
+      the fallback if that supply stops.
+- [ ] `[UI-AUTO]` The T0.3 and T0.4 suites, including the canonical-slide lab
+      test, pass on the new stack.
+- [ ] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance job
+      pass on the new stack.
+- [ ] `[MANUAL]` The `T0.3-MANUAL-GATE.md` focus, theme-following, and
+      screen-reader checks are repeated on Windows and recorded.
+
+**E2E** `[AUTO]` `[NATIVE-AUTO]` — From a clean checkout, `cargo xtask verify`
+passes with `--locked` on the new pins, and the native Windows jobs reproduce
+T0.4's canonical invariance evidence unchanged.
+
 ### T0.5 — Display Control and passive congregation-window spike
 
 **Goal:** Prove safe two-display orchestration without coupling Presentation
@@ -324,7 +372,7 @@ state to GPUI or operating-system window details.
 `crates/platform/src/congregation_window.rs`, `tests/display/`,
 `tests/fixtures/display-topologies/`
 
-**Depends on:** T0.2, T0.4.
+**Depends on:** T0.2, T0.4, T0.4a.
 
 **AC**
 
@@ -363,7 +411,7 @@ baseline before full UI construction.
 `crates/ordo/src/performance/`, `xtask/src/measure_presenter.rs`,
 `tests/presentation/`, `tests/performance/`
 
-**Depends on:** T0.2, T0.4, T0.5.
+**Depends on:** T0.2, T0.4, T0.4a, T0.5.
 
 **AC**
 
@@ -519,7 +567,7 @@ platform assumption or an undocumented exception.
 **Changes:** `docs/qualification/milestone-0/`, `MILESTONES.md`,
 `MVP-PLAN.md`, architecture notes only when a genuine trade-off warrants them
 
-**Depends on:** T0.1–T0.9.
+**Depends on:** T0.1–T0.9, including T0.4a.
 
 **AC**
 
