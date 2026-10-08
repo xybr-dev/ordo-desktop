@@ -113,8 +113,7 @@ pub fn preview_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
 /// congregation window is not this; it stays a separate passive surface.
 /// Production Preview and Program share the 720 width, so production holds
 /// three distinct operator outer sizes (320 / 480 / 720 before Interface
-/// scale); the milestone's four different-size viewports remain an open
-/// acceptance gate (see the milestone E2E below).
+/// scale), the sizes the milestone qualifies (Decision 266).
 pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyElement {
     let width = environment.preferences().scale.apply(720.0);
     div()
@@ -374,8 +373,7 @@ mod tests {
     /// at both viewport presets and every Interface scale. Each outer box
     /// holds `16:9` and differs only in outer scale; the shared frame inside
     /// never moves. Production Preview and Program share the 720 width, so
-    /// only three distinct outer sizes exist here; the milestone's four
-    /// different-size viewports remain an open gate (see the milestone E2E).
+    /// only three distinct outer sizes exist here (Decision 266).
     /// Source bytes plus geometry only, never compositor output (see the
     /// milestone E2E below for why no screenshot exists on this host).
     #[gpui::test]
@@ -483,13 +481,9 @@ mod tests {
     /// through their production wrappers at production sizes (timeline 320 /
     /// Inspector 480 / Preview 720 / Program 720, before Interface scale;
     /// Preview and Program share 720, so only three distinct operator outer
-    /// sizes exist), and the congregation output through the production
-    /// [`crate::CongregationView`], which reserves the Program pixels box
-    /// edge-to-edge (black until the background encode lands). The
-    /// milestone's four different-size operator viewports therefore remain
-    /// an open acceptance gate: this E2E proves the shared content and
-    /// pagination at production sizes without manufacturing a fourth
-    /// production size, and does not claim that gate.
+    /// sizes exist, per Decision 266), and the congregation output through
+    /// the production [`crate::CongregationView`], which reserves the Program
+    /// pixels box edge-to-edge (black until the background encode lands).
     /// This is source-byte plus geometry inspection only, NOT a compositor
     /// screenshot: `gpui::TestAppContext` always constructs `TestPlatform`
     /// without any headless renderer on every OS, so
@@ -633,11 +627,9 @@ mod tests {
                     );
                     outers.push(actual_w);
                 }
-                // Production Preview and Program share the 720 width by design,
-                // so only three distinct operator outer sizes exist. The
-                // milestone's four different-size viewports remain an open
-                // acceptance gate and are not claimed here; the shared frame
-                // inside never moves.
+                // Production Preview and Program share the 720 width by design
+                // (Decision 266), so only three distinct operator outer sizes
+                // exist; the shared frame inside never moves.
                 assert!(
                     (outers[2] - outers[3]).abs() < 1.0,
                     "production Preview and Program share 720: {outers:?}"

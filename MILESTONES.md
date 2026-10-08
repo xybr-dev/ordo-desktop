@@ -302,18 +302,20 @@ operator sizes, operating systems, display scaling, and preview consumers.
 - [ ] `[AUTO]` Target density may change raster dimensions and sharpness but not
       logical composition.
 - [ ] `[UI-AUTO]` Timeline thumbnail, Inspector, Preview, and Program wrappers
-      display the same completed fixture frame, scaled uniformly with identical
-      internal pixels and a 4px operator-only viewport radius.
+      display the same completed fixture frame at their production sizes
+      across both viewport presets and every Interface scale, scaled uniformly
+      with identical internal pixels and a 4px operator-only viewport radius.
 - [ ] `[MANUAL]` Atkinson operator fit and Noto fallback are legible and stable
       in packaged Windows and Linux builds at both qualified resolutions.
 - [ ] `[MANUAL]` The fixture-backed Canonical Slide Layout Gallery qualifies
       every adopted template and freezes projected numeric type levels only
       after long Cebuano/English cases remain comfortably readable.
 
-**E2E** `[UI-AUTO]` — Render one mixed-language fixture once, display it in four
-different-size operator viewports plus the congregation renderer, capture every
-surface, normalize only outer scaling, and assert identical canonical content
-and unchanged pagination.
+**E2E** `[UI-AUTO]` — Render one mixed-language fixture once, display it in the
+four operator viewports at their production sizes plus the congregation
+renderer, capture every surface, normalize only outer scaling, and assert
+identical canonical content and unchanged pagination. Preview and Program share
+one production size by design (Decision 266).
 
 ### T0.4a — GPUI source migration and `gpui-base` re-qualification
 
