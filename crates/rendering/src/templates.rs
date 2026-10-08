@@ -15,11 +15,11 @@
 //!   largest [`RESPONSE_SIZES`] rung that fits, weight 800, centered
 //!   horizontally and vertically, no footer.
 //! - Reading identification: no header, proclamation title preserved
-//!   exactly as authored (mixed case, never uppercased) at the candidate
+//!   exactly as authored (mixed case, never uppercased) at the
 //!   135px/800 level, left-aligned to the safe-area left edge and centered
 //!   vertically in the body, reference at bottom-left.
-//! - Reading passage: no header, passage in the body at the pending
-//!   candidate 88px/400 level (ReadingPassage only), reference at
+//! - Reading passage: no header, passage in the body at the
+//!   88px/400 level (ReadingPassage only), reference at
 //!   bottom-left on every slide. A projected cantor verse uses this kind.
 //! - Psalm: resolved header at top-left, refrain at the largest
 //!   [`PSALM_SIZES`] rung that fits, weight 700, centered in the remainder,
@@ -29,7 +29,7 @@
 //!   composer/source plus optional credit following at meta size. The body
 //!   stays empty.
 //! - Celebration title: title preserved exactly as authored (mixed case,
-//!   never uppercased) at the candidate 135px/800 level plus an optional
+//!   never uppercased) at the 135px/800 level plus an optional
 //!   Normal-Case subtitle at 68px/300, both left-aligned to the safe-area
 //!   left edge with the subtitle below the title; title plus subtitle center
 //!   together vertically above the bottom-left localized date. The subtitle
@@ -56,24 +56,23 @@
 //!   paint outside this module, so a theme picture can never arrive as
 //!   foreground content.
 //!
-//! Relative hierarchy with candidate numbers (T0.4.10, pending human approval
-//! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
+//! Relative hierarchy with the levels approved at the T0.4 manual gate
+//! (`docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
 //! shared display baseline and gallery baseline, +25% from the 72px PR 5
 //! provisional) carries Lyrics bodies and floors the Psalm ladder; passage
 //! (70px, +25% from 56px) carries general text, smaller than
 //! identification titles; Psalm (140–90px/700) and Response
 //! (160–100px/800) bodies take the largest ladder rung that fits; Song
-//! titles lead at 100px/700; Reading passage carries its own pending candidate
+//! titles lead at 100px/700; Reading passage carries its own
 //! 88px at regular weight (`70 * 1.25 = 87.5`, rounded), used only for
 //! `ReadingPassage`; meta (50px, +25% from 40px) carries labels,
 //! headers, references, credits, dates, and captions. Celebration title and
-//! Reading identification share the one exception: candidate title 135px/800
+//! Reading identification share the one exception: title 135px/800
 //! (50% above display), left-aligned to the safe-area left edge, with the
 //! Celebration-only optional Normal-Case subtitle at 68px/300 (75% of
-//! display), pending the same human approval. PR 5 carried the
-//! provisional 72/56/40 levels; PR 10 proposes 90/70/50 as candidate for
-//! gallery review — whether long Cebuano/English cases are comfortably
-//! readable there is a pending human judgment.
+//! display). PR 5 carried the provisional 72/56/40 levels; the gallery
+//! approved 90/70/50 and these exceptions after the long Cebuano/English
+//! cases read comfortably. The `PROVISIONAL_*` names are historical.
 //!
 //! Line ceilings warn beside a complete frame without changing its fit:
 //! lyrics target two logical phrases and no more than four rendered lines,
@@ -88,37 +87,37 @@ use crate::interface::{
 };
 use crate::shaping::{self, Alignment, VAlign};
 
-/// Candidate display size (T0.4.10, pending approval): the 90px shared display baseline (+25%
+/// display size (approved at T0.4): the 90px shared display baseline (+25%
 /// from the 72px PR 5 provisional baseline). Lyrics bodies measure here and
 /// the Psalm ladder floors at it.
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
-/// Candidate passage size (T0.4.10, pending approval): general text, smaller
+/// passage size (approved at T0.4): general text, smaller
 /// than identification titles. 70px, +25% from the 56px PR 5 provisional.
 pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
-/// Candidate Reading-passage-only size (pending approval): 88px at regular
+/// Reading-passage-only size (approved at T0.4): 88px at regular
 /// weight (`70 * 1.25 = 87.5`, rounded). Used only for
 /// [`TemplateKind::ReadingPassage`]; [`TemplateKind::GeneralText`] stays at
 /// [`PROVISIONAL_PASSAGE_SIZE`].
 pub const READING_PASSAGE_SIZE: u32 = 88;
-/// Candidate Response size ladder (pending approval), largest first: bold
+/// Response size ladder (approved at T0.4), largest first: bold
 /// bodies take the largest rung whose block fits the body zone, so short
 /// responses grow and long ones step down to the 100px floor.
 pub const RESPONSE_SIZES: [u32; 4] = [160, 140, 120, 100];
-/// Candidate Psalm size ladder (pending approval), largest first: bold
+/// Psalm size ladder (approved at T0.4), largest first: bold
 /// bodies take the largest rung that fits, down to the 90px display floor.
 pub const PSALM_SIZES: [u32; 4] = [140, 120, 105, 90];
-/// Candidate Song identification title size (pending approval): 100px, bold,
+/// Song identification title size (approved at T0.4): 100px, bold,
 /// authored case. Used only for the footer lead of
 /// [`TemplateKind::SongIdentification`].
 pub const SONG_TITLE_SIZE: u32 = 100;
-/// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
+/// meta size (approved at T0.4): section labels, resolved headers, references,
 /// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
 pub const PROVISIONAL_META_SIZE: u32 = 50;
-/// Candidate celebration-title size (T0.4.10, pending human approval):
+/// celebration-title size (approved at T0.4):
 /// 135px at weight 800, 50% above the 90px display baseline, left-aligned
 /// to the safe-area left edge. Shared by Reading identification titles.
 pub const CELEBRATION_TITLE_SIZE: u32 = 135;
-/// Candidate celebration-subtitle size (T0.4.10, pending human approval):
+/// celebration-subtitle size (approved at T0.4):
 /// 68px at weight 300 in Normal Case (75% of the 90px display baseline),
 /// same left edge below the title.
 pub const CELEBRATION_SUBTITLE_SIZE: u32 = 68;

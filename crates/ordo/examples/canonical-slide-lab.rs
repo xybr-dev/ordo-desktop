@@ -697,7 +697,7 @@ mod tests {
 
     /// Gallery capture through the live lab (T0.4 PR 10).
     ///
-    /// Every candidate fixture drives the actual `LabView` (`open` plus its
+    /// Every gallery fixture drives the actual `LabView` (`open` plus its
     /// `spawn_worker` raster thread): the lab's `load_fixtures` order, the
     /// production canonical worker behind `CanonicalCommand::Compose`, the
     /// 100% raster with the solid-gray GeneralImage stand-in, and the
@@ -709,12 +709,11 @@ mod tests {
     /// writes `<name>.png` (finished pre-chrome slide pixels) plus
     /// `capture-rows.md`: the visible frame, the wrapper, and the
     /// diagnostics riding beside it, which is the exact source of the
-    /// candidate matrix in `docs/qualification/T0.4-GALLERY-CANDIDATE.md`.
+    /// approved gallery in `design-references/ordo-canonical-slide-layouts/`.
     /// The PNGs are slide pixels paired with wrapper/diagnostics metadata —
     /// never a compositor screenshot (`TestAppContext` supplies no headless
-    /// renderer on any OS, so none is attempted here). The captures stay
-    /// candidate review artifacts;
-    /// they never promote themselves to `design-references/`.
+    /// renderer on any OS, so none is attempted here). A recapture that
+    /// changes the approved bytes needs a fresh approval.
     #[gpui::test]
     async fn gallery_capture_through_the_lab_pipeline(cx: &mut TestAppContext) {
         let (lab, cx) = open(cx);
@@ -803,7 +802,7 @@ mod tests {
                 "{name} must rasterize 1920x1080 at 100% density"
             );
             rows.push(format!(
-                "| {name} | {kind} | {header} | {authored}/{body_rendered} | {footer_rendered} | {warnings} | `gallery-candidate/{name}.png` |",
+                "| {name} | {kind} | {header} | {authored}/{body_rendered} | {footer_rendered} | {warnings} | `ordo-canonical-slide-layouts/{name}.png` |",
             ));
             pngs.push((name, png_bytes));
             if expected_idx + 1 < count {
@@ -849,9 +848,9 @@ mod tests {
              beside complete frames.\n\
              - Live review: `cargo run -p ordo --example canonical-slide-lab` (`F2` fixture · `F3` \
              viewport · `F4` scale · `F5` density; diagnostics beside the scaled frame).\n\
-             - Status: candidate for review only — not in `design-references/`, never an Approved \
-             Reference until the live output and its captured reference are approved together in \
-             `T0.4-MANUAL-GATE.md`.\n\
+             - Status: Approved Reference (`DESIGN.md`, Decision 267), approved at the T0.4 manual \
+             gate in `docs/qualification/T0.4-MANUAL-GATE.md`. A recapture that changes these bytes \
+             needs a fresh approval.\n\
              \n\
              | Fixture | Template | Header | Body lines (authored/rendered) | Footer lines (rendered) | Warnings | PNG |\n\
              | --- | --- | --- | --- | --- | --- | --- |\n",

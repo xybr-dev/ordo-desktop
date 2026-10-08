@@ -8,11 +8,11 @@
 //! targets.
 //!
 //! Scope notes:
-//! - Sizes are candidate at T0.4.10 at display 90px / passage 70px / meta 50px
+//! - Sizes are approved at T0.4 at display 90px / passage 70px / meta 50px
 //!   (PR 5 provisional 72/56/40, each +25%), plus the Celebration exception
-//!   at candidate title 135px/800 with optional subtitle 68px/300, plus
+//!   at title 135px/800 with optional subtitle 68px/300, plus
 //!   content-sized Psalm (140–90px/700) and Response (160–100px/800) body
-//!   ladders, pending human approval per
+//!   ladders, approved per
 //!   `docs/qualification/T0.4-MANUAL-GATE.md`: the 90px display baseline
 //!   stays the gallery baseline for Lyrics, and the template
 //!   corpus chooses per-zone sizes from it. Line advance stays
@@ -32,8 +32,8 @@
 
 use crate::fonts::{self, CanonicalFont};
 
-/// Provisional body size: the 90px shared display baseline (candidate at
-/// T0.4.10 from the 72px PR 5 baseline, +25%, pending approval) for Lyrics
+/// Provisional body size: the 90px shared display baseline (approved at
+/// T0.4 from the 72px PR 5 baseline, +25%) for Lyrics
 /// and the Psalm ladder floor. The template corpus carries the full
 /// hierarchy.
 pub const BODY_FONT_SIZE: u32 = 90;
@@ -41,17 +41,17 @@ pub const BODY_FONT_SIZE: u32 = 90;
 /// apply no `wght` variation here, so every non-celebration zone keeps its
 /// pinned advances and masks byte-for-byte.
 pub const REGULAR_WEIGHT: u16 = 400;
-/// Candidate Psalm body weight (pending approval): Bold 700.
+/// Psalm body weight (approved at T0.4): Bold 700.
 pub const EMPHASIS_WEIGHT: u16 = 700;
-/// Candidate Response body weight (pending approval): ExtraBold 800, matching
+/// Response body weight (approved at T0.4): ExtraBold 800, matching
 /// the `projected-response` token.
 pub const RESPONSE_WEIGHT: u16 = 800;
-/// Candidate Song identification title weight (pending approval): Bold 700.
+/// Song identification title weight (approved at T0.4): Bold 700.
 pub const SONG_TITLE_WEIGHT: u16 = 700;
-/// Candidate celebration-title weight (T0.4.10, pending human approval):
+/// celebration-title weight (approved at T0.4):
 /// ExtraBold 800, the top of the bundled Atkinson `wght` axis.
 pub const CELEBRATION_TITLE_WEIGHT: u16 = 800;
-/// Candidate celebration-subtitle weight (T0.4.10, pending human approval):
+/// celebration-subtitle weight (approved at T0.4):
 /// Light 300 on the bundled `wght` axis.
 pub const CELEBRATION_SUBTITLE_WEIGHT: u16 = 300;
 /// Line advance for a size: `ceil(size * 1.15)` logical units.

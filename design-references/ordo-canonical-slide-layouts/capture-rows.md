@@ -5,32 +5,32 @@
 - Wrapper: `ui::canonical_frame::canonical_frame` through `ordo::canonical_views` (`timeline_thumbnail` / `inspector_frame` / `preview_frame` / `program_frame`, 320 / 480 / 720 / 960 before Interface scale, `4px` operator-only chrome); the congregation surface reserves the same sampling edge-to-edge with square corners (black until its background encode lands).
 - Diagnostics: the Warnings column below rides beside each capture; overflow fixtures warn beside complete frames.
 - Live review: `cargo run -p ordo --example canonical-slide-lab` (`F2` fixture · `F3` viewport · `F4` scale · `F5` density; diagnostics beside the scaled frame).
-- Status: candidate for review only — not in `design-references/`, never an Approved Reference until the live output and its captured reference are approved together in `T0.4-MANUAL-GATE.md`.
+- Status: Approved Reference (`DESIGN.md`, Decision 267), approved at the T0.4 manual gate in `docs/qualification/T0.4-MANUAL-GATE.md`. A recapture that changes these bytes needs a fresh approval.
 
 | Fixture | Template | Header | Body lines (authored/rendered) | Footer lines (rendered) | Warnings | PNG |
 | --- | --- | --- | --- | --- | --- | --- |
-| black | Black | absent | 0/0 | 0 | none | `gallery-candidate/black.png` |
-| celebration-title-overflow | CelebrationTitle | absent | 4/4 | 1 | celebration title has 4 rendered lines against a three-line ceiling; split before shrinking | `gallery-candidate/celebration-title-overflow.png` |
-| celebration-title | CelebrationTitle | `National Catechetical Day` | 1/4 | 1 | none | `gallery-candidate/celebration-title.png` |
-| general-image | GeneralImage | `Image header` | 0/0 | 1 | none | `gallery-candidate/general-image.png` |
-| general-text-mixed | GeneralText | `Pahibalo` | 1/2 | 1 | none | `gallery-candidate/general-text-mixed.png` |
-| lyrics-cebuano-one-line | Lyrics | `Bersikulo` | 1/1 | 0 | none | `gallery-candidate/lyrics-cebuano-one-line.png` |
-| lyrics-english-two-line | Lyrics | `Verse` | 2/2 | 0 | none | `gallery-candidate/lyrics-english-two-line.png` |
-| lyrics-label-off | Lyrics | absent | 1/1 | 0 | none | `gallery-candidate/lyrics-label-off.png` |
-| lyrics-long-word | Lyrics | `Verse` | 1/3 | 0 | none | `gallery-candidate/lyrics-long-word.png` |
-| lyrics-missing-glyph | Lyrics | `Verse` | 1/1 | 0 | none | `gallery-candidate/lyrics-missing-glyph.png` |
-| lyrics-mixed-four-line | Lyrics | `Mixed` | 4/4 | 0 | lyric body carries 4 phrases against a two-phrase target; split before shrinking | `gallery-candidate/lyrics-mixed-four-line.png` |
-| lyrics-overflow-warning | Lyrics | `Verse` | 20/20 | 0 | body content needs 2080px but the body zone offers 862px at the approved minimum; split before shrinking<br>lyric body carries 20 phrases against a two-phrase target; split before shrinking<br>lyric body has 20 rendered lines against a four-line ceiling; split before shrinking | `gallery-candidate/lyrics-overflow-warning.png` |
-| lyrics-punctuation | Lyrics | `Verse` | 1/2 | 0 | none | `gallery-candidate/lyrics-punctuation.png` |
-| lyrics-tagalog-three-line | Lyrics | `Taludtod` | 3/3 | 0 | lyric body carries 3 phrases against a two-phrase target; split before shrinking | `gallery-candidate/lyrics-tagalog-three-line.png` |
-| psalm-cebuano | Psalm | `SALMO RESPONSORYO:` | 1/4 | 1 | none | `gallery-candidate/psalm-cebuano.png` |
-| psalm-header-empty | Psalm | empty | 1/4 | 1 | none | `gallery-candidate/psalm-header-empty.png` |
-| reading-identification-mateo | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-mateo.png` |
-| reading-identification-roma | ReadingIdentification | absent | 1/3 | 1 | none | `gallery-candidate/reading-identification-roma.png` |
-| reading-identification | ReadingIdentification | absent | 1/2 | 1 | none | `gallery-candidate/reading-identification.png` |
-| reading-passage-cebuano | ReadingPassage | absent | 1/2 | 1 | none | `gallery-candidate/reading-passage-cebuano.png` |
-| reading-passage-english | ReadingPassage | absent | 1/2 | 1 | none | `gallery-candidate/reading-passage-english.png` |
-| response-cebuano | Response | `TUBAG:` | 1/2 | 0 | none | `gallery-candidate/response-cebuano.png` |
-| response-header-absent | Response | absent | 1/1 | 0 | none | `gallery-candidate/response-header-absent.png` |
-| response-header-empty | Response | empty | 1/1 | 0 | none | `gallery-candidate/response-header-empty.png` |
-| song-identification | SongIdentification | absent | 1/0 | 3 | none | `gallery-candidate/song-identification.png` |
+| black | Black | absent | 0/0 | 0 | none | `ordo-canonical-slide-layouts/black.png` |
+| celebration-title-overflow | CelebrationTitle | absent | 4/4 | 1 | celebration title has 4 rendered lines against a three-line ceiling; split before shrinking | `ordo-canonical-slide-layouts/celebration-title-overflow.png` |
+| celebration-title | CelebrationTitle | `National Catechetical Day` | 1/4 | 1 | none | `ordo-canonical-slide-layouts/celebration-title.png` |
+| general-image | GeneralImage | `Image header` | 0/0 | 1 | none | `ordo-canonical-slide-layouts/general-image.png` |
+| general-text-mixed | GeneralText | `Pahibalo` | 1/2 | 1 | none | `ordo-canonical-slide-layouts/general-text-mixed.png` |
+| lyrics-cebuano-one-line | Lyrics | `Bersikulo` | 1/1 | 0 | none | `ordo-canonical-slide-layouts/lyrics-cebuano-one-line.png` |
+| lyrics-english-two-line | Lyrics | `Verse` | 2/2 | 0 | none | `ordo-canonical-slide-layouts/lyrics-english-two-line.png` |
+| lyrics-label-off | Lyrics | absent | 1/1 | 0 | none | `ordo-canonical-slide-layouts/lyrics-label-off.png` |
+| lyrics-long-word | Lyrics | `Verse` | 1/3 | 0 | none | `ordo-canonical-slide-layouts/lyrics-long-word.png` |
+| lyrics-missing-glyph | Lyrics | `Verse` | 1/1 | 0 | none | `ordo-canonical-slide-layouts/lyrics-missing-glyph.png` |
+| lyrics-mixed-four-line | Lyrics | `Mixed` | 4/4 | 0 | lyric body carries 4 phrases against a two-phrase target; split before shrinking | `ordo-canonical-slide-layouts/lyrics-mixed-four-line.png` |
+| lyrics-overflow-warning | Lyrics | `Verse` | 20/20 | 0 | body content needs 2080px but the body zone offers 862px at the approved minimum; split before shrinking<br>lyric body carries 20 phrases against a two-phrase target; split before shrinking<br>lyric body has 20 rendered lines against a four-line ceiling; split before shrinking | `ordo-canonical-slide-layouts/lyrics-overflow-warning.png` |
+| lyrics-punctuation | Lyrics | `Verse` | 1/2 | 0 | none | `ordo-canonical-slide-layouts/lyrics-punctuation.png` |
+| lyrics-tagalog-three-line | Lyrics | `Taludtod` | 3/3 | 0 | lyric body carries 3 phrases against a two-phrase target; split before shrinking | `ordo-canonical-slide-layouts/lyrics-tagalog-three-line.png` |
+| psalm-cebuano | Psalm | `SALMO RESPONSORYO:` | 1/4 | 1 | none | `ordo-canonical-slide-layouts/psalm-cebuano.png` |
+| psalm-header-empty | Psalm | empty | 1/4 | 1 | none | `ordo-canonical-slide-layouts/psalm-header-empty.png` |
+| reading-identification-mateo | ReadingIdentification | absent | 1/3 | 1 | none | `ordo-canonical-slide-layouts/reading-identification-mateo.png` |
+| reading-identification-roma | ReadingIdentification | absent | 1/3 | 1 | none | `ordo-canonical-slide-layouts/reading-identification-roma.png` |
+| reading-identification | ReadingIdentification | absent | 1/2 | 1 | none | `ordo-canonical-slide-layouts/reading-identification.png` |
+| reading-passage-cebuano | ReadingPassage | absent | 1/2 | 1 | none | `ordo-canonical-slide-layouts/reading-passage-cebuano.png` |
+| reading-passage-english | ReadingPassage | absent | 1/2 | 1 | none | `ordo-canonical-slide-layouts/reading-passage-english.png` |
+| response-cebuano | Response | `TUBAG:` | 1/2 | 0 | none | `ordo-canonical-slide-layouts/response-cebuano.png` |
+| response-header-absent | Response | absent | 1/1 | 0 | none | `ordo-canonical-slide-layouts/response-header-absent.png` |
+| response-header-empty | Response | empty | 1/1 | 0 | none | `ordo-canonical-slide-layouts/response-header-empty.png` |
+| song-identification | SongIdentification | absent | 1/0 | 3 | none | `ordo-canonical-slide-layouts/song-identification.png` |
