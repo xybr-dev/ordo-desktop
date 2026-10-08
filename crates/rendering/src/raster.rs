@@ -266,8 +266,12 @@ fn draw_line(
         let floor_y = origin_y.floor() as i32;
         let offset = swash::zeno::Vector::new(origin_x - floor_x as f32, origin_y - floor_y as f32);
         let builder = context.builder(*face).size(scaled_size).hint(false);
+        // swash keeps variation coords on the shared context, so a regular
+        // line must reset them or it inherits the previous line's `wght`.
         let mut scaler = if line.weight == crate::shaping::REGULAR_WEIGHT {
-            builder.build()
+            builder
+                .normalized_coords(std::iter::empty::<swash::NormalizedCoord>())
+                .build()
         } else {
             builder
                 .variations(&[("wght", f32::from(line.weight))])
