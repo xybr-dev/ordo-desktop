@@ -255,7 +255,7 @@ fn compose_content(content: &TemplateContent, body_size: Option<u32>) -> Composi
             body: ZoneStyle {
                 size: body_size.unwrap_or(RESPONSE_SIZES[RESPONSE_SIZES.len() - 1]),
                 align: Alignment::Center,
-                weight: shaping::EMPHASIS_WEIGHT,
+                weight: shaping::RESPONSE_WEIGHT,
             },
             footer: neutral,
             footer_lead: None,

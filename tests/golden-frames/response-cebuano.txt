@@ -14,27 +14,27 @@ glyph zone=header line=0 font=primary id=12 x=181 y=129 x-advance=30 y-advance=0
 glyph zone=header line=0 font=primary id=1 x=211 y=129 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
 glyph zone=header line=0 font=primary id=32 x=241 y=129 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=4
 glyph zone=header line=0 font=primary id=236 x=275 y=129 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=5
-line zone=body index=0 authored=0 x=264 y=385 width=1392 height=184 text=Ang ginoo maanaa
-glyph zone=body line=0 font=primary id=1 x=264 y=542 x-advance=108 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=170 x=372 y=542 x-advance=91 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=143 x=463 y=542 x-advance=94 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=143 x=606 y=542 x-advance=94 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=149 x=700 y=542 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=170 x=748 y=542 x-advance=91 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=175 x=839 y=542 x-advance=92 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=175 x=931 y=542 x-advance=92 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=169 x=1072 y=542 x-advance=141 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=112 x=1213 y=542 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=112 x=1301 y=542 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=170 x=1389 y=542 x-advance=91 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=112 x=1480 y=542 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=112 x=1568 y=542 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=5
-line zone=body index=1 authored=0 x=674 y=569 width=572 height=184 text=kaninyo
-glyph zone=body line=1 font=primary id=162 x=674 y=726 x-advance=86 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=112 x=760 y=726 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=170 x=848 y=726 x-advance=90 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=149 x=938 y=726 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=170 x=986 y=726 x-advance=88 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=216 x=1074 y=726 x-advance=80 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=1 font=primary id=175 x=1154 y=726 x-advance=92 y-advance=0 x-offset=0 y-offset=0 cluster=6
+line zone=body index=0 authored=0 x=246 y=385 width=1428 height=184 text=Ang ginoo maanaa
+glyph zone=body line=0 font=primary id=1 x=246 y=542 x-advance=112 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=358 y=542 x-advance=93 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=451 y=542 x-advance=97 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=143 x=600 y=542 x-advance=97 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=149 x=697 y=542 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=749 y=542 x-advance=93 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=175 x=842 y=542 x-advance=94 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=175 x=936 y=542 x-advance=94 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=169 x=1082 y=542 x-advance=143 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1225 y=542 x-advance=89 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=112 x=1314 y=542 x-advance=89 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=170 x=1403 y=542 x-advance=93 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=112 x=1496 y=542 x-advance=89 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=112 x=1585 y=542 x-advance=89 y-advance=0 x-offset=0 y-offset=0 cluster=5
+line zone=body index=1 authored=0 x=664 y=569 width=592 height=184 text=kaninyo
+glyph zone=body line=1 font=primary id=162 x=664 y=726 x-advance=91 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=755 y=726 x-advance=89 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=170 x=844 y=726 x-advance=91 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=149 x=935 y=726 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=170 x=987 y=726 x-advance=90 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=216 x=1077 y=726 x-advance=85 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=175 x=1162 y=726 x-advance=94 y-advance=0 x-offset=0 y-offset=0 cluster=6
 warnings 0

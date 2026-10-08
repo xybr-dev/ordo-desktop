@@ -41,8 +41,11 @@ pub const BODY_FONT_SIZE: u32 = 90;
 /// apply no `wght` variation here, so every non-celebration zone keeps its
 /// pinned advances and masks byte-for-byte.
 pub const REGULAR_WEIGHT: u16 = 400;
-/// Candidate Psalm and Response body weight (pending approval): Bold 700.
+/// Candidate Psalm body weight (pending approval): Bold 700.
 pub const EMPHASIS_WEIGHT: u16 = 700;
+/// Candidate Response body weight (pending approval): ExtraBold 800, matching
+/// the `projected-response` token.
+pub const RESPONSE_WEIGHT: u16 = 800;
 /// Candidate Song identification title weight (pending approval): Bold 700.
 pub const SONG_TITLE_WEIGHT: u16 = 700;
 /// Candidate celebration-title weight (T0.4.10, pending human approval):

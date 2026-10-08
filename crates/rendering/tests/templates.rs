@@ -9,9 +9,9 @@
 use rendering::{
     BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, EMPHASIS_WEIGHT,
     ForegroundImage, PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
-    PSALM_SIZES, READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZES, RenderError,
-    SONG_TITLE_SIZE, TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for,
-    render_template,
+    PSALM_SIZES, READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZES, RESPONSE_WEIGHT,
+    RenderError, SONG_TITLE_SIZE, TargetDensity, TemplateContent, TemplateKind, Theme,
+    line_height_for, render_template,
 };
 
 fn content(
@@ -199,7 +199,7 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
             line.size, RESPONSE_SIZES[0],
             "{what} body measures at 160px"
         );
-        assert_eq!(line.weight, EMPHASIS_WEIGHT, "{what} body is bold");
+        assert_eq!(line.weight, RESPONSE_WEIGHT, "{what} body is ExtraBold");
         assert_eq!(line.height, 184, "{what} advance is 184px");
         // Centered in the body zone from measured width and height.
         let body = frame.body();
@@ -1222,9 +1222,9 @@ fn psalm_and_response_bodies_step_down_the_ladder_as_content_grows() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
     let long = "a long refrain that keeps going and going\n".repeat(5);
-    for (kind, ladder) in [
-        (TemplateKind::Response, RESPONSE_SIZES),
-        (TemplateKind::Psalm, PSALM_SIZES),
+    for (kind, ladder, expected_weight) in [
+        (TemplateKind::Response, RESPONSE_SIZES, RESPONSE_WEIGHT),
+        (TemplateKind::Psalm, PSALM_SIZES, EMPHASIS_WEIGHT),
     ] {
         let sized = |body: &str| {
             let (frame, _) =
@@ -1232,12 +1232,12 @@ fn psalm_and_response_bodies_step_down_the_ladder_as_content_grows() {
             let line = &frame.body_lines()[0];
             (line.size, line.weight)
         };
-        assert_eq!(sized("Short"), (ladder[0], EMPHASIS_WEIGHT));
+        assert_eq!(sized("Short"), (ladder[0], expected_weight));
         let (size, weight) = sized(long.trim_end());
         assert!(
             size < ladder[0] && ladder.contains(&size),
             "{kind:?}: {size}"
         );
-        assert_eq!(weight, EMPHASIS_WEIGHT);
+        assert_eq!(weight, expected_weight);
     }
 }

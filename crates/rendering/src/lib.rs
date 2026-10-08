@@ -18,7 +18,7 @@ pub use raster::{RasterError, RasterizedFrame, rasterize};
 pub use shaping::{
     Alignment, BODY_FONT_SIZE, BODY_LINE_HEIGHT, CELEBRATION_SUBTITLE_WEIGHT,
     CELEBRATION_TITLE_WEIGHT, EMPHASIS_WEIGHT, Fit, PaginationInputs, PlacedGlyph, REGULAR_WEIGHT,
-    ShapedLine, line_height_for,
+    RESPONSE_WEIGHT, ShapedLine, line_height_for,
 };
 pub use templates::{
     CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, PROVISIONAL_DISPLAY_SIZE,
