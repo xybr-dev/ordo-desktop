@@ -534,9 +534,9 @@ pub(crate) fn compose_zoned(
         return Err(RenderError::ConflictingHeaders);
     }
 
-    // Regular faces cover every zone except the celebration body segments;
-    // each distinct non-regular `wght` loads once so shaping advances match
-    // the raster masks per line. Chrome stays regular in the current corpus.
+    // Regular faces cover the header; the body, its tail, and the footer
+    // lead load their own non-regular `wght` once so shaping advances match
+    // the raster masks per line.
     let regular_faces = shaping::load_faces().ok_or(RenderError::FontUnavailable)?;
     let body_faces_owned = if body.weight != shaping::REGULAR_WEIGHT {
         Some(shaping::load_faces_with_weight(body.weight).ok_or(RenderError::FontUnavailable)?)
@@ -561,6 +561,14 @@ pub(crate) fn compose_zoned(
         Some(_) => tail_faces_owned.as_ref().expect("tail faces must load"),
         None => &regular_faces,
     };
+    let footer_lead_faces_owned = match plan.footer_lead {
+        Some((lead_style, _)) if lead_style.weight != shaping::REGULAR_WEIGHT => Some(
+            shaping::load_faces_with_weight(lead_style.weight)
+                .ok_or(RenderError::FontUnavailable)?,
+        ),
+        _ => None,
+    };
+    let footer_lead_faces = footer_lead_faces_owned.as_ref().unwrap_or(&regular_faces);
     let max_width = i32::try_from(safe_width).map_err(|_| RenderError::SafeAreaExceedsCanvas {
         requested_x: theme.safe_inset_x,
         requested_y: theme.safe_inset_y,
@@ -609,7 +617,14 @@ pub(crate) fn compose_zoned(
 
     let (footer_lines, footer_height) = match content.footer.as_deref() {
         None => (Vec::new(), 0),
-        Some(text) => layout_footer(text, footer, plan.footer_lead, max_width, &regular_faces),
+        Some(text) => layout_footer(
+            text,
+            footer,
+            plan.footer_lead,
+            max_width,
+            &regular_faces,
+            footer_lead_faces,
+        ),
     };
     // Chrome taller than the safe area cannot be paginated away, so it fails
     // structurally instead of warning beside misbounded zones.
@@ -866,6 +881,7 @@ fn layout_footer(
     lead: Option<(ZoneStyle, u32)>,
     max_width: i32,
     faces: &shaping::Faces,
+    lead_faces: &shaping::Faces,
 ) -> (Vec<ShapedLine>, u32) {
     let Some((lead_style, lead_authored)) = lead else {
         let lines = shaping::layout_zone(
@@ -889,7 +905,7 @@ fn layout_footer(
         lead_style.size,
         max_width,
         (0, 0),
-        faces,
+        lead_faces,
         lead_style.align,
         lead_style.weight,
     );
