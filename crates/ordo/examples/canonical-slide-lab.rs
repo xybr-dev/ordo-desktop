@@ -718,13 +718,13 @@ mod tests {
     #[gpui::test]
     async fn gallery_capture_through_the_lab_pipeline(cx: &mut TestAppContext) {
         let (lab, cx) = open(cx);
-        cx.condition(&lab, |lab, _| lab.rendered.is_some()).await;
+        settle(cx, &lab, |lab| lab.rendered.is_some()).await;
         let count = lab.read_with(cx, |lab, _| lab.fixtures.len());
 
         let mut rows = Vec::new();
         let mut pngs = Vec::new();
         for expected_idx in 0..count {
-            cx.condition(&lab, |lab, _| {
+            settle(cx, &lab, |lab| {
                 lab.rendered.as_ref().is_some_and(|rendered| {
                     rendered.sequence == lab.sequence
                         && rendered.key == (expected_idx, DENSITIES[0])
@@ -864,6 +864,29 @@ mod tests {
             .expect("capture rows must be writable");
     }
 
+    /// Wait for `predicate` against the live lab. `cx.condition` races a
+    /// fixed 3s timer, and with parking allowed that timer runs on real
+    /// time, so a slow debug render on a CI runner trips it although the
+    /// worker is healthy. This polls on the same executor with a budget
+    /// sized for slow runners instead; a wedged worker still fails.
+    async fn settle(
+        cx: &mut gpui::VisualTestContext,
+        lab: &gpui::Entity<LabView>,
+        mut predicate: impl FnMut(&LabView) -> bool,
+    ) {
+        const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + BUDGET;
+        while !lab.read_with(cx, |lab, _| predicate(lab)) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "lab condition not met within {BUDGET:?}"
+            );
+            cx.executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
+        }
+    }
+
     fn open(cx: &mut TestAppContext) -> (gpui::Entity<LabView>, &mut gpui::VisualTestContext) {
         // The composition worker is a real OS thread, so the test executor
         // must park for its replies the way the runtime tests do.
@@ -904,7 +927,7 @@ mod tests {
     #[gpui::test]
     async fn lab_keys_cycle_fixture_viewport_scale_and_density(cx: &mut TestAppContext) {
         let (lab, cx) = open(cx);
-        cx.condition(&lab, |lab, _| lab.rendered.is_some()).await;
+        settle(cx, &lab, |lab| lab.rendered.is_some()).await;
 
         cx.simulate_keystrokes("f2");
         cx.run_until_parked();
@@ -924,7 +947,7 @@ mod tests {
 
         // The worker round-trips the latest selection: the stale guard must
         // not drop it.
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -939,14 +962,12 @@ mod tests {
         // A density change followed by a fixture change must still render
         // the new fixture: the stale-sequence guard must drop the late
         // density reply without wedging later selections. Each wait covers
-        // one render; chaining both behind a single budget would flake
-        // against the fixed condition timeout on slow renders.
+        // one render.
         cx.simulate_keystrokes("f5 f2");
         cx.run_until_parked();
         lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 2));
-        cx.condition(&lab, |lab, _| lab.cache.contains_key(&(1, DENSITIES[1])))
-            .await;
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| lab.cache.contains_key(&(1, DENSITIES[1]))).await;
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -962,7 +983,7 @@ mod tests {
             assert_eq!(lab.fixture_idx, 3);
             assert_eq!(lab.density_idx, 0);
         });
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -1011,7 +1032,7 @@ mod tests {
         cx.simulate_keystrokes("f2");
         cx.run_until_parked();
         lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 4));
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
