@@ -16,10 +16,12 @@ pub use interface::{
 };
 pub use raster::{RasterError, RasterizedFrame, rasterize};
 pub use shaping::{
-    Alignment, BODY_FONT_SIZE, BODY_LINE_HEIGHT, Fit, PaginationInputs, PlacedGlyph, ShapedLine,
-    line_height_for,
+    Alignment, BODY_FONT_SIZE, BODY_LINE_HEIGHT, CELEBRATION_SUBTITLE_WEIGHT,
+    CELEBRATION_TITLE_WEIGHT, EMPHASIS_WEIGHT, Fit, PaginationInputs, PlacedGlyph, REGULAR_WEIGHT,
+    RESPONSE_WEIGHT, ShapedLine, line_height_for,
 };
 pub use templates::{
-    PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, TemplateContent,
-    TemplateKind, render_template,
+    CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, PROVISIONAL_DISPLAY_SIZE,
+    PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE, PSALM_SIZES, READING_PASSAGE_SIZE,
+    RESPONSE_SIZES, SONG_TITLE_SIZE, TemplateContent, TemplateKind, render_template,
 };

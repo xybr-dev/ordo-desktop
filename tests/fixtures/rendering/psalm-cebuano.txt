@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Psalm
+header:SALMO RESPONSORYO:
+body-lines:1
+Ang Ginoo maayo ug maluluy-on, dugay nga masuko, ug bahandianon sa pagbati.
+footer-lines:1
+Salmo 103:1-2, 3-4, 9-10, 11-12
+image-absent

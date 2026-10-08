@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:ReadingIdentification
+header-absent
+body-lines:1
+Pagbasa gikan sa sulat ni San Pablo ngadto sa taga-Roma
+footer-lines:1
+Roma 14:7-9
+image-absent

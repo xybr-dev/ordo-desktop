@@ -2,82 +2,82 @@ ordo-canonical-frame/2
 logical 1920 1080
 safe-area 120 80 1680 920
 header-absent
-body-rect 120 80 1680 874
-footer-rect 120 954 1680 46
-pagination authored-body=1 header-lines=0 body-lines=2 footer-lines=1 content-height=130 available-height=874 fit=fits hard-split=false first-hard-split=none
+body-rect 120 80 1680 862
+footer-rect 120 942 1680 58
+pagination authored-body=1 header-lines=0 body-lines=2 footer-lines=1 content-height=204 available-height=862 fit=fits hard-split=false first-hard-split=none
 image-absent
 background theme
-line zone=body index=0 authored=0 x=120 y=80 width=1633 height=65 text=In the beginning was the Word, and the Word was with God, and the
-glyph zone=body line=0 font=primary id=38 x=120 y=135 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=170 x=141 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=196 x=186 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=147 x=204 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=133 x=234 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=123 x=279 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=133 x=310 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=143 x=340 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=149 x=371 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=170 x=385 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=170 x=415 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=0 font=primary id=149 x=445 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=body line=0 font=primary id=170 x=459 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=7
-glyph zone=body line=0 font=primary id=143 x=489 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=8
-glyph zone=body line=0 font=primary id=210 x=535 y=135 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=112 x=572 y=135 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=190 x=600 y=135 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=196 x=641 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=147 x=659 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=133 x=689 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=97 x=734 y=135 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=175 x=780 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=187 x=810 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=129 x=828 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=235 x=859 y=135 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=0 font=primary id=112 x=885 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=170 x=914 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=129 x=944 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=196 x=990 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=147 x=1008 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=133 x=1038 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=97 x=1083 y=135 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=175 x=1129 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=187 x=1159 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=129 x=1177 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=210 x=1223 y=135 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=112 x=1260 y=135 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=190 x=1288 y=135 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=210 x=1329 y=135 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=149 x=1368 y=135 x-advance=14 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=196 x=1382 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=147 x=1400 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=32 x=1445 y=135 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=175 x=1483 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=129 x=1513 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=235 x=1544 y=135 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=0 font=primary id=112 x=1570 y=135 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=170 x=1599 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=129 x=1629 y=135 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=0 font=primary id=196 x=1675 y=135 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=0 font=primary id=147 x=1693 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=0 font=primary id=133 x=1723 y=135 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=2
-line zone=body index=1 authored=0 x=120 y=145 width=356 height=65 text=Word was God.
-glyph zone=body line=1 font=primary id=97 x=120 y=200 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=175 x=166 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=187 x=196 y=200 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=129 x=214 y=200 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=210 x=260 y=200 x-advance=37 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=112 x=297 y=200 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=190 x=325 y=200 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=32 x=366 y=200 x-advance=38 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=175 x=404 y=200 x-advance=30 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=129 x=434 y=200 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=234 x=465 y=200 x-advance=11 y-advance=0 x-offset=0 y-offset=0 cluster=3
-line zone=footer index=0 authored=0 x=120 y=954 width=136 height=46 text=John 1:1
-glyph zone=footer line=0 font=primary id=47 x=120 y=993 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=175 x=140 y=993 x-advance=21 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=147 x=161 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=footer line=0 font=primary id=170 x=183 y=993 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=footer line=0 font=primary id=366 x=216 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=236 x=232 y=993 x-advance=8 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=366 x=240 y=993 x-advance=16 y-advance=0 x-offset=0 y-offset=0 cluster=2
+line zone=body index=0 authored=0 x=120 y=80 width=1507 height=102 text=In the beginning was the Word, and the
+glyph zone=body line=0 font=primary id=38 x=120 y=166 x-advance=34 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=154 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=196 x=226 y=166 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=254 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=302 y=166 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=123 x=373 y=166 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=133 x=423 y=166 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=470 y=166 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=519 y=166 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=541 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=170 x=589 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=149 x=637 y=166 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=170 x=659 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=143 x=707 y=166 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=210 x=780 y=166 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=839 y=166 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=190 x=884 y=166 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=196 x=949 y=166 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=977 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=1025 y=166 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=97 x=1096 y=166 x-advance=73 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=175 x=1169 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=187 x=1217 y=166 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=129 x=1246 y=166 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=235 x=1295 y=166 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=112 x=1337 y=166 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=170 x=1383 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=129 x=1431 y=166 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=196 x=1504 y=166 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=147 x=1532 y=166 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=1580 y=166 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+line zone=body index=1 authored=0 x=120 y=182 width=1657 height=102 text=Word was with God, and the Word was God.
+glyph zone=body line=1 font=primary id=97 x=120 y=268 x-advance=73 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=193 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=241 y=268 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=129 x=270 y=268 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=210 x=343 y=268 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=402 y=268 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=190 x=447 y=268 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=210 x=512 y=268 x-advance=61 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=573 y=268 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=196 x=595 y=268 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=147 x=623 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=32 x=695 y=268 x-advance=61 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=756 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=129 x=804 y=268 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=235 x=853 y=268 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=112 x=895 y=268 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=170 x=941 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=129 x=989 y=268 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=196 x=1062 y=268 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=147 x=1090 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=133 x=1138 y=268 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=97 x=1209 y=268 x-advance=73 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=1282 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=1330 y=268 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=129 x=1359 y=268 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=210 x=1432 y=268 x-advance=59 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=1491 y=268 x-advance=45 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=190 x=1536 y=268 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=32 x=1601 y=268 x-advance=61 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=1662 y=268 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=129 x=1710 y=268 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=234 x=1759 y=268 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=3
+line zone=footer index=0 authored=0 x=120 y=942 width=170 height=58 text=John 1:1
+glyph zone=footer line=0 font=primary id=47 x=120 y=991 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=175 x=145 y=991 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=147 x=172 y=991 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=170 x=199 y=991 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=366 x=240 y=991 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=236 x=260 y=991 x-advance=10 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=366 x=270 y=991 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=2
 warnings 0

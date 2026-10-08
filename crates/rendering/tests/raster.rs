@@ -226,3 +226,47 @@ fn png_encoding_round_trips_through_the_qualified_edge() {
     assert_eq!(decoded.width(), raster.width());
     assert_eq!(decoded.height(), raster.height());
 }
+
+#[test]
+fn regular_lines_after_a_weighted_line_stay_regular() {
+    // The bold Song title rasterizes before its regular credit; the credit
+    // must carry the same ink as that text in a regular-only footer.
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let line_ink = |content: TemplateContent, text: &str| {
+        let (frame, _) = render_template(&content, &theme, density).unwrap();
+        let line = frame
+            .footer_lines()
+            .iter()
+            .find(|line| line.text == text)
+            .expect("footer line must render")
+            .clone();
+        let raster = rasterize(&frame, density, &HashMap::new()).unwrap();
+        let (x, y) = (line.x.max(0) as u32, line.y.max(0) as u32);
+        let mut ink = 0u64;
+        for row in y..y + line.height {
+            for col in x..x + line.width as u32 {
+                ink += u64::from(pixel(raster.rgba(), raster.width(), col, row)[0]);
+            }
+        }
+        ink
+    };
+    let song = TemplateContent {
+        kind: TemplateKind::SongIdentification,
+        header: None,
+        body: "Amazing Grace".to_owned(),
+        footer: Some("John Newton".to_owned()),
+        image: None,
+    };
+    let regular = TemplateContent {
+        kind: TemplateKind::GeneralText,
+        header: None,
+        body: String::new(),
+        footer: Some("John Newton".to_owned()),
+        image: None,
+    };
+    assert_eq!(
+        line_ink(song, "John Newton"),
+        line_ink(regular, "John Newton")
+    );
+}

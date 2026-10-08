@@ -130,7 +130,7 @@ pub mod typography {
         line_height: 1.3,
     };
     pub const PROJECTED_RESPONSE: TypeStyle = TypeStyle {
-        size: 72.0,
+        size: 113.0,
         weight: 800,
         line_height: 1.15,
     };

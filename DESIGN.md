@@ -95,7 +95,7 @@ typography:
     lineHeight: 1.3
   projected-response:
     fontFamily: Atkinson Hyperlegible Next
-    fontSize: 72px
+    fontSize: 113px
     fontWeight: 800
     lineHeight: 1.15
 ---
@@ -259,25 +259,44 @@ Never expose freely draggable positioning in the MVP.
 Use these fixed template relationships:
 
 - **Lyrics:** optional repeated section label at top-left; authored-case body
-  optically centered in the remaining region and left-aligned by default.
+  optically centered in the remaining region, each line centered
+  horizontally.
 - **Response:** optional repeated ExtraBold authored header resolved before
   rendering (for example, the Cebuano template default `TUBAG:`); stored
-  authored text rendered uppercase as the emphasized body.
-- **Reading identification:** large uppercase proclamation title centered in
-  the space above a bottom-left Scripture reference. Do not add First Reading,
-  Second Reading, or Gospel labels to congregation output.
-- **Reading passage:** authored-case ordinary-weight Scripture, smaller than
-  identification, with the reference at bottom-left on every Slide.
+  authored text in authored case as the emphasized body at weight `800`,
+  sized to content: the largest of the `160`/`140`/`120`/
+  `100px` sizes whose block fits the body zone, with `100px` as the floor
+  that carries any overflow warning; centered horizontally and vertically in
+  the available body zone.
+- **Reading identification:** proclamation title preserved exactly as authored
+  (mixed case, never uppercased) at `135px`/weight `800`,
+  left-aligned to the safe-area left edge and centered vertically in the body
+  region above the unchanged bottom-left Scripture reference. Do not add
+  First Reading, Second Reading, or Gospel labels to congregation output.
+- **Reading passage:** authored-case ordinary-weight Scripture at
+  `88px`/weight `400` (ReadingPassage only, `70 * 1.25 = 87.5`
+  rounded), left-aligned to the safe-area left edge and top-anchored, smaller
+  than identification, with the unchanged `50px` reference at bottom-left on
+  every Slide.
 - **Responsorial Psalm:** optional small ExtraBold authored header resolved
   before rendering (for example, the Cebuano template default `SALMO
-  RESPONSORYO`) at top-left, emphasized refrain centered in the remainder, and
-  reference at bottom-left. A projected cantor verse uses Reading-passage
+  RESPONSORYO`) at top-left, emphasized refrain at weight `700` centered in
+  the remainder, sized to content from the `140`/`120`/
+  `105`/`90px` sizes (floor `90px`), and reference at bottom-left. A projected cantor verse uses Reading-passage
   treatment.
-- **Song identification:** a bottom-left identity block with large uppercase
-  Song title, smaller composer/source, and optional Arrangement/Choir credit.
-- **Celebration title:** uppercase, left-aligned title optically centered above
-  the bottom-left localized date.
-- **General Text:** optional header, center-left body, and optional footer.
+- **Song identification:** a bottom-left identity block with an authored-case
+  Song title at `100px`/weight `700`, smaller composer/source, and optional Arrangement/Choir credit.
+- **Celebration title:** title preserved exactly as authored (mixed case,
+  never uppercased) at `135px`/weight `800`, left-aligned to the
+  safe-area left edge, plus an optional Normal-Case subtitle at
+  `68px`/weight `300` on the same left edge below the title; title plus
+  subtitle center together vertically above the unchanged bottom-left
+  localized date. The subtitle reuses the header slot renderer-locally with
+  no new product field: absent, empty, or whitespace-only reserves no
+  vertical space.
+- **General Text:** optional header, center-left body at `70px`, and optional footer.
+  GeneralText stays at `70px` and is untouched by the ReadingPassage-only `88px`
+  candidacy.
   **General Image:** one contained foreground image plus optional header and
   caption. A Theme image is background, not foreground content.
 
@@ -285,14 +304,28 @@ Preserve authored line breaks. A blank source line is a hard Slide boundary for
 Lyrics and Scripture and overrides automatic proposals. Pagination targets two
 logical lyric phrases and no more than four rendered lines; split before
 shrinking, never clip, and emit a readiness warning when content cannot fit at
-the approved minimum. Limit Song and Celebration titles to three rendered lines
-before warning. Validate measured canonical geometry rather than character
+the approved minimum. Limit Song titles to three rendered lines and Celebration
+titles to three rendered title lines (subtitle lines never count) before
+warning. Validate measured canonical geometry rather than character
 counts.
 
-The relative hierarchy is adopted, but exact projected font sizes remain under
-visual qualification. Use the current `72px` projected-response token as the
-first gallery baseline rather than treating every provisional numeric level as
-final.
+The relative hierarchy and the projected levels are approved at the T0.4
+manual gate (Decision 267): display `90px` / passage `70px` / meta `50px`
+(each exactly +25% from the PR 5 provisional `72px` / `56px` / `40px`), plus
+the shared Celebration/Reading-identification title at `135px`/weight `800`
+(50% above display) with a Celebration-only optional Normal-Case subtitle at
+`68px`/weight `300` (75% of display), plus a ReadingPassage-only `88px`/weight
+`400` (`70 * 1.25 = 87.5`, rounded; line advance `102px`), left-aligned and
+top-anchored. GeneralText stays at `70px`. Psalm and Response bodies are
+content-sized from the ladders above (Psalm `140`–`90px`/weight `700`,
+Response `160`–`100px`/weight `800`), and Song titles lead at `100px`/weight
+`700`. `PROVISIONAL_DISPLAY_SIZE` stays at `90px` for Lyrics and the Psalm
+floor (the `PROVISIONAL_*` constant names are historical). Operator, UI, and
+lab-control typography are unchanged except the `projected-response` token,
+`113px`/weight `800` for lab specimens while congregation Response output
+follows its ladder. The long Cebuano and English cases were judged
+comfortably readable at these levels; the approved captures are
+`design-references/ordo-canonical-slide-layouts/`.
 
 ## Elevation & Depth
 
@@ -624,15 +657,12 @@ and may contain explicitly documented superseded details.
 - `design-references/ordo-mass-planning-responsive*` establishes the approved
   three-pane Mass Planning hierarchy and density at `1366x768` and `1920x1080`
   while holding selected content and canonical Slide composition constant.
+- `design-references/ordo-canonical-slide-layouts/` is the approved
+  fixture-backed Canonical Slide Layout Gallery: every canonical template,
+  label/background variants, and representative overflow warnings at
+  `1920x1080`, with per-fixture provenance in `capture-rows.md`.
 - Song, Arrangement, import, History, pagination, readiness, and overlay
   references are indexed in `design-references/README.md`.
-
-### Planned Reference
-
-T0.4 will create and qualify `design-references/ordo-canonical-slide-layouts*`,
-a fixture-backed gallery covering every canonical template, label/background
-variants, and representative overflow warnings through the same scaled
-`1920x1080` composition. Move it into Approved References only after approval.
 
 Authority is by subject: this file owns visible behavior and visual tokens;
 `CONTEXT.md` owns domain terms and invariants; `MVP-PLAN.md` owns product scope

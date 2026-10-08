@@ -220,6 +220,11 @@ struct Rendered {
     key: (usize, u16),
     frame: FinishedFrame,
     diagnostics: Diagnostics,
+    // Gallery-manifest reads only; the live lab never displays these counts.
+    #[allow(dead_code)]
+    body_lines: usize,
+    #[allow(dead_code)]
+    footer_lines: usize,
 }
 
 /// The lab's raster stage: composition runs on the production canonical
@@ -261,6 +266,8 @@ fn spawn_worker(
                 }
                 let rendered = match compose_rx.recv() {
                     Ok(Ok((frame, diagnostics))) => {
+                        let (body_lines, footer_lines) =
+                            (frame.body_lines().len(), frame.footer_lines().len());
                         let mut images = HashMap::new();
                         if let Some(placed) = frame.image() {
                             images.insert(
@@ -275,6 +282,8 @@ fn spawn_worker(
                                     key: request.key,
                                     frame,
                                     diagnostics,
+                                    body_lines,
+                                    footer_lines,
                                 })
                             }
                             Err(error) => {
@@ -686,6 +695,197 @@ mod tests {
     use super::*;
     use gpui::TestAppContext;
 
+    /// Gallery capture through the live lab (T0.4 PR 10).
+    ///
+    /// Every gallery fixture drives the actual `LabView` (`open` plus its
+    /// `spawn_worker` raster thread): the lab's `load_fixtures` order, the
+    /// production canonical worker behind `CanonicalCommand::Compose`, the
+    /// 100% raster with the solid-gray GeneralImage stand-in, and the
+    /// `canonical_views::finish_frame` handoff. The collected
+    /// `Rendered.frame` plus `diagnostics` are those exact live-lab results,
+    /// not a re-run of the pipeline beside the lab. These assertions always
+    /// run, so the whole corpus stays composable through the lab path.
+    /// Setting `ORDO_GALLERY_CAPTURE` to an output directory additionally
+    /// writes `<name>.png` (finished pre-chrome slide pixels) plus
+    /// `capture-rows.md`: the visible frame, the wrapper, and the
+    /// diagnostics riding beside it, which is the exact source of the
+    /// approved gallery in `design-references/ordo-canonical-slide-layouts/`.
+    /// The PNGs are slide pixels paired with wrapper/diagnostics metadata —
+    /// never a compositor screenshot (`TestAppContext` supplies no headless
+    /// renderer on any OS, so none is attempted here). A recapture that
+    /// changes the approved bytes needs a fresh approval.
+    #[gpui::test]
+    async fn gallery_capture_through_the_lab_pipeline(cx: &mut TestAppContext) {
+        let (lab, cx) = open(cx);
+        settle(cx, &lab, |lab| lab.rendered.is_some()).await;
+        let count = lab.read_with(cx, |lab, _| lab.fixtures.len());
+
+        let mut rows = Vec::new();
+        let mut pngs = Vec::new();
+        for expected_idx in 0..count {
+            settle(cx, &lab, |lab| {
+                lab.rendered.as_ref().is_some_and(|rendered| {
+                    rendered.sequence == lab.sequence
+                        && rendered.key == (expected_idx, DENSITIES[0])
+                })
+            })
+            .await;
+            let (
+                name,
+                kind,
+                header,
+                authored,
+                body_rendered,
+                footer_rendered,
+                warnings,
+                png_bytes,
+                logical,
+                pixel,
+            ) = lab.read_with(cx, |lab, _| {
+                assert_eq!(
+                    lab.fixture_idx, expected_idx,
+                    "the live lab must be showing fixture {expected_idx}"
+                );
+                let (name, content) = &lab.fixtures[expected_idx];
+                let rendered = lab
+                    .rendered
+                    .as_ref()
+                    .expect("the live lab must have rendered");
+                assert_eq!(
+                    rendered.key,
+                    (expected_idx, DENSITIES[0]),
+                    "the live lab must render fixture {expected_idx} at 100%"
+                );
+                let cell = |text: &str| text.replace('|', "/");
+                let header = match &content.header {
+                    None => "absent".to_owned(),
+                    Some(header) if header.is_empty() => "empty".to_owned(),
+                    Some(header) => format!("`{}`", cell(header)),
+                };
+                let authored = if content.body.is_empty() {
+                    0
+                } else {
+                    content.body.lines().count()
+                };
+                let warnings = if rendered.diagnostics.warnings.is_empty() {
+                    "none".to_owned()
+                } else {
+                    rendered
+                        .diagnostics
+                        .warnings
+                        .iter()
+                        .map(|warning| cell(warning))
+                        .collect::<Vec<_>>()
+                        .join("<br>")
+                };
+                (
+                    name.clone(),
+                    format!("{:?}", content.kind),
+                    header,
+                    authored,
+                    rendered.body_lines,
+                    rendered.footer_lines,
+                    warnings,
+                    rendered.frame.image().bytes().to_vec(),
+                    rendered.frame.logical_size(),
+                    rendered.frame.pixel_size(),
+                )
+            });
+            assert_eq!(
+                logical,
+                (1920, 1080),
+                "{name} must compose in 1920x1080 logical coordinates"
+            );
+            assert_eq!(
+                pixel,
+                (1920, 1080),
+                "{name} must rasterize 1920x1080 at 100% density"
+            );
+            rows.push(format!(
+                "| {name} | {kind} | {header} | {authored}/{body_rendered} | {footer_rendered} | {warnings} | `ordo-canonical-slide-layouts/{name}.png` |",
+            ));
+            pngs.push((name, png_bytes));
+            if expected_idx + 1 < count {
+                cx.simulate_keystrokes("f2");
+                cx.run_until_parked();
+            }
+        }
+
+        assert_eq!(
+            rows.len(),
+            count,
+            "every fixture must capture exactly one row"
+        );
+        let Some(dir) = std::env::var_os("ORDO_GALLERY_CAPTURE") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|error| {
+            panic!("capture dir {} must be writable: {error}", dir.display())
+        });
+        for (name, bytes) in &pngs {
+            std::fs::write(dir.join(format!("{name}.png")), bytes)
+                .unwrap_or_else(|error| panic!("capture {name}.png must be writable: {error}"));
+        }
+        let mut manifest = String::from(
+            "# Gallery capture provenance\n\
+             \n\
+             - Pipeline: the live `LabView` (`open` plus its `spawn_worker` raster thread): \
+             `load_fixtures` order → production canonical worker (`CanonicalCommand::Compose`, \
+             default Theme, 100% density) → `rendering::rasterize` at 100% (solid-gray stand-in \
+             for GeneralImage foregrounds) → `ordo::canonical_views::finish_frame`. Each row's \
+             `Rendered.frame` plus `diagnostics` below are those exact live-lab results.\n\
+             - Visible frame: finished pre-chrome slide pixels, `1920x1080` logical, `1920x1080` \
+             raster at 100% density — slide pixels paired with wrapper/diagnostics metadata, not \
+             a compositor screenshot (`TestAppContext` supplies no headless renderer on any OS, \
+             so none is attempted here).\n\
+             - Wrapper: `ui::canonical_frame::canonical_frame` through `ordo::canonical_views` \
+             (`timeline_thumbnail` / `inspector_frame` / `preview_frame` / `program_frame`, 320 / 480 / \
+             720 / 960 before Interface scale, `4px` operator-only chrome); the congregation surface \
+             reserves the same sampling edge-to-edge with square corners (black until its background \
+             encode lands).\n\
+             - Diagnostics: the Warnings column below rides beside each capture; overflow fixtures warn \
+             beside complete frames.\n\
+             - Live review: `cargo run -p ordo --example canonical-slide-lab` (`F2` fixture · `F3` \
+             viewport · `F4` scale · `F5` density; diagnostics beside the scaled frame).\n\
+             - Status: Approved Reference (`DESIGN.md`, Decision 267), approved at the T0.4 manual \
+             gate in `docs/qualification/T0.4-MANUAL-GATE.md`. A recapture that changes these bytes \
+             needs a fresh approval.\n\
+             \n\
+             | Fixture | Template | Header | Body lines (authored/rendered) | Footer lines (rendered) | Warnings | PNG |\n\
+             | --- | --- | --- | --- | --- | --- | --- |\n",
+        );
+        for row in &rows {
+            manifest.push_str(row);
+            manifest.push('\n');
+        }
+        std::fs::write(dir.join("capture-rows.md"), manifest)
+            .expect("capture rows must be writable");
+    }
+
+    /// Wait for `predicate` against the live lab. `cx.condition` races a
+    /// fixed 3s timer, and with parking allowed that timer runs on real
+    /// time, so a slow debug render on a CI runner trips it although the
+    /// worker is healthy. This polls on the same executor with a budget
+    /// sized for slow runners instead; a wedged worker still fails.
+    async fn settle(
+        cx: &mut gpui::VisualTestContext,
+        lab: &gpui::Entity<LabView>,
+        mut predicate: impl FnMut(&LabView) -> bool,
+    ) {
+        const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + BUDGET;
+        while !lab.read_with(cx, |lab, _| predicate(lab)) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "lab condition not met within {BUDGET:?}"
+            );
+            cx.executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
+        }
+    }
+
     fn open(cx: &mut TestAppContext) -> (gpui::Entity<LabView>, &mut gpui::VisualTestContext) {
         // The composition worker is a real OS thread, so the test executor
         // must park for its replies the way the runtime tests do.
@@ -726,7 +926,7 @@ mod tests {
     #[gpui::test]
     async fn lab_keys_cycle_fixture_viewport_scale_and_density(cx: &mut TestAppContext) {
         let (lab, cx) = open(cx);
-        cx.condition(&lab, |lab, _| lab.rendered.is_some()).await;
+        settle(cx, &lab, |lab| lab.rendered.is_some()).await;
 
         cx.simulate_keystrokes("f2");
         cx.run_until_parked();
@@ -746,7 +946,7 @@ mod tests {
 
         // The worker round-trips the latest selection: the stale guard must
         // not drop it.
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -761,14 +961,12 @@ mod tests {
         // A density change followed by a fixture change must still render
         // the new fixture: the stale-sequence guard must drop the late
         // density reply without wedging later selections. Each wait covers
-        // one render; chaining both behind a single budget would flake
-        // against the fixed condition timeout on slow renders.
+        // one render.
         cx.simulate_keystrokes("f5 f2");
         cx.run_until_parked();
         lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 2));
-        cx.condition(&lab, |lab, _| lab.cache.contains_key(&(1, DENSITIES[1])))
-            .await;
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| lab.cache.contains_key(&(1, DENSITIES[1]))).await;
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -784,7 +982,7 @@ mod tests {
             assert_eq!(lab.fixture_idx, 3);
             assert_eq!(lab.density_idx, 0);
         });
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
@@ -833,7 +1031,7 @@ mod tests {
         cx.simulate_keystrokes("f2");
         cx.run_until_parked();
         lab.read_with(cx, |lab, _| assert_eq!(lab.fixture_idx, 4));
-        cx.condition(&lab, |lab, _| {
+        settle(cx, &lab, |lab| {
             lab.rendered
                 .as_ref()
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)

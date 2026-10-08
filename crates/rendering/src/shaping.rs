@@ -8,8 +8,13 @@
 //! targets.
 //!
 //! Scope notes:
-//! - Sizes are provisional parameters, not frozen levels: the 72px
-//!   projected-response token is the first gallery baseline, and the template
+//! - Sizes are approved at T0.4 at display 90px / passage 70px / meta 50px
+//!   (PR 5 provisional 72/56/40, each +25%), plus the Celebration exception
+//!   at title 135px/800 with optional subtitle 68px/300, plus
+//!   content-sized Psalm (140–90px/700) and Response (160–100px/800) body
+//!   ladders, approved per
+//!   `docs/qualification/T0.4-MANUAL-GATE.md`: the 90px display baseline
+//!   stays the gallery baseline for Lyrics, and the template
 //!   corpus chooses per-zone sizes from it. Line advance stays
 //!   `ceil(size * 1.15)` at every size. The measured-not-counted rule the
 //!   corpus refines is the pinned part.
@@ -27,14 +32,33 @@
 
 use crate::fonts::{self, CanonicalFont};
 
-/// Provisional body size: the 72px projected-response token. The template
-/// corpus carries the full hierarchy later.
-pub const BODY_FONT_SIZE: u32 = 72;
+/// Provisional body size: the 90px shared display baseline (approved at
+/// T0.4 from the 72px PR 5 baseline, +25%) for Lyrics
+/// and the Psalm ladder floor. The template corpus carries the full
+/// hierarchy.
+pub const BODY_FONT_SIZE: u32 = 90;
+/// Regular weight: the variable-font default instance. Layout and raster
+/// apply no `wght` variation here, so every non-celebration zone keeps its
+/// pinned advances and masks byte-for-byte.
+pub const REGULAR_WEIGHT: u16 = 400;
+/// Psalm body weight (approved at T0.4): Bold 700.
+pub const EMPHASIS_WEIGHT: u16 = 700;
+/// Response body weight (approved at T0.4): ExtraBold 800, matching
+/// the `projected-response` token.
+pub const RESPONSE_WEIGHT: u16 = 800;
+/// Song identification title weight (approved at T0.4): Bold 700.
+pub const SONG_TITLE_WEIGHT: u16 = 700;
+/// celebration-title weight (approved at T0.4):
+/// ExtraBold 800, the top of the bundled Atkinson `wght` axis.
+pub const CELEBRATION_TITLE_WEIGHT: u16 = 800;
+/// celebration-subtitle weight (approved at T0.4):
+/// Light 300 on the bundled `wght` axis.
+pub const CELEBRATION_SUBTITLE_WEIGHT: u16 = 300;
 /// Line advance for a size: `ceil(size * 1.15)` logical units.
 pub const fn line_height_for(size: u32) -> u32 {
     (size * 115).div_ceil(100)
 }
-/// Line advance for the provisional size: ceil(72 * 1.15) = 83 logical units.
+/// Line advance for the provisional size: ceil(90 * 1.15) = 104 logical units.
 pub const BODY_LINE_HEIGHT: u32 = line_height_for(BODY_FONT_SIZE);
 
 /// How body content relates to its zone: it fits, or it overflows with every
@@ -122,6 +146,13 @@ pub struct ShapedLine {
     /// scale. It never enters [`crate::Frame::serialize`], so goldens are
     /// unaffected; the raster pass needs the size that produced the advances.
     pub size: u32,
+    /// Variable-font `wght` the line was shaped at, for the raster pass to
+    /// match. `REGULAR_WEIGHT` (400) means the default instance with no
+    /// variation applied; emphasized and title lines carry their own `wght`. It never
+    /// enters [`crate::Frame::serialize`]: the measured advances already pin
+    /// the composition, and the raster pass reads this to pick the same axis
+    /// the shaper used.
+    pub weight: u16,
     pub glyphs: Vec<PlacedGlyph>,
 }
 
@@ -163,8 +194,25 @@ impl Faces<'_> {
 /// Parse both bundled faces once per composition. `None` means the bundle
 /// itself is damaged; the caller reports it as a structured failure.
 pub fn load_faces() -> Option<Faces<'static>> {
-    let primary = rustybuzz::Face::from_slice(fonts::ATKINSON_HYPERLEGIBLE_NEXT, 0)?;
-    let fallback = rustybuzz::Face::from_slice(fonts::NOTO_SANS, 0)?;
+    load_faces_with_weight(REGULAR_WEIGHT)
+}
+
+/// Parse both bundled faces at one variable-font `wght`. `REGULAR_WEIGHT`
+/// keeps the default instance with no variation so existing zones stay
+/// byte-identical; any other weight sets `wght` on both faces so shaping
+/// advances match the raster masks. Vertical metrics stay on the default
+/// ascender: weight changes thickness and advances, not the line box.
+pub fn load_faces_with_weight(weight: u16) -> Option<Faces<'static>> {
+    let mut primary = rustybuzz::Face::from_slice(fonts::ATKINSON_HYPERLEGIBLE_NEXT, 0)?;
+    let mut fallback = rustybuzz::Face::from_slice(fonts::NOTO_SANS, 0)?;
+    if weight != REGULAR_WEIGHT {
+        let variation = rustybuzz::Variation {
+            tag: ttf_parser::Tag::from_bytes(b"wght"),
+            value: f32::from(weight),
+        };
+        primary.set_variations(&[variation]);
+        fallback.set_variations(&[variation]);
+    }
     let parsed = ttf_parser::Face::parse(fonts::ATKINSON_HYPERLEGIBLE_NEXT, 0).ok()?;
     let fallback_parsed = ttf_parser::Face::parse(fonts::NOTO_SANS, 0).ok()?;
     let upem_primary = i32::from(parsed.units_per_em());
@@ -482,6 +530,7 @@ struct LinePlacement {
     line_y: i32,
     line_height: u32,
     size: u32,
+    weight: u16,
     ascent_px: i32,
     space_px: i32,
     x_shift: i32,
@@ -516,6 +565,7 @@ fn place(plan: LinePlan, at: LinePlacement) -> ShapedLine {
         width: plan.width,
         height: at.line_height,
         size: at.size,
+        weight: at.weight,
         glyphs,
     }
 }
@@ -532,16 +582,18 @@ fn shift_for(align: Alignment, zone_width: i32, line_width: i32, block_width: i3
 }
 
 /// Wrap a header/footer-style zone at a provisional origin. Blank authored
-/// lines contribute nothing.
+/// lines contribute nothing. `weight` is stored on each line for the raster
+/// pass; the caller must pass the same weight its `faces` were loaded with.
 pub fn layout_zone(
     text: &str,
     size: u32,
     max_width: i32,
-    origin_x: i32,
-    origin_y: i32,
+    origin: (i32, i32),
     faces: &Faces,
     align: Alignment,
+    weight: u16,
 ) -> Vec<ShapedLine> {
+    let (origin_x, origin_y) = origin;
     let line_height = line_height_for(size);
     let ascent_px = faces.ascent_px(size);
     let space_px = faces.space_px(size);
@@ -573,6 +625,7 @@ pub fn layout_zone(
                     line_y,
                     line_height,
                     size,
+                    weight,
                     ascent_px,
                     space_px,
                     x_shift,
@@ -582,16 +635,19 @@ pub fn layout_zone(
         .collect()
 }
 
-/// Wrap the body zone, recording the hard split blank lines mark.
+/// Wrap the body zone, recording the hard split blank lines mark. `weight`
+/// is stored on each line for the raster pass; the caller must pass the same
+/// weight its `faces` were loaded with.
 pub fn layout_body(
     text: &str,
     size: u32,
     max_width: i32,
-    origin_x: i32,
-    origin_y: i32,
+    origin: (i32, i32),
     faces: &Faces,
     align: Alignment,
+    weight: u16,
 ) -> LaidOutBody {
+    let (origin_x, origin_y) = origin;
     let line_height = line_height_for(size);
     let ascent_px = faces.ascent_px(size);
     let space_px = faces.space_px(size);
@@ -631,6 +687,7 @@ pub fn layout_body(
                     line_y,
                     line_height,
                     size,
+                    weight,
                     ascent_px,
                     space_px,
                     x_shift,

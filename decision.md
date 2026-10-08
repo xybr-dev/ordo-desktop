@@ -2964,6 +2964,98 @@ Emergency editing is a second controlled exception:
   rather than a same-named system installation; T1.3's caching scope is
   reconciled against that result before it starts.
 
+### 262. Render Reading identification in sentence case at the Celebration title level
+
+- This narrowly supersedes only Decision 255's Reading-identification rule;
+  Decision 255 stays historical and authoritative for every other template, and this does not revive older Celebration-title appearance wording that T0.4.10 already updated.
+- Render the proclamation title exactly as authored (normalized sentence
+  case, never uppercased): `Pagbasa gikan sa basahon ni Sirac` / `Sirac
+  27:30-28:7`, `Pagbasa gikan sa sulat ni San Pablo ngadto sa taga-Roma` /
+  `Roma 14:7-9`, `Pagbasa sa Santos nga Ebanghelyo sumala ni San Mateo` /
+  `Mateo 18:21-35`.
+- Compose the title at the shared candidate `135px`/weight `800`,
+  left-aligned to the safe-area left edge and vertically centered in the
+  body region above the unchanged bottom-left meta reference; references
+  keep their size and position. No First/Second/Gospel labels, and no other
+  template, schema, parser, UI, compositor, or typography change.
+
+### 263. Render Reading passage at a ReadingPassage-only 88px candidate
+
+- This narrowly adds a bounded ReadingPassage-only slice; this supersedes Decision 255's shared 70px passage size only for ReadingPassage and makes no change to GeneralText or any later superseding decision.
+- Compose `ReadingPassage` bodies at the pending candidate `88px`/weight
+  `400` (`70 * 1.25 = 87.5`, rounded; line advance `102px`), left-aligned
+  to the safe-area left edge and top-anchored in the body zone, with the
+  unchanged `50px` bottom-left reference. Reading behavior, blank-line
+  boundaries, and authored casing are unchanged.
+- `GeneralText` stays at `70px`; operator, UI, and lab-control typography
+  are unchanged. No other fixture, golden, template, schema, parser, UI,
+  raster, or compositor change.
+- The existing short English fixture wording matches the Catholic USCCB
+  text at https://bible.usccb.org/bible/john/1; no additional Scripture
+  text is added.
+
+### 264. Render Response at a Response-only 113px candidate, centered vertically
+
+- This narrowly adds a bounded Response-only slice; this supersedes Decision 255's Response size/vertical placement only for Response and makes no change to Lyrics, Psalm, Song identification, Reading, GeneralText, or any later superseding decision.
+- Compose `Response` bodies at the pending candidate `113px`/weight `400`
+  (`90 * 1.25 = 112.5`, rounded; line advance `130px`), centered
+  horizontally and centered vertically in the available body zone. The
+  shared `PROVISIONAL_DISPLAY_SIZE` stays at `90px`; uppercase body,
+  optional authored header behavior, and the `50px` header size/weight/position
+  are unchanged. Present/empty headers reserve the `58px` header zone with
+  their one-line body starting at `y=504`; an absent header keeps no header
+  rect with its one-line body starting at `y=475`.
+- Lyrics, Psalm, Song identification, ReadingPassage top anchoring, GeneralText
+  `70px`, operator `24/16/14`, and lab-control typography are unchanged. No
+  other fixture, golden, template, schema, parser, model, UI, raster, or
+  compositor change; no fixture text change.
+
+### 265. Content-size Psalm and Response bodies and keep authored case
+
+- This supersedes Decision 264's fixed `113px`/weight `400` uppercase
+  Response body, and Decision 255's display-size Psalm refrain, uppercase
+  Song title, and left-aligned Lyrics body; every other rule stands.
+- `Response` bodies render in authored case at weight `800`, matching the
+  `projected-response` token, at the largest pending candidate size in
+  `160`/`140`/`120`/`100px` whose block fits the body zone; `100px` is the
+  floor and carries any overflow warning. Centering is unchanged.
+- `Psalm` refrains render at weight `700` from the `140`/`120`/`105`/`90px`
+  ladder by the same largest-fit rule, floored at the `90px` display size.
+- Song titles render in authored case at `100px`/weight `700`, shaped and
+  rasterized at that weight.
+- Lyrics lines center horizontally inside the optically centered block.
+- All sizes and weights remain pending the T0.4 manual gate.
+
+### 266. Qualify the four operator viewports at their production sizes
+
+- Preview and Program share the `720px` production width by design, so the
+  operator sees the same frame before and after it goes live. The four
+  operator viewports therefore span three distinct production sizes
+  (`320`/`480`/`720` before Interface scale).
+- The T0.4 `[UI-AUTO]` criterion and E2E qualify the four viewports at those
+  production sizes across both viewport presets and every Interface scale,
+  which already yields many distinct outer sizes. No test-only fourth size is
+  manufactured to satisfy the earlier "four different-size" wording.
+- The T0.4 `[MANUAL]` items and compositor-capture comparison are unchanged.
+
+### 267. Freeze the T0.4 projected type levels and approve the gallery
+
+- The T0.4 manual gate approved the fixture-backed Canonical Slide Layout
+  Gallery on 2026-10-08: every case, including the long Cebuano/English
+  ones, was judged legible. The candidate levels in Decisions 262-265 are now
+  frozen as `DESIGN.md` records them: display `90px`, passage `70px`, meta
+  `50px`, ReadingPassage `88px`, Celebration/Reading-identification title
+  `135px`/`800` with Celebration subtitle `68px`/`300`, Psalm ladder
+  `140`-`90px`/`700`, Response ladder `160`-`100px`/`800`, and Song title
+  `100px`/`700`.
+- The captures move to `design-references/ordo-canonical-slide-layouts/` as an
+  Approved Reference. A recapture that changes their bytes needs a fresh
+  approval.
+- A glyph neither bundled face carries renders the bundled `.notdef` box by
+  design; the box proves no system font leaks into canonical output.
+- The packaged-Linux manual script is not run; T0.4b rescopes it with the
+  move to Windows-only development.
+
 ## Final design-status summary
 
 The following branches are resolved for the MVP baseline:

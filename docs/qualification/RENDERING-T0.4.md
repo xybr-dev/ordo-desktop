@@ -139,10 +139,18 @@ The lockfile change stays edge-only (`ordo` gains the `rendering` edge the
 crate-graph contract already permits, zero new packages, zero version
 changes).
 
-Linux run, `rustc 1.96.0`, x86_64:
+Linux run, `rustc 1.96.0`, x86_64 (candidate T0.4.10 levels, pending human
+approval: display 90px / passage 70px / meta 50px, +25% from the PR 5
+provisional 72/56/40, plus a ReadingPassage-only pending candidate at 88px/400
+(70 * 1.25 = 87.5, rounded; 102px advance) with GeneralText staying at 70px,
+plus a Response-only pending candidate at 113px/400 (90 * 1.25 = 112.5,
+rounded; 130px advance) centered horizontally and vertically with the shared
+90px display size unchanged for the other emphasized bodies,
+and operator/UI unchanged; the invariance probe now composes 4 body lines where
+it composed 3, with identical glyph ids and fallback routing):
 
 ```text
-sha256 95f876442694cc3a96d7b08e4faf7fe7e8dcf5dc0eb109b30942633d86a93448  canonical-invariance.txt
+sha256 5708fd350d7d6e6b01a0c3368d63f6459c269b320c697489f9d7243698bcd28a  canonical-invariance.txt
 ```
 
 Windows Server 2022 CI enforces the same digest through the
