@@ -7,10 +7,11 @@
 //! at the ceiling stays quiet, one past it warns.
 
 use rendering::{
-    BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, ForegroundImage,
-    PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
-    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZE, RenderError, SONG_TITLE_SIZE,
-    TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for, render_template,
+    BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, EMPHASIS_WEIGHT,
+    ForegroundImage, PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
+    PSALM_SIZES, READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZES, RenderError,
+    SONG_TITLE_SIZE, TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for,
+    render_template,
 };
 
 fn content(
@@ -163,11 +164,11 @@ a much longer line",
 fn response_header_passes_through_and_body_renders_authored_case_centered() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // Response-only candidate: 120px at regular weight, centered
+    // Response-only candidate: bold, largest ladder rung that fits (160px for this short text), centered
     // horizontally and vertically. All three header states share the body
     // treatment; absent collapses the zone while empty reserves it.
-    assert_eq!(RESPONSE_SIZE, 120);
-    assert_eq!(line_height_for(RESPONSE_SIZE), 138);
+    assert_eq!(RESPONSE_SIZES, [160, 140, 120, 100]);
+    assert_eq!(line_height_for(RESPONSE_SIZES[0]), 184);
     let cases = [
         (Some("Authored header"), "present"),
         (None, "absent"),
@@ -194,9 +195,12 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
             line.text, "response text",
             "{what} body keeps authored case"
         );
-        assert_eq!(line.size, RESPONSE_SIZE, "{what} body measures at 120px");
-        assert_eq!(line.weight, REGULAR_WEIGHT, "{what} body stays regular");
-        assert_eq!(line.height, 138, "{what} advance is 138px");
+        assert_eq!(
+            line.size, RESPONSE_SIZES[0],
+            "{what} body measures at 160px"
+        );
+        assert_eq!(line.weight, EMPHASIS_WEIGHT, "{what} body is bold");
+        assert_eq!(line.height, 184, "{what} advance is 184px");
         // Centered in the body zone from measured width and height.
         let body = frame.body();
         assert_eq!(
@@ -214,8 +218,8 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
     }
 
     // Absent collapses the header zone; present and empty reserve the 58px
-    // meta header. The one-line bodies start centered at y=471 (absent) and
-    // y=500 (present/empty) at the 120px candidate.
+    // meta header. The one-line bodies start centered at y=448 (absent) and
+    // y=477 (present/empty) at the 160px candidate.
     let (present, _) = render_template(
         &content(
             TemplateKind::Response,
@@ -235,7 +239,7 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
         line_height_for(PROVISIONAL_META_SIZE)
     );
     assert_eq!(present.body().y, present_header.y + present_header.height);
-    assert_eq!(present.body_lines()[0].y, 500);
+    assert_eq!(present.body_lines()[0].y, 477);
 
     let (empty, _) = render_template(
         &content(TemplateKind::Response, Some(""), "response text", None),
@@ -245,7 +249,7 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
     .unwrap();
     let empty_header = empty.header().expect("empty header reserves a zone");
     assert_eq!(empty_header.height, line_height_for(PROVISIONAL_META_SIZE));
-    assert_eq!(empty.body_lines()[0].y, 500);
+    assert_eq!(empty.body_lines()[0].y, 477);
     assert_eq!(empty.body(), present.body());
 
     let (absent, _) = render_template(
@@ -256,7 +260,7 @@ fn response_header_passes_through_and_body_renders_authored_case_centered() {
     .unwrap();
     assert_eq!(absent.header(), None);
     assert_eq!(absent.body(), absent.safe_area());
-    assert_eq!(absent.body_lines()[0].y, 471);
+    assert_eq!(absent.body_lines()[0].y, 448);
 }
 
 #[test]
@@ -907,12 +911,11 @@ fn provisional_hierarchy_carries_the_response_baseline() {
     assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 81);
     assert_eq!(READING_PASSAGE_SIZE, 88);
     assert_eq!(line_height_for(READING_PASSAGE_SIZE), 102);
-    assert_eq!(RESPONSE_SIZE, 120);
-    assert_eq!(line_height_for(RESPONSE_SIZE), 138);
+    assert_eq!(PSALM_SIZES, [140, 120, 105, 90]);
     assert_eq!(PROVISIONAL_META_SIZE, 50);
     assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 58);
 
-    // The Response-only body measures at 120px, while the shared display
+    // The Response-only body measures at 160px, while the shared display
     // baseline stays at 90px for the other emphasized bodies.
     let (frame, _) = render_template(
         &content(TemplateKind::Response, None, "response text", None),
@@ -920,8 +923,8 @@ fn provisional_hierarchy_carries_the_response_baseline() {
         TargetDensity::SCALE_100,
     )
     .unwrap();
-    assert_eq!(frame.body_lines()[0].height, 138);
-    assert_eq!(frame.body_lines()[0].size, RESPONSE_SIZE);
+    assert_eq!(frame.body_lines()[0].height, 184);
+    assert_eq!(frame.body_lines()[0].size, RESPONSE_SIZES[0]);
 }
 
 #[test]
@@ -1212,4 +1215,29 @@ fn foreground_images_outside_general_image_stay_out_of_the_frame() {
     let (frame, _) = render_template(&case, &theme, density).unwrap();
     assert_eq!(frame.image(), None);
     assert!(frame.serialize().contains("\nimage-absent\n"));
+}
+
+#[test]
+fn psalm_and_response_bodies_step_down_the_ladder_as_content_grows() {
+    let theme = Theme::default();
+    let density = TargetDensity::SCALE_100;
+    let long = "a long refrain that keeps going and going\n".repeat(5);
+    for (kind, ladder) in [
+        (TemplateKind::Response, RESPONSE_SIZES),
+        (TemplateKind::Psalm, PSALM_SIZES),
+    ] {
+        let sized = |body: &str| {
+            let (frame, _) =
+                render_template(&content(kind, None, body, None), &theme, density).unwrap();
+            let line = &frame.body_lines()[0];
+            (line.size, line.weight)
+        };
+        assert_eq!(sized("Short"), (ladder[0], EMPHASIS_WEIGHT));
+        let (size, weight) = sized(long.trim_end());
+        assert!(
+            size < ladder[0] && ladder.contains(&size),
+            "{kind:?}: {size}"
+        );
+        assert_eq!(weight, EMPHASIS_WEIGHT);
+    }
 }

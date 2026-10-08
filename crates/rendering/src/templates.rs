@@ -99,11 +99,13 @@ pub const PROVISIONAL_PASSAGE_SIZE: u32 = 70;
 /// [`TemplateKind::ReadingPassage`]; [`TemplateKind::GeneralText`] stays at
 /// [`PROVISIONAL_PASSAGE_SIZE`].
 pub const READING_PASSAGE_SIZE: u32 = 88;
-/// Candidate Response-only size (pending approval): 113px at regular weight
-/// (`90 * 1.25 = 112.5`, rounded; line advance `130px`). Used only for
-/// [`TemplateKind::Response`]; [`PROVISIONAL_DISPLAY_SIZE`] stays at 90px
-/// for every other emphasized body.
-pub const RESPONSE_SIZE: u32 = 120;
+/// Candidate Response size ladder (pending approval), largest first: bold
+/// bodies take the largest rung whose block fits the body zone, so short
+/// responses grow and long ones step down to the 100px floor.
+pub const RESPONSE_SIZES: [u32; 4] = [160, 140, 120, 100];
+/// Candidate Psalm size ladder (pending approval), largest first: bold
+/// bodies take the largest rung that fits, down to the 90px display floor.
+pub const PSALM_SIZES: [u32; 4] = [140, 120, 105, 90];
 /// Candidate Song identification title size (pending approval): 100px, bold,
 /// authored case. Used only for the footer lead of
 /// [`TemplateKind::SongIdentification`].
@@ -215,7 +217,7 @@ fn celebration_subtitle() -> ZoneStyle {
 /// Normal-Case subtitle: absent, empty, or whitespace-only reserves no
 /// space, and title plus subtitle center together via the zoned `body_tail`
 /// segment.
-fn compose_content(content: &TemplateContent) -> Composition {
+fn compose_content(content: &TemplateContent, body_size: Option<u32>) -> Composition {
     let neutral = ZoneStyle::neutral();
     let passage_left = ZoneStyle {
         size: PROVISIONAL_PASSAGE_SIZE,
@@ -251,9 +253,9 @@ fn compose_content(content: &TemplateContent) -> Composition {
             },
             header: meta_left(),
             body: ZoneStyle {
-                size: RESPONSE_SIZE,
+                size: body_size.unwrap_or(RESPONSE_SIZES[RESPONSE_SIZES.len() - 1]),
                 align: Alignment::Center,
-                weight: shaping::REGULAR_WEIGHT,
+                weight: shaping::EMPHASIS_WEIGHT,
             },
             footer: neutral,
             footer_lead: None,
@@ -296,7 +298,11 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 footer: content.footer.clone(),
             },
             header: meta_left(),
-            body: display(Alignment::Center),
+            body: ZoneStyle {
+                size: body_size.unwrap_or(PSALM_SIZES[PSALM_SIZES.len() - 1]),
+                align: Alignment::Center,
+                weight: shaping::EMPHASIS_WEIGHT,
+            },
             footer: meta_left(),
             footer_lead: None,
             body_tail: None,
@@ -428,7 +434,29 @@ pub fn render_template(
     if content.kind == TemplateKind::GeneralImage && content.image.is_none() {
         return Err(RenderError::MissingForegroundImage);
     }
-    let composition = compose_content(content);
+    // Psalm and Response bodies pick the largest ladder rung that fits; the
+    // last rung is the floor and carries any overflow warning.
+    let ladder: &[u32] = match content.kind {
+        TemplateKind::Psalm => &PSALM_SIZES,
+        TemplateKind::Response => &RESPONSE_SIZES,
+        _ => &[],
+    };
+    for &size in ladder {
+        let (frame, diagnostics) = render_sized(content, theme, density, Some(size))?;
+        if frame.pagination().fit == shaping::Fit::Fits || size == ladder[ladder.len() - 1] {
+            return Ok((frame, diagnostics));
+        }
+    }
+    render_sized(content, theme, density, None)
+}
+
+fn render_sized(
+    content: &TemplateContent,
+    theme: &Theme,
+    density: TargetDensity,
+    body_size: Option<u32>,
+) -> Result<(Frame, Diagnostics), RenderError> {
+    let composition = compose_content(content, body_size);
     let plan = CompositionPlan {
         header: composition.header,
         body: composition.body,
