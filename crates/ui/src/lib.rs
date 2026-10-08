@@ -41,8 +41,11 @@ pub fn init(cx: &mut App) -> Result<(), String> {
         ])
         .map_err(|error| error.to_string())?;
     // Infrastructure for the adopted base input behavior: it registers the
-    // native editing, selection, and clipboard bindings a Field depends on.
-    // `docs/qualification/GPUI-BASE-T0.3.md` bounds this to exactly that.
+    // native editing, selection, and clipboard bindings a Field depends on,
+    // and reads the operating system's reduced-motion preference into
+    // `App::reduce_motion`, which the adopted `motion::transition` honors.
+    // `docs/qualification/GPUI-BASE-T0.3.md` and `GPUI-BASE-T0.4a.md` bound
+    // it to exactly that.
     gpui_base::init(cx);
     cx.bind_keys(key_bindings());
     Ok(())

@@ -1,10 +1,10 @@
 [advisories]
 yanked = "deny"
 ignore = [
-    # Transitive from gpui-base/syntect at the pinned T0.1 revision. This is an
-    # unmaintained notice, not a reported vulnerability; revisit on upgrade.
-    { id = "RUSTSEC-2025-0141", reason = "pinned gpui-base transitive dependency" },
-    # Transitive directly from gpui-base at the pinned T0.1 revision.
+    # Re-checked at the T0.4a pins (gpui-base 0.7.1, gpui-pre 0.3.8); the
+    # syntect notice (RUSTSEC-2025-0141) no longer applies and was removed.
+    # Transitive directly from gpui-base (`instant`). An unmaintained notice,
+    # not a reported vulnerability; revisit on upgrade.
     { id = "RUSTSEC-2024-0384", reason = "pinned gpui-base transitive dependency" },
     # Transitive from pinned GPUI graphics dependencies.
     { id = "RUSTSEC-2024-0436", reason = "pinned GPUI transitive dependency" },
@@ -44,7 +44,17 @@ deny = [
     "dioxus",
     "eframe",
     "egui",
+    # Zed's own GPUI family would be a second GPUI type universe beside the
+    # pinned `gpui-pre` snapshot; gpui-fast and the GPUI Kit layers beyond
+    # `gpui-base` stay out of the graph (T0.4a).
+    "gpui",
+    "gpui_platform",
+    "gpui_macros",
     "gpui-component",
+    "gpui-fast",
+    "gpui-kit",
+    "gpui-shell",
+    "gpui-wry",
     "iced",
     "tauri",
     "web-view",
@@ -55,11 +65,6 @@ deny = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = [
-    "https://github.com/longbridge/gpui-component",
-    "https://github.com/proptest-rs/proptest",
-    "https://github.com/zed-industries/font-kit",
-    "https://github.com/zed-industries/wasm_thread",
-    "https://github.com/zed-industries/xim-rs.git",
-    "https://github.com/zed-industries/zed",
-]
+# No git source is allowed. GPUI and gpui-base come from exact crates.io
+# releases since T0.4a; a git source anywhere is a deliberate review event.
+allow-git = []

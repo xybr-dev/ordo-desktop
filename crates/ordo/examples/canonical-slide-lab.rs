@@ -432,10 +432,11 @@ impl LabView {
     /// flashing black; swapping only on a new image id keeps chrome-only
     /// selectors free. This must go through `use_render_image` (like Zed's
     /// image viewer and the `img` elements below), not `get_render_image`:
-    /// `get` creates the asset task without scheduling the on-next-frame
-    /// notify, stealing `is_first` from the viewports' `use_asset` calls in
-    /// the same frame, so a fresh decode would complete with no re-render
-    /// scheduled and the viewport would stay black.
+    /// only `use` subscribes this view to the decode's completion, so the
+    /// retire does not depend on the viewports subscribing on its behalf.
+    /// Before T0.4a's GPUI a `get` here also took the decode's first waiter
+    /// from those viewports, leaving them black; the `gpui-pre` asset cache
+    /// notifies every waiting view, so that hazard is gone upstream.
     fn retire_outgoing_upload(
         &mut self,
         current: Option<Arc<gpui::Image>>,
@@ -1037,21 +1038,15 @@ mod tests {
                 .is_some_and(|rendered| rendered.sequence == lab.sequence)
         })
         .await;
-        // Frames render on demand under test (unlike the live loop), and
-        // the decode completion itself only schedules an on-next-frame
-        // notify, so deliver those scheduled frames until the post-decode
-        // retire runs: each pass advances the background decode and then
-        // renders against it. No explicit notify is issued here on purpose:
-        // the retire path must schedule its own re-render through
-        // `use_render_image`, like the viewports' `img` elements. A `get`
-        // would create the asset task without a waiter, stealing `is_first`
-        // from the same frame's `use_asset` calls, so the decode would
-        // finish with nothing scheduled and the viewport would stay black.
-        let mut scheduled_any = false;
+        // Let the background decode finish and its completion re-render the
+        // lab. No explicit notify, refresh, or simulated frame is issued here
+        // on purpose: the retire path must be re-rendered by the decode it
+        // waits on, which GPUI does only for views subscribed through
+        // `use_asset` (the retire's `use_render_image` and the viewports'
+        // `img` elements). Otherwise the decode would finish with nothing
+        // re-rendering, the viewport would stay black, and the outgoing
+        // upload would never retire.
         for _ in 0..100 {
-            cx.run_until_parked();
-            let delivered = cx.update(|window, cx| window.simulate_next_frame(cx));
-            scheduled_any |= delivered > 0;
             cx.run_until_parked();
             let swapped = lab.read_with(cx, |lab, _| {
                 lab.displayed
@@ -1062,10 +1057,6 @@ mod tests {
                 break;
             }
         }
-        assert!(
-            scheduled_any,
-            "the incoming decode must schedule its own re-render instead of staying black"
-        );
         lab.read_with(cx, |lab, _| {
             assert!(
                 lab.displayed

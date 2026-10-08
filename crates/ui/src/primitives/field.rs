@@ -58,6 +58,7 @@ impl FieldState {
     }
 
     pub fn set_value(&self, value: impl Into<SharedString>, window: &mut Window, cx: &mut App) {
+        let value: SharedString = value.into();
         self.input
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
