@@ -20,8 +20,10 @@ were rejected. gpui-fast is out of scope (Route C2 is a later experiment behind
 T0.6's harness).
 
 This record supersedes the pin facts in `GPUI-BASE-T0.3.md`. Its behavior
-selection, boundaries, and rejections remain in force unchanged: T0.4a adopts
-no new `gpui-base` behavior and drops none.
+selection, boundaries, and rejections remain in force unchanged. T0.4a drops
+no adopted behavior. Its one addition is the operating-system reduced-motion
+reading that `gpui_base::init` now performs, adopted as the closure of the
+recorded reduced-motion pin gap (see "Pin gaps re-checked").
 
 ## GPUI supply
 
@@ -30,7 +32,8 @@ no new `gpui-base` behavior and drops none.
   reproduced Zed commit in `[package.metadata.gpui-pre] zed-rev`, here
   `279fe070bb389b79652e52065b2f001edcc0b11b` (2026-10-04). The snapshot is
   built by GPUI Kit's `script/bump-gpui.ts`.
-- **Divergence from Zed.** Three files carry a `Modified for gpui-pre` notice:
+- **Divergence from Zed.** Four files in three crates carry a
+  `Modified for gpui-pre` notice:
   `gpui-pre/src/action.rs` (crate-relative `actions!` derive paths),
   `gpui-pre-apple/build.rs`, and `gpui-pre-macros` (`gpui_macros.rs` plus the
   `gpui_pre_facade_paths.rs` rewrite, which activates only when `gpui-kit` is
@@ -58,17 +61,25 @@ no new `gpui-base` behavior and drops none.
 
 - a workspace requirement on `gpui-pre*` or `gpui-base` is not one exact
   `=x.y.z` crates.io requirement equal to the recorded version (caret, partial,
-  range, git, and path requirements all fail);
+  range, pre-release, git, and path requirements all fail);
+- `Cargo.lock` takes a `gpui-pre*` or `gpui-base` entry from anywhere but
+  crates.io. The lock reflects `[patch]` and `[replace]`, so a path or git
+  override of the snapshot fails here even though the manifest requirement
+  is untouched. This was verified end to end with a real
+  `[patch.crates-io] gpui-pre = { path = … }`;
 - `Cargo.lock` resolves a `gpui-pre*` or `gpui-base` version other than the
   recorded one, more than one `gpui-pre` or `gpui-base`, or a `gpui-base` that
   does not depend on the locked `gpui-pre`;
-- `Cargo.lock` contains a second GPUI family or rejected layer: `gpui`,
-  `gpui_platform`, `gpui_macros`, `gpui-component`, `gpui-kit*`,
-  `gpui-shell*`, `gpui-wry*`, or `gpui-fast*`;
-- any GPUI crate, or anything from `zed-industries/zed` or `longbridge/`,
-  comes from git; any other git source must still name a full revision.
+- `Cargo.lock` or a workspace manifest contains any other GPUI-family name
+  (`gpui`, `gpui-*`, or `gpui_*`). This is an allow-list, so it covers Zed's
+  `gpui`, gpui-fast, the GPUI Kit layers, and forks the list never named;
+- anything from `zed-industries/zed` or `longbridge/` comes from git; any
+  other git source must still name a full revision.
 
-`deny.toml` bans the same names over the full graph. The isolation policies
+The `zed` field is informational. The locked checksum already fixes the
+snapshot's bytes, and `gpui-pre`'s own `zed-rev` metadata is authoritative.
+
+`deny.toml` bans the named families over the full graph as a second line. The isolation policies
 (`domain`/`presentation`, `rendering`, `gpui-base` private to `ui`) now
 recognize every GPUI-family name by prefix rather than by a list, because Cargo
 metadata reports the `gpui-pre` package names, not the renamed `gpui` keys.
@@ -102,9 +113,10 @@ the `ordo` lib suite, including the shell E2E
 `the_milestone_shell_path_holds_primitive_behavior_without_workspace_scroll`,
 and every suite listed in `T0.3-MANUAL-GATE.md` §1.
 
-`gpui_base::init` now also initializes `reduce_motion`, `root`, `text`,
-`time_field`, `number_input`, and `tree`. Every key binding these modules add
-is scoped to their own key context (`Root`, `TextView`, and so on). Ordo
+Compared with the old pin, `gpui_base::init` now also initializes
+`reduce_motion`, `root`, `text`, and `time_field` (`number_input` and `tree`
+were already initialized). Every key binding these modules add is scoped to its
+own key context (`Root`, `TextView`, `TimeField`, and so on). Ordo
 renders only the `OrdoShell` and `OrdoLab` contexts, so none of them can fire.
 `reduce_motion` is the only one with an effect, and that effect is wanted (see
 the pin gaps below).
@@ -133,6 +145,10 @@ load now records every view that called `use_asset`, and completion calls
   `get_render_image` now passes, because the viewports' `img` elements
   subscribe the same view. The production code still uses `use_render_image`,
   so the retire does not rely on that. Its comment now says so.
+- **Accepted reduction.** The test therefore no longer tells `use` from `get`
+  on the retire path. It still fails when the retire never takes the screen:
+  a mutation that makes `retire_outgoing_upload` return early fails with "the
+  incoming slide must take the screen once decoded".
 
 ## Pin gaps re-checked
 
@@ -144,7 +160,7 @@ load now records every view that called `use_asset`, and completion calls
 | AccessKit live regions | **Open.** The `aria_*` setters on `div` include label, description, selected, expanded, toggled, value, and position/level, but no live-region setter. | Kept: `ui::accessibility::LiveElement`. |
 | wgpu row padding | **Open.** `gpui-pre-wgpu/src/wgpu_atlas.rs` still uploads with `bytes_per_row = width * bytes_per_pixel`, unpadded. | Kept: the 64-px row padding in `crates/ordo/src/canonical_views.rs`. |
 | Scroll indicator | **Open in GPUI.** GPUI still ships no scrollbar element; `scrollbar_width` only reserves layout space. `gpui-base` exports a `scrollbar`, but adopting it is a new behavior qualification and outside T0.4a. | Kept: `ui::scroll`. |
-| OS reduced motion | **Closed.** `gpui_base::init`, which `ui::init` already calls, now reads the platform setting into `App::reduce_motion`: Windows `SPI_GETCLIENTAREAANIMATION`, the Linux XDG portal `reduced-motion` key (followed live), and macOS. Under the test scheduler it does not consult the platform. | None to remove. Ordo never had a workaround here: it already honored `App::reduce_motion` and only lacked the platform reading. Ordo never sets the flag itself, so the system value is never overridden. Following a *live* change on Windows needs a re-read that `gpui-base` does not do; that is recorded, not fixed here. |
+| OS reduced motion | **Closed (Windows and macOS: read at startup only).** `gpui_base::init`, which `ui::init` already calls, now reads the platform setting into `App::reduce_motion`: Windows `SPI_GETCLIENTAREAANIMATION`, the Linux XDG portal `reduced-motion` key (followed live), and macOS. Under the test scheduler it does not consult the platform. | None to remove. Ordo never had a workaround here: it already honored `App::reduce_motion` and only lacked the platform reading. Ordo never sets the flag itself, so the system value is never overridden. No automated test covers the platform read, because `gpui-base` skips it under the test scheduler; the Windows manual gate below covers it. Following a *live* change on Windows needs a re-read (`apply_system_reduce_motion`) that Ordo does not yet trigger; that is recorded, not fixed here. |
 
 No closed gap had Ordo code to remove.
 
@@ -181,6 +197,7 @@ The `[MANUAL]` box stays open until then.
 | B. Keyboard-only visual pass | pending |
 | C. Windows High Contrast | pending |
 | Screen reader (Narrator/NVDA) | pending |
+| Reduced motion (Windows "Animation effects" off before launch: dialog and slideover open without movement) | pending |
 
 ## Commands
 

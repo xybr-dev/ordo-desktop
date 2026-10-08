@@ -35,8 +35,9 @@ async-channel = "2.5.0"
 # docs/qualification/GPUI-BASE-T0.4a.md). Renaming each package back to its Zed
 # name keeps every `gpui::` path unchanged. Every requirement is exact (`=`):
 # a caret range would let Cargo pick a second, incompatible GPUI type universe.
-# xtask enforces the exact requirements, the single crate family, and the
-# recorded supply below against Cargo.lock.
+# xtask enforces the exact requirements, the single crates.io-sourced crate
+# family, and the recorded versions below against Cargo.lock; `zed` is
+# informational.
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui-base = { version = "=0.7.1" }

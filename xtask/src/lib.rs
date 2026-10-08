@@ -1,7 +1,4 @@
-use cargo_metadata::{
-    DependencyKind, Metadata, MetadataCommand, Package,
-    semver::{Op, VersionReq},
-};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, semver::VersionReq};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -46,37 +43,10 @@ const GPUI_FAMILY_PREFIX: &str = "gpui-pre-";
 const GPUI_BASE_PACKAGE: &str = "gpui-base";
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
-/// GPUI-related packages that must never enter the locked graph: Zed's own
-/// `gpui` family (a second type universe beside `gpui-pre`), the gpui-fast
-/// fork, and the GPUI Kit layers Ordo rejected. `deny.toml` bans the same
-/// names; this list makes `verify` fail with a GPUI-specific reason first.
-const FOREIGN_GPUI_PACKAGES: &[&str] = &[
-    "gpui",
-    "gpui_platform",
-    "gpui_macros",
-    "gpui-component",
-    "gpui-kit",
-    "gpui-shell",
-    "gpui-wry",
-    "gpui-fast",
-];
-
 /// Every GPUI-family name, current or foreign, so isolation policies hold
 /// whichever family a dependency would come from.
 fn is_gpui_crate(name: &str) -> bool {
     name == "gpui" || name.starts_with("gpui-") || name.starts_with("gpui_")
-}
-
-/// Whether `name` belongs to a forbidden GPUI family, including the crates a
-/// family publishes under its prefix (`gpui-fast-platform`, `gpui-kit-assets`).
-fn is_foreign_gpui_package(name: &str) -> bool {
-    FOREIGN_GPUI_PACKAGES.iter().any(|foreign| {
-        name == *foreign
-            || (*foreign != "gpui"
-                && name
-                    .strip_prefix(foreign)
-                    .is_some_and(|rest| rest.starts_with('-')))
-    })
 }
 
 /// Whether `name` is the pinned `gpui-pre` snapshot or one of its crates.
@@ -129,7 +99,9 @@ fn required_ui_assets() -> impl Iterator<Item = String> {
 }
 
 /// `workspace.metadata.ordo.gpui-supply`: the exact snapshot and release the
-/// lock must resolve, plus the Zed commit the snapshot reproduces.
+/// lock must resolve. `zed` records the commit the snapshot reproduces; it is
+/// informational, since `gpui-pre`'s own metadata carries the authoritative
+/// `zed-rev` and the locked checksum already fixes the snapshot's bytes.
 #[derive(Debug, Deserialize)]
 struct GpuiSupply {
     #[serde(rename = "gpui-pre")]
@@ -137,6 +109,20 @@ struct GpuiSupply {
     zed: String,
     #[serde(rename = "gpui-base")]
     gpui_base: String,
+}
+
+impl GpuiSupply {
+    /// The version `name` must resolve to: `Some` for the snapshot's crates and
+    /// `gpui-base`, `None` for any crate outside the GPUI supply.
+    fn pinned_version(&self, name: &str) -> Option<&str> {
+        if is_gpui_snapshot_package(name) {
+            Some(&self.gpui_pre)
+        } else if name == GPUI_BASE_PACKAGE {
+            Some(&self.gpui_base)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -629,7 +615,8 @@ fn verify_gpui_supply_metadata(root: &Path, metadata: &Metadata) -> XtaskResult<
 
 /// A workspace requirement on the GPUI snapshot or `gpui-base` must name one
 /// exact crates.io version: a caret range lets Cargo resolve a second snapshot,
-/// and a git or path source escapes the recorded supply.
+/// and a git or path source escapes the recorded supply. Any other GPUI-family
+/// crate is a second type universe and is rejected outright.
 fn validate_gpui_requirement(
     package: &str,
     dependency: &str,
@@ -637,14 +624,12 @@ fn validate_gpui_requirement(
     source: Option<&str>,
     supply: &GpuiSupply,
 ) -> XtaskResult<()> {
-    if is_foreign_gpui_package(dependency) {
-        return Err(format!("{package} depends on {dependency}, outside the GPUI supply").into());
-    }
-    let expected = if is_gpui_snapshot_package(dependency) {
-        &supply.gpui_pre
-    } else if dependency == GPUI_BASE_PACKAGE {
-        &supply.gpui_base
-    } else {
+    let Some(expected) = supply.pinned_version(dependency) else {
+        if is_gpui_crate(dependency) {
+            return Err(
+                format!("{package} depends on {dependency}, outside the GPUI supply").into(),
+            );
+        }
         return Ok(());
     };
     if source != Some(CRATES_IO) {
@@ -654,13 +639,9 @@ fn validate_gpui_requirement(
         )
         .into());
     }
-    let exact = match requirement.comparators.as_slice() {
-        [comparator] => {
-            comparator.op == Op::Exact && comparator.minor.is_some() && comparator.patch.is_some()
-        }
-        _ => false,
-    };
-    if !exact || requirement.to_string() != format!("={expected}") {
+    // `VersionReq` renders one exact `=x.y.z` comparator as exactly this
+    // string; a caret, partial, range, or pre-release requirement cannot.
+    if requirement.to_string() != format!("={expected}") {
         return Err(format!(
             "{package} requires {dependency} {requirement}, expected exactly ={expected}"
         )
@@ -719,9 +700,12 @@ fn parse_lock_packages(lock: &str) -> Vec<LockPackage> {
 }
 
 /// The locked graph holds exactly one GPUI crate family, at the recorded
-/// `gpui-pre` snapshot, and the one `gpui-base` release built against it. No
-/// GPUI crate may come from git, and any other git source must name a full
-/// immutable revision.
+/// `gpui-pre` snapshot, and the one `gpui-base` release built against it, all
+/// from crates.io. This is an allow-list: any other GPUI-family name (Zed's
+/// `gpui`, gpui-fast, a GPUI Kit layer, an unknown fork) fails. A lock entry,
+/// unlike a manifest requirement, also reflects `[patch]` and `[replace]`, so a
+/// path or git override of the snapshot fails here. Any non-GPUI git source
+/// must name a full immutable revision.
 fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
     let packages = parse_lock_packages(lock);
     for package in &packages {
@@ -748,21 +732,25 @@ fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
                 return Err(format!("git source lacks a full immutable revision: {source}").into());
             }
         }
-        if is_foreign_gpui_package(&package.name) {
+        let Some(expected) = supply.pinned_version(&package.name) else {
+            if is_gpui_crate(&package.name) {
+                return Err(format!(
+                    "Cargo.lock contains {} {}, outside the GPUI supply",
+                    package.name, package.version
+                )
+                .into());
+            }
+            continue;
+        };
+        if package.source.as_deref() != Some(CRATES_IO) {
             return Err(format!(
-                "Cargo.lock contains {} {}, a second GPUI crate family",
-                package.name, package.version
+                "Cargo.lock takes {} from {}, not crates.io",
+                package.name,
+                package.source.as_deref().unwrap_or("a path")
             )
             .into());
         }
-        let expected = if is_gpui_snapshot_package(&package.name) {
-            &supply.gpui_pre
-        } else if package.name == GPUI_BASE_PACKAGE {
-            &supply.gpui_base
-        } else {
-            continue;
-        };
-        if package.version != *expected {
+        if package.version != expected {
             return Err(format!(
                 "Cargo.lock resolves {} {}, expected {expected}",
                 package.name, package.version
@@ -799,7 +787,7 @@ fn gpui_supply(metadata: &Metadata) -> XtaskResult<GpuiSupply> {
         .get("ordo")
         .and_then(|ordo| ordo.get("gpui-supply"))
         .ok_or("workspace.metadata.ordo.gpui-supply is missing")?;
-    Ok(serde_json::from_value(supply.clone())?)
+    Ok(GpuiSupply::deserialize(supply)?)
 }
 
 fn metadata(root: &Path) -> XtaskResult<Metadata> {
@@ -921,7 +909,7 @@ mod tests {
     fn supply() -> GpuiSupply {
         GpuiSupply {
             gpui_pre: "0.3.8".to_owned(),
-            zed: "279fe07".to_owned(),
+            zed: "279fe070bb389b79652e52065b2f001edcc0b11b".to_owned(),
             gpui_base: "0.7.1".to_owned(),
         }
     }
@@ -1002,6 +990,8 @@ mod tests {
             ("gpui-fast-platform", "0.1.2"),
             ("gpui-component", "0.7.1"),
             ("gpui-kit-assets", "0.7.1"),
+            ("gpui-ce", "0.1.0"),
+            ("gpui_wgpu", "0.1.0"),
         ] {
             let lock = pinned_lock() + &lock_entry(name, version, CRATES_IO, &[]);
             assert!(
@@ -1011,6 +1001,19 @@ mod tests {
         }
         let second_snapshot = pinned_lock() + &lock_entry("gpui-pre", "0.3.7", CRATES_IO, &[]);
         assert!(validate_gpui_lock(&second_snapshot, &supply()).is_err());
+    }
+
+    #[test]
+    fn rejects_a_path_override_of_the_snapshot() {
+        // `[patch.crates-io] gpui-pre = { path = "..." }` keeps the version
+        // and leaves the manifest requirement untouched; only the lock shows
+        // the missing registry source.
+        let patched = pinned_lock().replace(
+            &format!("name = \"gpui-pre\"\nversion = \"0.3.8\"\nsource = \"{CRATES_IO}\"\n"),
+            "name = \"gpui-pre\"\nversion = \"0.3.8\"\n",
+        );
+        assert_ne!(patched, pinned_lock(), "the fixture must drop the source");
+        assert!(validate_gpui_lock(&patched, &supply()).is_err());
     }
 
     #[test]
@@ -1055,6 +1058,8 @@ mod tests {
         );
         assert!(check("gpui", "*", None).is_err());
         assert!(check("gpui-fast", "=0.1.2", Some(CRATES_IO)).is_err());
+        assert!(check("gpui-ce", "=0.1.0", Some(CRATES_IO)).is_err());
+        assert!(check("gpui-pre", "=0.3.8-alpha", Some(CRATES_IO)).is_err());
     }
 
     #[test]
