@@ -259,13 +259,15 @@ Never expose freely draggable positioning in the MVP.
 Use these fixed template relationships:
 
 - **Lyrics:** optional repeated section label at top-left; authored-case body
-  optically centered in the remaining region and left-aligned by default.
+  optically centered in the remaining region, each line centered
+  horizontally.
 - **Response:** optional repeated ExtraBold authored header resolved before
   rendering (for example, the Cebuano template default `TUBAG:`); stored
-  authored text rendered uppercase as the emphasized body at the pending
-  candidate `113px`/weight `400` (Response only, `90 * 1.25 = 112.5`
-  rounded; line advance `130px`), centered horizontally and centered
-  vertically in the available body zone.
+  authored text in authored case as the emphasized body at weight `800`,
+  sized to content: the largest of the pending candidate `160`/`140`/`120`/
+  `100px` sizes whose block fits the body zone, with `100px` as the floor
+  that carries any overflow warning; centered horizontally and vertically in
+  the available body zone.
 - **Reading identification:** proclamation title preserved exactly as authored
   (mixed case, never uppercased) at candidate `135px`/weight `800`,
   left-aligned to the safe-area left edge and centered vertically in the body
@@ -278,11 +280,12 @@ Use these fixed template relationships:
   every Slide.
 - **Responsorial Psalm:** optional small ExtraBold authored header resolved
   before rendering (for example, the Cebuano template default `SALMO
-  RESPONSORYO`) at top-left, emphasized refrain centered in the remainder, and
-  reference at bottom-left. A projected cantor verse uses Reading-passage
+  RESPONSORYO`) at top-left, emphasized refrain at weight `700` centered in
+  the remainder, sized to content from the pending candidate `140`/`120`/
+  `105`/`90px` sizes (floor `90px`), and reference at bottom-left. A projected cantor verse uses Reading-passage
   treatment.
-- **Song identification:** a bottom-left identity block with large uppercase
-  Song title, smaller composer/source, and optional Arrangement/Choir credit.
+- **Song identification:** a bottom-left identity block with an authored-case
+  Song title at candidate `100px`/weight `700`, smaller composer/source, and optional Arrangement/Choir credit.
 - **Celebration title:** title preserved exactly as authored (mixed case,
   never uppercased) at candidate `135px`/weight `800`, left-aligned to the
   safe-area left edge, plus an optional Normal-Case subtitle at candidate
@@ -316,14 +319,13 @@ plus a ReadingPassage-only pending candidate at `88px`/weight `400`
 (`70 * 1.25 = 87.5`, rounded; line advance `102px`) for
 `TemplateKind::ReadingPassage` at regular weight, left-aligned and
 top-anchored, proposed for the fixture-backed gallery candidate. GeneralText
-stays at `70px`; plus a Response-only pending candidate at `113px`/weight
-`400` (`90 * 1.25 = 112.5`, rounded; line advance `130px`) for
-`TemplateKind::Response` at regular weight, centered horizontally and
-centered vertically in the available body zone. The shared
-`PROVISIONAL_DISPLAY_SIZE` stays at `90px` for Lyrics, Psalm, and Song
-identification; operator, UI, and lab-control typography are unchanged by
-any candidacy except the congregation `projected-response` candidate size,
-now `113px` (weight unchanged). Whether long Cebuano and
+stays at `70px`. Psalm and Response bodies are content-sized from the
+pending candidate ladders above (Psalm `140`–`90px`/weight `700`, Response
+`160`–`100px`/weight `800`), and Song titles lead at `100px`/weight `700`.
+`PROVISIONAL_DISPLAY_SIZE` stays at `90px` for Lyrics and the Psalm floor;
+operator, UI, and lab-control typography are unchanged by any candidacy
+except the `projected-response` token, now `113px`/weight `800` for lab
+specimens while congregation Response output follows its ladder. Whether long Cebuano and
 English cases are comfortably readable at these levels is a pending human
 visual judgment, recorded in `docs/qualification/T0.4-MANUAL-GATE.md` —
 nothing here claims them frozen or qualified.
