@@ -11,9 +11,9 @@
 //! - Lyrics: section label at top-left, authored-case body optically centered
 //!   in the remainder, no footer. A missing label collapses the header so the body keeps the
 //!   space; that absent-label composition is the label-off variant.
-//! - Response: resolved header, stored text rendered uppercase as the
-//!   emphasized body at the pending candidate 113px/400 level
-//!   (Response only), centered horizontally and vertically, no footer.
+//! - Response: resolved header, authored-case emphasized body at the
+//!   largest [`RESPONSE_SIZES`] rung that fits, weight 800, centered
+//!   horizontally and vertically, no footer.
 //! - Reading identification: no header, proclamation title preserved
 //!   exactly as authored (mixed case, never uppercased) at the candidate
 //!   135px/800 level, left-aligned to the safe-area left edge and centered
@@ -21,10 +21,11 @@
 //! - Reading passage: no header, passage in the body at the pending
 //!   candidate 88px/400 level (ReadingPassage only), reference at
 //!   bottom-left on every slide. A projected cantor verse uses this kind.
-//! - Psalm: resolved header at top-left, refrain centered in the remainder,
+//! - Psalm: resolved header at top-left, refrain at the largest
+//!   [`PSALM_SIZES`] rung that fits, weight 700, centered in the remainder,
 //!   reference at bottom-left.
 //! - Song identification: one bottom-left identity block in the footer, with
-//!   the large uppercase title leading at display size and the
+//!   the authored-case title leading at 100px/700 and the
 //!   composer/source plus optional credit following at meta size. The body
 //!   stays empty.
 //! - Celebration title: title preserved exactly as authored (mixed case,
@@ -58,12 +59,11 @@
 //! Relative hierarchy with candidate numbers (T0.4.10, pending human approval
 //! per `docs/qualification/T0.4-MANUAL-GATE.md`): display (90px, the
 //! shared display baseline and gallery baseline, +25% from the 72px PR 5
-//! provisional) carries Lyrics, Psalm, and Song identification bodies; passage (70px,
-//! +25% from 56px) carries general text, smaller than
-//! identification titles; Response carries its own pending candidate 113px
-//! at regular weight (`90 * 1.25 = 112.5`, rounded; line advance `130px`),
-//! the projected-response token used only for `Response`, centered horizontally and vertically; Reading
-//! passage carries its own pending candidate
+//! provisional) carries Lyrics bodies and floors the Psalm ladder; passage
+//! (70px, +25% from 56px) carries general text, smaller than
+//! identification titles; Psalm (140–90px/700) and Response
+//! (160–100px/800) bodies take the largest ladder rung that fits; Song
+//! titles lead at 100px/700; Reading passage carries its own pending candidate
 //! 88px at regular weight (`70 * 1.25 = 87.5`, rounded), used only for
 //! `ReadingPassage`; meta (50px, +25% from 40px) carries labels,
 //! headers, references, credits, dates, and captions. Celebration title and
@@ -89,7 +89,8 @@ use crate::interface::{
 use crate::shaping::{self, Alignment, VAlign};
 
 /// Candidate display size (T0.4.10, pending approval): the 90px shared display baseline (+25%
-/// from the 72px PR 5 provisional baseline). Lyrics, Psalm, and Song identification bodies measure here; the projected-response token is now the Response-only 113px [`RESPONSE_SIZE`].
+/// from the 72px PR 5 provisional baseline). Lyrics bodies measure here and
+/// the Psalm ladder floors at it.
 pub const PROVISIONAL_DISPLAY_SIZE: u32 = shaping::BODY_FONT_SIZE;
 /// Candidate passage size (T0.4.10, pending approval): general text, smaller
 /// than identification titles. 70px, +25% from the 56px PR 5 provisional.
@@ -208,11 +209,10 @@ fn celebration_subtitle() -> ZoneStyle {
     }
 }
 
-/// Map one template onto resolved zones. Response and SongIdentification
-/// transform only their title/body text with the pinned Unicode mapping,
-/// which is deterministic for a pinned toolchain; headers and references
-/// always pass through verbatim. ReadingIdentification and CelebrationTitle
-/// preserve their titles exactly as authored (mixed case, never uppercased).
+/// Map one template onto resolved zones. Every body and title passes
+/// through exactly as authored (never uppercased), as do headers and
+/// references. `body_size` picks the Psalm or Response ladder rung; `None`
+/// takes the floor.
 /// CelebrationTitle reuses the header slot renderer-locally as an optional
 /// Normal-Case subtitle: absent, empty, or whitespace-only reserves no
 /// space, and title plus subtitle center together via the zoned `body_tail`

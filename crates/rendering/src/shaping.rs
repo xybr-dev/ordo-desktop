@@ -10,12 +10,11 @@
 //! Scope notes:
 //! - Sizes are candidate at T0.4.10 at display 90px / passage 70px / meta 50px
 //!   (PR 5 provisional 72/56/40, each +25%), plus the Celebration exception
-//!   at candidate title 135px/800 with optional subtitle 68px/300, plus a
-//!   Response-only pending candidate at 113px/400 (`90 * 1.25 = 112.5`,
-//!   rounded; advance `130px`) used only for `Response`, pending
-//!   human approval per `docs/qualification/T0.4-MANUAL-GATE.md`: the 90px
-//!   display baseline stays the gallery baseline for the other emphasized
-//!   bodies, and the template
+//!   at candidate title 135px/800 with optional subtitle 68px/300, plus
+//!   content-sized Psalm (140–90px/700) and Response (160–100px/800) body
+//!   ladders, pending human approval per
+//!   `docs/qualification/T0.4-MANUAL-GATE.md`: the 90px display baseline
+//!   stays the gallery baseline for Lyrics, and the template
 //!   corpus chooses per-zone sizes from it. Line advance stays
 //!   `ceil(size * 1.15)` at every size. The measured-not-counted rule the
 //!   corpus refines is the pinned part.
@@ -33,9 +32,10 @@
 
 use crate::fonts::{self, CanonicalFont};
 
-/// Provisional body size: the 90px shared display baseline (candidate at T0.4.10
-/// from the 72px PR 5 baseline, +25%, pending approval), still used by Lyrics, Psalm, and Song identification; the projected-response token is now the Response-only 113px. The template corpus carries the full
-/// hierarchy later.
+/// Provisional body size: the 90px shared display baseline (candidate at
+/// T0.4.10 from the 72px PR 5 baseline, +25%, pending approval) for Lyrics
+/// and the Psalm ladder floor. The template corpus carries the full
+/// hierarchy.
 pub const BODY_FONT_SIZE: u32 = 90;
 /// Regular weight: the variable-font default instance. Layout and raster
 /// apply no `wght` variation here, so every non-celebration zone keeps its
@@ -148,7 +148,7 @@ pub struct ShapedLine {
     pub size: u32,
     /// Variable-font `wght` the line was shaped at, for the raster pass to
     /// match. `REGULAR_WEIGHT` (400) means the default instance with no
-    /// variation applied; celebration title/subtitle carry 800/300. It never
+    /// variation applied; emphasized and title lines carry their own `wght`. It never
     /// enters [`crate::Frame::serialize`]: the measured advances already pin
     /// the composition, and the raster pass reads this to pick the same axis
     /// the shaper used.

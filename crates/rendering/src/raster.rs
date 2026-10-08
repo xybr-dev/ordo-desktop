@@ -243,8 +243,8 @@ fn blit_contained(
 /// shaper offset the way the shaping path's own probe does, and the
 /// returned placement decides the final integer blit. The line's `wght`
 /// matches the shaping faces: regular lines rasterize the default instance
-/// with no variation, while celebration title/subtitle lines apply the same
-/// 800/300 axis value the shaper used.
+/// with no variation, while every other line applies the same `wght` axis
+/// value the shaper used.
 fn draw_line(
     canvas: &mut tiny_skia::Pixmap,
     context: &mut swash::scale::ScaleContext,
