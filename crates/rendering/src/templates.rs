@@ -103,7 +103,11 @@ pub const READING_PASSAGE_SIZE: u32 = 88;
 /// (`90 * 1.25 = 112.5`, rounded; line advance `130px`). Used only for
 /// [`TemplateKind::Response`]; [`PROVISIONAL_DISPLAY_SIZE`] stays at 90px
 /// for every other emphasized body.
-pub const RESPONSE_SIZE: u32 = 113;
+pub const RESPONSE_SIZE: u32 = 120;
+/// Candidate Song identification title size (pending approval): 100px, bold,
+/// authored case. Used only for the footer lead of
+/// [`TemplateKind::SongIdentification`].
+pub const SONG_TITLE_SIZE: u32 = 100;
 /// Candidate meta size (T0.4.10, pending approval): section labels, resolved headers, references,
 /// credits, dates, and captions. 50px, +25% from the 40px PR 5 provisional.
 pub const PROVISIONAL_META_SIZE: u32 = 50;
@@ -178,6 +182,14 @@ fn display(align: Alignment) -> ZoneStyle {
     }
 }
 
+fn song_title() -> ZoneStyle {
+    ZoneStyle {
+        size: SONG_TITLE_SIZE,
+        align: Alignment::Left,
+        weight: shaping::SONG_TITLE_WEIGHT,
+    }
+}
+
 fn celebration_title() -> ZoneStyle {
     ZoneStyle {
         size: CELEBRATION_TITLE_SIZE,
@@ -224,7 +236,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 footer: None,
             },
             header: meta_left(),
-            body: display(Alignment::CenterBlock),
+            body: display(Alignment::Center),
             footer: neutral,
             footer_lead: None,
             body_tail: None,
@@ -232,7 +244,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
         },
         TemplateKind::Response => Composition {
             semantic: SemanticContent {
-                body: content.body.to_uppercase(),
+                body: content.body.clone(),
                 response_header: content.header.clone(),
                 psalm_header: None,
                 footer: None,
@@ -291,7 +303,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
             body_valign: VAlign::Center,
         },
         TemplateKind::SongIdentification => {
-            let title = content.body.to_uppercase();
+            let title = content.body.clone();
             let lead_authored = title.split('\n').count() as u32;
             let footer_text = match content.footer.as_deref() {
                 Some(credits) if !credits.is_empty() => format!("{title}\n{credits}"),
@@ -307,7 +319,7 @@ fn compose_content(content: &TemplateContent) -> Composition {
                 header: neutral,
                 body: neutral,
                 footer: meta_left(),
-                footer_lead: Some((display(Alignment::Left), lead_authored)),
+                footer_lead: Some((song_title(), lead_authored)),
                 body_tail: None,
                 body_valign: VAlign::Top,
             }

@@ -9,8 +9,8 @@
 use rendering::{
     BODY_FONT_SIZE, CELEBRATION_SUBTITLE_SIZE, CELEBRATION_TITLE_SIZE, ForegroundImage,
     PROVISIONAL_DISPLAY_SIZE, PROVISIONAL_META_SIZE, PROVISIONAL_PASSAGE_SIZE,
-    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZE, RenderError, TargetDensity,
-    TemplateContent, TemplateKind, Theme, line_height_for, render_template,
+    READING_PASSAGE_SIZE, REGULAR_WEIGHT, RESPONSE_SIZE, RenderError, SONG_TITLE_SIZE,
+    TargetDensity, TemplateContent, TemplateKind, Theme, line_height_for, render_template,
 };
 
 fn content(
@@ -133,44 +133,41 @@ fn lyrics_label_sits_top_left_and_absence_returns_space_to_the_body() {
 }
 
 #[test]
-fn lyrics_body_is_left_aligned_inside_a_centered_block() {
+fn lyrics_body_centers_each_line_inside_the_zone() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // Two short lines of different widths: one block, left-aligned lines.
-    let (frame, _) =
-        render_template(&lyrics("short\na much longer line"), &theme, density).unwrap();
+    // Two short lines of different widths: each line centers on its own.
+    let (frame, _) = render_template(
+        &lyrics(
+            "short
+a much longer line",
+        ),
+        &theme,
+        density,
+    )
+    .unwrap();
     let lines = frame.body_lines();
     assert_eq!(lines.len(), 2);
-    let safe = frame.safe_area();
-    let safe_x = safe.x as i32;
-    let safe_right = safe.x as i32 + safe.width as i32;
-    // Every line shares one left edge: the block centers, lines do not.
-    assert_eq!(lines[0].x, lines[1].x);
-    assert!(
-        lines[0].x > safe_x,
-        "the block must center, not hug the edge"
-    );
-    // Outer margins match within one unit: truncating integer division
-    // centers odd-width blocks asymmetrically by a single logical unit.
-    let block_left = lines.iter().map(|line| line.x).min().unwrap();
-    let block_right = lines.iter().map(|line| line.x + line.width).max().unwrap();
-    let left_margin = block_left - safe_x;
-    let right_margin = safe_right - block_right;
-    assert!(
-        (left_margin - right_margin).abs() <= 1,
-        "block centers within one unit: {left_margin} vs {right_margin}"
-    );
+    let body = frame.body();
+    for line in lines {
+        assert_eq!(
+            line.x,
+            body.x as i32 + (body.width as i32 - line.width) / 2,
+            "each lyric line centers horizontally"
+        );
+    }
+    assert!(lines[0].x > lines[1].x, "the shorter line sits further in");
 }
 
 #[test]
-fn response_header_passes_through_and_body_renders_uppercase_centered() {
+fn response_header_passes_through_and_body_renders_authored_case_centered() {
     let theme = Theme::default();
     let density = TargetDensity::SCALE_100;
-    // Response-only candidate: 113px at regular weight, centered
+    // Response-only candidate: 120px at regular weight, centered
     // horizontally and vertically. All three header states share the body
     // treatment; absent collapses the zone while empty reserves it.
-    assert_eq!(RESPONSE_SIZE, 113);
-    assert_eq!(line_height_for(RESPONSE_SIZE), 130);
+    assert_eq!(RESPONSE_SIZE, 120);
+    assert_eq!(line_height_for(RESPONSE_SIZE), 138);
     let cases = [
         (Some("Authored header"), "present"),
         (None, "absent"),
@@ -193,10 +190,13 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
             "{what} response keeps one line"
         );
         let line = &frame.body_lines()[0];
-        assert_eq!(line.text, "RESPONSE TEXT", "{what} body uppercases");
-        assert_eq!(line.size, RESPONSE_SIZE, "{what} body measures at 113px");
+        assert_eq!(
+            line.text, "response text",
+            "{what} body keeps authored case"
+        );
+        assert_eq!(line.size, RESPONSE_SIZE, "{what} body measures at 120px");
         assert_eq!(line.weight, REGULAR_WEIGHT, "{what} body stays regular");
-        assert_eq!(line.height, 130, "{what} advance is 130px");
+        assert_eq!(line.height, 138, "{what} advance is 138px");
         // Centered in the body zone from measured width and height.
         let body = frame.body();
         assert_eq!(
@@ -214,8 +214,8 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
     }
 
     // Absent collapses the header zone; present and empty reserve the 58px
-    // meta header. The one-line bodies start centered at y=475 (absent) and
-    // y=504 (present/empty) at the 113px candidate.
+    // meta header. The one-line bodies start centered at y=471 (absent) and
+    // y=500 (present/empty) at the 120px candidate.
     let (present, _) = render_template(
         &content(
             TemplateKind::Response,
@@ -235,7 +235,7 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
         line_height_for(PROVISIONAL_META_SIZE)
     );
     assert_eq!(present.body().y, present_header.y + present_header.height);
-    assert_eq!(present.body_lines()[0].y, 504);
+    assert_eq!(present.body_lines()[0].y, 500);
 
     let (empty, _) = render_template(
         &content(TemplateKind::Response, Some(""), "response text", None),
@@ -245,7 +245,7 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
     .unwrap();
     let empty_header = empty.header().expect("empty header reserves a zone");
     assert_eq!(empty_header.height, line_height_for(PROVISIONAL_META_SIZE));
-    assert_eq!(empty.body_lines()[0].y, 504);
+    assert_eq!(empty.body_lines()[0].y, 500);
     assert_eq!(empty.body(), present.body());
 
     let (absent, _) = render_template(
@@ -256,7 +256,7 @@ fn response_header_passes_through_and_body_renders_uppercase_centered() {
     .unwrap();
     assert_eq!(absent.header(), None);
     assert_eq!(absent.body(), absent.safe_area());
-    assert_eq!(absent.body_lines()[0].y, 475);
+    assert_eq!(absent.body_lines()[0].y, 471);
 }
 
 #[test]
@@ -493,17 +493,17 @@ fn song_identification_keeps_one_bottom_left_block_with_mixed_sizes() {
         (safe.x, safe.y + safe.height)
     );
     assert_eq!(frame.footer_lines().len(), 3);
-    assert_eq!(frame.footer_lines()[0].text, "SONG TITLE");
+    assert_eq!(frame.footer_lines()[0].text, "Song title");
     assert_eq!(
         frame.footer_lines()[0].height,
-        line_height_for(PROVISIONAL_DISPLAY_SIZE)
+        line_height_for(SONG_TITLE_SIZE)
     );
     assert_eq!(frame.footer_lines()[1].text, "Composer name");
     assert_eq!(frame.footer_lines()[2].text, "Arrangement credit");
     for line in frame.footer_lines() {
         assert_eq!(line.x, safe.x as i32, "block stays bottom-left");
         assert!(
-            line.height == line_height_for(PROVISIONAL_DISPLAY_SIZE)
+            line.height == line_height_for(SONG_TITLE_SIZE)
                 || line.height == line_height_for(PROVISIONAL_META_SIZE)
         );
     }
@@ -902,16 +902,17 @@ fn provisional_hierarchy_carries_the_response_baseline() {
     assert_eq!(PROVISIONAL_DISPLAY_SIZE, BODY_FONT_SIZE);
     assert_eq!(BODY_FONT_SIZE, 90);
     assert_eq!(line_height_for(PROVISIONAL_DISPLAY_SIZE), 104);
+    assert_eq!(SONG_TITLE_SIZE, 100);
     assert_eq!(PROVISIONAL_PASSAGE_SIZE, 70);
     assert_eq!(line_height_for(PROVISIONAL_PASSAGE_SIZE), 81);
     assert_eq!(READING_PASSAGE_SIZE, 88);
     assert_eq!(line_height_for(READING_PASSAGE_SIZE), 102);
-    assert_eq!(RESPONSE_SIZE, 113);
-    assert_eq!(line_height_for(RESPONSE_SIZE), 130);
+    assert_eq!(RESPONSE_SIZE, 120);
+    assert_eq!(line_height_for(RESPONSE_SIZE), 138);
     assert_eq!(PROVISIONAL_META_SIZE, 50);
     assert_eq!(line_height_for(PROVISIONAL_META_SIZE), 58);
 
-    // The Response-only body measures at 113px, while the shared display
+    // The Response-only body measures at 120px, while the shared display
     // baseline stays at 90px for the other emphasized bodies.
     let (frame, _) = render_template(
         &content(TemplateKind::Response, None, "response text", None),
@@ -919,7 +920,7 @@ fn provisional_hierarchy_carries_the_response_baseline() {
         TargetDensity::SCALE_100,
     )
     .unwrap();
-    assert_eq!(frame.body_lines()[0].height, 130);
+    assert_eq!(frame.body_lines()[0].height, 138);
     assert_eq!(frame.body_lines()[0].size, RESPONSE_SIZE);
 }
 

@@ -40,25 +40,25 @@ glyph zone=body line=0 font=primary id=133 x=1438 y=553 x-advance=48 y-advance=0
 glyph zone=body line=0 font=primary id=112 x=1486 y=553 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=2
 glyph zone=body line=0 font=primary id=124 x=1532 y=553 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
 glyph zone=body line=0 font=primary id=133 x=1574 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
-line zone=body index=1 authored=1 x=297 y=569 width=940 height=104 text=we lift our voices as one
-glyph zone=body line=1 font=primary id=210 x=297 y=657 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=133 x=357 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=164 x=430 y=657 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=149 x=454 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=142 x=476 y=657 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=196 x=504 y=657 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=175 x=558 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=200 x=607 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=187 x=655 y=657 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=209 x=711 y=657 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=175 x=751 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=149 x=799 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=body line=1 font=primary id=124 x=821 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=body line=1 font=primary id=133 x=863 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=body line=1 font=primary id=190 x=911 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=body line=1 font=primary id=112 x=978 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=190 x=1024 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=175 x=1091 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=body line=1 font=primary id=170 x=1140 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=body line=1 font=primary id=133 x=1189 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=2
+line zone=body index=1 authored=1 x=490 y=569 width=940 height=104 text=we lift our voices as one
+glyph zone=body line=1 font=primary id=210 x=490 y=657 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=133 x=550 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=623 y=657 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=647 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=142 x=669 y=657 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=196 x=697 y=657 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=175 x=751 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=200 x=800 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=187 x=848 y=657 x-advance=31 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=209 x=904 y=657 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=175 x=944 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=149 x=992 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=124 x=1014 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=133 x=1056 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=190 x=1104 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=112 x=1171 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=190 x=1217 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=175 x=1284 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=170 x=1333 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=133 x=1382 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=2
 warnings 0

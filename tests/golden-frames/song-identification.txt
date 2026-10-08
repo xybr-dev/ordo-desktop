@@ -2,24 +2,24 @@ ordo-canonical-frame/2
 logical 1920 1080
 safe-area 120 80 1680 920
 header-absent
-body-rect 120 80 1680 700
-footer-rect 120 780 1680 220
-pagination authored-body=1 header-lines=0 body-lines=0 footer-lines=3 content-height=0 available-height=700 fit=fits hard-split=true first-hard-split=0
+body-rect 120 80 1680 689
+footer-rect 120 769 1680 231
+pagination authored-body=1 header-lines=0 body-lines=0 footer-lines=3 content-height=0 available-height=689 fit=fits hard-split=true first-hard-split=0
 image-absent
 background theme
-line zone=footer index=0 authored=0 x=120 y=780 width=704 height=104 text=AMAZING GRACE
-glyph zone=footer line=0 font=primary id=1 x=120 y=868 x-advance=56 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=56 x=176 y=868 x-advance=74 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=1 x=250 y=868 x-advance=56 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=footer line=0 font=primary id=108 x=306 y=868 x-advance=54 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=footer line=0 font=primary id=38 x=360 y=868 x-advance=35 y-advance=0 x-offset=0 y-offset=0 cluster=4
-glyph zone=footer line=0 font=primary id=57 x=395 y=868 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=5
-glyph zone=footer line=0 font=primary id=32 x=457 y=868 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=6
-glyph zone=footer line=0 font=primary id=32 x=544 y=868 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
-glyph zone=footer line=0 font=primary id=74 x=606 y=868 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=1
-glyph zone=footer line=0 font=primary id=1 x=661 y=868 x-advance=54 y-advance=0 x-offset=0 y-offset=0 cluster=2
-glyph zone=footer line=0 font=primary id=13 x=715 y=868 x-advance=58 y-advance=0 x-offset=0 y-offset=0 cluster=3
-glyph zone=footer line=0 font=primary id=22 x=773 y=868 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=footer index=0 authored=0 x=120 y=769 width=660 height=115 text=Amazing Grace
+glyph zone=footer line=0 font=primary id=1 x=120 y=867 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=169 x=182 y=867 x-advance=84 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=112 x=266 y=867 x-advance=52 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=221 x=318 y=867 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=149 x=364 y=867 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=footer line=0 font=primary id=170 x=389 y=867 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=footer line=0 font=primary id=143 x=444 y=867 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=footer line=0 font=primary id=32 x=527 y=867 x-advance=69 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=footer line=0 font=primary id=187 x=596 y=867 x-advance=33 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=footer line=0 font=primary id=112 x=629 y=867 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=footer line=0 font=primary id=124 x=680 y=867 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=footer line=0 font=primary id=133 x=727 y=867 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=4
 line zone=footer index=1 authored=1 x=120 y=884 width=283 height=58 text=John Newton
 glyph zone=footer line=1 font=primary id=47 x=120 y=933 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=0
 glyph zone=footer line=1 font=primary id=175 x=145 y=933 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=1
