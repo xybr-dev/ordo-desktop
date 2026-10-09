@@ -156,8 +156,9 @@ sha256 5708fd350d7d6e6b01a0c3368d63f6459c269b320c697489f9d7243698bcd28a  canonic
 Windows Server 2022 CI enforces the same digest through the
 `windows-canonical-invariance` job, which runs the full invariance suite —
 density, platform, and both live scale tests — and prints the artifact hash;
-a mismatch fails the test before hashing. Linux runs the same suite under
-`cargo xtask verify`, which executes the whole workspace suite. The golden
+a mismatch fails the test before hashing. The Linux runs recorded above are
+historical: Decision 268 (T0.4b) makes Ordo Windows-only for the MVP, and
+`cargo xtask verify` now runs on a Windows CI runner. The golden
 regenerates only
 with `ORDO_UPDATE_CANONICAL_INVARIANCE=1`, and only after review: a
 platform mismatch re-opens this decision rather than adjusting the

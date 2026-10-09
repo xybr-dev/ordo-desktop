@@ -522,7 +522,7 @@ then let responsive disclosure and reflow absorb the reduced workspace. Store
 this as an installation preference. It does not belong to Parish content or a
 Slide Theme.
 
-Windows/Linux display scaling and Ordo Interface scale apply only to operator
+Windows display scaling and Ordo Interface scale apply only to operator
 chrome. They may resize a thumbnail viewport or reduce its grid column count,
 but never alter the frame inside it. Do not apply a global GPUI/window scale to
 the canonical frame for this feature. The Canonical Slide Renderer composes in an explicit `1920x1080`

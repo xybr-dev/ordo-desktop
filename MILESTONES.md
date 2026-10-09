@@ -17,7 +17,7 @@ status or alter the milestone order.
 + GPUI is permanently selected for the clean-slate implementation. T0.1 is the
 active task; local uncommitted scaffolding is not completion evidence.
 
-**MVP target:** A local-first Linux preparation application and air-gapped
+**MVP target:** A local-first Windows preparation application and air-gapped
 Windows 10 church installation that can maintain parish content, prepare a
 Mass, transfer it in a self-contained `.ordo` artifact, present it safely on a
 second display, recover from interruption, and produce a validated emergency
@@ -47,7 +47,7 @@ Every task contains:
 |---|---|
 | `[AUTO]` | Runs without human judgment in ordinary CI; includes Module-interface, contract, integration, golden-frame, and property tests. |
 | `[UI-AUTO]` | Exercises native GPUI views through `TestAppContext`, an internal action/render harness, deterministic screenshots, or another no-human native UI driver. |
-| `[NATIVE-AUTO]` | Runs a packaged artifact on a native Windows or Linux runner; no human judgment is required. |
+| `[NATIVE-AUTO]` | Runs a packaged artifact on a native Windows runner; no human judgment is required. |
 | `[MANUAL]` | A scripted human check is required for OS behavior, accessibility, visual judgment, or application integration that automation cannot establish honestly. |
 | `[PHYSICAL]` | Requires the actual church PC, display/projector path, room, and human operator/observer. |
 
@@ -82,8 +82,10 @@ qualification, shortcut customization, and general per-slide styling.
 An instrumented, packaged, offline native shell proving the platform risks
 before domain implementation expands. **Ends with:** one operator window and
 one passive congregation window displaying the same fixture-based canonical
-frame, with measured latency/memory, deterministic cross-platform typography,
-asynchronous SQLite-worker access, and native Windows/Linux evidence.
+frame, with measured latency/memory, deterministic typography across Interface scale, system scale, and output
+density on Windows,
+asynchronous SQLite-worker access, and native Windows evidence (Linux is
+deferred post-MVP; Decision 268).
 
 ### T0.1 — Repository, toolchain, and verification harness
 
@@ -276,38 +278,40 @@ operator sizes, operating systems, display scaling, and preview consumers.
 
 **AC**
 
-- [ ] `[AUTO]` The Canonical Slide Renderer Interface accepts resolved semantic
+- [x] `[AUTO]` The Canonical Slide Renderer Interface accepts resolved semantic
       content—including optional authored Response and Psalm header strings—a
       Theme, and target density, and returns either one complete frame plus
       diagnostics or one structured failure; partial frames are impossible and
       the renderer performs no language lookup.
-- [ ] `[AUTO]` Composition occurs in explicit 1920×1080 logical coordinates
+- [x] `[AUTO]` Composition occurs in explicit 1920×1080 logical coordinates
       with the minimum 120×80 safe-area inset and never uses operator viewport
       metrics; a Theme may increase but not reduce that inset.
-- [ ] `[AUTO]` Bundle Atkinson Hyperlegible Next and Noto Sans with pinned hash
+- [x] `[AUTO]` Bundle Atkinson Hyperlegible Next and Noto Sans with pinned hash
       manifests; rendering never falls back to installed system fonts.
-- [ ] `[AUTO]` Golden fixtures cover Cebuano, English, Tagalog, mixed scripts,
+- [x] `[AUTO]` Golden fixtures cover Cebuano, English, Tagalog, mixed scripts,
       punctuation, long words, missing-glyph fallback, one-to-four lyric lines,
       Celebration/Song identification, Scripture, Psalm, response, General
       text/image, black, label-off, and overflow-warning Slides; each
       multilingual Response/Psalm fixture supplies its exact authored header.
-- [ ] `[AUTO]` The canonical layout/shaping path is explicit and separate from
+- [x] `[AUTO]` The canonical layout/shaping path is explicit and separate from
       ordinary GPUI operator text layout; it never asks a preview container to
       reflow canonical content.
-- [ ] `[NATIVE-AUTO]` Serialized canonical logical glyph positions, wrapping,
+- [x] `[NATIVE-AUTO]` Serialized canonical logical glyph positions, wrapping,
       pagination inputs, safe area, and element bounds are byte-for-byte
-      invariant across packaged Windows/Linux runs, 100–200% Ordo Interface
+      invariant across packaged Windows runs, 100–200% Ordo Interface
       scale, representative system scale, and output densities; raster
-      sharpness is qualified separately per platform.
-- [ ] `[AUTO]` Target density may change raster dimensions and sharpness but not
+      sharpness is qualified separately per output density. The Linux half is
+      retired to T6.2 (Decision 268).
+- [x] `[AUTO]` Target density may change raster dimensions and sharpness but not
       logical composition.
-- [ ] `[UI-AUTO]` Timeline thumbnail, Inspector, Preview, and Program wrappers
+- [x] `[UI-AUTO]` Timeline thumbnail, Inspector, Preview, and Program wrappers
       display the same completed fixture frame at their production sizes
       across both viewport presets and every Interface scale, scaled uniformly
       with identical internal pixels and a 4px operator-only viewport radius.
-- [ ] `[MANUAL]` Atkinson operator fit and Noto fallback are legible and stable
-      in packaged Windows and Linux builds at both qualified resolutions.
-- [ ] `[MANUAL]` The fixture-backed Canonical Slide Layout Gallery qualifies
+- [x] `[MANUAL]` Atkinson operator fit and Noto fallback are legible and stable
+      in packaged Windows builds at both qualified resolutions. The Linux
+      half is retired to T6.2 (Decision 268).
+- [x] `[MANUAL]` The fixture-backed Canonical Slide Layout Gallery qualifies
       every adopted template and freezes projected numeric type levels only
       after long Cebuano/English cases remain comfortably readable.
 
@@ -368,7 +372,7 @@ T0.4's canonical invariance evidence unchanged.
 ### T0.4b — Windows-only development rescope of T0.4 Linux evidence
 
 **Goal:** Close T0.4 honestly after development moved to Windows-only
-(Decision 267). The packaged-Linux manual script and the Linux half of T0.4's
+(Decision 268). The packaged-Linux manual script and the Linux half of T0.4's
 native invariance criterion were not run; this task rescopes them so T0.4's
 remaining gates name evidence that is actually produced, and every deferred
 Linux check has one named owning task rather than silently disappearing.
@@ -381,24 +385,24 @@ Linux check has one named owning task rather than silently disappearing.
 
 **AC**
 
-- [ ] `[AUTO]` A decision-ledger entry records the Windows-only development
+- [x] `[AUTO]` A decision-ledger entry records the Windows-only development
       scope: which platform produces Phase 0 native and manual evidence, and
       whether Linux remains an MVP preparation/packaging target or is deferred.
       `MILESTONES.md` and `MVP-PLAN.md` are reconciled to that entry, with no
       conflicting Linux claim left in either.
-- [ ] `[AUTO]` T0.4's `[NATIVE-AUTO]` invariance criterion and `[MANUAL]`
+- [x] `[AUTO]` T0.4's `[NATIVE-AUTO]` invariance criterion and `[MANUAL]`
       operator-fit criterion name only platforms that produce evidence during
-      development; each removed Linux check moves to one named later task
-      (for example T6.2 or the T0.10 qualification gate) with its original
-      wording preserved.
-- [ ] `[AUTO]` `T0.4-MANUAL-GATE.md` script B is rewritten or retired to match
-      the rescope and links the task that now owns packaged-Linux legibility.
-- [ ] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance jobs
+      development; each removed Linux check moves to one named task (the
+      retired T6.2 when Linux is deferred) with its original wording
+      preserved.
+- [x] `[AUTO]` `T0.4-MANUAL-GATE.md` script B is rewritten or retired to match
+      the rescope and links the task that now holds packaged-Linux legibility.
+- [x] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance jobs
       remain mandatory in CI; any Linux native job is either kept passing or
       removed with its coverage recorded against the owning task.
-- [ ] `[AUTO]` Golden frames, serialized canonical layouts, and bundled-font
+- [x] `[AUTO]` Golden frames, serialized canonical layouts, and bundled-font
       manifests are unchanged; this task changes scope, not rendering.
-- [ ] `[MANUAL]` The owner confirms the rescope, after which T0.4's remaining
+- [x] `[MANUAL]` The owner confirms the rescope, after which T0.4's remaining
       criteria are checked off against the recorded Windows evidence.
 
 **E2E** `[AUTO]` — From a clean checkout, `cargo xtask verify` passes with
@@ -486,9 +490,10 @@ baseline before full UI construction.
       canonical shaper uses, rather than a same-named system installation, on
       both packaged targets. Shaped glyph IDs are face-intrinsic, so a silent
       substitution would mispaint without failing.
-- [ ] `[NATIVE-AUTO]` On minimum-profile Windows and Linux test hardware, p95
+- [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
-      1 GiB absolute release ceiling.
+      1 GiB absolute release ceiling. The Linux half is retired to T6.2
+      (Decision 268).
 - [ ] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
       representative 500-Cue Presenter memory baselines across three runs.
       Every run stays within the 512 MiB qualification budget and the 1 GiB
@@ -616,8 +621,9 @@ platform assumption or an undocumented exception.
 - [ ] `[AUTO]` All Phase 0 automated and native reports identify the exact
       commit, Rust toolchain, GPUI/platform/dependency revisions, OS, GPU, and
       fixture hashes.
-- [ ] `[MANUAL]` Windows 10 22H2 and supported Linux packaged checks are signed
-      off with failures and reruns retained.
+- [ ] `[MANUAL]` Windows 10 22H2 packaged checks are signed off with failures
+      and reruns retained. Supported-Linux packaged sign-off is retired to
+      T6.2 (Decision 268).
 - [ ] `[AUTO]` Any failed proof is resolved inside the responsible GPUI/native
       Adapter or Module Implementation and requalified; domain Interfaces
       remain independent of the workaround.
@@ -853,7 +859,7 @@ keeping congregation exposure deliberate and fail-closed.
 - [ ] `[UI-AUTO]` Display disconnection updates visible state and Engine state
       without reassigning output or showing stale confidence.
 - [ ] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
-      and recovery work in packaged Windows and Linux builds.
+      and recovery work in packaged Windows builds.
 
 **E2E** `[UI-AUTO]` — Enter Presenter from a fixture host, rehearse with no
 output window, enable fake output, take a Cue live, attempt exit and cancel,
@@ -894,7 +900,7 @@ context with black external Program until one explicit valid Space command.
 - [ ] `[AUTO]` State-model, golden-render, cache, accessibility, responsive, and
       recovery suites pass without SQLite or editable library UI.
 - [ ] `[NATIVE-AUTO]` A full Recovery Drill fixture run passes in packaged
-      Windows and Linux builds within latency and memory budgets.
+      Windows builds within latency and memory budgets.
 - [ ] `[MANUAL]` A human can run the sanitized Normal Mass fixture from keyboard
       alone without exposing private content or losing state clarity.
 
@@ -2192,8 +2198,9 @@ operation.
 
 ### Phase 4 gate
 
-- [ ] `[NATIVE-AUTO]` A complete multi-plan Celebration prepared on Linux exports
-      to `.ordo`, imports on an unrelated offline Windows installation, and every
+- [ ] `[NATIVE-AUTO]` A complete multi-plan Celebration prepared on the Windows
+      preparation installation exports to `.ordo`, imports on an unrelated
+      offline Windows installation, and every
       snapshot renders identically to source golden hashes.
 - [ ] `[AUTO]` The same Package type completes church→home→church round trips
       with automatic non-overlap handling and reviewed divergence.
@@ -2265,7 +2272,7 @@ Presenter relies on real projector geometry.
       complete frames and warn without cropping/stretching.
 - [ ] `[UI-AUTO]` Canonical Preview mirrors the exact Output Fit result.
 - [ ] `[MANUAL]` Identify, assignment, calibration, pointer behavior, and actual
-      projector fit are verified on Windows/Linux two-display setups.
+      projector fit are verified on Windows two-display setups.
 
 **E2E** `[UI-AUTO]` `[MANUAL]` — Identify two displays, assign congregation,
 calibrate from 0% through 10%, simulate near/exceeding aspect tolerance,
@@ -2442,7 +2449,7 @@ contextual omissions, close with Esc, and assert focus/state restoration.
       output, preflight and run a stored Mass, emergency-insert/edit, recover,
       exit, inspect Diagnostics, and export an emergency deck completely offline.
 - [ ] `[NATIVE-AUTO]` Native display, font-fault, diagnostic-export, and PPTX
-      validation suites pass on packaged Windows and Linux artifacts.
+      validation suites pass on packaged Windows artifacts.
 - [ ] `[MANUAL]` Actual church PowerPoint opens and presents the validated deck.
 
 ---
@@ -2481,37 +2488,56 @@ Parish data at risk.
       Backup evidence, and unprotected-change warning; it never deletes external
       `.ordo` files.
 
+- [ ] `[NATIVE-AUTO]` Packaging includes license notices for GPUI, Rust crates,
+      fonts, Lucide, and every other shipped dependency (moved from the
+      retired T6.2; Decision 268).
+
 **E2E** `[NATIVE-AUTO]` `[MANUAL]` — Install clean, create a seeded Parish,
 repair same version, upgrade through one migration, inject upgrade failure,
 attempt downgrade, uninstall while keeping data/reinstall, then exercise the
 explicit local-data removal path against disposable test data.
 
-### T6.2 — Linux Flatpak and diagnostic ZIP
+### T6.2 — Retired: Linux Flatpak and diagnostic ZIP (deferred post-MVP)
 
-**Goal:** Provide a first-class preparation build and a supportable unpacked
-diagnostic artifact on the developer's Linux platform.
+**Status:** Retired by Decision 268. Linux is not an MVP platform: preparation
+and presentation both run on Windows. This task is not an MVP gate and no
+Phase 6 task depends on it. It keeps the original Linux criteria, wording
+unchanged, so a future post-MVP Linux port starts from them rather than from
+nothing.
 
-**Changes:** `packaging/linux/`, `xtask/src/package_linux.rs`,
-`tests/packaged-smoke/linux/`, release scripts
+**Original goal:** Provide a first-class preparation build and a supportable
+unpacked diagnostic artifact on the developer's Linux platform.
 
-**Depends on:** T5.5, T5.6.
+**Retained criteria (not gated)**
 
-**AC**
-
-- [ ] `[NATIVE-AUTO]` Build Linux x64 Flatpak with offline runtime assets,
+- `[NATIVE-AUTO]` Build Linux x64 Flatpak with offline runtime assets,
       desktop entry, icon, file association for `.ordo`, and needed display/file
       portal permissions documented.
-- [ ] `[NATIVE-AUTO]` Build a versioned diagnostic ZIP that launches without
+- `[NATIVE-AUTO]` Build a versioned diagnostic ZIP that launches without
       installation and uses an isolated documented data location unless
       explicitly pointed at a test copy.
-- [ ] `[NATIVE-AUTO]` Flatpak can create/open/copy `.ordo` artifacts through user
+- `[NATIVE-AUTO]` Flatpak can create/open/copy `.ordo` artifacts through user
       file selection and run the same canonical renderer/contract tests.
-- [ ] `[NATIVE-AUTO]` Packaging includes license notices for GPUI, Rust crates,
+- `[NATIVE-AUTO]` Packaging includes license notices for GPUI, Rust crates,
       fonts, Lucide, and every other shipped dependency.
-- [ ] `[MANUAL]` Wayland and X11 launch, fullscreen Presenter, display discovery,
+- `[MANUAL]` Wayland and X11 launch, fullscreen Presenter, display discovery,
       file dialogs, and font rendering pass on supported Linux environments.
+- `[NATIVE-AUTO]` Phase 0 Linux checks retired here by Decision 268, wording
+      kept: serialized canonical logical glyph positions, wrapping,
+      pagination inputs, safe area, and element bounds are byte-for-byte
+      invariant across packaged Windows/Linux runs, 100–200% Ordo Interface
+      scale, representative system scale, and output densities; raster
+      sharpness is qualified separately per platform (from T0.4).
+- `[NATIVE-AUTO]` On minimum-profile Windows and Linux test hardware, p95
+      Presenter commands are below 50ms and total memory never exceeds the
+      1 GiB absolute release ceiling (from T0.6).
+- `[MANUAL]` Atkinson operator fit and Noto fallback are legible and stable
+      in packaged Windows and Linux builds at both qualified resolutions (from
+      T0.4; the retired `T0.4-MANUAL-GATE.md` script B).
+- `[MANUAL]` Windows 10 22H2 and supported Linux packaged checks are signed
+      off with failures and reruns retained (from T0.10).
 
-**E2E** `[NATIVE-AUTO]` — Install Flatpak in a clean runner/user profile, create
+**Retained E2E (not gated)** — Install Flatpak in a clean runner/user profile, create
 a fixture Parish, export/import `.ordo`, launch Presenter without output, run
 Diagnostics, uninstall/reinstall, and verify intended data persistence.
 
@@ -2523,11 +2549,11 @@ manual file assembly.
 **Changes:** `.github/workflows/`, `xtask/src/release/`, `docs/releasing.md`,
 `tests/packaged-smoke/`
 
-**Depends on:** T6.1, T6.2.
+**Depends on:** T6.1.
 
 **AC**
 
-- [ ] `[NATIVE-AUTO]` GitHub Actions builds Windows on Windows and Linux on Linux
+- [ ] `[NATIVE-AUTO]` GitHub Actions builds Windows on Windows
       from the pinned Rust toolchain and committed Cargo dependency graph.
 - [ ] `[AUTO]` Every job runs verify, contract corpus, golden rendering,
       packaged smoke, and applicable performance/fault subsets before upload.
@@ -2592,7 +2618,7 @@ under realistic content and session duration, not only in the Phase 0 fixture.
 **Changes:** `tests/performance/`, `scripts/profile/`,
 `docs/qualification/performance/`, targeted implementations found by profiling
 
-**Depends on:** Phases 1–5 complete, T6.1–T6.3.
+**Depends on:** Phases 1–5 complete, T6.1, T6.3.
 
 **AC**
 
@@ -2614,7 +2640,7 @@ under realistic content and session duration, not only in the Phase 0 fixture.
 - [ ] `[MANUAL]` Any revised minimum hardware claim is explicit, evidence-based,
       and accepted before release; hard-gate failure blocks release.
 
-**E2E** `[NATIVE-AUTO]` — On minimum-profile Windows and Linux machines, run a
+**E2E** `[NATIVE-AUTO]` — On minimum-profile Windows machines, run a
 two-hour mixed preparation/Presenter soak with the Normal Mass plus a 500-Cue
 stress fixture, collect process, worker, frame, and GPU-resource traces, and assert latency, memory, rapid-
 input, idle, and leak gates.
@@ -2632,7 +2658,7 @@ failure states are present.
 **AC**
 
 - [ ] `[UI-AUTO]` Test 1366×768 and 1920×1080 at 100–200% Interface scale with
-      representative Windows/Linux system scales and deliberately long names.
+      representative Windows system scales and deliberately long names.
 - [ ] `[UI-AUTO]` No whole-workspace horizontal scroll, clipped primary action,
       missing high-stakes Presenter control, or state mutation during responsive
       transitions.
@@ -2662,7 +2688,7 @@ cabling, display/projector, room, and human operating conditions.
 `docs/qualification/PHYSICAL-QUALIFICATION-TEMPLATE.md`; do not commit filled
 reports or Parish content
 
-**Depends on:** T6.1–T6.6.
+**Depends on:** T6.1, T6.3–T6.6.
 
 **AC**
 
@@ -2701,11 +2727,11 @@ developer intervention or hidden setup.
 **Changes:** `docs/acceptance/MVP-ACCEPTANCE.md`, release notes, known issues,
 operator quick-start/help content
 
-**Depends on:** T6.1–T6.7.
+**Depends on:** T6.1, T6.3–T6.7.
 
 **AC**
 
-- [ ] `[MANUAL]` On Linux, create a Parish, Choirs, Songs/Arrangements, Theme,
+- [ ] `[MANUAL]` On the connected Windows preparation installation, create a Parish, Choirs, Songs/Arrangements, Theme,
       template, Celebration, and several Mass plans using manual and `.ordo`
       import paths.
 - [ ] `[MANUAL]` Resolve readiness and pagination, export one complete verified
@@ -2725,8 +2751,8 @@ operator quick-start/help content
 - [ ] `[MANUAL]` Release notes clearly state supported OS/hardware, offline
       behavior, known limitations, Backup responsibility, and deferred features.
 
-**E2E** `[MANUAL]` `[PHYSICAL]` — Execute the complete Linux preparation →
-air-gapped Windows presentation → church edits → Linux reconciliation loop from
+**E2E** `[MANUAL]` `[PHYSICAL]` — Execute the complete Windows preparation →
+air-gapped Windows presentation → church edits → home reconciliation loop from
 the written quick-start alone, with the emergency PPTX and Parish restore as
 independent fallback/protection demonstrations.
 

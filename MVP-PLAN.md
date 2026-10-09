@@ -10,7 +10,7 @@ Execution milestones: [`MILESTONES.md`](./MILESTONES.md)
 
 Build a local-first desktop application that lets one parish prepare and run a regular Sunday or solemnity Mass end-to-end without PowerPoint.
 
-The MVP is successful when an operator can maintain the parish song library, prepare a complete dated Mass plan, transfer it from Linux to an air-gapped Windows 10 church PC, and safely present it on a separate congregation display. PowerPoint remains available only as a generated emergency fallback.
+The MVP is successful when an operator can maintain the parish song library, prepare a complete dated Mass plan, transfer it from a connected Windows preparation PC to an air-gapped Windows 10 church PC, and safely present it on a separate congregation display. PowerPoint remains available only as a generated emergency fallback.
 
 The first release is a complete vertical slice:
 
@@ -50,7 +50,7 @@ The first release is a complete vertical slice:
 - Immutable Presentation snapshots and sessions.
 - Self-contained Celebration Packages and complete Parish Backups.
 - Validated static-image `.pptx` emergency decks with PowerPoint sections, notes, and black safety slides.
-- Windows x64 installer, Linux x64 Flatpak, Linux diagnostic ZIP, native CI builds, checksums, and packaged smoke tests.
+- Windows x64 installer, native Windows CI builds, checksums, and packaged smoke tests. Linux packaging (Flatpak, diagnostic ZIP) is deferred post-MVP (Decision 268).
 
 ### Explicitly excluded
 
@@ -88,7 +88,7 @@ The first release is a complete vertical slice:
 
 ### 4.3 Transfer and present offline
 
-1. Copy the Celebration Package and qualified installer/update to removable media from the connected Linux machine.
+1. Copy the Celebration Package and qualified installer/update to removable media from the connected Windows preparation machine.
 2. Copy and fully verify the Celebration Package in temporary local staging on the air-gapped Windows church PC. Through one staged review, atomically retain its immutable per-plan Presentation snapshots and reconcile its source content into ordinary editable local records.
    On succeeding imports, automatically reconcile non-overlapping local changes through a three-way base/local/incoming comparison and require decisions only for overlapping or unmappable changes.
 3. Open Presenter Mode. Automatic preflight checks snapshot integrity, assets/fonts, Cue availability, displays, calibration, rendering, and interrupted-session state.
@@ -281,7 +281,7 @@ crates/
 tools/
   ui-lab/                 # development-only interactive primitive scenarios
 contracts/                # versioned readable JSON schemas and examples
-packaging/                # Windows installer, Linux Flatpak/ZIP, release metadata
+packaging/                # Windows installer, release metadata
 tests/
   fixtures/
   golden-frames/
@@ -351,7 +351,7 @@ updated before implementation begins.
 - In constrained Preparation workspaces, preserve the editor as the fixed primary surface, convert Inspector and eventually the primary list/outline into opposing slideovers, and allow only one temporary side pane at a time. Restore fixed panes and their contextual state when space returns; never solve constraint with application-level horizontal scrolling.
 - Ship one adaptive MVP density and no Compact/Comfortable preference.
 - Provide installation-specific Interface scale steps at `100%`, `125%`, `150%`, `175%`, and `200%`, controlled through Settings and `Ctrl++`/`Ctrl+-`/`Ctrl+0`. Apply scale only through operator-shell typography and layout tokens; never multiply the canonical Slide's logical layout scale.
-- Isolate every canonical Slide from Ordo Interface scale, Windows/Linux system scaling, GPUI window scale factor, and physical output density. Always compose in explicit `1920x1080` logical coordinates. A target-density rerender may improve sampling sharpness but may not change font metrics, wrapping, pagination, safe area, or element geometry.
+- Isolate every canonical Slide from Ordo Interface scale, Windows system scaling, GPUI window scale factor, and physical output density. Always compose in explicit `1920x1080` logical coordinates. A target-density rerender may improve sampling sharpness but may not change font metrics, wrapping, pagination, safe area, or element geometry.
 - Treat timeline thumbnails, Inspector, Preview, and Program as uniformly scaled viewports onto the completed canonical frame. Operator scaling may alter viewport size, grid columns, and surrounding chrome only. Fit the passive congregation view to physical output through the qualified Output Fit path without recomposition.
 - Use `120ms` quick and `160ms` standard motion. Open dialogs/slideovers in `400ms` with fast-start/slow-finish motion and close in `200ms` with smooth acceleration. Keep every transition interruptible and prohibit spring, bounce, overshoot, and decorative looping.
 - Keep content-to-content Preview/Program changes as immediate cuts. Fade content to/from Blackout or Hold over `500ms` independently per output surface; contrary commands reverse from current opacity with proportional remaining time and never queue. Under reduced motion, remove spatial transforms and limit clarifying opacity—including blank boundaries—to `100ms` while preserving interaction and focus sequence.
@@ -371,7 +371,7 @@ updated before implementation begins.
 
 - Use locally bundled `Atkinson Hyperlegible Next` throughout the operator interface as well as congregation-facing projection.
 - Use Regular, Medium, and SemiBold for operator hierarchy; reserve ExtraBold primarily for projected lyrics and congregation responses.
-- Use locally bundled `Noto Sans` as the missing-glyph fallback across both surfaces. Do not depend on fonts installed by Windows or Linux and do not fetch fonts at runtime.
+- Use locally bundled `Noto Sans` as the missing-glyph fallback across both surfaces. Do not depend on fonts installed by the operating system and do not fetch fonts at runtime.
 - Design dense metadata, keyboard hints, navigation labels, and table-like content for Atkinson's comparatively wide letterforms. Prefer deliberate truncation, disclosure, or layout adaptation over undersized text.
 - Never truncate Live/Freeze/Blackout wording, output health, warnings/errors, readiness counts, scheduled times, or contextual primary actions. Current workspace/entity titles may wrap to two lines; narrow list/outline/Ordo rows use one-line ellipsis; Cue captions may use two lines. Full truncated values appear on pointer hover and keyboard focus and remain complete in accessible text.
 - Collapse older breadcrumb ancestors into accessible overflow before shortening the current entity. Move secondary metadata into its owner before compressing primary identity/state/action text. Never ellipsize authored lyrics, readings, responses, announcements, notes, or canonical Slide content; use wrapping or bounded local scrolling and prohibit marquee or below-minimum font shrinking.
@@ -902,10 +902,10 @@ Test through Module Interfaces; do not mirror each internal class with shallow t
 - **Pagination:** corpus-based tests using representative one- through five-line material, prose-like responses, repeated sections, intentional line breaks, and minimum-font overflow.
 - **Storage integration:** migrations from every retained schema version, foreign keys, transactions, concurrent typed worker requests, crash/interruption points, asset consistency, full-text search, revisions, backup, and restore.
 - **Contract tests:** valid, invalid, duplicate, changed-identity, unknown-version, missing-asset, and tampered-hash fixtures for every portable/import format.
-- **Package tests:** Linux export to Windows open, snapshot isolation from local library, return transfer, corrupt archive rejection, and rollback.
+- **Package tests:** preparation-installation export to church-installation open, snapshot isolation from local library, return transfer, corrupt archive rejection, and rollback.
 - **PowerPoint tests:** reopen produced archives, verify slide/section order, image dimensions and hashes, notes, safety slides, and atomic failure behavior.
 - **UI tests:** keyboard-first operation, focus retention, responsive 1366×768 and 1920×1080 layouts, timeline virtualization, cursor locator directions, and operator-only accessibility/status text.
-- **Packaged smoke tests:** launch, temporary parish creation, fixture migration, known-frame rendering, Celebration Package round trip, and Parish Backup verification on native Windows and Linux runners.
+- **Packaged smoke tests:** launch, temporary parish creation, fixture migration, known-frame rendering, Celebration Package round trip, and Parish Backup verification on native Windows runners.
 
 ### 11.2 Performance gates
 
@@ -948,7 +948,7 @@ Treat crashes, hangs, corruption, lost input, undocumented recovery failure, any
 A version tag may create a draft release only when:
 
 - Source tests, contract tests, golden renders, and migration tests pass.
-- Packaged Windows and Linux applications pass native smoke tests.
+- The packaged Windows application passes native smoke tests.
 - Artifacts and SHA-256 checksums are generated and retained.
 - No parish data enters CI or source hosting.
 - Schema migration creates and verifies a pre-migration Parish Backup.
@@ -967,7 +967,7 @@ The MVP is done when all of the following are true:
 - Presenter Mode opens safely with congregation output disabled, enables the chosen display on black, and correctly executes every live state and shortcut.
 - Operator-only context never appears on Program.
 - Freeze, Blackout, emergency changes, disconnects, failed future renders, and application restart preserve or fail closed without corrupting Program or parish data.
-- Linux-to-air-gapped-Windows transfer works without internet or matching permanent library state.
+- Preparation-to-air-gapped-Windows transfer works without internet or matching permanent library state.
 - Parish Backup restores consistently with automatic safety backup and rollback.
 - The emergency `.pptx` is sectioned, validated, and successfully run in the church's PowerPoint installation.
 - Automated, performance, packaged, offline, and physical church-system release gates all pass.
@@ -977,7 +977,7 @@ The MVP is done when all of the following are true:
 | Risk | Control |
 |---|---|
 | Native memory or GPU-resource pressure | Bounded full-resolution cache, virtualized low-resolution thumbnails, one storage-owner worker, explicit resource release, profiling gate, 512 MiB qualification budget, and 1 GiB absolute ceiling. |
-| Linux/Windows rendering drift | Bundled fonts, deterministic canonical shaping/composition isolated from ordinary GPUI layout, immutable rendering inputs, golden frames, native packaged tests, and church qualification. |
+| Rendering drift across machines, scales, and densities | Bundled fonts, deterministic canonical shaping/composition isolated from ordinary GPUI layout, immutable rendering inputs, golden frames, native packaged tests, and church qualification. |
 | Accidental congregation exposure | Output disabled by default, black-first enablement/recovery, passive output window, fail-closed render/display handling, Freeze on emergency workflows, and operator-only diagnostics. |
 | Projector overscan or odd aspect ratio | Calibration pattern, `120x80` minimum safe area, uniform Output Fit, ratio tolerance, black-bar fitting, warning, and saved installation calibration. |
 | Air-gapped data loss or drift | Self-contained Celebration Packages, complete Parish Backups, checksums, versioned contracts, immutable snapshots, safety backup before restore/migration, and rollback. |
@@ -985,12 +985,12 @@ The MVP is done when all of the following are true:
 | Duplicate or mislabeled Songs | Aliases plus evidence-based suggestions, explicit attach/create/update/skip decisions, archival and reference-safe deletion where eligible, and no automatic overwrite. Song merge remains post-MVP. |
 | PowerPoint fallback incompatibility | Early format spike, full-frame images, sections/notes validation, reopen verification, atomic publication, and testing in the actual church PowerPoint version. |
 | Live database or asset inconsistency | Sole Storage Module ownership, transactions, checksums, coordinated asset operations, migrations, integrity checks, and no raw live-file backup. |
-| GPUI or native-primitive interaction regressions | Pin framework revisions, keep Ordo primitives behind one UI Module, test keyboard/focus/AccessKit/overlay behavior in packaged Windows and Linux builds, and prevent third-party behavior-library properties from leaking into workflow Interfaces. |
+| GPUI or native-primitive interaction regressions | Pin framework revisions, keep Ordo primitives behind one UI Module, test keyboard/focus/AccessKit/overlay behavior in packaged Windows builds, and prevent third-party behavior-library properties from leaking into workflow Interfaces. |
 | Scope expansion before validation | Keep post-MVP features deferred; prioritize the end-to-end Sunday/solemnity acceptance scenario and YAGNI decisions already recorded. |
 
 ## 15. Immediate next actions
 
 1. Complete [`MILESTONES.md` T0.1](./MILESTONES.md#t01--repository-toolchain-and-verification-harness): qualify the pinned Rust Cargo workspace and native verification harness before feature work.
-2. Continue Phase 0 in dependency order; retain every new spike as a permanent regression fixture or qualification script.
+2. Continue Phase 0 in dependency order; retain every new spike as a permanent regression fixture or qualification script. Ordo is Windows-only for the MVP: preparation, presentation, and all native and manual evidence run on Windows. Linux support is deferred post-MVP; its original criteria are kept in the retired [`MILESTONES.md` T6.2](./MILESTONES.md#t62--retired-linux-flatpak-and-diagnostic-zip-deferred-post-mvp) (Decision 268).
 3. Prepare the sanitized Normal Mass and Recovery Drill fixtures described in T1.1 from synthetic, in-repository examples that exercise the adopted contracts; do not depend on or copy parish-owned external source text.
 4. Establish the minimum-profile performance machine and schedule access to the actual church projector early, not only at final release.
