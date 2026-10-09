@@ -97,6 +97,12 @@ impl FrameTimer {
         &self.intervals
     }
 
+    /// Nearest-rank percentiles of the frame intervals, one per entry of `ps`,
+    /// sorted once for the batch. See [`LatencyHistogram::percentiles`].
+    pub fn percentiles(&self, ps: &[f64]) -> Vec<Option<Duration>> {
+        self.intervals.percentiles(ps)
+    }
+
     pub fn p50(&self) -> Option<Duration> {
         self.intervals.p50()
     }

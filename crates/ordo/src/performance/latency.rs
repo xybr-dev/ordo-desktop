@@ -119,16 +119,32 @@ impl LatencyHistogram {
     /// `p` is in percent and is clamped to `0.0..=100.0`. Returns `None` when
     /// there are no samples or `p` is NaN.
     pub fn percentile(&self, p: f64) -> Option<Duration> {
-        if self.samples.is_empty() || p.is_nan() {
-            return None;
+        self.percentiles(&[p]).into_iter().next().flatten()
+    }
+
+    /// Nearest-rank percentiles for each entry of `ps`, in the same order.
+    ///
+    /// The retained samples are sorted once for the whole batch, so callers
+    /// that need several percentiles (p50, p95, p99) should ask in one call.
+    /// Each entry follows [`percentile`](Self::percentile): `None` for NaN, and
+    /// `None` everywhere when there are no samples.
+    pub fn percentiles(&self, ps: &[f64]) -> Vec<Option<Duration>> {
+        if self.samples.is_empty() {
+            return vec![None; ps.len()];
         }
         let mut sorted = self.samples.clone();
         sorted.sort_unstable();
         let n = sorted.len();
-        let p = p.clamp(0.0, 100.0);
-        let rank = ((p / 100.0) * n as f64).ceil() as usize;
-        let rank = rank.clamp(1, n);
-        Some(sorted[rank - 1])
+        ps.iter()
+            .map(|&p| {
+                if p.is_nan() {
+                    return None;
+                }
+                let p = p.clamp(0.0, 100.0);
+                let rank = ((p / 100.0) * n as f64).ceil() as usize;
+                Some(sorted[rank.clamp(1, n) - 1])
+            })
+            .collect()
     }
 
     /// Median (nearest-rank 50th percentile).
@@ -255,6 +271,20 @@ mod tests {
         let histogram = LatencyHistogram::new();
         assert_eq!(histogram.p50(), None);
         assert_eq!(histogram.percentile(f64::NAN), None);
+        assert_eq!(histogram.percentiles(&[50.0, 95.0]), vec![None, None]);
+    }
+
+    #[test]
+    fn batch_percentiles_match_single_percentile_calls() {
+        let mut histogram = LatencyHistogram::new();
+        for n in [30, 10, 50, 20, 40] {
+            histogram.record(ms(n));
+        }
+        let ps = [0.0, 50.0, 95.0, 100.0, f64::NAN];
+        let batch = histogram.percentiles(&ps);
+        let single: Vec<_> = ps.iter().map(|&p| histogram.percentile(p)).collect();
+        assert_eq!(batch, single);
+        assert_eq!(batch[4], None);
     }
 
     #[test]

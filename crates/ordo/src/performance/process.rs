@@ -7,9 +7,9 @@
 //! thread of its own and needs no shutdown.
 //!
 //! CPU percentage is a delta between two refreshes. The first sample after
-//! construction therefore reports a meaningless CPU value, and a useful one
-//! needs a refresh at least [`sysinfo::MINIMUM_CPU_UPDATE_INTERVAL`] after the
-//! previous one.
+//! construction has no previous refresh to diff against, so it reports no CPU
+//! value (`None`). A useful later value needs a refresh at least
+//! [`sysinfo::MINIMUM_CPU_UPDATE_INTERVAL`] after the previous one.
 
 use std::fmt;
 
@@ -26,7 +26,8 @@ pub struct ProcessSample {
     /// Windows, so it is `None` on the pinned stack.
     pub private_bytes: Option<u64>,
     /// Process CPU usage as reported by sysinfo, a delta between refreshes.
-    pub cpu_percent: f32,
+    /// `None` on the first sample from a sampler, which has nothing to diff.
+    pub cpu_percent: Option<f32>,
 }
 
 /// GPU allocation counters.
@@ -64,6 +65,9 @@ impl std::error::Error for ProcessSamplerError {}
 pub struct ProcessSampler {
     system: System,
     pid: Pid,
+    /// Whether an earlier sample already refreshed the process, so the CPU
+    /// counter has a previous reading to diff against.
+    refreshed: bool,
 }
 
 impl ProcessSampler {
@@ -75,6 +79,7 @@ impl ProcessSampler {
         Ok(Self {
             system: System::new(),
             pid,
+            refreshed: false,
         })
     }
 
@@ -82,6 +87,7 @@ impl ProcessSampler {
     ///
     /// Returns `None` if the OS no longer reports the process.
     pub fn sample(&mut self) -> Option<ProcessSample> {
+        let had_previous_refresh = std::mem::replace(&mut self.refreshed, true);
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[self.pid]),
             ProcessRefreshKind::new().with_memory().with_cpu(),
@@ -91,7 +97,7 @@ impl ProcessSampler {
             rss_bytes: process.memory(),
             virtual_bytes: process.virtual_memory(),
             private_bytes: None,
-            cpu_percent: process.cpu_usage(),
+            cpu_percent: had_previous_refresh.then(|| process.cpu_usage()),
         })
     }
 }
@@ -107,6 +113,18 @@ mod tests {
         assert!(sample.rss_bytes > 0, "rss was {}", sample.rss_bytes);
         assert!(sample.virtual_bytes >= sample.rss_bytes);
         assert_eq!(sample.private_bytes, None);
-        assert!(sample.cpu_percent.is_finite());
+        assert_eq!(sample.cpu_percent, None, "first sample has no CPU delta");
+    }
+
+    #[test]
+    fn later_samples_report_a_cpu_value() {
+        let mut sampler = ProcessSampler::new().expect("current process is identifiable");
+        sampler.sample().expect("current process is reported");
+        let sample = sampler.sample().expect("current process is reported");
+        assert!(
+            sample.cpu_percent.is_some_and(f32::is_finite),
+            "cpu was {:?}",
+            sample.cpu_percent
+        );
     }
 }
