@@ -502,7 +502,7 @@ baseline before full UI construction.
       Every run stays within the 512 MiB qualification budget and the 1 GiB
       absolute ceiling; exceeding either blocks Phase 1 pending an explicit
       budget and native-memory rationale revision.
-- [ ] `[MANUAL]` Hardware acceleration is active by default; any software-
+- [x] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
 
 **E2E** `[NATIVE-AUTO]` — Run a packaged 500-Cue fixture through 2,000 mixed
