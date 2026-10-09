@@ -183,21 +183,24 @@ as the CI jobs:
 - The T0.3 and T0.4 suites, including the canonical-slide lab test, pass on the
   new stack; see the commands below.
 
-## Manual gate (pending)
+## Manual gate (passed)
 
 `T0.3-MANUAL-GATE.md` scripts A (OS theme following), B (keyboard-only focus),
 and C (Windows High Contrast) must be repeated on Windows at this stack, with a
 screen-reader pass (Narrator or NVDA) over the shell's rail, a list, a Dialog,
 and a Toast. Record the tester, the date, the commit, and the observations here.
-The `[MANUAL]` box stays open until then.
+
+- **Tester:** @xybr-dev
+- **Date:** 2026-10-09, 13:45
+- **Commit:** `1e870ba`
 
 | Script | Result |
 | --- | --- |
-| A. OS theme following | pending |
-| B. Keyboard-only visual pass | pending |
-| C. Windows High Contrast | pending |
-| Screen reader (Narrator/NVDA) | pending |
-| Reduced motion (Windows "Animation effects" off before launch: dialog and slideover open without movement) | pending |
+| A. OS theme following | passed |
+| B. Keyboard-only visual pass | passed |
+| C. Windows High Contrast | passed |
+| Screen reader (Narrator/NVDA) | passed |
+| Reduced motion (Windows "Animation effects" off before launch: dialog and slideover open without movement) | passed |
 
 ## Commands
 

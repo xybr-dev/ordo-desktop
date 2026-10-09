@@ -333,32 +333,32 @@ routes: `docs/research/gpui-fast-and-gpui-kit.md`.
 
 **AC**
 
-- [ ] `[AUTO]` `gpui`, `gpui_platform`, and `gpui_macros` resolve to one
+- [x] `[AUTO]` `gpui`, `gpui_platform`, and `gpui_macros` resolve to one
       exactly pinned (`=`) `gpui-pre` snapshot, and `gpui-base` resolves to the
       exact release built against that snapshot. No `zed-industries/zed` or
       `gpui-component` git source remains in `Cargo.lock`. `cargo xtask verify`
       fails on a non-exact GPUI or `gpui-base` requirement, a second GPUI crate
       family, or a git GPUI source.
-- [ ] `[AUTO]` `gpui-component`, `gpui-kit`, `gpui-shell`, `gpui-wry`, and
+- [x] `[AUTO]` `gpui-component`, `gpui-kit`, `gpui-shell`, `gpui-wry`, and
       `gpui-fast` stay absent from the graph; `gpui-base` stays private to
       `ui`, and no GPUI crate reaches `domain`, `presentation`, or `rendering`.
-- [ ] `[UI-AUTO]` Every behavior adopted in `GPUI-BASE-T0.3.md` is
+- [x] `[UI-AUTO]` Every behavior adopted in `GPUI-BASE-T0.3.md` is
       re-qualified at the new revision: its focus, keyboard, AccessKit role,
       name, and state tests pass unchanged, or each difference is recorded with
       its resolution.
-- [ ] `[AUTO]` Each documented pin gap is re-checked and recorded as closed or
+- [x] `[AUTO]` Each documented pin gap is re-checked and recorded as closed or
       still open: the private test window, tooltip on keyboard focus, the
       high-contrast signal, AccessKit live regions, the wgpu row-padding
       workaround, the scroll indicator, and operating-system reduced motion. A
       closed gap removes its Ordo workaround in this task.
-- [ ] `[AUTO]` The qualification record names the new GPUI supply (the
+- [x] `[AUTO]` The qualification record names the new GPUI supply (the
       `gpui-pre` snapshot and the Zed commit it reproduces), its license, and
       the fallback if that supply stops.
-- [ ] `[UI-AUTO]` The T0.3 and T0.4 suites, including the canonical-slide lab
+- [x] `[UI-AUTO]` The T0.3 and T0.4 suites, including the canonical-slide lab
       test, pass on the new stack.
-- [ ] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance job
+- [x] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance job
       pass on the new stack.
-- [ ] `[MANUAL]` The `T0.3-MANUAL-GATE.md` focus, theme-following, and
+- [x] `[MANUAL]` The `T0.3-MANUAL-GATE.md` focus, theme-following, and
       screen-reader checks are repeated on Windows and recorded.
 
 **E2E** `[AUTO]` `[NATIVE-AUTO]` — From a clean checkout, `cargo xtask verify`
