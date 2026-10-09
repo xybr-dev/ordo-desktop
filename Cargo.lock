@@ -4159,6 +4159,7 @@ dependencies = [
  "platform",
  "presentation",
  "rendering",
+ "rustybuzz",
  "tiny-skia",
  "ui",
 ]

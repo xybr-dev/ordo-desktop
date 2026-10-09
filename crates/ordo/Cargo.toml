@@ -17,6 +17,9 @@ gpui_platform.workspace = true
 # Row padding plus PNG encoding for finished viewport pixels, through the
 # same qualified edge and pin the canonical raster path uses.
 tiny-skia = "=0.11.4"
+# Same pin as `rendering`: the retained-path check shapes the probe with the
+# bundled faces exactly as the canonical shaper does.
+rustybuzz = "=0.20.1"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
