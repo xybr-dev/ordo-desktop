@@ -1,12 +1,18 @@
 use gpui::TestAppContext;
 use ordo::{
-    CongregationView, open_native_runtime_at,
+    CongregationView, open_native_runtime_at, open_native_runtime_with,
     shell::{OpenSongs, UseDarkAppearance},
+};
+use platform::display::{
+    DetectedDisplay, DisplayBounds, DisplayEvidence, DisplayId, InMemoryDisplayAdapter,
+    PlacementBounds,
 };
 use presentation::{CongregationState, OutputStatus, ProgramFrame};
 use std::{
+    cell::RefCell,
     fs,
     path::PathBuf,
+    rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use ui::{
@@ -25,11 +31,36 @@ fn temporary_preferences(name: &str) -> PathBuf {
     ))
 }
 
+fn display(id: u64, x: i32) -> DetectedDisplay {
+    let bounds = DisplayBounds::new(x, 0, 1920, 1080);
+    DetectedDisplay {
+        id: DisplayId::new(id),
+        evidence: DisplayEvidence {
+            name: None,
+            uuid: None,
+            bounds,
+        },
+        placement: PlacementBounds::from(bounds),
+    }
+}
+
 #[gpui::test]
 fn closing_operator_closes_congregation_and_owned_workers(cx: &mut TestAppContext) {
     let preferences = temporary_preferences("runtime-shutdown");
-    let runtime = cx
-        .update(|cx| open_native_runtime_at(cx, true, &preferences).expect("runtime should open"));
+    let displays = Rc::new(RefCell::new(InMemoryDisplayAdapter::new(
+        vec![display(1, 0), display(2, 1920)],
+        Some(DisplayId::new(1)),
+    )));
+    let runtime = cx.update(|cx| {
+        open_native_runtime_with(cx, &preferences, displays).expect("runtime should open")
+    });
+    assert_eq!(cx.read(|cx| cx.windows().len()), 1);
+    cx.update(|cx| {
+        runtime.output().update(cx, |output, cx| {
+            output.assign(DisplayId::new(2), cx).unwrap();
+            output.enable_output(cx).expect("output should enable");
+        })
+    });
     assert_eq!(cx.read(|cx| cx.windows().len()), 2);
 
     runtime
@@ -55,8 +86,8 @@ async fn runtime_restores_and_persists_installation_preferences(cx: &mut TestApp
     cx.executor().allow_parking();
     let preferences = temporary_preferences("runtime-preferences");
     fs::write(&preferences, "appearance=light\nscale=175\n").unwrap();
-    let runtime = cx
-        .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
+    let runtime =
+        cx.update(|cx| open_native_runtime_at(cx, &preferences).expect("runtime should open"));
     let root = runtime
         .operator()
         .update(cx, |_, _, cx| cx.entity())
@@ -108,6 +139,9 @@ fn congregation_surface_has_only_program_and_output_status(cx: &mut TestAppConte
         assert_eq!(view.state().program().revision(), 7);
         assert_eq!(view.state().output_status(), OutputStatus::Connected);
     });
+    // The selector names the revision actually painted, which lands once the
+    // background encode completes.
+    cx.run_until_parked();
     assert!(cx.debug_bounds("program-frame-7").is_some());
     assert!(cx.debug_bounds("output-status-Connected").is_some());
     assert!(!cx.update(|_, cx| cx.is_action_available(&OpenSongs)));

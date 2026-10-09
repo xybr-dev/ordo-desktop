@@ -57,3 +57,21 @@ jobs:
         run: |
           cargo test -p native-runtime-tests --locked --test canonical_invariance || exit $LASTEXITCODE
           (Get-FileHash tests/native-runtime/golden/canonical-invariance.txt -Algorithm SHA256).Hash.ToLower()
+
+  # T0.5 [NATIVE-AUTO] evidence gate. This job is separate and mandatory: it
+  # enumerates the runner's real displays through the GPUI Adapter and drives
+  # the congregation-output composition through synthetic topology refreshes,
+  # so the native result is recorded as its own check. The `verify` job above
+  # also runs this test inside the workspace suite (`cargo xtask verify`); the
+  # duplication is deliberate, so a regression here fails under its own name.
+  windows-display-control:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Enumerate native displays and refresh topology
+        shell: pwsh
+        run: |
+          cargo test -p display-tests --locked --test native_display -- --nocapture || exit $LASTEXITCODE

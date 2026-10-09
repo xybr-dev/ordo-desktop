@@ -25,12 +25,15 @@ use std::{mem, rc::Rc};
 
 use fixtures::rows;
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, IntoElement, ParentElement, Render,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 use rail::Destination;
 
-use crate::settings;
+use crate::{
+    output::{CongregationOutput, CursorLocator},
+    settings,
+};
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
     accessibility::RegionRegistry,
@@ -100,6 +103,10 @@ pub struct ShellView {
     save_preferences: Option<Rc<dyn Fn(UiPreferences)>>,
     focus_handle: FocusHandle,
     _appearance_subscription: Subscription,
+    /// Operator-only return guidance while the pointer is over congregation
+    /// output. It renders only here, never in the congregation window.
+    cursor_locator: Option<CursorLocator>,
+    _output_subscription: Option<Subscription>,
 }
 
 impl ShellView {
@@ -158,7 +165,53 @@ impl ShellView {
             save_preferences,
             focus_handle: cx.focus_handle(),
             _appearance_subscription: appearance_subscription,
+            cursor_locator: None,
+            _output_subscription: None,
         }
+    }
+
+    /// Mirrors the congregation-output controller's cursor locator into this
+    /// operator workspace. Observation runs after the controller's update
+    /// completes, so the shell never re-enters it.
+    pub fn follow_output(&mut self, output: &Entity<CongregationOutput>, cx: &mut Context<Self>) {
+        self.cursor_locator = output.read(cx).cursor_locator();
+        self._output_subscription = Some(cx.observe(output, |this, output, cx| {
+            let locator = output.read(cx).cursor_locator();
+            if this.cursor_locator != locator {
+                this.cursor_locator = locator;
+                cx.notify();
+            }
+        }));
+        cx.notify();
+    }
+
+    pub fn cursor_locator(&self) -> Option<CursorLocator> {
+        self.cursor_locator
+    }
+
+    /// The operator-only cursor locator: a prominent strip naming the way
+    /// back to the operator display, derived from the actual topology.
+    fn cursor_locator_strip(&self, locator: CursorLocator, gutter: f32) -> impl IntoElement {
+        let scale = self.environment.preferences().scale;
+        let palette = tokens::palette(self.environment.appearance());
+        let direction = locator.direction;
+        div()
+            .debug_selector(move || format!("cursor-locator-{direction:?}"))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+            .px(px(gutter))
+            .py(px(scale.apply(tokens::spacing::RELATED)))
+            .border_b(px(tokens::border::SEPARATOR))
+            .border_color(rgb(palette.warning))
+            .bg(rgb(palette.surface_secondary))
+            .child(
+                div()
+                    .text_color(rgb(palette.warning))
+                    .child("Pointer is on the congregation display"),
+            )
+            .child(div().child(locator.instruction()))
     }
 
     pub fn destination(&self) -> Destination {
@@ -771,6 +824,10 @@ impl Render for ShellView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
+            .children(
+                self.cursor_locator
+                    .map(|locator| self.cursor_locator_strip(locator, gutter)),
+            )
             .child(screen)
             // Not a region: nothing here is interactive, and T0.1's build
             // identity and offline status still have to be on screen.

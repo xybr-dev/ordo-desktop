@@ -236,8 +236,8 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
     // step.
     let preferences =
         std::env::temp_dir().join(format!("ordo-canonical-invariance-{}", std::process::id()));
-    let runtime = cx
-        .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
+    let runtime =
+        cx.update(|cx| open_native_runtime_at(cx, &preferences).expect("runtime should open"));
     let (baseline_frame, baseline_diagnostics) = compose_through_worker(cx, &runtime);
     let baseline = format_probe(&baseline_frame, &baseline_diagnostics);
     assert_eq!(
@@ -312,8 +312,8 @@ fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
         "ordo-canonical-display-scale-{}",
         std::process::id()
     ));
-    let runtime = cx
-        .update(|cx| open_native_runtime_at(cx, false, &preferences).expect("runtime should open"));
+    let runtime =
+        cx.update(|cx| open_native_runtime_at(cx, &preferences).expect("runtime should open"));
     let (baseline_frame, baseline_diagnostics) = compose_through_worker(cx, &runtime);
     let baseline = format_probe(&baseline_frame, &baseline_diagnostics);
     assert_eq!(

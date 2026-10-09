@@ -13,53 +13,108 @@ use std::{
 
 use async_channel::Sender as AsyncSender;
 use gpui::{
-    App, AppContext, Context, Focusable, QuitMode, Render, StyledImage, Window, WindowHandle, div,
-    img, prelude::*, px, rgb, size,
+    App, AppContext, Context, Entity, Focusable, QuitMode, Render, StyledImage, Window,
+    WindowHandle, div, img, prelude::*, px, rgb, size,
 };
+use output::{CongregationOutput, DisplaySource, GpuiDisplaySource};
 use platform::{
     preferences::{PreferencesFile, installation_preferences_path},
     tasks::{OwnedWorker, WorkerExit, WorkerFailure, WorkerKind, WorkerStartError},
-    windows::{preparation_window_options, presenter_window_options},
+    windows::preparation_window_options,
 };
-use presentation::{CongregationState, OutputStatus, ProgramFrame};
+use presentation::{CongregationState, ProgramFrame};
 use shell::ShellView;
 use ui::environment::UiPreferences;
 
 pub mod canonical;
 pub mod canonical_views;
+pub mod output;
 pub mod settings;
 pub mod shell;
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
+/// Receives `true` when the pointer enters the congregation surface and
+/// `false` when it leaves.
+pub type PointerListener = Rc<dyn Fn(bool, &mut App)>;
+
+/// Receives each mouse-button press on the congregation surface.
+pub type PressListener = Rc<dyn Fn(&mut App)>;
+
 /// Passive congregation surface: complete Program plus output status, nothing else.
 ///
 /// The Program frame paints edge-to-edge with square corners: the `4px`
 /// operator viewport radius never enters congregation output. Operator-only
-/// chrome, diagnostics, and focus never mount here.
+/// chrome, diagnostics, focus handles, actions, and key handlers never mount
+/// here. The only listeners are pointer enter/leave and press, reported to the
+/// owner so the operator workspace can show its cursor locator and take focus
+/// back after a click. Neither changes this surface. See [`output`] for why the
+/// pointer itself cannot be hidden.
 pub struct CongregationView {
     state: CongregationState,
     image: Option<Arc<gpui::Image>>,
+    /// Revision of the Program frame `image` was encoded from.
+    image_revision: Option<u64>,
+    on_pointer: Option<PointerListener>,
+    on_press: Option<PressListener>,
 }
 
 impl CongregationView {
     pub fn new(state: CongregationState, cx: &mut Context<Self>) -> Self {
-        // The Program bytes (an `Arc` bump, no pixel copy) cross to the
-        // Context background executor; the RGBA copy plus `tiny-skia` PNG
-        // encode run there, never on the GPUI thread. The surface stays
-        // black until that complete image arrives — no partial frames.
+        Self::with_listeners(state, None, None, cx)
+    }
+
+    /// `on_pointer` receives `true` when the pointer enters this surface and
+    /// `false` when it leaves. `on_press` receives every button press on it.
+    pub fn with_listeners(
+        state: CongregationState,
+        on_pointer: Option<PointerListener>,
+        on_press: Option<PressListener>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut view = Self {
+            state: state.clone(),
+            image: None,
+            image_revision: None,
+            on_pointer,
+            on_press,
+        };
+        view.set_state(state, cx);
+        view
+    }
+
+    /// Shows a new congregation state.
+    ///
+    /// Black Program applies immediately with no encode: the surface paints
+    /// its black background. Content is encoded off the GPUI thread — the
+    /// Program bytes (an `Arc` bump, no pixel copy) cross to the background
+    /// executor for the RGBA copy plus `tiny-skia` PNG encode — and replaces
+    /// the painted image only once complete, so no partial frame publishes.
+    /// A superseded encode is dropped by revision.
+    pub fn set_state(&mut self, state: CongregationState, cx: &mut Context<Self>) {
         let program = state.program().clone();
+        self.state = state;
+        if program.is_black() {
+            self.image = None;
+            self.image_revision = None;
+            cx.notify();
+            return;
+        }
+        let revision = program.revision();
         let background = cx.background_spawn(async move { congregation_image(&program) });
         cx.spawn(async move |view, cx| {
             let image = background.await;
             view.update(cx, |view: &mut Self, cx| {
-                view.image = Some(image);
-                cx.notify();
+                if view.state.program().revision() == revision {
+                    view.image = Some(image);
+                    view.image_revision = Some(revision);
+                    cx.notify();
+                }
             })
             .ok();
         })
         .detach();
-        Self { state, image: None }
+        cx.notify();
     }
 
     pub fn state(&self) -> &CongregationState {
@@ -68,10 +123,16 @@ impl CongregationView {
 
     /// The exact finished pixels this surface paints once the background
     /// encode lands: the congregation half of the milestone E2E compares
-    /// these against the one rasterization. `None` while the surface holds
-    /// black waiting for the complete image.
+    /// these against the one rasterization. `None` while the surface paints
+    /// black, either because Program is black or because the first content
+    /// image is still encoding.
     pub fn image(&self) -> Option<&Arc<gpui::Image>> {
         self.image.as_ref()
+    }
+
+    /// Revision of the Program frame currently painted, `None` while black.
+    pub fn painted_revision(&self) -> Option<u64> {
+        self.image_revision
     }
 }
 
@@ -90,15 +151,26 @@ fn congregation_image(program: &ProgramFrame) -> Arc<gpui::Image> {
 
 impl Render for CongregationView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let revision = self.state.program().revision();
+        // Keyed on the revision actually painted, which can trail the state
+        // while an encode is pending. A pending or black surface reports black.
+        let painted = self.image_revision;
         let status = self.state.output_status();
         div()
             .id("congregation-root")
             .size_full()
             .bg(rgb(0x000000))
+            .when_some(self.on_pointer.clone(), |root, on_pointer| {
+                root.on_hover(move |hovered, _, cx| on_pointer(*hovered, cx))
+            })
+            .when_some(self.on_press.clone(), |root, on_press| {
+                root.on_any_mouse_down(move |_, _, cx| on_press(cx))
+            })
             .child(
                 div()
-                    .debug_selector(move || format!("program-frame-{revision}"))
+                    .debug_selector(move || match painted {
+                        Some(revision) => format!("program-frame-{revision}"),
+                        None => "program-frame-black".to_owned(),
+                    })
                     .size_full()
                     // Black until the background encode lands: the pixels box
                     // always mounts for geometry, the `img` only with the
@@ -158,7 +230,7 @@ impl From<WorkerStartError> for RuntimeError {
 
 pub struct NativeRuntime {
     operator: WindowHandle<ShellView>,
-    congregation: Option<WindowHandle<CongregationView>>,
+    output: Entity<CongregationOutput>,
     canonical_commands: Sender<canonical::CanonicalCommand>,
     shutdown_report: Rc<RefCell<Option<Vec<WorkerFailure>>>>,
 }
@@ -168,8 +240,15 @@ impl NativeRuntime {
         self.operator
     }
 
-    pub fn congregation(&self) -> Option<WindowHandle<CongregationView>> {
-        self.congregation
+    /// The runtime-owned congregation-output controller. Startup leaves
+    /// output disabled with no congregation window.
+    pub fn output(&self) -> Entity<CongregationOutput> {
+        self.output.clone()
+    }
+
+    /// The open congregation window, if output is enabled.
+    pub fn congregation(&self, cx: &App) -> Option<WindowHandle<CongregationView>> {
+        self.output.read(cx).window()
     }
 
     /// The runtime-owned canonical composition channel: snapshot operator
@@ -281,21 +360,28 @@ fn controlled_worker(kind: WorkerKind) -> Result<OwnedWorker<()>, WorkerStartErr
     })
 }
 
-/// Opens the native operator runtime and, for Presenter harnesses, its passive window.
-pub fn open_native_runtime(
-    cx: &mut App,
-    with_congregation: bool,
-) -> Result<NativeRuntime, RuntimeError> {
+/// Opens the native operator runtime. No congregation window opens until
+/// output is explicitly enabled through [`NativeRuntime::output`].
+pub fn open_native_runtime(cx: &mut App) -> Result<NativeRuntime, RuntimeError> {
     let preferences_path =
         installation_preferences_path().map_err(RuntimeError::PreferencesPath)?;
-    open_native_runtime_at(cx, with_congregation, preferences_path)
+    open_native_runtime_at(cx, preferences_path)
 }
 
 /// Testable runtime entry point whose installation preferences never need a real user path.
 pub fn open_native_runtime_at(
     cx: &mut App,
-    with_congregation: bool,
     preferences_path: impl AsRef<Path>,
+) -> Result<NativeRuntime, RuntimeError> {
+    open_native_runtime_with(cx, preferences_path, GpuiDisplaySource)
+}
+
+/// Runtime entry point with an injected display source, so display tests
+/// drive an in-memory topology while production reads GPUI.
+pub fn open_native_runtime_with(
+    cx: &mut App,
+    preferences_path: impl AsRef<Path>,
+    displays: impl DisplaySource + 'static,
 ) -> Result<NativeRuntime, RuntimeError> {
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
     cx.set_quit_mode(QuitMode::Explicit);
@@ -362,37 +448,32 @@ pub fn open_native_runtime_at(
     })
     .detach();
 
-    let congregation = if with_congregation {
-        let bounds = gpui::Bounds::centered(None, size(px(1920.0), px(1080.0)), cx);
-        let state = CongregationState::new(
-            ProgramFrame::new(0, 1, 1, vec![0, 0, 0, 255]).expect("black frame is complete"),
-            OutputStatus::Connected,
-        );
-        match cx.open_window(presenter_window_options(bounds), |_, cx| {
-            cx.new(|cx| CongregationView::new(state, cx))
-        }) {
-            Ok(window) => Some(window),
-            Err(_) => {
-                let _ = operator.update(cx, |_, window, _| window.remove_window());
-                return Err(RuntimeError::Window("congregation"));
-            }
-        }
-    } else {
-        None
-    };
+    let output =
+        cx.new(|cx| CongregationOutput::new(Box::new(displays), Some(operator.into()), cx));
+    if operator
+        .update(cx, |root, _, cx| root.follow_output(&output, cx))
+        .is_err()
+    {
+        // Startup failed after the workers started: stop them before reporting.
+        workers.borrow_mut().shutdown();
+        return Err(RuntimeError::Window("operator"));
+    }
 
     let shutdown_report = Rc::new(RefCell::new(None));
 
     let operator_id = operator.window_id();
-    let congregation_handle = congregation;
+    let closing_output = output.clone();
     let shutdown_status = shutdown_report.clone();
     cx.on_window_closed(move |cx, closed| {
         if closed != operator_id {
+            // Window-closed observers run synchronously inside whatever update
+            // removed the window, which may be the controller's own; defer so
+            // the controller is never re-entered.
+            let output = closing_output.clone();
+            cx.defer(move |cx| output.update(cx, |output, cx| output.window_closed(closed, cx)));
             return;
         }
-        if let Some(congregation) = congregation_handle {
-            let _ = congregation.update(cx, |_, window, _| window.remove_window());
-        }
+        closing_output.update(cx, |output, cx| output.shutdown(cx));
         let report = workers.borrow_mut().shutdown();
         for failure in &report {
             eprintln!("worker shutdown failed: {failure:?}");
@@ -404,7 +485,7 @@ pub fn open_native_runtime_at(
 
     Ok(NativeRuntime {
         operator,
-        congregation,
+        output,
         canonical_commands,
         shutdown_report,
     })
@@ -413,7 +494,7 @@ pub fn open_native_runtime_at(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use presentation::{PresentationCommand, PresentationEngine};
+    use presentation::{OutputStatus, PresentationCommand, PresentationEngine};
     use std::{sync::mpsc, time::Duration};
 
     #[test]

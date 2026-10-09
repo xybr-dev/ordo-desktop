@@ -256,6 +256,7 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         "ordo",
         "ui-lab",
         "native-runtime-tests",
+        "display-tests",
         "xtask",
     ]
     .into_iter()
@@ -333,6 +334,7 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
         ),
         ("ui-lab", BTreeSet::from(["ui"])),
         ("native-runtime-tests", BTreeSet::new()),
+        ("display-tests", BTreeSet::new()),
         ("xtask", BTreeSet::new()),
     ]
     .into_iter()

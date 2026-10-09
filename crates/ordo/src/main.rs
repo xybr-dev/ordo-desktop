@@ -4,7 +4,7 @@ use ordo::open_native_runtime;
 
 fn main() {
     application().run(|cx: &mut App| {
-        open_native_runtime(cx, false).expect("the native runtime should open");
+        open_native_runtime(cx).expect("the native runtime should open");
         cx.activate(true);
     });
 }

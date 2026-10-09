@@ -1,0 +1,13 @@
+# Ordo display-topology fixture (T0.5). Blank lines and lines starting with
+# `#` are ignored. One record per line, fields separated by whitespace:
+#   operator <id> <x> <y> <width> <height>      the display carrying the operator
+#   congregation <id> <x> <y> <width> <height>  the assigned congregation display
+#   display <id> <x> <y> <width> <height>       any other connected display
+#   expect <direction|none>                     locator direction from congregation
+#                                               back to the operator display
+# Bounds are logical pixels in the OS virtual desktop; <direction> is a
+# platform::display::RelativeDirection variant name.
+operator 1 0 0 1920 1080
+congregation 2 1920 -1080 1920 1080
+display 3 -1280 0 1280 720
+expect BelowLeft
