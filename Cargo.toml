@@ -10,6 +10,7 @@ members = [
     "tools/ui-lab",
     "tests/native-runtime",
     "tests/display",
+    "tests/presentation",
     "xtask",
 ]
 default-members = ["crates/ordo"]

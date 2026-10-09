@@ -5,6 +5,9 @@
 
 use std::sync::Arc;
 
+pub mod cache;
+pub mod presenter;
+
 /// A complete immutable RGBA Program frame ready for every presentation view.
 ///
 /// The pixel extent travels with the bytes: density-dependent `width` and
