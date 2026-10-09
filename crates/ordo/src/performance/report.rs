@@ -5,7 +5,7 @@
 //! off the GPUI thread and hand it to the Diagnostics panel or to the
 //! measurement harness.
 
-use std::{fmt::Write as _, time::Duration};
+use std::{collections::BTreeMap, fmt::Write as _, time::Duration};
 
 use super::{
     frames::FrameTimer,
@@ -36,9 +36,15 @@ const TAIL_PERCENTILES: [f64; 3] = [50.0, 95.0, 99.0];
 #[derive(Clone, Debug)]
 pub struct PerformanceReport {
     pub latency: LatencyBook,
-    /// What `latency` measures. The bench records engine apply time only, not
-    /// keydown-to-paint, and the JSON and summary say so.
+    /// What `latency` measures. The bench records engine apply time only, and
+    /// the live probe records keydown to surface paint. The JSON and summary
+    /// name the scope.
     pub latency_scope: &'static str,
+    /// Keydown to the settle callback of the next frame, per command kind. The
+    /// frame that drew the command has been presented by then, so this is an
+    /// upper bound on keydown to present, at most one frame late. Empty for
+    /// the bench, which measures no presentation.
+    pub present_upper_bound: BTreeMap<CommandKind, LatencyHistogram>,
     pub frames: FrameTimer,
     /// Process start to first operator paint.
     pub time_to_first_paint: Option<Duration>,
@@ -60,6 +66,7 @@ impl Default for PerformanceReport {
         Self {
             latency: LatencyBook::default(),
             latency_scope: "engine_apply",
+            present_upper_bound: BTreeMap::new(),
             frames: FrameTimer::default(),
             time_to_first_paint: None,
             worker_queue: LatencyHistogram::default(),
@@ -242,6 +249,27 @@ impl PerformanceReport {
             json_string(self.latency_scope)
         );
 
+        out.push_str(",\"keydown_to_present_upper_bound\":{\"note\":\"upper bound, <=1 frame late\",\"commands\":[");
+        for (index, command) in CommandKind::ALL.into_iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            let (samples, [p50, p95, p99]) = match self.present_upper_bound.get(&command) {
+                Some(h) => (h.count(), tail(h.percentiles(&TAIL_PERCENTILES))),
+                None => (0, [None; 3]),
+            };
+            let _ = write!(
+                out,
+                "{{\"command\":{},\"samples\":{},\"p50_ms\":{},\"p95_ms\":{},\"p99_ms\":{}}}",
+                json_string(command.as_str()),
+                samples,
+                json_ms(p50),
+                json_ms(p95),
+                json_ms(p99),
+            );
+        }
+        out.push_str("]}");
+
         let [frame_p50, frame_p95, frame_p99] = tail(self.frames.percentiles(&TAIL_PERCENTILES));
         let _ = write!(
             out,
@@ -316,7 +344,10 @@ impl PerformanceReport {
             self.renderer.device_name.as_deref().unwrap_or("unknown"),
         ));
 
-        lines.push("Engine apply latency (not keydown→paint)".to_string());
+        lines.push(match self.latency_scope {
+            "engine_apply" => "Engine apply latency (not keydown→paint)".to_string(),
+            scope => format!("Keydown latency, scope {scope}"),
+        });
         for command in CommandKind::ALL {
             for surface in Surface::ALL {
                 let line = match self.latency.histogram(command, surface) {
@@ -353,6 +384,18 @@ impl PerformanceReport {
             0 => "Hot path: clean".to_string(),
             n => format!("Hot path: {n} off-path violations"),
         });
+
+        let upper_bound_p95 = CommandKind::ALL.map(|command| {
+            format!(
+                "{} {}",
+                command.as_str(),
+                fmt_ms(self.present_upper_bound.get(&command).and_then(|h| h.p95())),
+            )
+        });
+        lines.push(format!(
+            "Keydown to present upper bound (<=1 frame late), p95: {}",
+            upper_bound_p95.join(", "),
+        ));
 
         lines.push(match self.time_to_first_paint {
             Some(t) => format!("Startup: first operator paint at {}", fmt_ms(Some(t))),
@@ -593,7 +636,8 @@ mod tests {
         assert!(json.contains("\"schema\":\"ordo.performance.v1\""));
         assert!(json.contains("\"device_name\":\"GPU \\\"A\\\"\""));
         assert!(json.contains("\"software_emulated\":false"));
-        assert_eq!(json.matches("\"command\":").count(), 8);
+        // Four latency pairs for the scope, four upper-bound commands.
+        assert_eq!(json.matches("\"command\":").count(), 8 + 4);
         assert!(json.contains(
             "{\"command\":\"navigation\",\"surface\":\"preview\",\"samples\":1,\"p50_ms\":10.000,\"p95_ms\":10.000,\"p99_ms\":10.000}"
         ));
@@ -630,7 +674,7 @@ mod tests {
         let mut report = passing_report(10, sample(300 * MIB, None));
         report.time_to_first_paint = Some(ms(640));
         let lines = report.summary_lines();
-        assert_eq!(lines.len(), 1 + 1 + 8 + 7);
+        assert_eq!(lines.len(), 1 + 1 + 8 + 7 + 1);
         assert!(lines[0].contains("hardware accelerated"));
         assert_eq!(lines[1], "Engine apply latency (not keydown→paint)");
         assert!(

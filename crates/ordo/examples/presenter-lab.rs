@@ -281,7 +281,13 @@ fn measure_run(cx: &mut App, out: PathBuf) {
         window,
         commands,
         IDLE,
-        move |outcome: ProbeOutcome, cx: &mut App| {
+        move |outcome: Result<ProbeOutcome, DriveError>, cx: &mut App| {
+            let outcome = match outcome {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    return finish(cx, &done_out, error_json(&drive_message(&error)), false);
+                }
+            };
             let oracle_match = same_position(&outcome.final_state, &expected);
             let document = format!(
                 "{{\"measure\":{},\"oracle_match\":{},\"startup_ms\":{}}}",
@@ -302,6 +308,9 @@ fn drive_message(error: &DriveError) -> String {
     match error {
         DriveError::Sampler(error) => format!("cannot sample the process: {error}"),
         DriveError::WindowClosed => "the Presenter probe window is closed".to_owned(),
+        DriveError::Unhandled => "a Presenter command never applied".to_owned(),
+        DriveError::NotPainted => "a Presenter surface did not paint a command".to_owned(),
+        DriveError::Superseded => "the Presenter drive was replaced".to_owned(),
     }
 }
 
@@ -380,8 +389,9 @@ fn baseline_run(cx: &mut App, kind: Baseline, out: PathBuf) {
                 window,
                 commands,
                 Duration::ZERO,
-                move |_: ProbeOutcome, cx: &mut App| {
-                    sample_after_settle(cx, done_out, kind, ());
+                move |result: Result<ProbeOutcome, DriveError>, cx: &mut App| match result {
+                    Ok(_) => sample_after_settle(cx, done_out, kind, ()),
+                    Err(error) => finish(cx, &done_out, error_json(&drive_message(&error)), false),
                 },
                 cx,
             );
