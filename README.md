@@ -47,6 +47,19 @@ The status line above the stage reports the scenario, preset, appearance, and
 scale in effect, with the resolved appearance in parentheses when it is
 following the system.
 
+## Run the Presenter lab
+
+`presenter-lab` opens the Presenter probe over a 500-Cue deck for review on
+real hardware. Right and Left move Preview, Space takes Preview live, `F`
+freezes Program, and `B` blacks it out. The footer shows live keydown-to-paint
+p50, p95, and p99 for each command and surface:
+
+```sh
+cargo run --release -p ordo --example presenter-lab
+```
+
+`cargo xtask measure-presenter` runs the same lab for its native measurement.
+
 ## Verify
 
 Install `cargo-deny`, then run:
