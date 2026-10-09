@@ -178,6 +178,25 @@ fn sample_process(sampler: &mut Option<ProcessSampler>) -> Option<ProcessSample>
 
 /// Runs the bench and returns its outcome. Blocking and CPU-bound: call it on a
 /// background executor, never on the GPUI thread.
+/// Replays the coalesced stream on a fresh engine and compares observable state.
+/// The oracle is the same engine, so it verifies `coalesce`, not an
+/// independent model of the Presenter. Returns the coalesced length and match.
+fn check_coalesce_oracle(
+    engine: &PresenterEngine,
+    commands: &[PresenterCommand],
+    cues: usize,
+) -> (usize, bool) {
+    let coalesced = coalesce(commands, cues, 0);
+    let mut oracle = PresenterEngine::new(cues);
+    for &command in &coalesced {
+        oracle.apply(command);
+    }
+    (
+        coalesced.len(),
+        same_observable_state(engine.state(), oracle.state()),
+    )
+}
+
 pub fn run_presenter_bench(config: BenchConfig) -> BenchOutcome {
     let commands = command_stream(config.seed, config.cues, config.commands);
     let mut sampler = ProcessSampler::new().ok();
@@ -195,14 +214,7 @@ pub fn run_presenter_bench(config: BenchConfig) -> BenchOutcome {
     }
     let wall = started.elapsed();
 
-    // The oracle is the same engine fed the coalesced stream, so it verifies
-    // `coalesce`, not an independent model of the Presenter.
-    let coalesced = coalesce(&commands, config.cues, 0);
-    let mut oracle = PresenterEngine::new(config.cues);
-    for &command in &coalesced {
-        oracle.apply(command);
-    }
-    let oracle_match = same_observable_state(engine.state(), oracle.state());
+    let (coalesced_commands, oracle_match) = check_coalesce_oracle(&engine, &commands, config.cues);
 
     let mut report = PerformanceReport::new(RendererInfo::default());
     report.latency = book;
@@ -212,7 +224,7 @@ pub fn run_presenter_bench(config: BenchConfig) -> BenchOutcome {
     BenchOutcome {
         config,
         commands_applied: commands.len(),
-        coalesced_commands: coalesced.len(),
+        coalesced_commands,
         oracle_match,
         process_before,
         report,

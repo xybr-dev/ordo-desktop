@@ -189,6 +189,19 @@ impl<K: Ord> Default for ThumbnailCache<K> {
 /// larger than its source. Each output pixel samples the source pixel under
 /// the centre of its own cell, which keeps the mapping symmetric and free of
 /// interpolation, so the result is a pure function of the input bytes.
+/// Fits `w`x`h` inside `max_w`x`max_h` using the tighter of the two scale
+/// factors. The comparison is exact in u64: w * max_h > h * max_w means the
+/// width limit binds first.
+fn fit_within(w: u32, h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    if u64::from(w) * u64::from(max_h) > u64::from(h) * u64::from(max_w) {
+        let out_h = (u64::from(h) * u64::from(max_w) / u64::from(w)).max(1);
+        (max_w, out_h as u32)
+    } else {
+        let out_w = (u64::from(w) * u64::from(max_h) / u64::from(h)).max(1);
+        (out_w as u32, max_h)
+    }
+}
+
 pub fn downscale(source: &ProgramFrame, max_w: u32, max_h: u32) -> ProgramFrame {
     let (w, h) = (source.width(), source.height());
     let max_w = max_w.max(1);
@@ -197,15 +210,7 @@ pub fn downscale(source: &ProgramFrame, max_w: u32, max_h: u32) -> ProgramFrame 
         return source.clone();
     }
 
-    // Fit the tighter of the two scale factors. The comparison is exact in
-    // u64: w * max_h > h * max_w means the width limit binds first.
-    let (out_w, out_h) = if u64::from(w) * u64::from(max_h) > u64::from(h) * u64::from(max_w) {
-        let out_h = (u64::from(h) * u64::from(max_w) / u64::from(w)).max(1);
-        (max_w, out_h as u32)
-    } else {
-        let out_w = (u64::from(w) * u64::from(max_h) / u64::from(h)).max(1);
-        (out_w as u32, max_h)
-    };
+    let (out_w, out_h) = fit_within(w, h, max_w, max_h);
 
     let src = source.rgba();
     let mut out = Vec::with_capacity(out_w as usize * out_h as usize * 4);
