@@ -60,6 +60,12 @@ pub struct CongregationView {
     /// state, even one whose Program reuses the same revision.
     generation: u64,
     on_pointer: Option<PointerListener>,
+    /// The last pointer state reported through `on_pointer`. Element hover
+    /// only learns of a leave from a mouse move outside the surface, and a
+    /// fast exit off a fullscreen window delivers none; the window's own
+    /// hover status (Win32 `WM_MOUSELEAVE`) refreshes this view instead, and
+    /// render reports the leave from that.
+    pointer_inside: bool,
     on_press: Option<PressListener>,
 }
 
@@ -82,6 +88,7 @@ impl CongregationView {
             image_revision: None,
             generation: 0,
             on_pointer,
+            pointer_inside: false,
             on_press,
         };
         view.set_state(state, cx);
@@ -156,8 +163,25 @@ fn congregation_image(program: &ProgramFrame) -> Arc<gpui::Image> {
     Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png))
 }
 
+impl CongregationView {
+    /// Reports a pointer change once, deferred so render never updates the
+    /// owner while this view is mid-update.
+    fn report_pointer(&mut self, inside: bool, cx: &mut Context<Self>) {
+        if self.pointer_inside == inside {
+            return;
+        }
+        self.pointer_inside = inside;
+        if let Some(on_pointer) = self.on_pointer.clone() {
+            cx.defer(move |cx| on_pointer(inside, cx));
+        }
+    }
+}
+
 impl Render for CongregationView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.pointer_inside && !window.is_window_hovered() {
+            self.report_pointer(false, cx);
+        }
         // Keyed on the revision actually painted, which can trail the state
         // while an encode is pending. A pending or black surface reports black.
         let painted = self.image_revision;
@@ -166,8 +190,10 @@ impl Render for CongregationView {
             .id("congregation-root")
             .size_full()
             .bg(rgb(0x000000))
-            .when_some(self.on_pointer.clone(), |root, on_pointer| {
-                root.on_hover(move |hovered, _, cx| on_pointer(*hovered, cx))
+            .when(self.on_pointer.is_some(), |root| {
+                root.on_hover(
+                    cx.listener(|this, hovered: &bool, _, cx| this.report_pointer(*hovered, cx)),
+                )
             })
             .when_some(self.on_press.clone(), |root, on_press| {
                 root.on_any_mouse_down(move |_, _, cx| on_press(cx))
