@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use gpui::{
-    App, GpuSpecs, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px,
-    rgb,
+    App, GpuSpecs, IntoElement, ParentElement, SharedString, Styled, Task, Window, div, prelude::*,
+    px, rgb,
 };
 use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
 
@@ -39,6 +39,16 @@ pub struct PerformanceState {
     /// Resident set size of this process at the last memory sample.
     pub rss_bytes: Option<u64>,
     pub bench: BenchState,
+    /// The window's GPU adapter, read once the first time Diagnostics is shown.
+    pub gpu_specs: Option<GpuSpecs>,
+    /// Whether `gpu_specs` has been read. An unknown adapter is `None` and
+    /// must not be re-read on every render.
+    pub gpu_specs_read: bool,
+    /// The memory sample in flight, if any. Dropping this cancels the sample.
+    pub memory_task: Option<Task<()>>,
+    /// The bench run in flight or finished, if any. Dropping this cancels a
+    /// run that has not finished.
+    pub bench_task: Option<Task<()>>,
 }
 
 /// The renderer line: whether the window's GPU adapter is hardware or a
@@ -76,7 +86,6 @@ fn format_mib(bytes: u64) -> String {
 /// whether one is already in flight.
 pub fn panel(
     state: &PerformanceState,
-    renderer: Option<&GpuSpecs>,
     environment: UiEnvironment,
     on_run: impl Fn(&mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
@@ -86,6 +95,7 @@ pub fn panel(
     let related = scale.apply(tokens::spacing::RELATED);
     let label_size = scale.apply(tokens::typography::LABEL.size);
     let body_size = scale.apply(tokens::typography::BODY.size);
+    let renderer = state.gpu_specs.as_ref();
 
     let heading = |text: &'static str| {
         div()
@@ -143,13 +153,12 @@ pub fn panel(
         let mut cells = vec![command.as_str().to_owned()];
         for surface in Surface::ALL {
             let histogram = latency.and_then(|book| book.histogram(command, surface));
-            for percentile in [0, 1, 2] {
-                let value = histogram.and_then(|h| match percentile {
-                    0 => h.p50(),
-                    1 => h.p95(),
-                    _ => h.p99(),
-                });
-                cells.push(format_ms(value));
+            // One sort per histogram: p50, p95, p99 in that order.
+            let values = histogram
+                .map(|h| h.percentiles(&[50.0, 95.0, 99.0]))
+                .unwrap_or_default();
+            for index in 0..3 {
+                cells.push(format_ms(values.get(index).copied().flatten()));
             }
         }
         div()

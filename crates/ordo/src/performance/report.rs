@@ -29,10 +29,16 @@ pub struct RendererInfo {
     pub device_name: Option<String>,
 }
 
+/// The percentiles printed for every histogram: p50, p95, and p99.
+const TAIL_PERCENTILES: [f64; 3] = [50.0, 95.0, 99.0];
+
 /// Everything the spike records, in one snapshot.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PerformanceReport {
     pub latency: LatencyBook,
+    /// What `latency` measures. The bench records engine apply time only, not
+    /// keydown-to-paint, and the JSON and summary say so.
+    pub latency_scope: &'static str,
     pub frames: FrameTimer,
     /// Process start to first operator paint.
     pub time_to_first_paint: Option<Duration>,
@@ -44,6 +50,22 @@ pub struct PerformanceReport {
     pub idle_cpu_percent: Option<f32>,
     pub gpu_memory: GpuMemory,
     pub renderer: RendererInfo,
+}
+
+impl Default for PerformanceReport {
+    fn default() -> Self {
+        Self {
+            latency: LatencyBook::default(),
+            latency_scope: "engine_apply",
+            frames: FrameTimer::default(),
+            time_to_first_paint: None,
+            worker_queue: LatencyHistogram::default(),
+            process: None,
+            idle_cpu_percent: None,
+            gpu_memory: GpuMemory::default(),
+            renderer: RendererInfo::default(),
+        }
+    }
 }
 
 /// Limits enforced by [`PerformanceReport::budget_check`].
@@ -192,9 +214,9 @@ impl PerformanceReport {
                 }
                 first = false;
                 let histogram = self.latency.histogram(command, surface);
-                let (samples, p50, p95, p99) = match histogram {
-                    Some(h) => (h.count(), h.p50(), h.p95(), h.p99()),
-                    None => (0, None, None, None),
+                let (samples, [p50, p95, p99]) = match histogram {
+                    Some(h) => (h.count(), tail(h.percentiles(&TAIL_PERCENTILES))),
+                    None => (0, [None; 3]),
                 };
                 let _ = write!(
                     out,
@@ -212,14 +234,21 @@ impl PerformanceReport {
 
         let _ = write!(
             out,
+            ",\"latency_scope\":{}",
+            json_string(self.latency_scope)
+        );
+
+        let [frame_p50, frame_p95, frame_p99] = tail(self.frames.percentiles(&TAIL_PERCENTILES));
+        let _ = write!(
+            out,
             ",\"frames\":{{\"count\":{},\"expected_ms\":{},\"drop_threshold_ms\":{},\"dropped\":{},\"p50_ms\":{},\"p95_ms\":{},\"p99_ms\":{}}}",
             self.frames.frame_count(),
             json_ms(Some(self.frames.expected_interval())),
             json_ms(Some(self.frames.drop_threshold())),
             self.frames.dropped_frames(),
-            json_ms(self.frames.p50()),
-            json_ms(self.frames.p95()),
-            json_ms(self.frames.p99()),
+            json_ms(frame_p50),
+            json_ms(frame_p95),
+            json_ms(frame_p99),
         );
 
         let _ = write!(
@@ -228,13 +257,15 @@ impl PerformanceReport {
             json_ms(self.time_to_first_paint),
         );
 
+        let [queue_p50, queue_p95, queue_p99] =
+            tail(self.worker_queue.percentiles(&TAIL_PERCENTILES));
         let _ = write!(
             out,
             ",\"worker_queue\":{{\"samples\":{},\"p50_ms\":{},\"p95_ms\":{},\"p99_ms\":{}}}",
             self.worker_queue.count(),
-            json_ms(self.worker_queue.p50()),
-            json_ms(self.worker_queue.p95()),
-            json_ms(self.worker_queue.p99()),
+            json_ms(queue_p50),
+            json_ms(queue_p95),
+            json_ms(queue_p99),
         );
 
         let (rss, virtual_bytes, private, cpu) = match self.process {
@@ -242,7 +273,7 @@ impl PerformanceReport {
                 json_u64(Some(s.rss_bytes)),
                 json_u64(Some(s.virtual_bytes)),
                 json_u64(s.private_bytes),
-                json_f32(Some(s.cpu_percent)),
+                json_f32(s.cpu_percent),
             ),
             None => ("null".into(), "null".into(), "null".into(), "null".into()),
         };
@@ -279,30 +310,35 @@ impl PerformanceReport {
             self.renderer.device_name.as_deref().unwrap_or("unknown"),
         ));
 
+        lines.push("Engine apply latency (not keydown→paint)".to_string());
         for command in CommandKind::ALL {
             for surface in Surface::ALL {
                 let line = match self.latency.histogram(command, surface) {
-                    Some(h) if h.count() > 0 => format!(
-                        "{} to {}: {} samples, p50 {}, p95 {}, p99 {}",
-                        command.as_str(),
-                        surface.as_str(),
-                        h.count(),
-                        fmt_ms(h.p50()),
-                        fmt_ms(h.p95()),
-                        fmt_ms(h.p99()),
-                    ),
+                    Some(h) if h.count() > 0 => {
+                        let [p50, p95, p99] = tail(h.percentiles(&TAIL_PERCENTILES));
+                        format!(
+                            "{} to {}: {} samples, p50 {}, p95 {}, p99 {}",
+                            command.as_str(),
+                            surface.as_str(),
+                            h.count(),
+                            fmt_ms(p50),
+                            fmt_ms(p95),
+                            fmt_ms(p99),
+                        )
+                    }
                     _ => format!("{} to {}: no samples", command.as_str(), surface.as_str()),
                 };
                 lines.push(line);
             }
         }
 
+        let [frame_p50, frame_p95, frame_p99] = tail(self.frames.percentiles(&TAIL_PERCENTILES));
         lines.push(format!(
             "Frames: {} presented, p50 {}, p95 {}, p99 {}, {} dropped (over {})",
             self.frames.frame_count(),
-            fmt_ms(self.frames.p50()),
-            fmt_ms(self.frames.p95()),
-            fmt_ms(self.frames.p99()),
+            fmt_ms(frame_p50),
+            fmt_ms(frame_p95),
+            fmt_ms(frame_p99),
             self.frames.dropped_frames(),
             fmt_ms(Some(self.frames.drop_threshold())),
         ));
@@ -312,12 +348,14 @@ impl PerformanceReport {
             None => "Startup: first operator paint not measured".to_string(),
         });
 
+        let [queue_p50, queue_p95, queue_p99] =
+            tail(self.worker_queue.percentiles(&TAIL_PERCENTILES));
         lines.push(format!(
             "Worker queue: {} samples, p50 {}, p95 {}, p99 {}",
             self.worker_queue.count(),
-            fmt_ms(self.worker_queue.p50()),
-            fmt_ms(self.worker_queue.p95()),
-            fmt_ms(self.worker_queue.p99()),
+            fmt_ms(queue_p50),
+            fmt_ms(queue_p95),
+            fmt_ms(queue_p99),
         ));
 
         lines.push(match self.process {
@@ -334,9 +372,14 @@ impl PerformanceReport {
 
         lines.push(format!(
             "CPU: process {}, idle {}",
-            self.process
-                .map(|s| format!("{:.1}%", s.cpu_percent))
-                .unwrap_or_else(|| "not sampled".to_string()),
+            match self.process {
+                Some(ProcessSample {
+                    cpu_percent: Some(cpu),
+                    ..
+                }) => format!("{cpu:.1}%"),
+                Some(_) => "n/a".to_string(),
+                None => "not sampled".to_string(),
+            },
             self.idle_cpu_percent
                 .map(|c| format!("{c:.1}%"))
                 .unwrap_or_else(|| "not sampled".to_string()),
@@ -350,6 +393,12 @@ impl PerformanceReport {
 
         lines
     }
+}
+
+/// Unpacks the output of [`LatencyHistogram::percentiles`] called with
+/// [`TAIL_PERCENTILES`], which always returns one entry per requested percentile.
+fn tail(values: Vec<Option<Duration>>) -> [Option<Duration>; 3] {
+    [values[0], values[1], values[2]]
 }
 
 fn fmt_ms(value: Option<Duration>) -> String {
@@ -433,7 +482,7 @@ mod tests {
             rss_bytes: rss,
             virtual_bytes: rss * 2,
             private_bytes: private,
-            cpu_percent: 1.5,
+            cpu_percent: Some(1.5),
         }
     }
 
@@ -542,6 +591,8 @@ mod tests {
         assert!(json.contains("\"private_bytes\":null"));
         assert!(json.contains("\"idle_percent\":0.25"));
         assert!(json.contains("\"gpu_memory\":\"unavailable\""));
+        assert!(json.contains("\"latency_scope\":\"engine_apply\""));
+        assert!(json.contains("\"process_percent\":1.50"));
     }
 
     #[test]
@@ -551,6 +602,7 @@ mod tests {
         assert!(json.contains("\"software_emulated\":null"));
         assert!(json.contains("\"time_to_first_paint_ms\":null"));
         assert!(json.contains("\"rss_bytes\":null"));
+        assert!(json.contains("\"latency_scope\":\"engine_apply\""));
         assert!(json.contains(
             "{\"command\":\"space\",\"surface\":\"program\",\"samples\":0,\"p50_ms\":null,\"p95_ms\":null,\"p99_ms\":null}"
         ));
@@ -566,8 +618,9 @@ mod tests {
         let mut report = passing_report(10, sample(300 * MIB, None));
         report.time_to_first_paint = Some(ms(640));
         let lines = report.summary_lines();
-        assert_eq!(lines.len(), 1 + 8 + 6);
+        assert_eq!(lines.len(), 1 + 1 + 8 + 6);
         assert!(lines[0].contains("hardware accelerated"));
+        assert_eq!(lines[1], "Engine apply latency (not keydown→paint)");
         assert!(
             lines
                 .iter()
@@ -580,5 +633,21 @@ mod tests {
         );
         assert!(lines.iter().any(|l| l.contains("RSS 300.0 MiB")));
         assert!(lines.last().is_some_and(|l| l.contains("unavailable")));
+    }
+
+    #[test]
+    fn cpu_before_a_delta_is_null_in_json_and_n_a_in_summary() {
+        let mut report = passing_report(10, sample(300 * MIB, None));
+        report.process = Some(ProcessSample {
+            cpu_percent: None,
+            ..sample(300 * MIB, None)
+        });
+        assert!(report.to_json().contains("\"process_percent\":null"));
+        assert!(
+            report
+                .summary_lines()
+                .iter()
+                .any(|l| l.starts_with("CPU: process n/a,"))
+        );
     }
 }

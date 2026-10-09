@@ -11,7 +11,6 @@ pub mod clock;
 pub mod display_path;
 pub mod frames;
 pub mod latency;
-pub mod probe;
 pub mod process;
 pub mod report;
 
@@ -21,6 +20,5 @@ pub use frames::FrameTimer;
 pub use latency::{
     CommandKind, KeydownStamp, LatencyBook, LatencyHistogram, PendingKeydown, Surface,
 };
-pub use probe::{HotPathCounts, HotPathProbe};
 pub use process::{GpuMemory, ProcessSample, ProcessSampler, ProcessSamplerError};
 pub use report::{BudgetLimits, BudgetVerdict, BudgetViolation, PerformanceReport, RendererInfo};

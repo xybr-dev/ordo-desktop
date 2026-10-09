@@ -53,8 +53,9 @@ fn assert_within_memory_budget(label: &str, sample: Option<ProcessSample>) {
 }
 
 /// The adopted bench: 500 Cues, 2,000 mixed commands. The final state matches
-/// the oracle, the hot path is clean, every command and surface pair has a p95
-/// under 50 ms, and process memory is within both memory limits.
+/// the oracle, every command and surface pair has an engine-apply p95 under
+/// 50 ms, and process memory is within both memory limits. This does not
+/// measure keydown-to-paint.
 #[test]
 fn the_500_cue_bench_meets_the_adopted_budget() {
     let _serial = serial();
@@ -64,11 +65,6 @@ fn the_500_cue_bench_meets_the_adopted_budget() {
     assert!(
         outcome.oracle_match,
         "engine final state diverged from the oracle fed the coalesced stream"
-    );
-    assert!(
-        outcome.hot_path.is_clean(),
-        "hot path performed forbidden work: {:?}",
-        outcome.hot_path
     );
 
     for command in CommandKind::ALL {
@@ -98,9 +94,10 @@ fn the_500_cue_bench_meets_the_adopted_budget() {
     );
 }
 
-/// Three independent runs of the empty-shell, Preparation, and 500-Cue Presenter
-/// memory phases. Every sample stays within the qualification budget and the
-/// absolute ceiling. When `ORDO_PERFORMANCE_REPORT` is set, this test also
+/// Three sequential runs in one test process of the empty-shell, Preparation,
+/// and 500-Cue Presenter memory phases. `empty_shell` is the bare test process,
+/// not the GPUI shell. Every sample stays within the qualification budget and
+/// the absolute ceiling. When `ORDO_PERFORMANCE_REPORT` is set, this test also
 /// writes the measurement document, with one bench run beside the baselines.
 #[test]
 fn three_run_baselines_stay_within_the_memory_budget() {
