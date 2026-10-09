@@ -17,9 +17,14 @@
 //! [`measure`] alternates the two modes after one warm-up pass each. Every pass
 //! starts its clock, notifies the probe, and stops the clock in a
 //! `Window::on_next_frame` callback that runs after the frame showing that pass
-//! has been drawn. Passes are chained through `on_next_frame`; nothing sleeps
-//! or blocks the GPUI thread between passes. The CPU work itself runs on the
-//! GPUI thread on purpose, because the measured span includes it.
+//! has been drawn. The measured span is notify to the start of the next frame
+//! after the present: at most one frame late, vsync-quantized, with the same
+//! bias for both paths. Passes are chained through `on_next_frame`; nothing
+//! sleeps or blocks the GPUI thread between passes. The CPU work itself runs on
+//! the GPUI thread on purpose, because the measured span includes it.
+//!
+//! Measurement-only probe: the CPU raster runs on the GPUI thread on purpose and
+//! is never shipped.
 
 use std::{
     cell::RefCell,
@@ -70,9 +75,12 @@ pub enum PathMode {
 /// Median latency and held bytes for one display path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathTiming {
-    /// Median notify-to-presented time over the measured passes.
+    /// Median notify-to-next-frame time over the measured passes. See the
+    /// module docs for the span and its one-frame bias.
     pub median: Duration,
-    /// CPU path: RGBA bytes plus PNG bytes. Retained path: the glyph-mask
+    /// CPU path: CPU-side bytes including the GPUI decoded image, excluding
+    /// the GPU texture. That is the RGBA buffer, the PNG bytes, and the
+    /// decoded image's `width * height * 4`. Retained path: the glyph-mask
     /// estimate from the last draw (see [`PaintTally`]).
     pub held_bytes: usize,
 }
@@ -92,14 +100,15 @@ pub struct NativeDisplayPathResult {
 impl NativeDisplayPathResult {
     /// The `"display_path"` JSON object, as a complete JSON document.
     ///
-    /// Latency is in milliseconds with three decimals. `software_emulated` and
+    /// Latency is in milliseconds with three decimals, measured to the start of
+    /// the next frame after the present. `software_emulated` and
     /// `device` are `null` when the platform did not report them.
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\"display_path\":{");
         let _ = write!(
             out,
-            "\"scope\":\"native_window_notify_to_presented_frame\",\"passes\":{}",
+            "\"scope\":\"native_window_notify_to_next_frame_after_present\",\"passes\":{}",
             self.passes
         );
         let _ = write!(
@@ -142,11 +151,11 @@ impl NativeDisplayPathResult {
         };
         vec![
             format!(
-                "Native display path, notify to presented frame ({} passes after warm-up)",
+                "Native display path, notify to next frame after present ({} passes after warm-up)",
                 self.passes
             ),
             format!(
-                "CPU raster path: {:.2} ms median, {} KiB held (RGBA + PNG)",
+                "CPU raster path: {:.2} ms median, {} KiB held (CPU-side bytes incl. GPUI decoded image; excludes GPU texture)",
                 millis(self.cpu.median),
                 kib(self.cpu.held_bytes)
             ),
@@ -474,6 +483,14 @@ fn settle(run: &Rc<RefCell<Run>>, window: &mut Window, cx: &mut App) {
     }
 }
 
+/// The CPU-side bytes one CPU pass holds: the RGBA buffer, the PNG bytes, and
+/// the decoded image GPUI keeps, sized as `width * height * 4`. The GPU texture
+/// is not counted.
+fn cpu_held_bytes(rgba_bytes: usize, png_bytes: usize, width: u32, height: u32) -> usize {
+    let decoded_bytes = width as usize * height as usize * 4;
+    rgba_bytes + png_bytes + decoded_bytes
+}
+
 fn finish(run: &Rc<RefCell<Run>>, result: Result<NativeDisplayPathResult, DisplayPathError>) {
     // Take the callback out before calling it, so it may touch the run.
     let on_done = run.borrow_mut().on_done.take();
@@ -484,7 +501,8 @@ fn finish(run: &Rc<RefCell<Run>>, result: Result<NativeDisplayPathResult, Displa
 
 /// CPU raster path for one frame at the canonical density. Mirrors the span of
 /// [`super::display_path::cpu_path`]: rasterize, finish, and decode. Returns the
-/// GPUI image of the finished PNG bytes and the bytes held (RGBA plus PNG).
+/// GPUI image of the finished PNG bytes and the CPU-side bytes held (see
+/// [`cpu_held_bytes`]).
 fn cpu_pass(frame: &Frame) -> Result<(Arc<Image>, usize), DisplayPathError> {
     let raster = rasterize(frame, TargetDensity::SCALE_100, &HashMap::new())
         .map_err(DisplayPathError::Rasterize)?;
@@ -492,8 +510,8 @@ fn cpu_pass(frame: &Frame) -> Result<(Arc<Image>, usize), DisplayPathError> {
     let finished = finish_frame(&raster).ok_or(DisplayPathError::Finish)?;
     let png = finished.image().bytes();
     let decoded = tiny_skia::Pixmap::decode_png(png).map_err(|_| DisplayPathError::Decode)?;
+    let held = cpu_held_bytes(rgba_bytes, png.len(), decoded.width(), decoded.height());
     std::hint::black_box(&decoded);
-    let held = rgba_bytes + png.len();
     let image = Image {
         format: ImageFormat::Png,
         bytes: png.to_vec(),
@@ -616,11 +634,18 @@ mod tests {
         .to_json();
         assert_eq!(
             json,
-            "{\"display_path\":{\"scope\":\"native_window_notify_to_presented_frame\",\"passes\":5,\
+            "{\"display_path\":{\"scope\":\"native_window_notify_to_next_frame_after_present\",\"passes\":5,\
              \"cpu\":{\"median_ms\":2.500,\"held_bytes\":100},\
              \"retained\":{\"median_ms\":1.250,\"held_bytes\":4096},\
              \"software_emulated\":false,\"device\":\"Test \\\"GPU\\\"\"}}"
         );
+    }
+
+    #[test]
+    fn cpu_held_bytes_counts_rgba_png_and_the_decoded_image() {
+        // A 4 x 3 image decodes to 4 * 3 * 4 = 48 bytes.
+        assert_eq!(cpu_held_bytes(100, 20, 4, 3), 100 + 20 + 48);
+        assert_eq!(cpu_held_bytes(0, 0, 0, 0), 0);
     }
 
     #[test]
@@ -652,7 +677,11 @@ mod tests {
         })
         .summary_lines();
         assert_eq!(lines.len(), 4);
+        assert!(lines[0].contains("notify to next frame after present"));
         assert!(lines[1].starts_with("CPU raster path: 2.50 ms median, 1 KiB held"));
+        assert!(
+            lines[1].ends_with("(CPU-side bytes incl. GPUI decoded image; excludes GPU texture)")
+        );
         assert!(lines[2].starts_with("Retained scene path: 1.25 ms median, ~4 KiB held"));
         assert_eq!(lines[3], "Renderer: Adapter (software emulated)");
     }
