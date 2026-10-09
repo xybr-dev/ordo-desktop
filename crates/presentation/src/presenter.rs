@@ -69,6 +69,8 @@ impl PresenterState {
         self.blackout
     }
 
+    /// Count of observable state changes since construction. Increments once
+    /// per change and never on a no-op command.
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -125,6 +127,9 @@ impl PresenterEngine {
                     next.blackout = false;
                 }
             }
+            // In this engine Program only changes on TakeLive, so Freeze is
+            // currently a held flag; once live-Cue content updates flow to
+            // Program, Freeze is what holds them (see CONTEXT.md **Freeze**).
             PresenterCommand::ToggleFreeze => next.frozen = !before.frozen,
             PresenterCommand::ToggleBlackout => next.blackout = !before.blackout,
         }
