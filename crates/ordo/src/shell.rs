@@ -21,7 +21,7 @@
 pub mod fixtures;
 pub mod rail;
 
-use std::{mem, rc::Rc};
+use std::{mem, rc::Rc, time::Instant};
 
 use fixtures::rows;
 use gpui::{
@@ -31,7 +31,9 @@ use gpui::{
 use rail::Destination;
 
 use crate::{
+    diagnostics::{self, PerformanceState},
     output::{CongregationOutput, CursorLocator},
+    performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     settings,
 };
 use ui::{
@@ -107,6 +109,9 @@ pub struct ShellView {
     /// output. It renders only here, never in the congregation window.
     cursor_locator: Option<CursorLocator>,
     _output_subscription: Option<Subscription>,
+    /// The Diagnostics destination's Performance panel state: startup, memory,
+    /// and the last bench run.
+    diagnostics: PerformanceState,
 }
 
 impl ShellView {
@@ -167,6 +172,7 @@ impl ShellView {
             _appearance_subscription: appearance_subscription,
             cursor_locator: None,
             _output_subscription: None,
+            diagnostics: PerformanceState::default(),
         }
     }
 
@@ -261,7 +267,47 @@ impl ShellView {
         // row 2 of Upcoming means nothing in Songs.
         self.selected_row = None;
         self.editing = None;
+        if destination == Destination::Diagnostics {
+            self.sample_memory(cx);
+        }
         cx.notify();
+    }
+
+    /// Samples this process's resident memory on a background task. The panel
+    /// shows the value when it lands; the GPUI thread never waits on the OS.
+    fn sample_memory(&mut self, cx: &mut Context<Self>) {
+        let sample = cx.background_spawn(async {
+            ProcessSampler::new()
+                .ok()
+                .and_then(|mut sampler| sampler.sample())
+        });
+        cx.spawn(async move |view, cx| {
+            let sample = sample.await;
+            let _ = view.update(cx, |view, cx| {
+                view.diagnostics.rss_bytes = sample.map(|sample| sample.rss_bytes);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Runs the Presenter bench on a background executor and stores its
+    /// outcome when it finishes. A run already in flight is not restarted.
+    fn run_presenter_bench(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.diagnostics.bench, diagnostics::BenchState::Running) {
+            return;
+        }
+        self.diagnostics.bench = diagnostics::BenchState::Running;
+        cx.notify();
+        let work = cx.background_spawn(async { run_presenter_bench(BenchConfig::default()) });
+        cx.spawn(async move |view, cx| {
+            let outcome = work.await;
+            let _ = view.update(cx, |view, cx| {
+                view.diagnostics.bench = diagnostics::BenchState::Done(Box::new(outcome));
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub fn finish_preferences_restore(
@@ -498,7 +544,7 @@ impl ShellView {
 
     /// The content viewer beside the list: what the selected entity is, and the
     /// way into its own screen.
-    fn viewer(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
@@ -517,6 +563,19 @@ impl ShellView {
                     let _ = view.update(cx, |view, cx| view.change_from_settings(change, cx));
                 })
             })
+            .into_any_element();
+        }
+        if self.destination == Destination::Diagnostics {
+            let view = cx.entity().downgrade();
+            let renderer = window.gpu_specs();
+            return diagnostics::panel(
+                &self.diagnostics,
+                renderer.as_ref(),
+                environment,
+                move |_, cx| {
+                    let _ = view.update(cx, |view, cx| view.run_presenter_bench(cx));
+                },
+            )
             .into_any_element();
         }
         if !self.destination.has_primary_list() {
@@ -599,7 +658,7 @@ impl ShellView {
             .destination
             .has_primary_list()
             .then(|| self.primary_list(window, cx));
-        let viewer = self.viewer(cx);
+        let viewer = self.viewer(window, cx);
 
         // Reading order: rail, header, list, viewer. Layout nests them; the
         // registry only needs to be their ancestor.
@@ -771,6 +830,10 @@ impl ShellView {
 
 impl Render for ShellView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Idempotent: only the first render sets the startup figure.
+        self.diagnostics
+            .startup
+            .record_first_operator_paint(Instant::now());
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
@@ -907,6 +970,41 @@ mod tests {
         cx.simulate_resize(size(px(1920.0), px(1080.0)));
         cx.run_until_parked();
         (shell, cx)
+    }
+
+    /// The Diagnostics destination shows the Performance panel, and its button
+    /// runs the Presenter bench in the background. The result lands in the
+    /// panel when the run finishes.
+    #[gpui::test]
+    fn diagnostics_shows_the_performance_panel_and_runs_the_presenter_bench(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, cx) = open(cx);
+        assert!(cx.debug_bounds("diagnostics-panel").is_none());
+
+        click(cx, "button-Diagnostics");
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(shell.destination(), Destination::Diagnostics);
+            assert!(matches!(
+                shell.diagnostics.bench,
+                diagnostics::BenchState::Idle
+            ));
+        });
+        assert!(cx.debug_bounds("diagnostics-panel").is_some());
+        assert!(cx.debug_bounds("renderer-status").is_some());
+        assert!(cx.debug_bounds("latency-table").is_some());
+        assert!(cx.debug_bounds("button-Run Presenter bench").is_some());
+
+        click(cx, "button-Run Presenter bench");
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| match &shell.diagnostics.bench {
+            diagnostics::BenchState::Done(outcome) => {
+                assert!(outcome.oracle_match, "bench diverged from the oracle");
+                assert!(outcome.hot_path.is_clean());
+            }
+            other => panic!("bench should have finished, found {other:?}"),
+        });
+        assert!(cx.debug_bounds("bench-verdict").is_some());
     }
 
     /// The rail owns every global destination and the tabs own every local

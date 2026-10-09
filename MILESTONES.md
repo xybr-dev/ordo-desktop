@@ -463,21 +463,21 @@ baseline before full UI construction.
 
 **AC**
 
-- [ ] `[AUTO]` A pure Presentation Engine accepts commands and returns complete
+- [x] `[AUTO]` A pure Presentation Engine accepts commands and returns complete
       state without importing GPUI, SQLite, filesystem, or platform modules.
 - [ ] `[AUTO]` Instrument keydown→Preview paint and keydown→Program paint at
       p50, p95, and p99 for navigation, Freeze, Blackout, and Space.
 - [ ] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
       autosave, pagination, image decode, blocking worker wait, or full-timeline
       rerender.
-- [ ] `[AUTO]` Rapid command sequences are ordered, coalesced only where
+- [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
 - [ ] `[AUTO]` Record process RSS/private memory, GPU allocations where the
       platform exposes them, frame times, dropped frames, startup time, worker
       queue latency, and idle CPU.
-- [ ] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
+- [x] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
       genuinely lower-resolution, virtualized, and released when obsolete.
-- [ ] `[AUTO]` Compare the two candidate display paths for the same canonical
+- [x] `[AUTO]` Compare the two candidate display paths for the same canonical
       frame and record latency and held bytes for each: the CPU raster path
       (`rendering::rasterize` composited to RGBA, encoded, decoded, uploaded)
       and a retained path that walks the logical `Frame` straight into the
@@ -487,7 +487,7 @@ baseline before full UI construction.
       rasterizes only for thumbnails, transitions, capture, and export; this
       measurement decides whether Ordo does the same. Record the per-slide
       cost of each path separately, because it sets T1.3's scope.
-- [ ] `[AUTO]` If the retained path is measured, confirm the GPUI text system
+- [x] `[AUTO]` If the retained path is measured, confirm the GPUI text system
       resolves the bundled Atkinson Hyperlegible Next and Noto Sans faces the
       canonical shaper uses, rather than a same-named system installation, on
       both packaged targets. Shaped glyph IDs are face-intrinsic, so a silent

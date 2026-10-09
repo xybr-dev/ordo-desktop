@@ -75,3 +75,25 @@ jobs:
         shell: pwsh
         run: |
           cargo test -p display-tests --locked --test native_display -- --nocapture || exit $LASTEXITCODE
+
+  # T0.6 [NATIVE-AUTO] evidence gate. Runs the Presenter bench in release on
+  # the Windows runner and uploads the measurement document. The same tests run
+  # inside the `verify` job's workspace suite; this job is separate so a
+  # latency, memory, or oracle regression fails under its own name.
+  windows-presenter-performance:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure Presenter performance
+        shell: pwsh
+        run: |
+          cargo xtask measure-presenter || exit $LASTEXITCODE
+      - name: Upload performance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: presenter-performance-report
+          path: target/ordo-performance/report.json
+          if-no-files-found: error

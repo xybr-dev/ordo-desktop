@@ -6,17 +6,21 @@
 //! thread (see [`process::ProcessSampler`]). The exception is
 //! [`display_path`], which compares the CPU raster and retained GPUI paths.
 
+pub mod bench;
 pub mod clock;
 pub mod display_path;
 pub mod frames;
 pub mod latency;
+pub mod probe;
 pub mod process;
 pub mod report;
 
+pub use bench::{BaselineRun, BenchConfig, BenchOutcome, run_presenter_bench, three_run_baselines};
 pub use clock::{Enqueued, QueueLatency, StartupClock};
 pub use frames::FrameTimer;
 pub use latency::{
     CommandKind, KeydownStamp, LatencyBook, LatencyHistogram, PendingKeydown, Surface,
 };
+pub use probe::{HotPathCounts, HotPathProbe};
 pub use process::{GpuMemory, ProcessSample, ProcessSampler, ProcessSamplerError};
 pub use report::{BudgetLimits, BudgetVerdict, BudgetViolation, PerformanceReport, RendererInfo};

@@ -11,6 +11,7 @@ members = [
     "tests/native-runtime",
     "tests/display",
     "tests/presentation",
+    "tests/performance",
     "xtask",
 ]
 default-members = ["crates/ordo"]
