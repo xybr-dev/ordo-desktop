@@ -490,8 +490,9 @@ baseline before full UI construction.
 - [x] `[AUTO]` If the retained path is measured, confirm the GPUI text system
       resolves the bundled Atkinson Hyperlegible Next and Noto Sans faces the
       canonical shaper uses, rather than a same-named system installation, on
-      both packaged targets (Linux retired, Decision 268). Shaped glyph IDs are face-intrinsic, so a silent
-      substitution would mispaint without failing.
+      both packaged targets (Linux retired, Decision 268). Shaped glyph IDs
+      are face-intrinsic, so a silent substitution would mispaint without
+      failing.
 - [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling. The Linux half is retired to T6.2
