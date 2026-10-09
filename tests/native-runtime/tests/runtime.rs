@@ -46,6 +46,11 @@ fn display(id: u64, x: i32) -> DetectedDisplay {
 
 #[gpui::test]
 fn closing_operator_closes_congregation_and_owned_workers(cx: &mut TestAppContext) {
+    // The runtime's preferences worker is a real OS thread whose restore wakes a
+    // GPUI task; without this the test scheduler reports that cross-thread
+    // wakeup as non-determinism whenever the worker finishes after the task
+    // registered its waker, as on a loaded CI runner.
+    cx.executor().allow_parking();
     let preferences = temporary_preferences("runtime-shutdown");
     let displays = Rc::new(RefCell::new(InMemoryDisplayAdapter::new(
         vec![display(1, 0), display(2, 1920)],

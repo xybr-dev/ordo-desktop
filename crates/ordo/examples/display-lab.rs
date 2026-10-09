@@ -50,11 +50,13 @@ fn log_state(output: &CongregationOutput, step: &str) {
     eprintln!("--- {step}");
     eprintln!("operator display: {:?}", control.topology().operator());
     for display in control.topology().displays() {
-        let direction = control.topology().direction_from_operator(display.id);
-        eprintln!(
-            "  {:?} {:?} direction from operator: {direction:?}",
-            display.id, display.evidence.bounds
-        );
+        let role = if Some(display.id) == control.topology().operator() {
+            "(operator)".to_owned()
+        } else {
+            let direction = control.topology().direction_from_operator(display.id);
+            format!("direction from operator: {direction:?}")
+        };
+        eprintln!("  {:?} {:?} {role}", display.id, display.evidence.bounds);
     }
     eprintln!("assignment: {:?}", control.assignment());
     eprintln!("output: {:?}", control.output());

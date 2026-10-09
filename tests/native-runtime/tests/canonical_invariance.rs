@@ -228,6 +228,11 @@ fn operator_shadow_offset_y(cx: &mut TestAppContext, runtime: &NativeRuntime) ->
 
 #[gpui::test]
 fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
+    // The runtime's preferences worker is a real OS thread whose restore wakes a
+    // GPUI task; without this the test scheduler reports that cross-thread
+    // wakeup as non-determinism whenever the worker finishes after the task
+    // registered its waker, as on a loaded CI runner.
+    cx.executor().allow_parking();
     // T0.3 PR 3 deferred this isolation proof for want of a render path. It
     // lands here, in the packaged runtime against real 1920x1080 geometry,
     // where it can fail: every byte under test is composed by the
@@ -302,6 +307,11 @@ fn operator_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn display_scale_cannot_reach_the_canonical_frame(cx: &mut TestAppContext) {
+    // The runtime's preferences worker is a real OS thread whose restore wakes a
+    // GPUI task; without this the test scheduler reports that cross-thread
+    // wakeup as non-determinism whenever the worker finishes after the task
+    // registered its waker, as on a loaded CI runner.
+    cx.executor().allow_parking();
     // Representative Windows display-scale and Linux fractional-scale steps.
     // Each step reconfigures the packaged operator window through gpui's own
     // display scale seam; the worker then composes from that window's live

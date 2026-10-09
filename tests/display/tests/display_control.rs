@@ -261,6 +261,11 @@ struct Harness {
 
 impl Harness {
     fn open(cx: &mut TestAppContext, name: &str, adapter: InMemoryDisplayAdapter) -> Self {
+        // The runtime's preferences worker is a real OS thread whose restore wakes a
+        // GPUI task; without this the test scheduler reports that cross-thread
+        // wakeup as non-determinism whenever the worker finishes after the task
+        // registered its waker, as on a loaded CI runner.
+        cx.executor().allow_parking();
         let preferences = temporary_preferences(name);
         let displays = Rc::new(RefCell::new(adapter));
         let misplace = Rc::new(Cell::new(false));

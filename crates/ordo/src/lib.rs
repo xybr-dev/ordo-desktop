@@ -55,6 +55,10 @@ pub struct CongregationView {
     image: Option<Arc<gpui::Image>>,
     /// Revision of the Program frame `image` was encoded from.
     image_revision: Option<u64>,
+    /// Bumped by every `set_state`. A background encode lands only while its
+    /// generation is still current, so it can never repaint over a later
+    /// state, even one whose Program reuses the same revision.
+    generation: u64,
     on_pointer: Option<PointerListener>,
     on_press: Option<PressListener>,
 }
@@ -76,6 +80,7 @@ impl CongregationView {
             state: state.clone(),
             image: None,
             image_revision: None,
+            generation: 0,
             on_pointer,
             on_press,
         };
@@ -90,10 +95,11 @@ impl CongregationView {
     /// Program bytes (an `Arc` bump, no pixel copy) cross to the background
     /// executor for the RGBA copy plus `tiny-skia` PNG encode — and replaces
     /// the painted image only once complete, so no partial frame publishes.
-    /// A superseded encode is dropped by revision.
+    /// A superseded encode is dropped by generation, never by revision.
     pub fn set_state(&mut self, state: CongregationState, cx: &mut Context<Self>) {
         let program = state.program().clone();
         self.state = state;
+        self.generation = self.generation.wrapping_add(1);
         if program.is_black() {
             self.image = None;
             self.image_revision = None;
@@ -101,11 +107,12 @@ impl CongregationView {
             return;
         }
         let revision = program.revision();
+        let generation = self.generation;
         let background = cx.background_spawn(async move { congregation_image(&program) });
         cx.spawn(async move |view, cx| {
             let image = background.await;
             view.update(cx, |view: &mut Self, cx| {
-                if view.state.program().revision() == revision {
+                if view.generation == generation {
                     view.image = Some(image);
                     view.image_revision = Some(revision);
                     cx.notify();
