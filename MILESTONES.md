@@ -415,31 +415,33 @@ requires evidence no development platform produces.
 state to GPUI or operating-system window details.
 
 **Changes:** `crates/platform/src/display/`,
-`crates/platform/src/congregation_window.rs`, `tests/display/`,
-`tests/fixtures/display-topologies/`
+`crates/platform/src/congregation_window.rs`, `crates/presentation/`,
+`crates/ordo/src/output.rs`, `tests/display/`,
+`tests/fixtures/display-topologies/`, `tests/native-runtime/`, `xtask/`,
+`.github/workflows/verify.yml`
 
 **Depends on:** T0.2, T0.4, T0.4a.
 
 **AC**
 
-- [ ] `[AUTO]` Define a small Display Control Interface for discovery,
+- [x] `[AUTO]` Define a small Display Control Interface for discovery,
       identification, assignment, output lifecycle, topology, and status; an
       in-memory Adapter drives deterministic tests and GPUI/native platform
       code is the production Adapter.
-- [ ] `[UI-AUTO]` The application starts with no congregation-output window.
-- [ ] `[UI-AUTO]` Explicit output enablement creates exactly one passive,
+- [x] `[UI-AUTO]` The application starts with no congregation-output window.
+- [x] `[UI-AUTO]` Explicit output enablement creates exactly one passive,
       borderless congregation window on the assigned display and shows black
       before any content.
-- [ ] `[UI-AUTO]` The congregation window cannot take intentional operator
+- [x] `[UI-AUTO]` The congregation window cannot take intentional operator
       focus, receive operator controls, or expose operator-only context.
-- [ ] `[AUTO]` Display disappearance enters a disconnected result without
+- [x] `[AUTO]` Display disappearance enters a disconnected result without
       silently selecting another display; reconnecting does not expose content
       until the documented restore path completes.
-- [ ] `[AUTO]` Topology records relative direction from any operator-display
+- [x] `[AUTO]` Topology records relative direction from any operator-display
       arrangement rather than assuming the congregation display is rightward.
-- [ ] `[MANUAL]` Pointer hiding over Program and operator cursor-location
+- [x] `[MANUAL]` Pointer hiding over Program and operator cursor-location
       assistance work for displays positioned left, right, above, and below.
-- [ ] `[NATIVE-AUTO]` Packaged builds can enumerate the native runner display
+- [x] `[NATIVE-AUTO]` Packaged builds can enumerate the native runner display
       and survive a synthetic topology refresh without a crash.
 
 **E2E** `[UI-AUTO]` — With a fake two-display Adapter, enable output, verify

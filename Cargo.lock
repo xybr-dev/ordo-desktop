@@ -1354,6 +1354,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "display-tests"
+version = "0.1.0"
+dependencies = [
+ "gpui-pre",
+ "gpui-pre-platform",
+ "ordo",
+ "platform",
+ "presentation",
+ "rendering",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3475,6 +3487,7 @@ version = "0.1.0"
 dependencies = [
  "gpui-pre",
  "ordo",
+ "platform",
  "presentation",
  "rendering",
  "ui",
