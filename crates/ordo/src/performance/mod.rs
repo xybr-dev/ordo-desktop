@@ -3,9 +3,11 @@
 //! These types are plain synchronous data. They do not touch GPUI, storage,
 //! or the window system, so they can be exercised from tests and from any
 //! thread. Production callers keep sampling and aggregation off the GPUI
-//! thread (see [`process::ProcessSampler`]).
+//! thread (see [`process::ProcessSampler`]). The exception is
+//! [`display_path`], which compares the CPU raster and retained GPUI paths.
 
 pub mod clock;
+pub mod display_path;
 pub mod frames;
 pub mod latency;
 pub mod process;
