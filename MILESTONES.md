@@ -477,7 +477,7 @@ baseline before full UI construction.
       queue latency, and idle CPU.
 - [x] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
       genuinely lower-resolution, virtualized, and released when obsolete.
-- [x] `[AUTO]` Compare the two candidate display paths for the same canonical
+- [ ] `[AUTO]` Compare the two candidate display paths for the same canonical
       frame and record latency and held bytes for each: the CPU raster path
       (`rendering::rasterize` composited to RGBA, encoded, decoded, uploaded)
       and a retained path that walks the logical `Frame` straight into the
@@ -490,7 +490,7 @@ baseline before full UI construction.
 - [x] `[AUTO]` If the retained path is measured, confirm the GPUI text system
       resolves the bundled Atkinson Hyperlegible Next and Noto Sans faces the
       canonical shaper uses, rather than a same-named system installation, on
-      both packaged targets. Shaped glyph IDs are face-intrinsic, so a silent
+      both packaged targets (Linux retired, Decision 268). Shaped glyph IDs are face-intrinsic, so a silent
       substitution would mispaint without failing.
 - [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
