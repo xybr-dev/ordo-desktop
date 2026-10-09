@@ -2,32 +2,54 @@
 //!
 //! [`PresenterProbe`] is a GPUI view over the pure [`PresenterEngine`]. It
 //! renders Preview and Program side by side and binds the operator keys to
-//! Presenter actions. Each action is one keydown. The keydown is stamped,
-//! a [`hot_path`] scope opens, the engine applies the command, and a
-//! `on_next_frame` callback closes the scope and records keydown-to-paint for
-//! Preview and Program from the frame that drew the change.
+//! Presenter actions. Each command yields one keydown-to-surface-paint sample
+//! per surface, measured by the following spans:
 //!
-//! [`drive`] is the self-driver. It dispatches a command stream through
-//! `Window::dispatch_keystroke`, one key per presented frame, then idles
-//! without input and samples process CPU. It delivers a [`ProbeOutcome`]
-//! through a callback.
+//! - **Keydown stamp.** [`drive`] takes the stamp immediately before it
+//!   dispatches the command: `Window::dispatch_keystroke` for keys, or
+//!   `Window::dispatch_action` for `GoTo`. An interactive key with no driver
+//!   stamps when its action applies.
+//! - **Hot-path scope.** Opened when the command applies. It stays open through
+//!   render, paint, and the settle callback, and closes in the settle callback.
+//!   Notes made in that window are violations. The thumbnail request is sent
+//!   after the scope closes, so it is never a violation.
+//! - **Keydown to surface paint.** Preview and Program each have a `canvas`
+//!   whose paint closure stamps the time that surface's paint runs. The span
+//!   stops there, before GPU present. The two stamps are separate paint times,
+//!   so Preview and Program can differ. This is what [`LATENCY_SCOPE`] names.
+//! - **Keydown to present upper bound.** The first paint in a drawn frame
+//!   registers one `on_next_frame` callback. A callback registered during a
+//!   draw runs at the start of the next frame, after the drawn frame was
+//!   presented. The settle callback records stamp to settle time, which is an
+//!   upper bound on keydown to present, at most one frame late. Settle then
+//!   dispatches the next command.
+//!
+//! [`drive`] is the self-driver. It dispatches a command stream one command per
+//! settled frame, then idles without input and samples process CPU. It
+//! delivers a `Result<ProbeOutcome, DriveError>` through a callback, and
+//! delivers `Err(DriveError::WindowClosed)` if the window closes mid-run.
 //!
 //! Thumbnail work runs on one named worker thread, `ordo-probe-thumbnails`.
 //! Each request is wrapped in [`Enqueued`] and its dequeue wait is observed
-//! by [`QueueLatency`]. The worker owns the thread: dropping the probe sends
-//! an explicit `Stop` and joins it. The synthetic Cue frames stand in for real
-//! Cue content, which the probe does not have.
+//! by [`QueueLatency`]. Dropping the probe queues `Stop` behind the pending
+//! requests, at most `THUMBNAIL_QUEUE_CAPACITY` of them, or closes the channel
+//! if the queue is full. The worker exits at `Stop`, or after its current item
+//! once the channel is closed, and the probe joins it. The synthetic Cue frames
+//! stand in for real Cue content, which the probe does not have.
 //!
 //! Replies come back over a plain `mpsc` channel that the GPUI thread drains at
 //! each paint and at outcome time. An async reply channel would wake a GPUI
 //! task from the worker thread, which the test scheduler reports as
 //! non-determinism.
 //!
-//! Every thumbnail request is sent from the frame callback after its scope
-//! closes. A send made inside the scope is a hot-path violation.
+//! Intended call sequence for the lab, beside the real runtime:
+//! `open_native_runtime_at` first, then [`open`] (no runtime state is needed,
+//! and key registration is idempotent), then [`drive`] on the returned handle.
 
 use std::{
-    collections::VecDeque,
+    cell::RefCell,
+    collections::{BTreeMap, VecDeque},
+    rc::Rc,
     sync::mpsc,
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -35,8 +57,8 @@ use std::{
 
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyBinding, Keystroke, ParentElement as _, Render, Styled as _, Window,
-    WindowHandle, WindowOptions, actions, div, rgb,
+    IntoElement, KeyBinding, Keystroke, ParentElement as _, Render, Styled as _, Subscription,
+    WeakEntity, Window, WindowHandle, WindowOptions, actions, canvas, div, rgb,
 };
 use presentation::presenter::{PresenterCommand, PresenterEngine, PresenterState};
 
@@ -49,8 +71,9 @@ use super::{
     report::{PerformanceReport, RendererInfo},
 };
 
-/// What the report's `latency_scope` says the latency measures.
-pub const LATENCY_SCOPE: &str = "keydown_to_paint";
+/// What the report's `latency_scope` says the latency measures. The span stops
+/// when the surface's paint runs, before GPU present.
+pub const LATENCY_SCOPE: &str = "keydown_to_surface_paint";
 
 /// Key context the probe's bindings are scoped to.
 const KEY_CONTEXT: &str = "PresenterProbe";
@@ -82,9 +105,24 @@ actions!(
     ]
 );
 
-/// Registers the probe's key bindings. Call once per app before
-/// [`drive`] or a key press reaches the probe.
+/// Moves Preview to a Cue index. The probe has no key for it, so [`drive`]
+/// dispatches it with `Window::dispatch_action`.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = ordo_presenter_probe, no_json)]
+pub struct ProbeGoTo(pub usize);
+
+/// Marks that the probe's key bindings are already registered in this App.
+struct ProbeKeysRegistered;
+
+impl gpui::Global for ProbeKeysRegistered {}
+
+/// Registers the probe's key bindings once per App. Safe to call again, so
+/// [`open`] can be used beside a runtime that also registered keys.
 pub fn register_keys(cx: &mut App) {
+    if cx.has_global::<ProbeKeysRegistered>() {
+        return;
+    }
+    cx.set_global(ProbeKeysRegistered);
     cx.bind_keys([
         KeyBinding::new("right", ProbeNext, Some(KEY_CONTEXT)),
         KeyBinding::new("left", ProbePrevious, Some(KEY_CONTEXT)),
@@ -95,7 +133,7 @@ pub fn register_keys(cx: &mut App) {
 }
 
 /// Registers the key bindings and opens a probe window over a `cue_count`
-/// deck.
+/// deck. Needs only `App`, so it can run beside an opened native runtime.
 pub fn open(
     cx: &mut App,
     options: WindowOptions,
@@ -119,8 +157,8 @@ fn command_kind(command: PresenterCommand) -> CommandKind {
     }
 }
 
-/// The keystroke that sends `command`. `GoTo` has no key of its own, so the
-/// driver expands it into arrow keys instead.
+/// The keystroke that sends `command`. `GoTo` has no key and is dispatched as
+/// [`ProbeGoTo`] instead.
 fn keystroke_for(command: PresenterCommand) -> Option<&'static str> {
     match command {
         PresenterCommand::Next => Some("right"),
@@ -129,6 +167,14 @@ fn keystroke_for(command: PresenterCommand) -> Option<&'static str> {
         PresenterCommand::ToggleFreeze => Some("f"),
         PresenterCommand::ToggleBlackout => Some("b"),
         PresenterCommand::GoTo(_) => None,
+    }
+}
+
+/// Index of a surface in [`OpenCommand::painted`].
+fn slot(surface: Surface) -> usize {
+    match surface {
+        Surface::Preview => 0,
+        Surface::Program => 1,
     }
 }
 
@@ -149,7 +195,8 @@ struct ThumbnailReply {
     pixels: Vec<u8>,
 }
 
-/// Owns the named thumbnail thread. Dropping it sends `Stop` and joins.
+/// Owns the named thumbnail thread. Dropping it sends `Stop` (or closes the
+/// channel if the queue is full) and joins.
 struct ThumbnailWorker {
     commands: async_channel::Sender<ThumbnailCommand>,
     thread: Option<JoinHandle<()>>,
@@ -181,21 +228,28 @@ impl ThumbnailWorker {
 
 impl Drop for ThumbnailWorker {
     fn drop(&mut self) {
-        // A dead worker has already stopped, so a failed send needs no action.
-        let _ = self.commands.send_blocking(ThumbnailCommand::Stop);
+        // A full queue refuses Stop, so the channel is closed instead. The
+        // worker observes the closure between items.
+        if self.commands.try_send(ThumbnailCommand::Stop).is_err() {
+            self.commands.close();
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-/// Worker loop: dequeue, observe the wait, downscale, reply, until `Stop`.
+/// Worker loop: dequeue, observe the wait, downscale, reply, until `Stop` or
+/// until the channel is closed.
 fn serve_thumbnails(
     requests: async_channel::Receiver<ThumbnailCommand>,
     replies: mpsc::Sender<ThumbnailReply>,
 ) {
     let mut queue = QueueLatency::new();
     while let Ok(command) = requests.recv_blocking() {
+        if requests.is_closed() {
+            break;
+        }
         let item = match command {
             ThumbnailCommand::Render(item) => item,
             ThumbnailCommand::Stop => break,
@@ -254,27 +308,74 @@ pub struct ProbeOutcome {
     pub final_state: PresenterState,
 }
 
-/// Why a drive could not start.
+/// Why a drive could not start, or ended before its outcome.
 #[derive(Debug)]
 pub enum DriveError {
     /// The current process could not be identified for CPU and memory sampling.
     Sampler(ProcessSamplerError),
-    /// The probe window is no longer open.
+    /// The probe window is closed, before the drive started or mid-run.
     WindowClosed,
+    /// A dispatched command never applied. Its key had no binding, or its
+    /// action was not handled by the focused probe.
+    Unhandled,
+    /// A surface did not paint the frame that drew a command before the next
+    /// frame settled.
+    NotPainted,
+    /// A newer [`drive`] replaced this one before it finished.
+    Superseded,
 }
 
-/// Receives the outcome of a drive.
-type DoneCallback = Box<dyn FnOnce(ProbeOutcome, &mut App)>;
+/// Receives the outcome of a drive, exactly once.
+type DoneCallback = Box<dyn FnOnce(Result<ProbeOutcome, DriveError>, &mut App)>;
+
+/// The drive's callback, shared between the run and the window-closed observer.
+/// Whichever fires first takes it, so the callback runs exactly once.
+type DoneSlot = Rc<RefCell<Option<DoneCallback>>>;
+
+/// Delivers `result` through `done` if no one has delivered yet.
+fn finish_with(done: &DoneSlot, result: Result<ProbeOutcome, DriveError>, cx: &mut App) {
+    let callback = done.borrow_mut().take();
+    if let Some(callback) = callback {
+        callback(result, cx);
+    }
+}
 
 /// One drive in flight. Dropped when the drive ends.
 struct Run {
     pending: VecDeque<PresenterCommand>,
-    /// Arrow keys expanded from a `GoTo`, not yet dispatched.
-    keys: VecDeque<&'static str>,
+    /// Commands dispatched so far, counting from the start of the run. Each
+    /// one must apply before its settle callback.
+    dispatched: u64,
     idle: Duration,
     sampler: ProcessSampler,
     renderer: RendererInfo,
-    on_done: DoneCallback,
+    done: DoneSlot,
+    /// Unsubscribes the window-closed observer when the run ends.
+    window_closed: Subscription,
+}
+
+/// One applied command, from apply until its settle callback.
+struct OpenCommand {
+    stamp: KeydownStamp,
+    /// Open from apply until settle. Notes made in render and paint count.
+    scope: HotPathScope,
+    /// Paint time per surface, set by that surface's canvas.
+    painted: [Option<Instant>; 2],
+}
+
+/// State shared between the probe and its surface canvases.
+#[derive(Default)]
+struct PaintBoard {
+    /// Commands applied and not yet settled.
+    open: Vec<OpenCommand>,
+    /// Whether a settle callback is already registered for the next frame.
+    settle_armed: bool,
+    /// Test hook: note a violation during the next render.
+    #[cfg(test)]
+    violate_in_render: bool,
+    /// Test hook: note a violation during the next surface paint.
+    #[cfg(test)]
+    violate_in_paint: bool,
 }
 
 /// GPUI view over one Presenter deck, with the latency and frame instruments.
@@ -283,6 +384,8 @@ pub struct PresenterProbe {
     cue_count: usize,
     focus: FocusHandle,
     latency: LatencyBook,
+    /// Keydown to settle, per command kind. See the module doc.
+    present_upper_bound: BTreeMap<CommandKind, LatencyHistogram>,
     frames: FrameTimer,
     worker_queue: LatencyHistogram,
     thumbnails: ThumbnailWorker,
@@ -290,6 +393,11 @@ pub struct PresenterProbe {
     thumbnail_replies: mpsc::Receiver<ThumbnailReply>,
     thumbnails_received: u64,
     thumbnail_bytes: u64,
+    /// Commands applied, whichever path applied them.
+    applied: u64,
+    /// Stamp the driver took just before it dispatched the next command.
+    pending_stamp: Option<KeydownStamp>,
+    board: Rc<RefCell<PaintBoard>>,
     run: Option<Run>,
     /// Test hook: the next command notes a violation inside its scope.
     #[cfg(test)]
@@ -310,12 +418,16 @@ impl PresenterProbe {
             cue_count,
             focus,
             latency: LatencyBook::new(),
+            present_upper_bound: BTreeMap::new(),
             frames: FrameTimer::new(),
             worker_queue: LatencyHistogram::new(),
             thumbnails,
             thumbnail_replies: reply_rx,
             thumbnails_received: 0,
             thumbnail_bytes: 0,
+            applied: 0,
+            pending_stamp: None,
+            board: Rc::new(RefCell::new(PaintBoard::default())),
             run: None,
             #[cfg(test)]
             violate_on_next_command: false,
@@ -323,7 +435,8 @@ impl PresenterProbe {
     }
 
     /// The Presenter state now. Equal to the pure engine's state after the
-    /// same commands, which is what the oracle check compares.
+    /// same commands, revision included, which is what the oracle check
+    /// compares.
     pub fn final_state(&self) -> PresenterState {
         *self.engine.state()
     }
@@ -343,28 +456,30 @@ impl PresenterProbe {
         &self.worker_queue
     }
 
-    /// The probe's keydown-to-paint samples so far.
+    /// The probe's keydown-to-surface-paint samples so far.
     pub fn latency(&self) -> &LatencyBook {
         &self.latency
     }
 
-    /// Applies one operator command. The stamp, the hot-path scope, and the
-    /// paint callback are all opened here, so the keydown and the paint of
-    /// its frame are the ends of one measurement.
-    fn apply_command(
-        &mut self,
-        command: PresenterCommand,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let stamp = PendingKeydown::start(command_kind(command));
+    /// Applies one operator command. The keydown stamp (the driver's, or one
+    /// taken now for an interactive key), the hot-path scope, and the surface
+    /// paints are all tied to this command, which ends at its settle callback.
+    fn apply_command(&mut self, command: PresenterCommand, cx: &mut Context<Self>) {
+        let stamp = self
+            .pending_stamp
+            .take()
+            .unwrap_or_else(|| PendingKeydown::start(command_kind(command)));
         let scope = hot_path::enter();
         #[cfg(test)]
         self.inject_violation();
+        self.applied += 1;
         self.engine.apply(command);
+        self.board.borrow_mut().open.push(OpenCommand {
+            stamp,
+            scope,
+            painted: [None; 2],
+        });
         cx.notify();
-        let entity = cx.entity();
-        window.on_next_frame(move |window, cx| paint(entity, stamp, scope, window, cx));
     }
 
     #[cfg(test)]
@@ -374,13 +489,48 @@ impl PresenterProbe {
         }
     }
 
-    /// Records the paint of the frame that drew one command. Preview and
-    /// Program are both painted by that frame, so both get the same elapsed
-    /// time.
-    fn record_paint(&mut self, stamp: KeydownStamp) {
-        for surface in Surface::ALL {
-            PendingKeydown::finish(stamp, surface, &mut self.latency);
+    /// Closes every applied command at settle time. Records keydown to each
+    /// surface's paint and keydown to `now`, and closes the scopes. During a
+    /// run it also checks that every dispatched command applied, and that every
+    /// surface painted. Returns an error only during a run, since interactive
+    /// commands have no caller to report to.
+    fn settle_paints(&mut self, now: Instant) -> Result<(), DriveError> {
+        let open = {
+            let mut board = self.board.borrow_mut();
+            board.settle_armed = false;
+            std::mem::take(&mut board.open)
+        };
+        let mut result = Ok(());
+        for OpenCommand {
+            stamp,
+            scope,
+            painted,
+        } in open
+        {
+            let kind = stamp.kind();
+            self.present_upper_bound
+                .entry(kind)
+                .or_default()
+                .record(now.saturating_duration_since(stamp.at()));
+            for surface in Surface::ALL {
+                match painted[slot(surface)] {
+                    Some(at) => {
+                        let elapsed = at.saturating_duration_since(stamp.at());
+                        self.latency.record(kind, surface, elapsed);
+                    }
+                    None if result.is_ok() => result = Err(DriveError::NotPainted),
+                    None => {}
+                }
+            }
+            scope.close();
         }
+        match &self.run {
+            Some(run) if self.applied != run.dispatched && result.is_ok() => {
+                result = Err(DriveError::Unhandled);
+            }
+            _ => {}
+        }
+        if self.run.is_some() { result } else { Ok(()) }
     }
 
     /// Queues the thumbnail for the Preview Cue. Called only after the paint
@@ -399,27 +549,38 @@ impl PresenterProbe {
     }
 
     /// Starts a drive: resets the instruments, stores the command stream, and
-    /// arms the frame loop. The first key is dispatched by the caller, outside
-    /// this view update.
+    /// arms the frame loop. The first command is dispatched by the caller,
+    /// outside this view update.
+    #[allow(clippy::too_many_arguments)]
     fn begin_run(
         &mut self,
         commands: Vec<PresenterCommand>,
         idle: Duration,
         sampler: ProcessSampler,
-        on_done: DoneCallback,
+        done: DoneSlot,
+        window_closed: Subscription,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(superseded) = self.run.take() {
+            // Deferred, so the earlier callback never runs inside this update.
+            let superseded_done = superseded.done.clone();
+            drop(superseded);
+            cx.defer(move |cx| finish_with(&superseded_done, Err(DriveError::Superseded), cx));
+        }
         self.latency = LatencyBook::new();
+        self.present_upper_bound.clear();
         self.frames = FrameTimer::new();
         self.worker_queue = LatencyHistogram::new();
         self.thumbnails_received = 0;
         self.thumbnail_bytes = 0;
         self.engine = PresenterEngine::new(self.cue_count);
+        self.pending_stamp = None;
+        self.board.borrow_mut().open.clear();
         hot_path::take_violations();
         self.run = Some(Run {
             pending: commands.into(),
-            keys: VecDeque::new(),
+            dispatched: self.applied,
             idle,
             sampler,
             renderer: window
@@ -428,44 +589,31 @@ impl PresenterProbe {
                     software_emulated: Some(specs.is_software_emulated),
                     device_name: Some(specs.device_name),
                 }),
-            on_done,
+            done,
+            window_closed,
         });
         arm_frame_loop(cx.entity(), window);
     }
 
-    /// The next key of the run, or `None` when the run is over or none is
-    /// active. A `GoTo` expands into arrow keys from the current Preview. The
-    /// queue is only expanded once the previous keys have applied, so the
-    /// Preview read here is current.
-    fn next_key(&mut self) -> Option<&'static str> {
-        loop {
-            let run = self.run.as_mut()?;
-            if let Some(key) = run.keys.pop_front() {
-                return Some(key);
-            }
-            let command = run.pending.pop_front()?;
-            if let Some(key) = keystroke_for(command) {
-                return Some(key);
-            }
-            let PresenterCommand::GoTo(target) = command else {
-                continue;
-            };
-            let from = self.engine.state().preview();
-            let to = target.min(self.cue_count.saturating_sub(1));
-            let keys = if to > from {
-                std::iter::repeat_n("right", to - from)
-            } else {
-                std::iter::repeat_n("left", from - to)
-            };
-            if let Some(run) = self.run.as_mut() {
-                run.keys.extend(keys);
-            }
-        }
+    /// The next command of the run, counted as dispatched. `None` when the run
+    /// is over or none is active.
+    fn next_command(&mut self) -> Option<PresenterCommand> {
+        let run = self.run.as_mut()?;
+        let command = run.pending.pop_front()?;
+        run.dispatched += 1;
+        Some(command)
     }
 
-    /// Ends the run and takes its state out of the view. The hot-path count
-    /// is read here, on the GPUI thread that noted the violations.
+    /// Ends the run and takes its state out of the view.
     fn close_run(&mut self) -> Option<Run> {
+        self.pending_stamp = None;
+        self.run.take()
+    }
+
+    /// Drops the run's open commands and takes its state, for a failed run.
+    fn abort_run(&mut self) -> Option<Run> {
+        self.pending_stamp = None;
+        self.board.borrow_mut().open.clear();
         self.run.take()
     }
 
@@ -480,6 +628,7 @@ impl PresenterProbe {
             report: PerformanceReport {
                 latency: self.latency.clone(),
                 latency_scope: LATENCY_SCOPE,
+                present_upper_bound: self.present_upper_bound.clone(),
                 frames: self.frames.clone(),
                 // The probe is not the process start. The lab owns startup.
                 time_to_first_paint: None,
@@ -512,47 +661,125 @@ fn arm_frame_loop(entity: Entity<PresenterProbe>, window: &Window) {
     });
 }
 
-/// The paint callback for one command. It runs after the frame that drew the
-/// command. Thumbnail work starts only after the scope closes, so the send
-/// is never a violation.
-fn paint(
-    entity: Entity<PresenterProbe>,
-    stamp: KeydownStamp,
-    scope: HotPathScope,
-    window: &mut Window,
-    cx: &mut App,
+/// Stamps the paint of `surface` on every command applied so far that this
+/// surface has not painted yet. The first paint in a drawn frame also arms
+/// the settle callback for the next frame.
+fn record_surface_paint(
+    board: &RefCell<PaintBoard>,
+    probe: &WeakEntity<PresenterProbe>,
+    surface: Surface,
+    window: &Window,
 ) {
-    entity.update(cx, |probe, _| probe.record_paint(stamp));
-    scope.close();
+    let now = Instant::now();
+    let mut board = board.borrow_mut();
+    #[cfg(test)]
+    if hot_path::is_open() && std::mem::take(&mut board.violate_in_paint) {
+        hot_path::note(HotPathKind::FileAccess);
+    }
+    for open in &mut board.open {
+        let painted = &mut open.painted[slot(surface)];
+        if painted.is_none() {
+            *painted = Some(now);
+        }
+    }
+    if !board.open.is_empty() && !board.settle_armed {
+        board.settle_armed = true;
+        let probe = probe.clone();
+        // Registered during a draw, so it runs at the start of the next frame,
+        // after this frame was presented.
+        window.on_next_frame(move |window, cx| settle(&probe, window, cx));
+    }
+}
+
+/// A surface's paint hook: a zero-size canvas laid over the panel. It paints
+/// nothing and only stamps the surface's paint time.
+fn surface_canvas(
+    board: Rc<RefCell<PaintBoard>>,
+    probe: WeakEntity<PresenterProbe>,
+    surface: Surface,
+) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |_, (), window, _cx| record_surface_paint(&board, &probe, surface, window),
+    )
+    .absolute()
+    .inset_0()
+}
+
+/// The settle callback for the frame after the one that drew the open
+/// commands. It runs before that frame's draw, so the frame it settles has
+/// already been presented. It closes the scopes, records the frame, and
+/// dispatches the run's next command.
+fn settle(probe: &WeakEntity<PresenterProbe>, window: &mut Window, cx: &mut App) {
+    let Some(entity) = probe.upgrade() else {
+        return;
+    };
+    let settled = entity.update(cx, |probe, _| probe.settle_paints(Instant::now()));
+    if let Err(error) = settled {
+        fail_run(&entity, error, cx);
+        return;
+    }
     entity.update(cx, |probe, _| {
         probe.drain_thumbnails();
         probe.request_thumbnail();
     });
-    step(&entity, window, cx);
+    step(probe, window, cx);
 }
 
-/// Dispatches the run's next key through the real key path, or finishes the
-/// run when no key is left. A key no binding handles would never paint, so the
-/// run ends rather than waiting for a frame that cannot come.
-fn step(entity: &Entity<PresenterProbe>, window: &mut Window, cx: &mut App) {
-    let next = entity.update(cx, |probe, _| probe.next_key());
-    let handled = match next {
+/// Dispatches the run's next command through the real input path, or
+/// finishes the run when no command is left.
+fn step(probe: &WeakEntity<PresenterProbe>, window: &mut Window, cx: &mut App) {
+    let command = match probe.update(cx, |probe, _| probe.next_command()) {
+        Ok(Some(command)) => command,
+        Ok(None) => return finish_run(probe, cx),
+        Err(_) => return,
+    };
+    // The keydown stamp is taken immediately before the dispatch.
+    let stamp = PendingKeydown::start(command_kind(command));
+    if probe
+        .update(cx, |probe, _| probe.pending_stamp = Some(stamp))
+        .is_err()
+    {
+        return;
+    }
+    match keystroke_for(command) {
         Some(key) => {
             let keystroke = Keystroke::parse(key).expect("probe keys are valid keystrokes");
-            window.dispatch_keystroke(keystroke, cx)
+            if !window.dispatch_keystroke(keystroke, cx) {
+                // A key no binding handles never applies, so the run would
+                // wait for a settle that cannot come.
+                fail_run_by_weak(probe, DriveError::Unhandled, cx);
+            }
         }
-        None => false,
-    };
-    if next.is_none() || !handled {
-        finish_run(entity, cx);
+        None => {
+            if let PresenterCommand::GoTo(index) = command {
+                window.dispatch_action(Box::new(ProbeGoTo(index)), cx);
+            }
+        }
+    }
+}
+
+/// Ends a run with `error`, taking its callback through the probe entity.
+fn fail_run_by_weak(probe: &WeakEntity<PresenterProbe>, error: DriveError, cx: &mut App) {
+    if let Some(entity) = probe.upgrade() {
+        fail_run(&entity, error, cx);
+    }
+}
+
+/// Ends a run with `error` and delivers it to the drive's callback.
+fn fail_run(entity: &Entity<PresenterProbe>, error: DriveError, cx: &mut App) {
+    if let Some(run) = entity.update(cx, |probe, _| probe.abort_run()) {
+        let done = run.done.clone();
+        drop(run);
+        finish_with(&done, Err(error), cx);
     }
 }
 
 /// Closes the run, then samples CPU over the idle window on a background
 /// task. The outcome is delivered from that task.
-fn finish_run(entity: &Entity<PresenterProbe>, cx: &mut App) {
+fn finish_run(probe: &WeakEntity<PresenterProbe>, cx: &mut App) {
     // Without an open run there is nothing to finish, and nothing to count.
-    let Some(run) = entity.update(cx, |probe, _| probe.close_run()) else {
+    let Ok(Some(run)) = probe.update(cx, |probe, _| probe.close_run()) else {
         return;
     };
     let violations: u64 = hot_path::take_violations()
@@ -563,12 +790,16 @@ fn finish_run(entity: &Entity<PresenterProbe>, cx: &mut App) {
         idle,
         sampler,
         renderer,
-        on_done,
+        done,
+        window_closed,
         ..
     } = run;
-    let probe = entity.downgrade();
+    let probe = probe.clone();
     let background = cx.background_executor().clone();
     cx.spawn(async move |cx| {
+        // Held until the outcome is delivered, so the window-closed observer
+        // stays subscribed during the idle sample.
+        let _window_closed = window_closed;
         // The first sample only sets the CPU baseline. The second sample's
         // CPU is the delta over the idle window.
         let (sampler, _) = background
@@ -585,13 +816,14 @@ fn finish_run(entity: &Entity<PresenterProbe>, cx: &mut App) {
                 sampler.sample()
             })
             .await;
-        let Ok(outcome) = probe.update(cx, |probe, _| {
+        let result = match probe.update(cx, |probe, _| {
             probe.drain_thumbnails();
             probe.outcome(idle_sample, renderer, violations)
-        }) else {
-            return;
+        }) {
+            Ok(outcome) => Ok(outcome),
+            Err(_) => Err(DriveError::WindowClosed),
         };
-        cx.update(move |cx| on_done(outcome, cx));
+        let _ = cx.update(move |cx| finish_with(&done, result, cx));
     })
     .detach();
 }
@@ -604,24 +836,54 @@ impl Focusable for PresenterProbe {
 
 impl Render for PresenterProbe {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(test)]
+        if hot_path::is_open() && std::mem::take(&mut self.board.borrow_mut().violate_in_render) {
+            hot_path::note(HotPathKind::FileAccess);
+        }
         let state = *self.engine.state();
+        let preview_lines = [
+            cue_label(state.preview(), self.cue_count),
+            format!("revision {}", state.revision()),
+        ];
+        let program_text = program_lines(&state, self.cue_count);
+        let preview = surface_panel(
+            "Preview",
+            &preview_lines,
+            surface_canvas(
+                self.board.clone(),
+                cx.entity().downgrade(),
+                Surface::Preview,
+            ),
+        );
+        let program = surface_panel(
+            "Program",
+            &program_text,
+            surface_canvas(
+                self.board.clone(),
+                cx.entity().downgrade(),
+                Surface::Program,
+            ),
+        );
         div()
             .track_focus(&self.focus)
             .key_context(KEY_CONTEXT)
-            .on_action(cx.listener(|this, _: &ProbeNext, window, cx| {
-                this.apply_command(PresenterCommand::Next, window, cx)
+            .on_action(cx.listener(|this, _: &ProbeNext, _window, cx| {
+                this.apply_command(PresenterCommand::Next, cx)
             }))
-            .on_action(cx.listener(|this, _: &ProbePrevious, window, cx| {
-                this.apply_command(PresenterCommand::Previous, window, cx)
+            .on_action(cx.listener(|this, _: &ProbePrevious, _window, cx| {
+                this.apply_command(PresenterCommand::Previous, cx)
             }))
-            .on_action(cx.listener(|this, _: &ProbeTakeLive, window, cx| {
-                this.apply_command(PresenterCommand::TakeLive, window, cx)
+            .on_action(cx.listener(|this, action: &ProbeGoTo, _window, cx| {
+                this.apply_command(PresenterCommand::GoTo(action.0), cx)
             }))
-            .on_action(cx.listener(|this, _: &ProbeToggleFreeze, window, cx| {
-                this.apply_command(PresenterCommand::ToggleFreeze, window, cx)
+            .on_action(cx.listener(|this, _: &ProbeTakeLive, _window, cx| {
+                this.apply_command(PresenterCommand::TakeLive, cx)
             }))
-            .on_action(cx.listener(|this, _: &ProbeToggleBlackout, window, cx| {
-                this.apply_command(PresenterCommand::ToggleBlackout, window, cx)
+            .on_action(cx.listener(|this, _: &ProbeToggleFreeze, _window, cx| {
+                this.apply_command(PresenterCommand::ToggleFreeze, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ProbeToggleBlackout, _window, cx| {
+                this.apply_command(PresenterCommand::ToggleBlackout, cx)
             }))
             .size_full()
             .flex()
@@ -630,22 +892,7 @@ impl Render for PresenterProbe {
             .p_4()
             .bg(rgb(0x18181c))
             .text_color(rgb(0xe8e8ee))
-            .child(
-                div()
-                    .flex()
-                    .gap_4()
-                    .child(surface_panel(
-                        "Preview",
-                        &[
-                            cue_label(state.preview(), self.cue_count),
-                            format!("revision {}", state.revision()),
-                        ],
-                    ))
-                    .child(surface_panel(
-                        "Program",
-                        &program_lines(&state, self.cue_count),
-                    )),
-            )
+            .child(div().flex().gap_4().child(preview).child(program))
             .child(self.footer())
     }
 }
@@ -693,8 +940,9 @@ impl PresenterProbe {
     }
 }
 
-fn surface_panel(title: &str, lines: &[String]) -> impl IntoElement {
+fn surface_panel(title: &str, lines: &[String], paint: impl IntoElement) -> impl IntoElement {
     div()
+        .relative()
         .flex_1()
         .flex()
         .flex_col()
@@ -702,6 +950,7 @@ fn surface_panel(title: &str, lines: &[String]) -> impl IntoElement {
         .p_3()
         .rounded_md()
         .bg(rgb(0x26262e))
+        .child(paint)
         .child(div().text_lg().child(title.to_string()))
         .children(lines.iter().map(|line| div().child(line.clone())))
 }
@@ -739,29 +988,51 @@ fn fmt_ms(value: Option<Duration>) -> String {
     }
 }
 
-/// Drives `commands` through the probe window, one key per presented frame,
+/// Drives `commands` through the probe window, one command per settled frame,
 /// then idles for `idle` and delivers the outcome to `on_done`.
 ///
-/// Every command is sent as its operator keystroke through
-/// `Window::dispatch_keystroke`, so it takes the real binding and action
-/// path. The next key waits for the previous frame to paint. The window must
-/// be open and the bindings registered with [`register_keys`] or [`open`].
+/// Every command goes through the real input path: keys through
+/// `Window::dispatch_keystroke`, `GoTo` through `Window::dispatch_action`. The
+/// next command waits for the previous frame to settle. The window must be
+/// open and the bindings registered with [`register_keys`] or [`open`].
+///
+/// `on_done` receives `Err(DriveError::WindowClosed)` if the window closes
+/// mid-run, `Err(DriveError::Unhandled)` or `Err(DriveError::NotPainted)` if a
+/// command fails to apply or paint, and runs exactly once.
 pub fn drive(
     window: WindowHandle<PresenterProbe>,
     commands: Vec<PresenterCommand>,
     idle: Duration,
-    on_done: impl FnOnce(ProbeOutcome, &mut App) + 'static,
+    on_done: impl FnOnce(Result<ProbeOutcome, DriveError>, &mut App) + 'static,
     cx: &mut App,
 ) -> Result<(), DriveError> {
     let sampler = ProcessSampler::new().map_err(DriveError::Sampler)?;
-    let entity = window
+    let done: DoneSlot = Rc::new(RefCell::new(Some(Box::new(on_done) as DoneCallback)));
+    let window_id = window.window_id();
+    let closed_done = done.clone();
+    let window_closed = cx.on_window_closed(move |cx, closed| {
+        if closed == window_id {
+            finish_with(&closed_done, Err(DriveError::WindowClosed), cx);
+        }
+    });
+    let probe = window
         .update(cx, |probe, window, cx| {
-            probe.begin_run(commands, idle, sampler, Box::new(on_done), window, cx);
-            cx.entity()
+            probe.begin_run(
+                commands,
+                idle,
+                sampler,
+                done,
+                window_closed,
+                window,
+                cx,
+            );
+            cx.entity().downgrade()
         })
         .map_err(|_| DriveError::WindowClosed)?;
-    cx.update_window(window.into(), |_, window, cx| step(&entity, window, cx))
-        .map_err(|_| DriveError::WindowClosed)
+    cx.update_window(window.into(), |_, window, cx| {
+        step(&probe, window, cx)
+    })
+    .map_err(|_| DriveError::WindowClosed)
 }
 
 #[cfg(test)]
@@ -772,13 +1043,27 @@ mod tests {
 
     use super::*;
 
-    /// Pumps frames and the idle clock until the drive delivers an outcome.
+    type Delivered = Rc<RefCell<Option<Result<ProbeOutcome, DriveError>>>>;
+
+    /// One frame: the callbacks due this frame run, then the window draws.
+    /// Returns how many callbacks ran.
+    fn pump_frame(cx: &mut TestAppContext, window: WindowHandle<PresenterProbe>) -> usize {
+        cx.update_window(window.into(), |_, window, cx| {
+            let callbacks = window.simulate_next_frame(cx);
+            let arena = window.draw(cx);
+            arena.clear(cx);
+            callbacks
+        })
+        .expect("probe window is open")
+    }
+
+    /// Pumps frames and the idle clock until the drive delivers a result.
     fn run_to_outcome(
         cx: &mut TestAppContext,
         window: WindowHandle<PresenterProbe>,
         commands: Vec<PresenterCommand>,
-    ) -> ProbeOutcome {
-        let delivered = Rc::new(RefCell::new(None));
+    ) -> Result<ProbeOutcome, DriveError> {
+        let delivered: Delivered = Rc::new(RefCell::new(None));
         let sink = delivered.clone();
         let idle = Duration::from_secs(3);
         cx.update(|cx| {
@@ -786,7 +1071,7 @@ mod tests {
                 window,
                 commands,
                 idle,
-                move |outcome, _| *sink.borrow_mut() = Some(outcome),
+                move |result, _| *sink.borrow_mut() = Some(result),
                 cx,
             )
             .expect("drive starts")
@@ -796,17 +1081,12 @@ mod tests {
             if delivered.borrow().is_some() {
                 break;
             }
-            let drawn = cx
-                .update_window(window.into(), |_, window, cx| {
-                    window.simulate_next_frame(cx)
-                })
-                .expect("probe window is open");
-            if drawn == 0 {
+            if pump_frame(cx, window) == 0 {
                 cx.executor().advance_clock(idle);
             }
         }
-        let outcome = delivered.borrow_mut().take();
-        outcome.expect("drive delivers an outcome")
+        let result = delivered.borrow_mut().take();
+        result.expect("drive delivers a result")
     }
 
     /// Waits for every thumbnail reply the worker sends to be drained.
@@ -838,15 +1118,6 @@ mod tests {
         *engine.state()
     }
 
-    /// Whether two states show the same thing. Revision is excluded because an
-    /// expanded GoTo makes one state change per arrow key.
-    fn same_position(a: &PresenterState, b: &PresenterState) -> bool {
-        a.preview() == b.preview()
-            && a.program() == b.program()
-            && a.frozen() == b.frozen()
-            && a.blackout() == b.blackout()
-    }
-
     #[gpui::test]
     fn drive_records_keydown_to_paint_for_each_command_and_surface(cx: &mut TestAppContext) {
         cx.update(register_keys);
@@ -864,7 +1135,7 @@ mod tests {
             PresenterCommand::ToggleBlackout,
         ];
 
-        let outcome = run_to_outcome(cx, window, commands.clone());
+        let outcome = run_to_outcome(cx, window, commands.clone()).expect("run completes");
 
         // Four navigation keys, two Space, two Freeze, two Blackout.
         let expected = [
@@ -883,6 +1154,12 @@ mod tests {
                 assert_eq!(histogram.total_recorded(), count, "{command:?} {surface:?}");
                 assert!(histogram.p50().is_some());
                 assert!(histogram.p99().is_some());
+                let bound = outcome
+                    .report
+                    .present_upper_bound
+                    .get(&command)
+                    .expect("upper bound recorded");
+                assert_eq!(bound.total_recorded(), count, "{command:?} upper bound");
             }
         }
         assert_eq!(outcome.report.latency_scope, LATENCY_SCOPE);
@@ -908,7 +1185,7 @@ mod tests {
             .expect("probe window is open");
 
         let commands = vec![PresenterCommand::Next, PresenterCommand::TakeLive];
-        let outcome = run_to_outcome(cx, window, commands.clone());
+        let outcome = run_to_outcome(cx, window, commands.clone()).expect("run completes");
 
         assert_eq!(outcome.report.hot_path_violations, 1);
         assert!(
@@ -922,7 +1199,28 @@ mod tests {
     }
 
     #[gpui::test]
-    fn goto_expands_into_arrow_keys_and_matches_the_oracle(cx: &mut TestAppContext) {
+    fn notes_during_render_and_paint_are_counted_before_settle(cx: &mut TestAppContext) {
+        cx.update(register_keys);
+        let window = cx.add_window(|window, cx| PresenterProbe::new(3, window, cx));
+        window
+            .update(cx, |probe, _, _| {
+                let mut board = probe.board.borrow_mut();
+                board.violate_in_render = true;
+                board.violate_in_paint = true;
+            })
+            .expect("probe window is open");
+
+        let commands = vec![PresenterCommand::Next, PresenterCommand::TakeLive];
+        let outcome = run_to_outcome(cx, window, commands.clone()).expect("run completes");
+
+        // One note in the render and one in the paint of the first drawn frame,
+        // both while the command's scope is still open.
+        assert_eq!(outcome.report.hot_path_violations, 2);
+        assert_eq!(outcome.final_state, oracle(3, &commands));
+    }
+
+    #[gpui::test]
+    fn goto_is_one_action_with_one_navigation_sample(cx: &mut TestAppContext) {
         cx.update(register_keys);
         let window = cx.add_window(|window, cx| PresenterProbe::new(5, window, cx));
         let commands = vec![
@@ -935,18 +1233,60 @@ mod tests {
             PresenterCommand::GoTo(1),
         ];
 
-        let outcome = run_to_outcome(cx, window, commands.clone());
+        let outcome = run_to_outcome(cx, window, commands.clone()).expect("run completes");
 
-        assert!(same_position(&outcome.final_state, &oracle(5, &commands)));
+        // Six navigation commands, GoTo counted once each: four GoTo, Previous, Next.
+        let navigation_commands = commands
+            .iter()
+            .filter(|command| command_kind(**command) == CommandKind::Navigation)
+            .count() as u64;
+        for surface in Surface::ALL {
+            let navigation = outcome
+                .report
+                .latency
+                .histogram(CommandKind::Navigation, surface)
+                .expect("navigation recorded");
+            assert_eq!(navigation.total_recorded(), navigation_commands);
+        }
+        assert_eq!(navigation_commands, 6);
         assert_eq!(outcome.report.hot_path_violations, 0);
-        // Each arrow key is one navigation keydown. From Preview 0: GoTo(4) is
-        // 4 keys, Previous 1, GoTo(0) 3, Next 1, GoTo(99) clamps to Cue 4 in
-        // 3 keys, and GoTo(1) is 3 keys.
-        let navigation = outcome
-            .report
-            .latency
-            .histogram(CommandKind::Navigation, Surface::Preview)
-            .expect("navigation recorded");
-        assert_eq!(navigation.total_recorded(), 4 + 1 + 3 + 1 + 3 + 3);
+        assert_eq!(outcome.final_state, oracle(5, &commands));
+    }
+
+    #[gpui::test]
+    fn closing_the_window_mid_run_delivers_window_closed(cx: &mut TestAppContext) {
+        cx.update(register_keys);
+        let window = cx.add_window(|window, cx| PresenterProbe::new(5, window, cx));
+        let delivered: Delivered = Rc::new(RefCell::new(None));
+        let sink = delivered.clone();
+        let commands = vec![PresenterCommand::Next; 5];
+        cx.update(|cx| {
+            drive(
+                window,
+                commands,
+                Duration::from_secs(3),
+                move |result, _| *sink.borrow_mut() = Some(result),
+                cx,
+            )
+            .expect("drive starts")
+        });
+        pump_frame(cx, window);
+        cx.update_window(window.into(), |_, window, _| window.remove_window())
+            .expect("probe window is open");
+        cx.run_until_parked();
+
+        let result = delivered.borrow_mut().take();
+        assert!(
+            matches!(result, Some(Err(DriveError::WindowClosed))),
+            "the drive delivers WindowClosed, not silence"
+        );
+    }
+
+    #[test]
+    fn surface_slots_are_distinct_and_cover_every_surface() {
+        assert_ne!(slot(Surface::Preview), slot(Surface::Program));
+        for surface in Surface::ALL {
+            assert!(slot(surface) < 2);
+        }
     }
 }

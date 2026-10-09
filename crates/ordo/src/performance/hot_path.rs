@@ -28,15 +28,28 @@ pub enum HotPathKind {
     FileAccess,
     /// A full canonical recomposition of a timeline.
     CanonicalRecompose,
+    /// PNG encode or decode, or construction of an image from encoded bytes.
+    /// Production sites: the canonical viewport finish and the congregation
+    /// image. Decode happens inside GPUI at paint time and is not noted.
+    ImageDecode,
+    /// Pagination of a timeline. No production code exists yet (T1 scope);
+    /// the kind is reserved so that work is counted when it lands.
+    Pagination,
+    /// Autosave of the operator document. No production code exists yet; the
+    /// kind is reserved so that work is counted when it lands.
+    Autosave,
 }
 
 impl HotPathKind {
     /// Every kind, in report order.
-    pub const ALL: [HotPathKind; 4] = [
+    pub const ALL: [HotPathKind; 7] = [
         HotPathKind::WorkerSend,
         HotPathKind::PreferenceSave,
         HotPathKind::FileAccess,
         HotPathKind::CanonicalRecompose,
+        HotPathKind::ImageDecode,
+        HotPathKind::Pagination,
+        HotPathKind::Autosave,
     ];
 
     /// Stable lowercase name used in reports.
@@ -46,6 +59,9 @@ impl HotPathKind {
             HotPathKind::PreferenceSave => "preference_save",
             HotPathKind::FileAccess => "file_access",
             HotPathKind::CanonicalRecompose => "canonical_recompose",
+            HotPathKind::ImageDecode => "image_decode",
+            HotPathKind::Pagination => "pagination",
+            HotPathKind::Autosave => "autosave",
         }
     }
 }

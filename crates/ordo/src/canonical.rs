@@ -56,6 +56,11 @@ pub fn compose_frame(
     window_scale: f32,
     content: &rendering::TemplateContent,
 ) -> Result<(rendering::Frame, rendering::Diagnostics), rendering::RenderError> {
+    // Counted only if composition runs on a thread with an open hot-path scope.
+    // The worker thread never holds one, so a worker render is not a violation.
+    crate::performance::hot_path::note(
+        crate::performance::hot_path::HotPathKind::CanonicalRecompose,
+    );
     let (theme, density) = canonical_inputs_for(environment, window_scale);
     rendering::render_template(content, &theme, density)
 }
