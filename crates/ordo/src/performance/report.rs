@@ -50,6 +50,9 @@ pub struct PerformanceReport {
     pub idle_cpu_percent: Option<f32>,
     pub gpu_memory: GpuMemory,
     pub renderer: RendererInfo,
+    /// Off-path work noted inside the keydown-to-paint scope (see
+    /// [`super::hot_path`]). Zero means the measured path stayed clean.
+    pub hot_path_violations: u64,
 }
 
 impl Default for PerformanceReport {
@@ -64,6 +67,7 @@ impl Default for PerformanceReport {
             idle_cpu_percent: None,
             gpu_memory: GpuMemory::default(),
             renderer: RendererInfo::default(),
+            hot_path_violations: 0,
         }
     }
 }
@@ -284,6 +288,8 @@ impl PerformanceReport {
             json_f32(self.idle_cpu_percent),
         );
 
+        let _ = write!(out, ",\"hot_path_violations\":{}", self.hot_path_violations,);
+
         let _ = write!(
             out,
             ",\"gpu_memory\":{}",
@@ -342,6 +348,11 @@ impl PerformanceReport {
             self.frames.dropped_frames(),
             fmt_ms(Some(self.frames.drop_threshold())),
         ));
+
+        lines.push(match self.hot_path_violations {
+            0 => "Hot path: clean".to_string(),
+            n => format!("Hot path: {n} off-path violations"),
+        });
 
         lines.push(match self.time_to_first_paint {
             Some(t) => format!("Startup: first operator paint at {}", fmt_ms(Some(t))),
@@ -591,6 +602,7 @@ mod tests {
         assert!(json.contains("\"private_bytes\":null"));
         assert!(json.contains("\"idle_percent\":0.25"));
         assert!(json.contains("\"gpu_memory\":\"unavailable\""));
+        assert!(json.contains("\"hot_path_violations\":0"));
         assert!(json.contains("\"latency_scope\":\"engine_apply\""));
         assert!(json.contains("\"process_percent\":1.50"));
     }
@@ -618,7 +630,7 @@ mod tests {
         let mut report = passing_report(10, sample(300 * MIB, None));
         report.time_to_first_paint = Some(ms(640));
         let lines = report.summary_lines();
-        assert_eq!(lines.len(), 1 + 1 + 8 + 6);
+        assert_eq!(lines.len(), 1 + 1 + 8 + 7);
         assert!(lines[0].contains("hardware accelerated"));
         assert_eq!(lines[1], "Engine apply latency (not keydown→paint)");
         assert!(
