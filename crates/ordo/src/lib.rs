@@ -60,12 +60,16 @@ pub struct CongregationView {
     /// state, even one whose Program reuses the same revision.
     generation: u64,
     on_pointer: Option<PointerListener>,
-    /// The last pointer state reported through `on_pointer`. Element hover
-    /// only learns of a leave from a mouse move outside the surface, and a
-    /// fast exit off a fullscreen window delivers none; the window's own
-    /// hover status (Win32 `WM_MOUSELEAVE`) refreshes this view instead, and
-    /// render reports the leave from that.
+    /// The last pointer state reported through `on_pointer`.
     pointer_inside: bool,
+    /// The window hover status render last saw. Element hover runs on the
+    /// last known pointer position, which a fast exit off this fullscreen
+    /// window leaves stale inside it, so element hover misses that leave and
+    /// the next entry alike. The window's own hover status (Win32 mouse
+    /// tracking) refreshes this view on each change, and render reports the
+    /// change. Only changes count: GPUI's test window never reports hover, so
+    /// element hover still drives tests.
+    window_hovered: bool,
     on_press: Option<PressListener>,
 }
 
@@ -89,6 +93,7 @@ impl CongregationView {
             generation: 0,
             on_pointer,
             pointer_inside: false,
+            window_hovered: false,
             on_press,
         };
         view.set_state(state, cx);
@@ -179,8 +184,10 @@ impl CongregationView {
 
 impl Render for CongregationView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.pointer_inside && !window.is_window_hovered() {
-            self.report_pointer(false, cx);
+        let window_hovered = window.is_window_hovered();
+        if self.window_hovered != window_hovered {
+            self.window_hovered = window_hovered;
+            self.report_pointer(window_hovered, cx);
         }
         // Keyed on the revision actually painted, which can trail the state
         // while an encode is pending. A pending or black surface reports black.
