@@ -18,12 +18,19 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 /// Memory and CPU for this process at one instant.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProcessSample {
-    /// Resident set size in bytes (working set on Windows).
+    /// Resident set size in bytes. On Windows this is the current working set
+    /// (sysinfo 0.31.4 `src/windows/process.rs:299`, `WorkingSetSize`), not
+    /// the peak working set.
     pub rss_bytes: u64,
-    /// Virtual memory size in bytes.
+    /// Virtual memory size in bytes. On Windows this is the address-space size
+    /// (`src/windows/process.rs:300`, `SYSTEM_PROCESS_INFORMATION.VirtualSize`),
+    /// which is not the private commit charge.
     pub virtual_bytes: u64,
-    /// Private committed bytes. sysinfo 0.31 does not expose this counter on
-    /// Windows, so it is `None` on the pinned stack.
+    /// Private committed bytes (`PrivateUsage`). Always `None` on the pinned
+    /// stack. sysinfo 0.31.4 maps Windows `virtual_memory()` to
+    /// `VirtualSize`, not `PrivateUsage`, so it cannot stand in for this
+    /// counter. Reading `PROCESS_MEMORY_COUNTERS_EX` directly needs unsafe
+    /// FFI, which the workspace forbids, so no other source is used.
     pub private_bytes: Option<u64>,
     /// Process CPU usage as reported by sysinfo, a delta between refreshes.
     /// `None` on the first sample from a sampler, which has nothing to diff.
@@ -32,9 +39,12 @@ pub struct ProcessSample {
 
 /// GPU allocation counters.
 ///
-/// The pinned GPUI revision (`gpui-pre` 0.3.8) exposes no allocation or
-/// memory counters for its renderer, and sysinfo does not report GPU memory.
-/// The report records this as unavailable rather than inventing a number.
+/// `Unavailable` is the only state on the MVP stack, for two reasons. The
+/// pinned GPUI revision (`gpui-pre` 0.3.8) exposes no allocation or memory
+/// counters for its renderer, and sysinfo does not report GPU memory. The
+/// remaining source, DXGI `QueryVideoMemoryInfo`, needs unsafe FFI, which the
+/// workspace forbids. The report records this as unavailable rather than
+/// inventing a number.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GpuMemory {
     /// No allocation counters are exposed by the pinned GPUI stack.
@@ -59,6 +69,38 @@ impl fmt::Display for ProcessSamplerError {
 }
 
 impl std::error::Error for ProcessSamplerError {}
+
+/// Peak memory over a run of [`ProcessSample`]s. Plain data: the caller
+/// decides the sampling cadence and feeds each sample to [`observe`].
+///
+/// [`observe`]: PeakMemory::observe
+///
+/// The peak is only as fine as the sampling. sysinfo 0.31.4 exposes no peak
+/// working-set accessor (its Windows backend reads only `WorkingSetSize` and
+/// `VirtualSize`), and the OS peak counter needs unsafe FFI. Between two
+/// samples a short spike can go unseen, so these values are lower bounds on
+/// the true peak.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PeakMemory {
+    /// Largest resident set size seen, in bytes. Zero before any sample.
+    pub peak_rss_bytes: u64,
+    /// Largest private committed size seen. `None` while no sample has
+    /// reported it, which is every sample on the pinned stack.
+    pub peak_private_bytes: Option<u64>,
+}
+
+impl PeakMemory {
+    /// Raises each peak to cover `sample`.
+    pub fn observe(&mut self, sample: ProcessSample) {
+        self.peak_rss_bytes = self.peak_rss_bytes.max(sample.rss_bytes);
+        if let Some(private_bytes) = sample.private_bytes {
+            self.peak_private_bytes = Some(
+                self.peak_private_bytes
+                    .map_or(private_bytes, |peak| peak.max(private_bytes)),
+            );
+        }
+    }
+}
 
 /// Samples the current process. Not thread-safe by design; own it on one
 /// background task.
@@ -96,6 +138,7 @@ impl ProcessSampler {
         Some(ProcessSample {
             rss_bytes: process.memory(),
             virtual_bytes: process.virtual_memory(),
+            // Not available on the pinned stack; see `ProcessSample::private_bytes`.
             private_bytes: None,
             cpu_percent: had_previous_refresh.then(|| process.cpu_usage()),
         })
@@ -114,6 +157,41 @@ mod tests {
         assert!(sample.virtual_bytes >= sample.rss_bytes);
         assert_eq!(sample.private_bytes, None);
         assert_eq!(sample.cpu_percent, None, "first sample has no CPU delta");
+    }
+
+    #[test]
+    fn peak_tracks_the_largest_rss_and_keeps_private_unset() {
+        let sample = |rss_bytes| ProcessSample {
+            rss_bytes,
+            virtual_bytes: rss_bytes,
+            private_bytes: None,
+            cpu_percent: None,
+        };
+        let mut peak = PeakMemory::default();
+        assert_eq!(peak.peak_rss_bytes, 0);
+        peak.observe(sample(300));
+        peak.observe(sample(900));
+        peak.observe(sample(500));
+        assert_eq!(peak.peak_rss_bytes, 900);
+        assert_eq!(peak.peak_private_bytes, None);
+    }
+
+    #[test]
+    fn peak_tracks_the_largest_private_bytes_once_reported() {
+        let sample = |rss_bytes, private_bytes| ProcessSample {
+            rss_bytes,
+            virtual_bytes: rss_bytes,
+            private_bytes,
+            cpu_percent: None,
+        };
+        let mut peak = PeakMemory::default();
+        peak.observe(sample(100, None));
+        assert_eq!(peak.peak_private_bytes, None);
+        peak.observe(sample(80, Some(400)));
+        peak.observe(sample(120, Some(250)));
+        peak.observe(sample(90, None));
+        assert_eq!(peak.peak_private_bytes, Some(400));
+        assert_eq!(peak.peak_rss_bytes, 120);
     }
 
     #[test]

@@ -32,12 +32,18 @@ const LAB_EXAMPLE: &str = "presenter-lab";
 
 /// Every keydown-to-paint p95 must be strictly below this.
 const P95_LIMIT_MS: f64 = 50.0;
-/// Process memory above this fails the qualification budget.
+/// Process memory above this fails the qualification budget. Baselines only.
 const QUALIFICATION_BYTES: u64 = 512 * MIB;
-/// Process memory above this fails the absolute release ceiling.
+/// Process memory above this fails the absolute release ceiling. Both the
+/// keydown-to-paint run and the baselines are judged against it.
 const CEILING_BYTES: u64 = GIB;
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
+
+/// The commands and surfaces every keydown-to-paint run must measure. A pair
+/// missing from the document is a failure, not a pass by omission.
+const LATENCY_COMMANDS: [&str; 4] = ["navigation", "freeze", "blackout", "space"];
+const LATENCY_SURFACES: [&str; 2] = ["preview", "program"];
 
 /// Baseline runs, each a fresh process per mode.
 const BASELINE_RUNS: usize = 3;
@@ -49,9 +55,23 @@ const BASELINE_MODES: [(&str, &str); 3] = [
     ("presenter", "presenter"),
 ];
 
-/// A lab process still running after this is killed and recorded as timed out.
-/// The lab's own 120 s guard fires first in every normal failure.
-const PROCESS_TIMEOUT: Duration = Duration::from_secs(180);
+/// Memory fields the keydown-to-paint run is judged on, in preference order.
+/// Peak values win when the document has them, so a spike between the
+/// current readings still counts.
+const MEASURE_MEMORY_KEYS: [&str; 4] = [
+    "peak_private_bytes",
+    "peak_rss_bytes",
+    "private_bytes",
+    "rss_bytes",
+];
+/// Memory fields a baseline sample is judged on, in preference order.
+const BASELINE_MEMORY_KEYS: [&str; 2] = ["private_bytes", "rss_bytes"];
+
+/// The keydown-to-paint run gets this long. Its 2,000 commands at about two
+/// frames each take about 70 s at 60 Hz, and CI runners can be slow.
+const MEASURE_TIMEOUT: Duration = Duration::from_secs(600);
+/// Every other lab process gets this long.
+const LAB_TIMEOUT: Duration = Duration::from_secs(180);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The absolute location of the measurement document under `root`.
@@ -122,8 +142,20 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
         std::env::temp_dir().join(format!("ordo-measure-presenter-{}", std::process::id()));
     fs::create_dir_all(&scratch)?;
 
-    let measure = run_lab(&executable, &["--measure"], &scratch, "measure");
-    let display = run_lab(&executable, &["--display-path"], &scratch, "display-path");
+    let measure = run_lab(
+        &executable,
+        &["--measure"],
+        &scratch,
+        "measure",
+        MEASURE_TIMEOUT,
+    );
+    let display = run_lab(
+        &executable,
+        &["--display-path"],
+        &scratch,
+        "display-path",
+        LAB_TIMEOUT,
+    );
     let display_path = display.get("display_path").cloned().unwrap_or(display);
 
     let mut baselines = Vec::with_capacity(BASELINE_RUNS);
@@ -132,7 +164,13 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
         entry.insert("run".to_owned(), json!(run));
         for (mode, key) in BASELINE_MODES {
             let label = format!("baseline-{mode}-{run}");
-            let document = run_lab(&executable, &["--baseline", mode], &scratch, &label);
+            let document = run_lab(
+                &executable,
+                &["--baseline", mode],
+                &scratch,
+                &label,
+                LAB_TIMEOUT,
+            );
             entry.insert(key.to_owned(), document);
         }
         baselines.push(Value::Object(entry));
@@ -187,10 +225,18 @@ fn lab_executable(root: &Path) -> PathBuf {
         .join(format!("{LAB_EXAMPLE}{}", std::env::consts::EXE_SUFFIX))
 }
 
-/// Runs one lab process and returns its document. A process that times out is
-/// killed, and one that fails without a readable document yields an
-/// `{"error": ...}` document, so every run has a result to report.
-fn run_lab(executable: &Path, args: &[&str], scratch: &Path, label: &str) -> Value {
+/// Runs one lab process and returns its document. A process still running
+/// after `timeout` is killed, and one that fails without a readable document
+/// yields an `{"error": ...}` document, so every run has a result to report.
+/// Every path that leaves the child running is followed by a kill and a wait,
+/// so the child is always reaped.
+fn run_lab(
+    executable: &Path,
+    args: &[&str],
+    scratch: &Path,
+    label: &str,
+    timeout: Duration,
+) -> Value {
     let out = scratch.join(format!("{label}.json"));
     if out.is_file() {
         let _ = fs::remove_file(&out);
@@ -213,16 +259,17 @@ fn run_lab(executable: &Path, args: &[&str], scratch: &Path, label: &str) -> Val
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < PROCESS_TIMEOUT => thread::sleep(POLL_INTERVAL),
+            Ok(None) if started.elapsed() < timeout => thread::sleep(POLL_INTERVAL),
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return json!({
-                    "error": format!("timed out after {} s and was killed", PROCESS_TIMEOUT.as_secs())
+                    "error": format!("timed out after {} s and was killed", timeout.as_secs())
                 });
             }
             Err(error) => {
                 let _ = child.kill();
+                let _ = child.wait();
                 return json!({"error": format!("cannot wait for the process: {error}")});
             }
         }
@@ -244,39 +291,52 @@ fn error_message(document: &Value) -> Option<&str> {
     document.get("error").and_then(Value::as_str)
 }
 
-/// Process memory the budget judges: private bytes when the platform reports
-/// them, RSS otherwise. This is the rule `PerformanceReport::budget_check`
-/// applies, so the document and the engine bench agree.
-fn resident_bytes(sample: &Value) -> Option<u64> {
-    sample
-        .get("private_bytes")
-        .and_then(Value::as_u64)
-        .or_else(|| sample.get("rss_bytes").and_then(Value::as_u64))
+/// One memory reading and the document field it came from, so every message
+/// and summary line says which counter was judged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Reading {
+    bytes: u64,
+    source: &'static str,
 }
 
-/// Failures for one memory sample against the qualification budget and the
-/// absolute ceiling. A missing sample fails, because an unmeasured budget is
-/// not a passing one.
-fn memory_failures(label: &str, bytes: Option<u64>) -> Vec<String> {
-    match bytes {
+/// The first of `keys` the sample reports, with its field name.
+fn read_memory(sample: &Value, keys: &[&'static str]) -> Option<Reading> {
+    keys.iter().find_map(|&key| {
+        sample
+            .get(key)
+            .and_then(Value::as_u64)
+            .map(|bytes| Reading { bytes, source: key })
+    })
+}
+
+/// Failures for one reading against the 1 GiB absolute ceiling. A missing
+/// reading fails, because an unmeasured ceiling is not a passing one.
+fn ceiling_failures(label: &str, reading: Option<Reading>) -> Vec<String> {
+    match reading {
         None => vec![format!("{label}: process memory was not sampled")],
-        Some(bytes) => {
-            let mut failures = Vec::new();
-            if bytes > QUALIFICATION_BYTES {
-                failures.push(format!(
-                    "{label}: {} MiB is over the 512 MiB qualification budget",
-                    bytes / MIB
-                ));
-            }
-            if bytes > CEILING_BYTES {
-                failures.push(format!(
-                    "{label}: {} MiB is over the 1 GiB absolute ceiling",
-                    bytes / MIB
-                ));
-            }
-            failures
-        }
+        Some(Reading { bytes, source }) if bytes > CEILING_BYTES => vec![format!(
+            "{label}: {} MiB ({source}) is over the 1 GiB absolute ceiling",
+            bytes / MIB
+        )],
+        Some(_) => Vec::new(),
     }
+}
+
+/// Failures for one baseline reading against the 512 MiB qualification budget
+/// and the 1 GiB absolute ceiling. A missing reading fails once.
+fn memory_failures(label: &str, reading: Option<Reading>) -> Vec<String> {
+    let Some(Reading { bytes, source }) = reading else {
+        return ceiling_failures(label, None);
+    };
+    let mut failures = Vec::new();
+    if bytes > QUALIFICATION_BYTES {
+        failures.push(format!(
+            "{label}: {} MiB ({source}) is over the 512 MiB qualification budget",
+            bytes / MIB
+        ));
+    }
+    failures.extend(ceiling_failures(label, Some(Reading { bytes, source })));
+    failures
 }
 
 /// Every reason the native results miss the budget, or are missing. Empty
@@ -302,7 +362,10 @@ pub fn native_failures(native: &Value) -> Vec<String> {
                     let sample = &run[key];
                     match error_message(sample) {
                         Some(message) => failures.push(format!("{label}: {message}")),
-                        None => failures.extend(memory_failures(&label, resident_bytes(sample))),
+                        None => failures.extend(memory_failures(
+                            &label,
+                            read_memory(sample, &BASELINE_MEMORY_KEYS),
+                        )),
                     }
                 }
             }
@@ -313,7 +376,9 @@ pub fn native_failures(native: &Value) -> Vec<String> {
 }
 
 /// Failures for the keydown-to-paint run: an error, a divergent final state,
-/// a p95 at or over the limit, memory over budget, or a hot-path violation.
+/// a missing or unsampled pair, a p95 at or over the limit, memory over the
+/// ceiling, or a hot-path violation. The run is judged on the 1 GiB ceiling
+/// alone; the 512 MiB budget applies to the baselines.
 fn measure_failures(measure: &Value) -> Vec<String> {
     if let Some(message) = error_message(measure) {
         return vec![format!("keydown-to-paint run: {message}")];
@@ -324,29 +389,10 @@ fn measure_failures(measure: &Value) -> Vec<String> {
     }
 
     let report = &measure["measure"];
-    match report["latency"].as_array() {
-        Some(pairs) => {
-            for pair in pairs {
-                let label = format!(
-                    "keydown-to-paint {} {}",
-                    pair["command"].as_str().unwrap_or("?"),
-                    pair["surface"].as_str().unwrap_or("?")
-                );
-                match pair["p95_ms"].as_f64() {
-                    Some(p95) if p95 < P95_LIMIT_MS => {}
-                    Some(p95) => failures.push(format!(
-                        "{label}: p95 {p95:.3} ms is at or over the 50 ms limit"
-                    )),
-                    None => failures.push(format!("{label}: no p95 was recorded")),
-                }
-            }
-        }
-        None => failures.push("keydown-to-paint run: no latency table was recorded".to_owned()),
-    }
-
-    failures.extend(memory_failures(
+    failures.extend(latency_failures(report));
+    failures.extend(ceiling_failures(
         "keydown-to-paint run",
-        resident_bytes(&report["memory"]),
+        read_memory(&report["memory"], &MEASURE_MEMORY_KEYS),
     ));
     match report["hot_path_violations"].as_u64() {
         Some(0) => {}
@@ -354,6 +400,41 @@ fn measure_failures(measure: &Value) -> Vec<String> {
             "keydown-to-paint run: {count} hot-path violation(s)"
         )),
         None => failures.push("keydown-to-paint run: hot-path violations not recorded".to_owned()),
+    }
+    failures
+}
+
+/// Failures for the latency table: every expected command and surface must be
+/// present with at least one sample and a p95 under the limit. The latency
+/// scope string is the probe's to define, so it is printed, not checked.
+fn latency_failures(report: &Value) -> Vec<String> {
+    let Some(pairs) = report["latency"].as_array() else {
+        return vec!["keydown-to-paint run: no latency table was recorded".to_owned()];
+    };
+    let mut failures = Vec::new();
+    for command in LATENCY_COMMANDS {
+        for surface in LATENCY_SURFACES {
+            let label = format!("keydown-to-paint {command} {surface}");
+            let found = pairs.iter().find(|pair| {
+                pair["command"].as_str() == Some(command)
+                    && pair["surface"].as_str() == Some(surface)
+            });
+            let Some(pair) = found else {
+                failures.push(format!("{label}: missing from the latency table"));
+                continue;
+            };
+            if pair["samples"].as_u64().unwrap_or(0) == 0 {
+                failures.push(format!("{label}: no samples were recorded"));
+                continue;
+            }
+            match pair["p95_ms"].as_f64() {
+                Some(p95) if p95 < P95_LIMIT_MS => {}
+                Some(p95) => failures.push(format!(
+                    "{label}: p95 {p95:.3} ms is at or over the 50 ms limit"
+                )),
+                None => failures.push(format!("{label}: no p95 was recorded")),
+            }
+        }
     }
     failures
 }
@@ -368,11 +449,15 @@ fn merge_native(document: &mut Value, native: Value) -> XtaskResult<()> {
     Ok(())
 }
 
-/// Human-readable lines for the console: per-command p95, the display-path
-/// medians, the baseline memory, and the renderer.
+/// Human-readable lines for the console: the latency scope, per-command p95,
+/// the display-path medians, the memory judged, and the renderer.
 fn summary_lines(native: &Value) -> Vec<String> {
     let mut lines = Vec::new();
     let report = &native["measure"]["measure"];
+    lines.push(format!(
+        "keydown-to-paint latency scope: {}",
+        report["latency_scope"].as_str().unwrap_or("?")
+    ));
     if let Some(pairs) = report["latency"].as_array() {
         for pair in pairs {
             lines.push(format!(
@@ -395,6 +480,10 @@ fn summary_lines(native: &Value) -> Vec<String> {
         report["hot_path_violations"],
     ));
     lines.push(format!(
+        "keydown-to-paint memory: {}",
+        memory_text(&report["memory"], &MEASURE_MEMORY_KEYS)
+    ));
+    lines.push(format!(
         "renderer: {} (software emulated: {})",
         report["renderer"]["device_name"], report["renderer"]["software_emulated"],
     ));
@@ -414,20 +503,23 @@ fn summary_lines(native: &Value) -> Vec<String> {
     if let Some(runs) = native["baselines"].as_array() {
         for run in runs {
             lines.push(format!(
-                "baseline run {}: empty {} MiB, preparation {} MiB, presenter {} MiB (RSS)",
+                "baseline run {}: empty {}, preparation {}, presenter {}",
                 run["run"],
-                mib_of(&run["empty_shell"]["rss_bytes"]),
-                mib_of(&run["preparation"]["rss_bytes"]),
-                mib_of(&run["presenter"]["rss_bytes"]),
+                memory_text(&run["empty_shell"], &BASELINE_MEMORY_KEYS),
+                memory_text(&run["preparation"], &BASELINE_MEMORY_KEYS),
+                memory_text(&run["presenter"], &BASELINE_MEMORY_KEYS),
             ));
         }
     }
     lines
 }
 
-fn mib_of(bytes: &Value) -> String {
-    match bytes.as_u64() {
-        Some(bytes) => format!("{:.1}", bytes as f64 / MIB as f64),
+/// The reading the gate would judge, in MiB with its field name, or `n/a`.
+fn memory_text(sample: &Value, keys: &[&'static str]) -> String {
+    match read_memory(sample, keys) {
+        Some(Reading { bytes, source }) => {
+            format!("{:.1} MiB ({source})", bytes as f64 / MIB as f64)
+        }
         None => "n/a".to_owned(),
     }
 }
@@ -448,13 +540,13 @@ mod tests {
         );
     }
 
-    /// A passing keydown-to-paint document with every command and surface
-    /// under budget and memory within the qualification budget.
+    /// A passing keydown-to-paint document with every expected pair under
+    /// budget and memory within the ceiling.
     fn passing_measure() -> Value {
-        let pairs: Vec<Value> = ["navigation", "space", "freeze", "blackout"]
+        let pairs: Vec<Value> = LATENCY_COMMANDS
             .iter()
             .flat_map(|command| {
-                ["preview", "program"].iter().map(move |surface| {
+                LATENCY_SURFACES.iter().map(move |surface| {
                     json!({
                         "command": command,
                         "surface": surface,
@@ -468,6 +560,7 @@ mod tests {
             .collect();
         json!({
             "measure": {
+                "latency_scope": "keydown_to_paint",
                 "latency": pairs,
                 "memory": {"rss_bytes": 300 * MIB, "virtual_bytes": 1, "private_bytes": null},
                 "hot_path_violations": 0,
@@ -494,6 +587,19 @@ mod tests {
         })
     }
 
+    fn pair_mut<'a>(native: &'a mut Value, command: &str, surface: &str) -> &'a mut Value {
+        native["measure"]["measure"]["latency"]
+            .as_array_mut()
+            .expect("latency is an array")
+            .iter_mut()
+            .find(|pair| pair["command"] == command && pair["surface"] == surface)
+            .expect("the pair is in the fixture")
+    }
+
+    fn measure_memory_mut(native: &mut Value) -> &mut Value {
+        &mut native["measure"]["measure"]["memory"]
+    }
+
     #[test]
     fn a_passing_native_measurement_has_no_failures() {
         assert_eq!(native_failures(&passing_native()), Vec::<String>::new());
@@ -502,7 +608,7 @@ mod tests {
     #[test]
     fn a_p95_at_the_limit_fails() {
         let mut native = passing_native();
-        native["measure"]["measure"]["latency"][3]["p95_ms"] = json!(50.0);
+        pair_mut(&mut native, "navigation", "preview")["p95_ms"] = json!(50.0);
         let failures = native_failures(&native);
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert!(failures[0].contains("p95 50.000 ms"));
@@ -511,11 +617,58 @@ mod tests {
     #[test]
     fn a_missing_p95_fails_rather_than_passing() {
         let mut native = passing_native();
-        native["measure"]["measure"]["latency"][0]["p95_ms"] = Value::Null;
+        pair_mut(&mut native, "navigation", "preview")["p95_ms"] = Value::Null;
         assert!(
             native_failures(&native)
                 .iter()
                 .any(|failure| failure.contains("no p95 was recorded"))
+        );
+    }
+
+    #[test]
+    fn every_one_of_the_eight_pairs_is_required() {
+        for command in LATENCY_COMMANDS {
+            for surface in LATENCY_SURFACES {
+                let mut native = passing_native();
+                let pairs = native["measure"]["measure"]["latency"]
+                    .as_array_mut()
+                    .expect("latency is an array");
+                pairs.retain(|pair| !(pair["command"] == command && pair["surface"] == surface));
+                let failures = native_failures(&native);
+                assert_eq!(
+                    failures,
+                    vec![format!(
+                        "keydown-to-paint {command} {surface}: missing from the latency table"
+                    )],
+                    "dropping {command} {surface}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_pair_with_no_samples_fails_even_if_present() {
+        let mut native = passing_native();
+        let pair = pair_mut(&mut native, "space", "program");
+        pair["samples"] = json!(0);
+        pair["p50_ms"] = Value::Null;
+        pair["p95_ms"] = Value::Null;
+        pair["p99_ms"] = Value::Null;
+        assert_eq!(
+            native_failures(&native),
+            vec!["keydown-to-paint space program: no samples were recorded".to_owned()]
+        );
+    }
+
+    #[test]
+    fn the_latency_scope_is_printed_not_judged() {
+        let mut native = passing_native();
+        native["measure"]["measure"]["latency_scope"] = json!("some_other_scope");
+        assert_eq!(native_failures(&native), Vec::<String>::new());
+        assert!(
+            summary_lines(&native)
+                .iter()
+                .any(|line| line == "keydown-to-paint latency scope: some_other_scope")
         );
     }
 
@@ -536,12 +689,66 @@ mod tests {
     }
 
     #[test]
-    fn memory_over_the_budget_and_over_the_ceiling_fail_separately() {
-        assert!(memory_failures("run", Some(512 * MIB)).is_empty());
-        let over_budget = memory_failures("run", Some(600 * MIB));
+    fn a_measure_run_over_the_qualification_budget_but_under_the_ceiling_passes() {
+        let mut native = passing_native();
+        *measure_memory_mut(&mut native) = json!({"rss_bytes": 600 * MIB});
+        assert_eq!(native_failures(&native), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_measure_run_over_the_ceiling_fails_on_the_peak_when_reported() {
+        let mut native = passing_native();
+        *measure_memory_mut(&mut native) =
+            json!({"rss_bytes": 300 * MIB, "peak_rss_bytes": GIB + MIB});
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("peak_rss_bytes"));
+        assert!(failures[0].contains("absolute ceiling"));
+    }
+
+    #[test]
+    fn a_measure_peak_private_bytes_outranks_peak_rss() {
+        let mut native = passing_native();
+        *measure_memory_mut(&mut native) = json!({
+            "rss_bytes": 100 * MIB,
+            "peak_rss_bytes": 200 * MIB,
+            "peak_private_bytes": GIB + MIB,
+        });
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("peak_private_bytes"));
+    }
+
+    #[test]
+    fn a_measure_run_without_a_memory_reading_fails() {
+        let mut native = passing_native();
+        *measure_memory_mut(&mut native) = json!({"virtual_bytes": 1});
+        assert_eq!(
+            native_failures(&native),
+            vec!["keydown-to-paint run: process memory was not sampled".to_owned()]
+        );
+    }
+
+    #[test]
+    fn baseline_memory_over_the_budget_and_over_the_ceiling_fail_separately() {
+        assert!(
+            memory_failures(
+                "run",
+                read_memory(&json!({"rss_bytes": 512 * MIB}), &BASELINE_MEMORY_KEYS)
+            )
+            .is_empty()
+        );
+        let over_budget = memory_failures(
+            "run",
+            read_memory(&json!({"rss_bytes": 600 * MIB}), &BASELINE_MEMORY_KEYS),
+        );
         assert_eq!(over_budget.len(), 1, "{over_budget:?}");
         assert!(over_budget[0].contains("qualification budget"));
-        let over_ceiling = memory_failures("run", Some(GIB + MIB));
+        assert!(over_budget[0].contains("(rss_bytes)"));
+        let over_ceiling = memory_failures(
+            "run",
+            read_memory(&json!({"rss_bytes": GIB + MIB}), &BASELINE_MEMORY_KEYS),
+        );
         assert_eq!(over_ceiling.len(), 2, "{over_ceiling:?}");
         assert!(over_ceiling[1].contains("absolute ceiling"));
         assert_eq!(
@@ -551,11 +758,33 @@ mod tests {
     }
 
     #[test]
-    fn private_bytes_are_judged_before_rss() {
+    fn a_baseline_over_the_budget_fails_the_native_measurement() {
+        let mut native = passing_native();
+        native["baselines"][2]["presenter"] = json!({"rss_bytes": 600 * MIB, "virtual_bytes": 1});
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].starts_with("baseline presenter run 3:"));
+        assert!(failures[0].contains("qualification budget"));
+    }
+
+    #[test]
+    fn baseline_private_bytes_are_judged_before_rss() {
         let sample = json!({"rss_bytes": 100 * MIB, "private_bytes": 600 * MIB});
-        assert_eq!(resident_bytes(&sample), Some(600 * MIB));
-        assert_eq!(resident_bytes(&json!({"rss_bytes": 7})), Some(7));
-        assert_eq!(resident_bytes(&json!({})), None);
+        assert_eq!(
+            read_memory(&sample, &BASELINE_MEMORY_KEYS),
+            Some(Reading {
+                bytes: 600 * MIB,
+                source: "private_bytes",
+            })
+        );
+        assert_eq!(
+            read_memory(&json!({"rss_bytes": 7}), &BASELINE_MEMORY_KEYS),
+            Some(Reading {
+                bytes: 7,
+                source: "rss_bytes",
+            })
+        );
+        assert_eq!(read_memory(&json!({}), &BASELINE_MEMORY_KEYS), None);
     }
 
     #[test]
@@ -576,10 +805,10 @@ mod tests {
     #[test]
     fn a_measure_error_document_fails_once() {
         let mut native = passing_native();
-        native["measure"] = json!({"error": "timed out after 120 s"});
+        native["measure"] = json!({"error": "timed out after 600 s"});
         assert_eq!(
             native_failures(&native),
-            vec!["keydown-to-paint run: timed out after 120 s".to_owned()]
+            vec!["keydown-to-paint run: timed out after 600 s".to_owned()]
         );
     }
 
@@ -606,6 +835,7 @@ mod tests {
             &["--measure"],
             &scratch,
             "unit-missing",
+            LAB_TIMEOUT,
         );
         assert!(
             error_message(&document).is_some_and(|message| message.starts_with("cannot start")),
@@ -614,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn the_summary_names_the_p95_and_the_renderer() {
+    fn the_summary_names_the_p95_the_memory_and_the_renderer() {
         let lines = summary_lines(&passing_native());
         assert!(
             lines
@@ -624,12 +854,33 @@ mod tests {
         assert!(
             lines
                 .iter()
+                .any(|line| line == "keydown-to-paint memory: 300.0 MiB (rss_bytes)")
+        );
+        assert!(
+            lines
+                .iter()
                 .any(|line| line.starts_with("renderer: \"GPU\""))
         );
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("baseline run 1: empty 40.0 MiB"))
+                .any(|line| line == "baseline run 1: empty 40.0 MiB (rss_bytes), preparation 120.0 MiB (rss_bytes), presenter 90.0 MiB (rss_bytes)")
         );
+    }
+
+    #[test]
+    fn measure_memory_prefers_peaks_then_private_then_rss() {
+        let keys = &MEASURE_MEMORY_KEYS;
+        let source = |sample: Value| read_memory(&sample, keys).map(|reading| reading.source);
+        assert_eq!(
+            source(json!({"rss_bytes": 1, "private_bytes": 2, "peak_rss_bytes": 3})),
+            Some("peak_rss_bytes")
+        );
+        assert_eq!(
+            source(json!({"rss_bytes": 1, "private_bytes": 2})),
+            Some("private_bytes")
+        );
+        assert_eq!(source(json!({"rss_bytes": 1})), Some("rss_bytes"));
+        assert_eq!(source(json!({})), None);
     }
 }
