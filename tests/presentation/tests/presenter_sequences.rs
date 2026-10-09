@@ -4,6 +4,8 @@ use presentation::presenter::{PresenterCommand, PresenterEngine, PresenterState,
 
 use PresenterCommand::*;
 
+// Deliberately duplicated from ordo's bench (crates/ordo/src/performance/bench.rs)
+// to keep this test crate free of an `ordo` dependency edge.
 /// Deterministic xorshift64: no dependencies, identical on every run.
 struct XorShift(u64);
 
