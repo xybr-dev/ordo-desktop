@@ -185,7 +185,7 @@ pub fn panel(
         .flex_col()
         .gap(px(related));
     if let Some(outcome) = outcome {
-        for summary in outcome.summary_lines() {
+        for summary in outcome.detail_lines() {
             result = result.child(line(summary.into(), palette.text));
         }
         let verdict_color = if outcome.verdict.is_pass() {

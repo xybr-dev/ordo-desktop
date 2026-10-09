@@ -78,15 +78,34 @@ impl BenchOutcome {
         self.oracle_match && self.verdict.is_pass()
     }
 
-    /// Lines for the Diagnostics panel and the CLI: the report's summary, then
-    /// the oracle and budget verdicts.
+    /// Lines for the CLI: the detail lines, then the budget verdict.
     pub fn summary_lines(&self) -> Vec<String> {
-        let mut lines = self.report.summary_lines();
+        let mut lines = self.detail_lines();
+        lines.push(verdict_line(&self.verdict));
+        lines
+    }
+
+    /// The report's summary and the oracle verdict, without the budget line,
+    /// which the Diagnostics panel renders separately in its verdict colour.
+    /// The bench drives the engine headlessly, so no renderer is involved and
+    /// the report's renderer line is replaced to say so.
+    pub fn detail_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .report
+            .summary_lines()
+            .into_iter()
+            .map(|line| {
+                if line.starts_with("Renderer:") {
+                    "Renderer: not involved (headless engine bench)".to_owned()
+                } else {
+                    line
+                }
+            })
+            .collect();
         lines.push(format!(
             "Oracle match: {}",
             if self.oracle_match { "yes" } else { "NO" }
         ));
-        lines.push(verdict_line(&self.verdict));
         lines
     }
 }
