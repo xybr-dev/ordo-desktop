@@ -82,7 +82,8 @@ qualification, shortcut customization, and general per-slide styling.
 An instrumented, packaged, offline native shell proving the platform risks
 before domain implementation expands. **Ends with:** one operator window and
 one passive congregation window displaying the same fixture-based canonical
-frame, with measured latency/memory, deterministic cross-platform typography,
+frame, with measured latency/memory, deterministic typography across Interface scale, system scale, and output
+density on Windows,
 asynchronous SQLite-worker access, and native Windows evidence (Linux is
 deferred post-MVP; Decision 268).
 
@@ -299,7 +300,7 @@ operator sizes, operating systems, display scaling, and preview consumers.
       pagination inputs, safe area, and element bounds are byte-for-byte
       invariant across packaged Windows runs, 100–200% Ordo Interface
       scale, representative system scale, and output densities; raster
-      sharpness is qualified separately per platform. The Linux half is
+      sharpness is qualified separately per output density. The Linux half is
       retired to T6.2 (Decision 268).
 - [x] `[AUTO]` Target density may change raster dimensions and sharpness but not
       logical composition.

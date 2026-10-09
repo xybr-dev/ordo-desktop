@@ -2617,7 +2617,7 @@ Emergency editing is a second controlled exception:
 
 ### 252. Replace Electron with a clean-slate Rust and GPUI implementation
 
-> **Superseded in part by Decision 268.** Supported Linux preparation and the Linux Flatpak/ZIP are deferred post-MVP. The rest of this decision is unchanged.
+> **Superseded in part by Decision 268.** Supported Linux preparation and the Linux Flatpak/ZIP are deferred post-MVP. Its cross-platform glyph, wrap, pagination, and frame parity gate becomes Windows-only invariance across scale and density. The rest of this decision is unchanged.
 
 - This supersedes Decisions 28–31, 33, 58, and 249 to the exact full/partial
   extents recorded by the forward notice in each affected section.
