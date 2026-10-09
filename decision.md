@@ -51,6 +51,8 @@ The central product idea is to keep the operator's liturgical context separate f
 
 ### 2. Platform and displays
 
+> **Superseded in part by Decision 268.** Development and preparation move to Windows; Linux is deferred post-MVP. The display rules remain.
+
 - Use a cross-platform desktop architecture.
 - Development will occur on Linux.
 - Initial parish deployment will be on Windows.
@@ -340,6 +342,8 @@ Emergency editing is a second controlled exception:
 
 ### 17. Local storage and portable transfer
 
+> **Superseded in part by Decision 268.** Preparation happens on a connected Windows machine, not Linux. The transfer workflow is otherwise unchanged.
+
 > **Superseded in part by Decision 180.** The original single-plan Mass Package
 > became the Celebration-scoped Package reflected in the reconciled text below.
 > Local-first storage, Parish Backup, and reviewed transfer rules remain.
@@ -484,6 +488,8 @@ Emergency editing is a second controlled exception:
 
 ### 28. Desktop shell, supported hardware, and performance budgets
 
+> **Superseded in part by Decision 268.** Linux is no longer a supported preparation or development platform. The hardware and performance budgets remain.
+
 > **Superseded in part by Decision 252.** The Electron selection, process model,
 > and Electron-specific rationale below are retained as decision history. The
 > hardware qualification and safety/performance outcomes remain applicable,
@@ -580,6 +586,8 @@ Emergency editing is a second controlled exception:
 
 ### 32. Linux installation scope
 
+> **Superseded in full by Decision 268.** No Linux package ships with the MVP.
+
 - Ship an x64 Flatpak as the supported installable Linux MVP release.
 - The Flatpak is the single first-class Linux installation format across CachyOS and other supported Linux distributions; Ordo does not initially maintain distribution-specific installation packages.
 - Also produce an x64 ZIP archive as a portable development, diagnostic, and recovery fallback.
@@ -588,6 +596,8 @@ Emergency editing is a second controlled exception:
 - Keep Linux packaging behind the release-packaging Seam so package format does not affect Ordo's domain Modules or portable data formats.
 
 ### 33. Source hosting and cross-platform builds
+
+> **Superseded in part by Decision 268.** CI and releases are Windows-only; the Linux runner, Flatpak, and ZIP outcomes no longer apply.
 
 > **Superseded in part by Decision 252.** GitHub, native Windows/Linux CI, draft
 > releases, checksums, and data isolation remain. The npm/Node/Electron
@@ -2439,6 +2449,8 @@ Emergency editing is a second controlled exception:
 
 ### 234. Operator-only interface scaling isolated from canonical slide rendering
 
+> **Superseded in part by Decision 268.** Qualification uses Windows system-scale factors only. The isolation contract remains.
+
 - Provide installation-specific **Interface scale** choices of `100%`, `125%`, `150%`, `175%`, and `200%`, persisted as an installation preference and controlled through Settings plus standard `Ctrl++`, `Ctrl+-`, and `Ctrl+0` controls. Scale operator text, controls, spacing, hit areas, and focus treatment together rather than enlarging glyphs inside fixed-height chrome.
 - Treat Windows/Linux system display scaling and Ordo Interface scale as operator-environment concerns only. They may resize and reflow Ordo's non-slide chrome but may never change the content geometry, font metrics, wrapping, pagination, safe area, or Theme typography of a canonical Slide.
 - Do not implement Interface scale as an indiscriminate GPUI/window scale that also multiplies canonical Slide layout. Apply it through operator-shell layout and typography tokens outside the Canonical Slide Renderer seam; fit the passive congregation view through the qualified Output Fit path.
@@ -2604,6 +2616,8 @@ Emergency editing is a second controlled exception:
 - Keep post-MVP Song merge, cloud/login, arbitrary PowerPoint import, media playback, remote control, and other deferred features out of the MVP task graph.
 
 ### 252. Replace Electron with a clean-slate Rust and GPUI implementation
+
+> **Superseded in part by Decision 268.** Supported Linux preparation and the Linux Flatpak/ZIP are deferred post-MVP. The rest of this decision is unchanged.
 
 - This supersedes Decisions 28–31, 33, 58, and 249 to the exact full/partial
   extents recorded by the forward notice in each affected section.
@@ -3054,7 +3068,33 @@ Emergency editing is a second controlled exception:
 - A glyph neither bundled face carries renders the bundled `.notdef` box by
   design; the box proves no system font leaks into canonical output.
 - The packaged-Linux manual script is not run; T0.4b rescopes it with the
-  move to Windows-only development.
+  move to Windows-only development (Decision 268).
+
+### 268. Make Ordo Windows-only for the MVP and defer Linux
+
+- The owner dropped Linux on 2026-10-09. Development and preparation now
+  happen on Windows (Windows 11 has become fast enough), and the owner does
+  not expect to use Linux in the foreseeable future.
+- MVP scope: preparation runs on a connected Windows machine; presentation
+  runs on the air-gapped Windows 10 22H2 church PC. Both use the same Windows
+  x64 installer. Linux preparation, the Linux Flatpak, and the Linux
+  diagnostic ZIP are deferred post-MVP.
+- Every `[NATIVE-AUTO]` and `[MANUAL]` gate names Windows only. The Linux
+  checks this removes are not dropped silently: their original wording is
+  kept, ungated, in the retired `MILESTONES.md` T6.2. That covers T0.4's
+  Linux canonical-invariance and packaged-Linux legibility checks
+  (`T0.4-MANUAL-GATE.md` script B, now retired), T0.6's Linux
+  minimum-profile measurement, T0.10's supported-Linux sign-off, and T6.2's
+  own Flatpak/ZIP criteria.
+- CI: the `ubuntu-24.04` verify job is replaced by a `windows-2022` job that
+  runs `cargo xtask verify`. The Windows shaping-probe and
+  canonical-invariance jobs stay mandatory.
+- Supersedes in part Decisions 2, 17, 28, 33, 234, and 252, and Decision 32
+  in full; each carries a forward notice.
+- This decision changes scope only. Golden frames, serialized canonical
+  layouts, and bundled-font manifests are unchanged. If Linux is revived, its
+  invariance runs must reproduce the Windows artifacts, and a mismatch
+  reopens Decision 267's evidence rather than adjusting the artifacts.
 
 ## Final design-status summary
 
@@ -3143,6 +3183,7 @@ The Mass Planning branches below are finalized for the MVP; no unresolved queue 
 - Remote phone control.
 - Audio playback as a core presenter feature.
 - Song merging, retiring-Song redirects, merge History and reversal, and the associated conflict/dependency workflow.
+- Linux preparation, the Linux Flatpak, and the Linux diagnostic ZIP (Decision 268).
 
 ## Grilling outcome
 
