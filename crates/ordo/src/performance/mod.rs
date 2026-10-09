@@ -11,6 +11,7 @@ pub mod clock;
 pub mod display_path;
 pub mod frames;
 pub mod latency;
+pub mod native_display_path;
 pub mod process;
 pub mod report;
 
