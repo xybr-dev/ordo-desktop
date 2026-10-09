@@ -365,6 +365,46 @@ routes: `docs/research/gpui-fast-and-gpui-kit.md`.
 passes with `--locked` on the new pins, and the native Windows jobs reproduce
 T0.4's canonical invariance evidence unchanged.
 
+### T0.4b — Windows-only development rescope of T0.4 Linux evidence
+
+**Goal:** Close T0.4 honestly after development moved to Windows-only
+(Decision 267). The packaged-Linux manual script and the Linux half of T0.4's
+native invariance criterion were not run; this task rescopes them so T0.4's
+remaining gates name evidence that is actually produced, and every deferred
+Linux check has one named owning task rather than silently disappearing.
+
+**Changes:** `MILESTONES.md`, `MVP-PLAN.md`, `decision.md`,
+`docs/qualification/T0.4-MANUAL-GATE.md`,
+`docs/qualification/RENDERING-T0.4.md`, `.github/workflows/verify.yml`
+
+**Depends on:** T0.4, T0.4a.
+
+**AC**
+
+- [ ] `[AUTO]` A decision-ledger entry records the Windows-only development
+      scope: which platform produces Phase 0 native and manual evidence, and
+      whether Linux remains an MVP preparation/packaging target or is deferred.
+      `MILESTONES.md` and `MVP-PLAN.md` are reconciled to that entry, with no
+      conflicting Linux claim left in either.
+- [ ] `[AUTO]` T0.4's `[NATIVE-AUTO]` invariance criterion and `[MANUAL]`
+      operator-fit criterion name only platforms that produce evidence during
+      development; each removed Linux check moves to one named later task
+      (for example T6.2 or the T0.10 qualification gate) with its original
+      wording preserved.
+- [ ] `[AUTO]` `T0.4-MANUAL-GATE.md` script B is rewritten or retired to match
+      the rescope and links the task that now owns packaged-Linux legibility.
+- [ ] `[NATIVE-AUTO]` The Windows shaping probe and canonical-invariance jobs
+      remain mandatory in CI; any Linux native job is either kept passing or
+      removed with its coverage recorded against the owning task.
+- [ ] `[AUTO]` Golden frames, serialized canonical layouts, and bundled-font
+      manifests are unchanged; this task changes scope, not rendering.
+- [ ] `[MANUAL]` The owner confirms the rescope, after which T0.4's remaining
+      criteria are checked off against the recorded Windows evidence.
+
+**E2E** `[AUTO]` — From a clean checkout, `cargo xtask verify` passes with
+`--locked`, and a search of the normative documents finds no T0.4 gate that
+requires evidence no development platform produces.
+
 ### T0.5 — Display Control and passive congregation-window spike
 
 **Goal:** Prove safe two-display orchestration without coupling Presentation
