@@ -1,5 +1,9 @@
 # GPUI behavior dependency qualification for T0.3
 
+> Superseded pin facts: T0.4a moved GPUI to `gpui-pre =0.3.8` and `gpui-base`
+> to `=0.7.1`; see `GPUI-BASE-T0.4a.md`. The behavior selection below remains
+> in force.
+
 ## Decision
 
 Qualify `gpui-base` `0.5.2` at revision

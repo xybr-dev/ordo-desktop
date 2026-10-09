@@ -14,3 +14,5 @@ tests/native-runtime/golden/*.txt text eol=lf
 # `ui::tokens` tests `include_str!` DESIGN.md and parse its frontmatter by
 # `---\n`; a CRLF checkout would fail them without any token drift.
 DESIGN.md text eol=lf
+# The roadmap is edited as LF; a CRLF working copy would commit whole-file churn.
+MILESTONES.md text eol=lf

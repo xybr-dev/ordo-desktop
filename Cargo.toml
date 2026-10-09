@@ -30,17 +30,22 @@ ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
 
-# gpui-base declares this common Zed source without a revision. Cargo therefore
-# cannot also use a `rev` query without creating a second, incompatible GPUI
-# type universe. The immutable revision is recorded below, enforced against
-# Cargo.lock by xtask, and every build/verification command uses `--locked`.
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
-gpui-base = { git = "https://github.com/longbridge/gpui-component", rev = "7885c41663c7a6cc68ad0c99b1ba33550f807ff0" }
+# GPUI comes from Longbridge's exactly pinned `gpui-pre` crates.io snapshot of
+# Zed, the same snapshot `gpui-base` is built against (T0.4a,
+# docs/qualification/GPUI-BASE-T0.4a.md). Renaming each package back to its Zed
+# name keeps every `gpui::` path unchanged. Every requirement is exact (`=`):
+# a caret range would let Cargo pick a second, incompatible GPUI type universe.
+# xtask enforces the exact requirements, the single crates.io-sourced crate
+# family, and the recorded versions below against Cargo.lock; `zed` is
+# informational.
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
+gpui-base = { version = "=0.7.1" }
 
-[workspace.metadata.ordo.git-pins]
-zed = "8b1497dbd22fb06f5838a7c0b84a1e54fafa71bc"
-gpui-base = "7885c41663c7a6cc68ad0c99b1ba33550f807ff0"
+[workspace.metadata.ordo.gpui-supply]
+gpui-pre = "0.3.8"
+zed = "279fe070bb389b79652e52065b2f001edcc0b11b"
+gpui-base = "0.7.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -55,5 +60,5 @@ unimplemented = "deny"
 debug = "limited"
 
 [profile.dev.package]
-gpui = { opt-level = 3 }
-gpui_platform = { opt-level = 3 }
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
