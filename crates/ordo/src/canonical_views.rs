@@ -177,6 +177,7 @@ mod tests {
         .expect("canonical worker must start");
         let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::WorkerSend);
         commands
             .send(CanonicalCommand::Compose {
                 environment,
@@ -531,6 +532,7 @@ mod tests {
         .expect("canonical worker must start");
         let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::WorkerSend);
         commands
             .send(CanonicalCommand::Compose {
                 environment,

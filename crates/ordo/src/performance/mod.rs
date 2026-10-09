@@ -10,15 +10,19 @@ pub mod bench;
 pub mod clock;
 pub mod display_path;
 pub mod frames;
+pub mod hot_path;
 pub mod latency;
+pub mod live;
 pub mod process;
 pub mod report;
 
 pub use bench::{BaselineRun, BenchConfig, BenchOutcome, run_presenter_bench, three_run_baselines};
 pub use clock::{Enqueued, QueueLatency, StartupClock};
 pub use frames::FrameTimer;
+pub use hot_path::HotPathKind;
 pub use latency::{
     CommandKind, KeydownStamp, LatencyBook, LatencyHistogram, PendingKeydown, Surface,
 };
+pub use live::{DriveError, PresenterProbe, ProbeOutcome, drive, open as open_probe};
 pub use process::{GpuMemory, ProcessSample, ProcessSampler, ProcessSamplerError};
 pub use report::{BudgetLimits, BudgetVerdict, BudgetViolation, PerformanceReport, RendererInfo};

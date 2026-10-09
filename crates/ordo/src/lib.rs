@@ -436,6 +436,9 @@ pub fn open_native_runtime_with(
     let save_preferences = {
         let commands = workers.borrow().preference_commands.clone();
         Rc::new(move |preferences: UiPreferences| {
+            crate::performance::hot_path::note(
+                crate::performance::hot_path::HotPathKind::PreferenceSave,
+            );
             if commands
                 .send(PreferenceCommand::Save(preferences.encode()))
                 .is_err()
