@@ -439,7 +439,7 @@ state to GPUI or operating-system window details.
       until the documented restore path completes.
 - [x] `[AUTO]` Topology records relative direction from any operator-display
       arrangement rather than assuming the congregation display is rightward.
-- [ ] `[MANUAL]` Pointer hiding over Program and operator cursor-location
+- [x] `[MANUAL]` Pointer hiding over Program and operator cursor-location
       assistance work for displays positioned left, right, above, and below.
 - [x] `[NATIVE-AUTO]` Packaged builds can enumerate the native runner display
       and survive a synthetic topology refresh without a crash.
