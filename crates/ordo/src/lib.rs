@@ -330,10 +330,14 @@ impl RuntimeWorkers {
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
             // File access on this worker is never inside a GPUI-thread scope. The note
             // counts only if a read or write is moved onto the GPUI thread.
-            crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::FileAccess);
+            crate::performance::hot_path::note(
+                crate::performance::hot_path::HotPathKind::FileAccess,
+            );
             let _ = restored_preferences.send_blocking(preferences.read());
             while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
-                crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::FileAccess);
+                crate::performance::hot_path::note(
+                    crate::performance::hot_path::HotPathKind::FileAccess,
+                );
                 preferences
                     .write(&contents)
                     .map_err(|error| error.to_string())?;

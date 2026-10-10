@@ -823,7 +823,7 @@ fn finish_run(probe: &WeakEntity<PresenterProbe>, cx: &mut App) {
             Ok(outcome) => Ok(outcome),
             Err(_) => Err(DriveError::WindowClosed),
         };
-        let _ = cx.update(move |cx| finish_with(&done, result, cx));
+        cx.update(move |cx| finish_with(&done, result, cx));
     })
     .detach();
 }
@@ -1017,22 +1017,12 @@ pub fn drive(
     });
     let probe = window
         .update(cx, |probe, window, cx| {
-            probe.begin_run(
-                commands,
-                idle,
-                sampler,
-                done,
-                window_closed,
-                window,
-                cx,
-            );
+            probe.begin_run(commands, idle, sampler, done, window_closed, window, cx);
             cx.entity().downgrade()
         })
         .map_err(|_| DriveError::WindowClosed)?;
-    cx.update_window(window.into(), |_, window, cx| {
-        step(&probe, window, cx)
-    })
-    .map_err(|_| DriveError::WindowClosed)
+    cx.update_window(window.into(), |_, window, cx| step(&probe, window, cx))
+        .map_err(|_| DriveError::WindowClosed)
 }
 
 #[cfg(test)]

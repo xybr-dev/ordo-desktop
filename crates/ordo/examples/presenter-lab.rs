@@ -568,7 +568,7 @@ fn build_on_background<T: Send + 'static>(
     let background = cx.background_executor().clone();
     cx.spawn(async move |cx| {
         let built = background.spawn(async move { build() }).await;
-        let _ = cx.update(move |cx| next(built, cx));
+        cx.update(move |cx| next(built, cx));
     })
     .detach();
 }
@@ -664,7 +664,7 @@ fn sample_after_settle(
         let _held = held;
         background.timer(SETTLE).await;
         let sample = background.spawn(async { sample_process() }).await;
-        let _ = cx.update(move |cx| match sample {
+        cx.update(move |cx| match sample {
             Ok(sample) => {
                 let peak = watch.finish(Some(sample));
                 finish(
