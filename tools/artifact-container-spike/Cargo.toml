@@ -10,7 +10,9 @@ publish.workspace = true
 # may depend on it; xtask enforces an empty internal dependency set.
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.151"
+# `preserve_order` keeps authored field order when payloads are rewritten, so
+# created containers stay readable and match fixtures in every build graph.
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
 sha2 = "=0.10.9"
 uuid = { version = "=1.25.0", features = ["v4"] }
 zip.workspace = true
