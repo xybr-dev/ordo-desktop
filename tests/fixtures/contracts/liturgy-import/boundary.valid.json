@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000298",
+  "celebration": {
+    "id": "00000000-0000-4000-8000-000000000299",
+    "date": "2028-02-29",
+    "title": "Ika-2 ng Linggo ng Pasko — Pagdiriwang ng Kapistahan ng Ginoo, Dalawampu't Isang Taon ng Pagsasalaysay"
+  },
+  "readings": [
+    {
+      "id": "00000000-0000-4000-8000-000000000300",
+      "role": "first-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 1: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "1ab23b362288a5305a1f7418daf605a6a3250be9843d4ec66bab92f0bbb662f6"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000301",
+      "role": "responsorial-psalm",
+      "text": "Mahabang teksto ng pagbasa bilang 2: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "81064f8933cdc171fce1b1bb9ad36044065bc534da8b01eacb68439d8b6a0b7c"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000302",
+      "role": "second-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 3: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "97def64691a25e44e33d3d739b901dd3123d671a8b7e0d5868167afa4da08033"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000303",
+      "role": "gospel-acclamation",
+      "text": "Mahabang teksto ng pagbasa bilang 4: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "708241e824c25ccc30409e27a6350111d9825e483dd9c8ba4f9775e1df7e958d"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000304",
+      "role": "first-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 5: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "d94fd426bf9a1df3fb422d50651145af78ffa647ef44e90c9ec082edd1cf2b47"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000305",
+      "role": "responsorial-psalm",
+      "text": "Mahabang teksto ng pagbasa bilang 6: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "dd1e94eb6883c53b14e6d008ed189c5213d2b6fc1cbcb348529177a6ec7e78c2"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000306",
+      "role": "second-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 7: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "eb9fe6523ec88cd809b4859e3ac0a4d165e66ad29497744521a25527cc3cffc4"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000307",
+      "role": "gospel-acclamation",
+      "text": "Mahabang teksto ng pagbasa bilang 8: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "ba8313f682e3b7fc459f1b58af967dce24f8e502e9f799165d1857628af6187b"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000308",
+      "role": "first-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 9: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "79a8b9eeb24a924969c2791cc1a8363e072337ad63282fdcc470b2dcfe6169a5"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000309",
+      "role": "responsorial-psalm",
+      "text": "Mahabang teksto ng pagbasa bilang 10: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "cb50d09d24e9e71824435ca89a60fb83e53d492b7cd071bcd303c6f6b3c71b6d"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000310",
+      "role": "second-reading",
+      "language": "tl",
+      "text": "Mahabang teksto ng pagbasa bilang 11: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "d04fc08b359cf96f822dd66ca8473f321e35195e93c662acd262f2d28738f591"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000311",
+      "role": "gospel-acclamation",
+      "text": "Mahabang teksto ng pagbasa bilang 12: ñandú, Ñ, ÁÉÍÓÚ — \"Ginoo, maawa ka\" Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. Ang Espiritu ng Diyos ay sumasaatin. ",
+      "text_sha256": "fd22adfe9e036e69ee694e7159cd3381f913f3838acca743eb05466cf2396f03"
+    }
+  ],
+  "responses": []
+}

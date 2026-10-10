@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000402",
+  "parish": {
+    "id": "00000000-0000-4000-8000-000000000401",
+    "name": "St. Joseph Parish, Mabuhay",
+    "logo_asset_id": "00000000-0000-4000-8000-000000000410"
+  },
+  "created_at": "2026-08-24 19:30",
+  "database": {
+    "path": "database/ordo.sqlite",
+    "sha256": "9f585a4046797e020175f9a1cb8544b75583954c5fa0782e643d01a42c58ba91",
+    "size": 8192,
+    "schema_version": 3
+  },
+  "assets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000410",
+      "path": "assets/branding/logo.png",
+      "sha256": "53e758cea4dbce662532dac097ed9d587b898ff32f3c002533d66556f3ed2fae",
+      "size": 12000
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000411",
+      "path": "assets/media/intro-loop.mp4",
+      "sha256": "b3e71ac41fde9897342871356a4c371fe37896ff7ce65195535ade4bf3032103",
+      "size": 9000000
+    }
+  ],
+  "assets_fingerprint": "3096c0d0a9901e2f15f899ea193533e69aa2fa30b486b8196fb58d8e20753842",
+  "package_provenance": [
+    {
+      "package_version_id": "00000000-0000-4000-8000-000000000412",
+      "fingerprint": "bf3b306470176c807799dac489689f31bb34584f23bd1fccb76585e0d2462b9a"
+    }
+  ]
+}

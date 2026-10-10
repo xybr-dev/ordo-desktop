@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/celebration-package/v1.schema.json",
+  "title": "Celebration Package v1",
+  "description": "One complete Celebration with an independent snapshot per included Mass plan and the deduplicated offline assets. package_version.fingerprint is the SHA-256 of the sorted snapshot ids, each followed by LF. Every snapshot asset must be listed in assets with identical path, size, and sha256.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "assets",
+    "celebration",
+    "id",
+    "package_version",
+    "schema_version",
+    "snapshots"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "exported_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "celebration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "package_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "snapshots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/snapshot"
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/asset"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "Calendar date YYYY-MM-DD."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^assets/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assets",
+        "assets_fingerprint",
+        "id",
+        "items",
+        "mass_plan_id",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "mass_plan_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "celebration_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "captured_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/item"
+          }
+        },
+        "assets": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/asset"
+          }
+        },
+        "assets_fingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_ids",
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "asset_ids": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        }
+      }
+    }
+  }
+}

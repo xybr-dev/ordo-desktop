@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000040",
+  "title": "Maligayang Pasko sa Iyong Pag-ibig, Panginoon: Mahabang Himno ng Pasasalamat para sa mga Pamilya at Parokya ng Santa Ana, Lungsod ng Cebu — Ñoño Ñ ñ",
+  "aliases": [],
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000041",
+      "name": "Pagsasalamat — Buong Koro",
+      "language": "tl",
+      "choirs": [],
+      "occasions": [],
+      "content_sha256": "6942738e69ec60861fb8c23280095849de298c467e31379b072c41e679cbb456",
+      "slides": [
+        {
+          "id": "00000000-0000-4000-8000-000000001000",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 1",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001001",
+          "label": "Saknong 2 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 2",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001002",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 3",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001003",
+          "label": "Saknong 4 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 4",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001004",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 5",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001005",
+          "label": "Saknong 6 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 6",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001006",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 7",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001007",
+          "label": "Saknong 8 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 8",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001008",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 9",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001009",
+          "label": "Saknong 10 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 10",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001010",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 11",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001011",
+          "label": "Saknong 12 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 12",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001012",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 13",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001013",
+          "label": "Saknong 14 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 14",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001014",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 15",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001015",
+          "label": "Saknong 16 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 16",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001016",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 17",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001017",
+          "label": "Saknong 18 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 18",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001018",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 19",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001019",
+          "label": "Saknong 20 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 20",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001020",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 21",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001021",
+          "label": "Saknong 22 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 22",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001022",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 23",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001023",
+          "label": "Saknong 24 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 24",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001024",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 25",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001025",
+          "label": "Saknong 26 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 26",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001026",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 27",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001027",
+          "label": "Saknong 28 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 28",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001028",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 29",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001029",
+          "label": "Saknong 30 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 30",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001030",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 31",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001031",
+          "label": "Saknong 32 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 32",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001032",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 33",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001033",
+          "label": "Saknong 34 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 34",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001034",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 35",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001035",
+          "label": "Saknong 36 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 36",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001036",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 37",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001037",
+          "label": "Saknong 38 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 38",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001038",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 39",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000001039",
+          "label": "Saknong 40 — ñ",
+          "lines": [
+            "Kaluwalhatian sa Diyos sa kaitaasan, 40",
+            "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000001000",
+        "00000000-0000-4000-8000-000000001001",
+        "00000000-0000-4000-8000-000000001002",
+        "00000000-0000-4000-8000-000000001003",
+        "00000000-0000-4000-8000-000000001004",
+        "00000000-0000-4000-8000-000000001005",
+        "00000000-0000-4000-8000-000000001006",
+        "00000000-0000-4000-8000-000000001007",
+        "00000000-0000-4000-8000-000000001008",
+        "00000000-0000-4000-8000-000000001009",
+        "00000000-0000-4000-8000-000000001010",
+        "00000000-0000-4000-8000-000000001011",
+        "00000000-0000-4000-8000-000000001012",
+        "00000000-0000-4000-8000-000000001013",
+        "00000000-0000-4000-8000-000000001014",
+        "00000000-0000-4000-8000-000000001015",
+        "00000000-0000-4000-8000-000000001016",
+        "00000000-0000-4000-8000-000000001017",
+        "00000000-0000-4000-8000-000000001018",
+        "00000000-0000-4000-8000-000000001019",
+        "00000000-0000-4000-8000-000000001020",
+        "00000000-0000-4000-8000-000000001021",
+        "00000000-0000-4000-8000-000000001022",
+        "00000000-0000-4000-8000-000000001023",
+        "00000000-0000-4000-8000-000000001024",
+        "00000000-0000-4000-8000-000000001025",
+        "00000000-0000-4000-8000-000000001026",
+        "00000000-0000-4000-8000-000000001027",
+        "00000000-0000-4000-8000-000000001028",
+        "00000000-0000-4000-8000-000000001029",
+        "00000000-0000-4000-8000-000000001030",
+        "00000000-0000-4000-8000-000000001031",
+        "00000000-0000-4000-8000-000000001032",
+        "00000000-0000-4000-8000-000000001033",
+        "00000000-0000-4000-8000-000000001034",
+        "00000000-0000-4000-8000-000000001035",
+        "00000000-0000-4000-8000-000000001036",
+        "00000000-0000-4000-8000-000000001037",
+        "00000000-0000-4000-8000-000000001038",
+        "00000000-0000-4000-8000-000000001039",
+        "00000000-0000-4000-8000-000000001000",
+        "00000000-0000-4000-8000-000000001001",
+        "00000000-0000-4000-8000-000000001002",
+        "00000000-0000-4000-8000-000000001003",
+        "00000000-0000-4000-8000-000000001004"
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000042",
+      "name": "Ginoo (solo)",
+      "content_sha256": "3154890a4df4c955af98e9a76e19c002759e9448bd175923a628d3efa89b2bf5",
+      "slides": [
+        {
+          "id": "00000000-0000-4000-8000-000000001100",
+          "lines": [
+            "Ginoo"
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000001100"
+      ]
+    }
+  ]
+}

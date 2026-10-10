@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000420",
+  "parish": {
+    "id": "00000000-0000-4000-8000-000000000421",
+    "name": "Parokya ng Santo Niño de Cebu — Ñ ñ ÁÉÍÓÚ — Mahabang pangalan ng parokya para sa pagsubok ng haba"
+  },
+  "created_at": "2028-02-29T23:59:59Z",
+  "database": {
+    "path": "database/ordo.sqlite",
+    "sha256": "d934ede8b553e041bae4ee5ccf242af5895f0a7502d6b49d777909ceb9d6d967",
+    "size": 0,
+    "schema_version": 1
+  },
+  "assets": [],
+  "assets_fingerprint": "148c6731029a08d659e3bae9be9d16d477d25adaa493261f59d64890e4de8c92",
+  "package_provenance": []
+}

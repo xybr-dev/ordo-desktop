@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000300",
+  "celebration": {
+    "id": "PKG-301",
+    "date": "2026-08-23",
+    "title": "21st Sunday in Ordinary Time"
+  },
+  "package_version": {
+    "id": "00000000-0000-4000-8000-000000000302",
+    "fingerprint": "9c65cb8b9ae2aebafd2dfc12775ec389b59b1f22370cc1974b3eb66bf3e891c9"
+  },
+  "snapshots": [
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-4000-8000-000000000303",
+      "mass_plan_id": "00000000-0000-4000-8000-000000000304",
+      "items": [
+        {
+          "id": "00000000-0000-4000-8000-000000000305",
+          "title": "Opening Hymn",
+          "asset_ids": []
+        }
+      ],
+      "assets": [],
+      "assets_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "assets": []
+}
