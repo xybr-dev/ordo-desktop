@@ -583,12 +583,7 @@ impl PresenterProbe {
             dispatched: self.applied,
             idle,
             sampler,
-            renderer: window
-                .gpu_specs()
-                .map_or_else(RendererInfo::default, |specs| RendererInfo {
-                    software_emulated: Some(specs.is_software_emulated),
-                    device_name: Some(specs.device_name),
-                }),
+            renderer: RendererInfo::from_gpu_specs(window.gpu_specs()),
             done,
             window_closed,
         });

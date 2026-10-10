@@ -19,6 +19,7 @@ use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
 use crate::performance::{
     BenchOutcome, StartupClock,
     latency::{CommandKind, Surface},
+    report::is_software_adapter,
 };
 
 /// The bench's state as the panel shows it.
@@ -56,7 +57,7 @@ pub struct PerformanceState {
 pub fn renderer_status(specs: Option<&GpuSpecs>) -> String {
     match specs {
         None => "unknown".to_owned(),
-        Some(specs) if specs.is_software_emulated => {
+        Some(specs) if is_software_adapter(specs) => {
             format!(
                 "SOFTWARE RENDERING \u{2014} fallback detected ({})",
                 specs.device_name
@@ -68,7 +69,7 @@ pub fn renderer_status(specs: Option<&GpuSpecs>) -> String {
 
 /// Whether the renderer line reports a software fallback.
 pub fn is_software_fallback(specs: Option<&GpuSpecs>) -> bool {
-    specs.is_some_and(|specs| specs.is_software_emulated)
+    specs.is_some_and(is_software_adapter)
 }
 
 fn format_ms(value: Option<Duration>) -> String {
@@ -266,9 +267,13 @@ mod tests {
     use gpui::GpuSpecs;
 
     fn specs(software: bool) -> GpuSpecs {
+        named(software, "Test Adapter")
+    }
+
+    fn named(software: bool, device: &str) -> GpuSpecs {
         GpuSpecs {
             is_software_emulated: software,
-            device_name: "Test Adapter".to_owned(),
+            device_name: device.to_owned(),
             driver_name: String::new(),
             driver_info: String::new(),
         }
@@ -287,6 +292,22 @@ mod tests {
         assert!(!is_software_fallback(None));
         assert!(!is_software_fallback(Some(&specs(false))));
         assert!(is_software_fallback(Some(&specs(true))));
+    }
+
+    #[test]
+    fn warp_is_a_software_fallback_even_when_gpui_says_hardware() {
+        // CI's windows-2022 runner reported exactly this adapter.
+        let warp = named(false, "Microsoft Basic Render Driver");
+        assert!(is_software_fallback(Some(&warp)));
+        assert!(renderer_status(Some(&warp)).starts_with("SOFTWARE RENDERING"));
+        let info = crate::performance::RendererInfo::from_gpu_specs(Some(warp));
+        assert_eq!(info.software_emulated, Some(true));
+        let radeon = named(false, "AMD Radeon(TM) Graphics");
+        assert!(!is_software_fallback(Some(&radeon)));
+        assert_eq!(
+            crate::performance::RendererInfo::from_gpu_specs(Some(radeon)).software_emulated,
+            Some(false)
+        );
     }
 
     #[test]

@@ -537,12 +537,7 @@ fn fixture_frame() -> Frame {
 }
 
 fn renderer_info(window: &Window) -> RendererInfo {
-    window
-        .gpu_specs()
-        .map_or_else(RendererInfo::default, |specs| RendererInfo {
-            software_emulated: Some(specs.is_software_emulated),
-            device_name: (!specs.device_name.is_empty()).then_some(specs.device_name),
-        })
+    RendererInfo::from_gpu_specs(window.gpu_specs())
 }
 
 fn timing(samples: &[Duration], held_bytes: usize) -> PathTiming {

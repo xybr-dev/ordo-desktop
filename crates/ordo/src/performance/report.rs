@@ -29,6 +29,36 @@ pub struct RendererInfo {
     pub device_name: Option<String>,
 }
 
+/// Device names of adapters that rasterize on the CPU. GPUI's Windows
+/// backend reports Microsoft's WARP adapter ("Microsoft Basic Render
+/// Driver") with `is_software_emulated: false`, as CI's `windows-2022`
+/// runner showed, so the flag alone misses the fallback this AC must
+/// diagnose. The Linux names cover Mesa's and Google's software rasterizers.
+const SOFTWARE_ADAPTERS: [&str; 4] = [
+    "microsoft basic render driver",
+    "llvmpipe",
+    "softpipe",
+    "swiftshader",
+];
+
+/// Whether an adapter is a software fallback: GPUI says so, or its device
+/// name is a known software rasterizer.
+pub fn is_software_adapter(specs: &gpui::GpuSpecs) -> bool {
+    let name = specs.device_name.to_ascii_lowercase();
+    specs.is_software_emulated || SOFTWARE_ADAPTERS.iter().any(|known| name.contains(known))
+}
+
+impl RendererInfo {
+    /// Renderer identity from GPUI's adapter report, with the software
+    /// fallback decided by [`is_software_adapter`].
+    pub fn from_gpu_specs(specs: Option<gpui::GpuSpecs>) -> Self {
+        specs.map_or_else(Self::default, |specs| Self {
+            software_emulated: Some(is_software_adapter(&specs)),
+            device_name: (!specs.device_name.is_empty()).then_some(specs.device_name),
+        })
+    }
+}
+
 /// The percentiles printed for every histogram: p50, p95, and p99.
 const TAIL_PERCENTILES: [f64; 3] = [50.0, 95.0, 99.0];
 

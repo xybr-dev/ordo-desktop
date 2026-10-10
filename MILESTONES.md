@@ -493,7 +493,7 @@ baseline before full UI construction.
       both packaged targets (Linux retired, Decision 268). Shaped glyph IDs
       are face-intrinsic, so a silent substitution would mispaint without
       failing.
-- [x] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
+- [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling. The Linux half is retired to T6.2
       (Decision 268).
