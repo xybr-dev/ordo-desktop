@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, fmt::Write as _, time::Duration};
 use super::{
     frames::FrameTimer,
     latency::{CommandKind, LatencyBook, LatencyHistogram, Surface},
-    process::{GpuMemory, ProcessSample},
+    process::{GpuMemory, PeakMemory, ProcessSample},
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -203,6 +203,13 @@ impl PerformanceReport {
     /// Durations are milliseconds with three decimals. Unavailable values are
     /// `null`. The latency array always lists all eight command/surface pairs.
     pub fn to_json(&self) -> String {
+        self.to_json_with_peak(None)
+    }
+
+    /// [`PerformanceReport::to_json`] with the run's peak memory. `peak` is
+    /// kept beside the report, not inside it, so the report keeps its one
+    /// constructor. `None` writes the peak fields as `null`.
+    pub fn to_json_with_peak(&self, peak: Option<PeakMemory>) -> String {
         let mut out = String::new();
         out.push('{');
         let _ = write!(out, "\"schema\":{}", json_string(REPORT_SCHEMA));
@@ -309,9 +316,16 @@ impl PerformanceReport {
             ),
             None => ("null".into(), "null".into(), "null".into(), "null".into()),
         };
+        let (peak_rss, peak_private) = match peak {
+            Some(peak) => (
+                json_u64(Some(peak.peak_rss_bytes)),
+                json_u64(peak.peak_private_bytes),
+            ),
+            None => ("null".into(), "null".into()),
+        };
         let _ = write!(
             out,
-            ",\"memory\":{{\"rss_bytes\":{rss},\"virtual_bytes\":{virtual_bytes},\"private_bytes\":{private}}}\
+            ",\"memory\":{{\"rss_bytes\":{rss},\"virtual_bytes\":{virtual_bytes},\"private_bytes\":{private},\"peak_rss_bytes\":{peak_rss},\"peak_private_bytes\":{peak_private}}}\
              ,\"cpu\":{{\"process_percent\":{cpu},\"idle_percent\":{}}}",
             json_f32(self.idle_cpu_percent),
         );
@@ -332,6 +346,12 @@ impl PerformanceReport {
 
     /// Human-readable lines for the Diagnostics panel.
     pub fn summary_lines(&self) -> Vec<String> {
+        self.summary_lines_with_peak(None)
+    }
+
+    /// [`PerformanceReport::summary_lines`] with the run's peak memory, which
+    /// the Memory line names beside the current readings.
+    pub fn summary_lines_with_peak(&self, peak: Option<PeakMemory>) -> Vec<String> {
         let mut lines = Vec::new();
 
         lines.push(format!(
@@ -414,10 +434,15 @@ impl PerformanceReport {
 
         lines.push(match self.process {
             Some(s) => format!(
-                "Memory: RSS {}, virtual {}, private {}",
+                "Memory: RSS {}, virtual {}, private {}, peak RSS {}, peak private {}",
                 fmt_mib(s.rss_bytes),
                 fmt_mib(s.virtual_bytes),
                 s.private_bytes
+                    .map(fmt_mib)
+                    .unwrap_or_else(|| "unavailable".to_string()),
+                peak.map(|peak| fmt_mib(peak.peak_rss_bytes))
+                    .unwrap_or_else(|| "not sampled".to_string()),
+                peak.and_then(|peak| peak.peak_private_bytes)
                     .map(fmt_mib)
                     .unwrap_or_else(|| "unavailable".to_string()),
             ),
@@ -644,6 +669,7 @@ mod tests {
         assert!(json.contains("\"time_to_first_paint_ms\":640.000"));
         assert!(json.contains("\"dropped\":0"));
         assert!(json.contains("\"private_bytes\":null"));
+        assert!(json.contains("\"peak_rss_bytes\":null,\"peak_private_bytes\":null"));
         assert!(json.contains("\"idle_percent\":0.25"));
         assert!(json.contains("\"gpu_memory\":\"unavailable\""));
         assert!(json.contains("\"hot_path_violations\":0"));
@@ -658,10 +684,42 @@ mod tests {
         assert!(json.contains("\"software_emulated\":null"));
         assert!(json.contains("\"time_to_first_paint_ms\":null"));
         assert!(json.contains("\"rss_bytes\":null"));
+        assert!(json.contains("\"peak_rss_bytes\":null,\"peak_private_bytes\":null"));
         assert!(json.contains("\"latency_scope\":\"engine_apply\""));
         assert!(json.contains(
             "{\"command\":\"space\",\"surface\":\"program\",\"samples\":0,\"p50_ms\":null,\"p95_ms\":null,\"p99_ms\":null}"
         ));
+    }
+
+    #[test]
+    fn json_and_summary_write_peak_memory_when_sampled() {
+        let report = passing_report(10, sample(300 * MIB, Some(200 * MIB)));
+        let mut peak = PeakMemory::default();
+        peak.observe(sample(300 * MIB, Some(200 * MIB)));
+        peak.observe(sample(450 * MIB, Some(260 * MIB)));
+        peak.observe(sample(320 * MIB, Some(210 * MIB)));
+        assert!(report.to_json_with_peak(Some(peak)).contains(&format!(
+            "\"peak_rss_bytes\":{},\"peak_private_bytes\":{}",
+            450 * MIB,
+            260 * MIB
+        )));
+        assert!(
+            report
+                .summary_lines_with_peak(Some(peak))
+                .iter()
+                .any(|l| l.contains("peak RSS 450.0 MiB, peak private 260.0 MiB"))
+        );
+    }
+
+    #[test]
+    fn json_keeps_peak_private_null_when_the_platform_never_reports_it() {
+        let report = passing_report(10, sample(300 * MIB, None));
+        let mut peak = PeakMemory::default();
+        peak.observe(sample(450 * MIB, None));
+        assert!(report.to_json_with_peak(Some(peak)).contains(&format!(
+            "\"peak_rss_bytes\":{},\"peak_private_bytes\":null",
+            450 * MIB
+        )));
     }
 
     #[test]
