@@ -1,0 +1,18 @@
+[package]
+name = "storage-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Storage Module acceptance harness (T0.7 WP2). Every edge is a dev-dependency,
+# so the xtask dependency contract allows this package no internal dependencies
+# at all. `fault-injection` is enabled only here, never in a normal build.
+[dev-dependencies]
+storage = { workspace = true, features = ["fault-injection"] }
+futures-lite = "=2.6.1"
+rusqlite = { workspace = true }
+
+[lints]
+workspace = true

@@ -8,6 +8,17 @@ publish.workspace = true
 
 [dependencies]
 domain.workspace = true
+async-channel.workspace = true
+rusqlite.workspace = true
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+futures-lite = "=2.6.1"
+
+[features]
+# Test-only fault hooks (extra broken migration, injected panic and delay).
+# Non-default; enabled solely by test crates' dev-dependencies.
+fault-injection = []
 
 [lints]
 workspace = true

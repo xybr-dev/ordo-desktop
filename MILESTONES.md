@@ -522,21 +522,21 @@ work on the Presenter hot path.
 
 **AC**
 
-- [ ] `[AUTO]` One supervised Rust worker thread is the sole owner of the pinned
+- [x] `[AUTO]` One supervised Rust worker thread is the sole owner of the pinned
       bundled `rusqlite` connection; no GPUI entity or feature view can acquire
       a raw connection.
-- [ ] `[AUTO]` The Storage Module exposes domain-shaped asynchronous operations;
+- [x] `[AUTO]` The Storage Module exposes domain-shaped asynchronous operations;
       callers cannot submit SQL or control transactions.
-- [ ] `[AUTO]` A numbered migration runner applies migrations in order inside
+- [x] `[AUTO]` A numbered migration runner applies migrations in order inside
       transactions and records their identifiers and checksums.
-- [ ] `[AUTO]` Re-running at head is a no-op; a failed migration rolls back both
+- [x] `[AUTO]` Re-running at head is a no-op; a failed migration rolls back both
       schema changes and migration history.
-- [ ] `[AUTO]` Foreign keys, WAL/recovery policy, busy handling, and orderly
+- [x] `[AUTO]` Foreign keys, WAL/recovery policy, busy handling, and orderly
       shutdown are explicit and fixture-tested.
-- [ ] `[AUTO]` Concurrent typed requests are serialized or coordinated
+- [x] `[AUTO]` Concurrent typed requests are serialized or coordinated
       deterministically without blocking the GPUI thread or Presenter hot path.
-- [ ] `[AUTO]` An unknown newer schema is refused without mutation.
-- [ ] `[AUTO]` A worker panic, closed request channel, and application shutdown
+- [x] `[AUTO]` An unknown newer schema is refused without mutation.
+- [x] `[AUTO]` A worker panic, closed request channel, and application shutdown
       each yield a supervised structured result and do not crash or hang the UI
       test harness.
 

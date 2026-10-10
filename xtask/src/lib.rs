@@ -16,6 +16,7 @@ pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
 /// Non-GPUI crates `domain` and `presentation` may not use. Every GPUI crate is
 /// forbidden there too, by `is_gpui_crate` rather than by listing, so a renamed
 /// or newly published GPUI family cannot slip past an outdated list.
+const FAULT_INJECTION_FEATURE: &str = "fault-injection";
 const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
     "rusqlite",
     "libsqlite3-sys",
@@ -260,6 +261,7 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         "native-runtime-tests",
         "display-tests",
         "presentation-tests",
+        "storage-tests",
         "performance-tests",
         "xtask",
     ]
@@ -314,7 +316,80 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &direct_dependencies(false),
         &direct_dependencies(true),
         &workspace_names,
-    )
+    )?;
+    validate_sqlite_ownership(&direct_dependencies(false))?;
+    validate_fault_injection_policy(metadata)
+}
+
+/// SQLite driver crates that only the Storage Module may link (T0.7 AC1).
+const SQLITE_DRIVERS: &[&str] = &["rusqlite", "libsqlite3-sys"];
+
+/// Only `storage` may name a SQLite driver as a normal dependency, so no other
+/// crate can open its own connection. Test crates may use one as a
+/// dev-dependency to plant fixtures.
+fn validate_sqlite_ownership(
+    normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+) -> XtaskResult<()> {
+    let offending: Vec<_> = normal_dependencies
+        .iter()
+        .filter(|(package, _)| **package != "storage")
+        .flat_map(|(package, dependencies)| {
+            dependencies
+                .iter()
+                .filter(|dependency| SQLITE_DRIVERS.contains(dependency))
+                .map(move |dependency| format!("{package} -> {dependency}"))
+        })
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("only storage may depend on a SQLite driver: {offending:?}").into())
+    }
+}
+
+/// Fault hooks are a test-only seam. No normal (non-dev) dependency edge between
+/// workspace packages may enable `storage`'s `fault-injection` feature.
+fn validate_fault_injection_policy(metadata: &Metadata) -> XtaskResult<()> {
+    let workspace_names: BTreeSet<_> = workspace_packages(metadata)
+        .into_iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    let edges: Vec<_> = workspace_packages(metadata)
+        .into_iter()
+        .flat_map(|package| {
+            package.dependencies.iter().map(move |dependency| {
+                (
+                    package.name.as_str(),
+                    dependency.name.as_str(),
+                    dependency.kind,
+                    dependency.features.as_slice(),
+                )
+            })
+        })
+        .collect();
+    validate_fault_injection_edges(&edges, &workspace_names)
+}
+
+fn validate_fault_injection_edges(
+    edges: &[(&str, &str, DependencyKind, &[String])],
+    workspace_names: &BTreeSet<&str>,
+) -> XtaskResult<()> {
+    let offending: Vec<_> = edges
+        .iter()
+        .filter(|(_, dependency, kind, features)| {
+            *kind == DependencyKind::Normal
+                && workspace_names.contains(dependency)
+                && features
+                    .iter()
+                    .any(|feature| feature == FAULT_INJECTION_FEATURE)
+        })
+        .map(|(package, dependency, _, _)| format!("{package} -> {dependency}"))
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("fault-injection enabled in normal dependencies: {offending:?}").into())
+    }
 }
 
 fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
@@ -340,6 +415,7 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
         ("native-runtime-tests", BTreeSet::new()),
         ("display-tests", BTreeSet::new()),
         ("presentation-tests", BTreeSet::new()),
+        ("storage-tests", BTreeSet::new()),
         ("performance-tests", BTreeSet::new()),
         ("xtask", BTreeSet::new()),
     ]
@@ -931,6 +1007,48 @@ mod tests {
         assert!(validate_unsafe_opt_out("crates/ordo/src/lib.rs", opt_out).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", expect).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", "fn safe() {}").is_ok());
+    }
+
+    #[test]
+    fn rejects_fault_injection_in_normal_dependencies() {
+        let workspace = BTreeSet::from(["storage", "ordo", "storage-tests"]);
+        let on = vec![FAULT_INJECTION_FEATURE.to_owned()];
+        let off: Vec<String> = Vec::new();
+
+        // A normal edge from ordo to storage that enables the hook is rejected.
+        let leaked = [("ordo", "storage", DependencyKind::Normal, on.as_slice())];
+        assert!(validate_fault_injection_edges(&leaked, &workspace).is_err());
+
+        // The same feature on a dev edge (the storage-tests harness) is allowed.
+        let dev = [(
+            "storage-tests",
+            "storage",
+            DependencyKind::Development,
+            on.as_slice(),
+        )];
+        assert!(validate_fault_injection_edges(&dev, &workspace).is_ok());
+
+        // A normal edge without the feature is allowed.
+        let clean = [("ordo", "storage", DependencyKind::Normal, off.as_slice())];
+        assert!(validate_fault_injection_edges(&clean, &workspace).is_ok());
+
+        // Non-workspace crates are outside this policy.
+        let external = [("ordo", "other", DependencyKind::Normal, on.as_slice())];
+        assert!(validate_fault_injection_edges(&external, &workspace).is_ok());
+    }
+
+    #[test]
+    fn only_storage_may_depend_on_a_sqlite_driver() {
+        let owned = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["storage"])),
+        ]);
+        assert!(validate_sqlite_ownership(&owned).is_ok());
+        let leaked = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["rusqlite"])),
+        ]);
+        assert!(validate_sqlite_ownership(&leaked).is_err());
     }
 
     #[test]
