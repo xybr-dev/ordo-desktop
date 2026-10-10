@@ -17,19 +17,24 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
     },
     "id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this recovery journal."
     },
     "session_id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Presentation session the journal records."
     },
     "snapshot_id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Presentation snapshot the journal replays from."
     },
     "updated_at": {
-      "$ref": "#/$defs/timestamp"
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the journal was last written."
     },
     "cue_position": {
       "type": "object",
@@ -47,17 +52,20 @@
           "type": "integer",
           "minimum": 0
         }
-      }
+      },
+      "description": "Last confirmed Cue position within the Presentation."
     },
     "entries": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/entry"
-      }
+      },
+      "description": "Ordered journal entries recording Presentation actions since the snapshot."
     },
     "entries_fingerprint": {
-      "$ref": "#/$defs/sha256"
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 fingerprint over the ordered entries."
     }
   },
   "$defs": {

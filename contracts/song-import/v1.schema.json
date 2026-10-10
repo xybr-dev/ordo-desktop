@@ -14,36 +14,44 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
     },
     "id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this Song import document."
     },
     "title": {
-      "$ref": "#/$defs/text"
+      "$ref": "#/$defs/text",
+      "description": "Title of the Song work."
     },
     "aliases": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/text"
-      }
+      },
+      "description": "Alternative titles for the Song work."
     },
     "composer": {
-      "$ref": "#/$defs/text"
+      "$ref": "#/$defs/text",
+      "description": "Composer credited for the Song work."
     },
     "source": {
-      "$ref": "#/$defs/text"
+      "$ref": "#/$defs/text",
+      "description": "Where the Song work was obtained, as named by the importer."
     },
     "language": {
-      "$ref": "#/$defs/text"
+      "$ref": "#/$defs/text",
+      "description": "Primary language of the Song work."
     },
     "arrangements": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/arrangement"
-      }
+      },
+      "description": "Arrangements of the Song work; at least one."
     }
   },
   "$defs": {

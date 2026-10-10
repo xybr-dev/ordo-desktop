@@ -2,11 +2,13 @@
 //! the container manifest schema.
 
 use super::{Contract, declared_keys, validate_contract};
-use crate::{ArtifactKind, FORMAT, FileRef, Manifest};
+use crate::{ArtifactKind, FORMAT, FileRef, Manifest, create};
+use jsonschema::Validator;
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    fs,
+    fs::{self, File},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -226,4 +228,177 @@ fn container_manifest_schema_matches_the_manifest_struct() {
         .cloned()
         .collect();
     assert_eq!(properties, struct_keys, "properties");
+}
+
+fn manifest_schema_path() -> PathBuf {
+    repo_root().join("contracts/container/manifest.v1.schema.json")
+}
+
+/// Compiles a schema with the offline JSON Schema 2020-12 engine. Only local
+/// `#/$defs` references are used; remote references cannot resolve.
+fn load_validator(path: &Path) -> Validator {
+    let schema = read_json(path);
+    jsonschema::validator_for(&schema).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+fn schema_errors(validator: &Validator, doc: &Value) -> Vec<String> {
+    validator
+        .iter_errors(doc)
+        .map(|error| error.to_string())
+        .collect()
+}
+
+#[test]
+fn fixtures_and_examples_match_their_json_schemas() {
+    for contract in CONTRACTS {
+        let name = contract.name();
+        let validator = load_validator(
+            &repo_root()
+                .join("contracts")
+                .join(name)
+                .join("v1.schema.json"),
+        );
+        let dir = fixtures_dir(contract);
+        for file in VALID {
+            let doc = read_json(&dir.join(file));
+            let errors = schema_errors(&validator, &doc);
+            assert!(
+                errors.is_empty(),
+                "{name} {file} must pass its schema: {errors:#?}"
+            );
+        }
+        for file in ["invalid.reject.json", "unknown-version.reject.json"] {
+            let doc = read_json(&dir.join(file));
+            assert!(
+                !validator.is_valid(&doc),
+                "{name} {file} must fail its schema"
+            );
+        }
+        // Semantic-only rejections: the schema cannot see references or hashes,
+        // so these must pass the schema and fail only the Rust validator.
+        for file in ["missing-reference.reject.json", "tampered-hash.reject.json"] {
+            let doc = read_json(&dir.join(file));
+            let errors = schema_errors(&validator, &doc);
+            assert!(
+                errors.is_empty(),
+                "{name} {file} must pass its schema: {errors:#?}"
+            );
+            assert!(
+                validate_contract(contract, &doc).is_err(),
+                "{name} {file} must fail the Rust validator"
+            );
+        }
+        let example = read_json(
+            &repo_root()
+                .join("contracts")
+                .join(name)
+                .join("examples/minimal.json"),
+        );
+        let errors = schema_errors(&validator, &example);
+        assert!(errors.is_empty(), "{name} minimal example: {errors:#?}");
+    }
+}
+
+fn read_zip_manifest(path: &Path) -> Value {
+    let file = File::open(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let mut archive = zip::ZipArchive::new(file).expect("valid zip");
+    let mut entry = archive
+        .by_name("manifest.json")
+        .expect("manifest.json entry");
+    let mut text = String::new();
+    entry.read_to_string(&mut text).expect("utf-8 manifest");
+    serde_json::from_str(&text).expect("manifest JSON")
+}
+
+#[test]
+fn manifests_written_by_create_match_the_container_manifest_schema() {
+    let validator = load_validator(&manifest_schema_path());
+    let scratch = tempfile::tempdir().expect("tempdir");
+    for kind in ArtifactKind::ALL {
+        let payload = read_json(
+            &repo_root()
+                .join("contracts")
+                .join(kind.as_str())
+                .join("examples/minimal.json"),
+        );
+        let assets = vec![("assets/note.txt".to_owned(), b"note\n".to_vec())];
+        let dest = scratch.path().join(format!("{}.ordo", kind.as_str()));
+        create(&dest, kind, &payload, &assets)
+            .unwrap_or_else(|error| panic!("{}: {error:?}", kind.as_str()));
+        let manifest = read_zip_manifest(&dest);
+        let errors = schema_errors(&validator, &manifest);
+        assert!(errors.is_empty(), "{} manifest: {errors:#?}", kind.as_str());
+    }
+}
+
+fn non_empty_text(value: &Value) -> bool {
+    value.as_str().is_some_and(|text| !text.trim().is_empty())
+}
+
+/// AC4 evidence: every schema is documented at its root and at each top-level property.
+#[test]
+fn every_schema_documents_its_root_and_top_level_properties() {
+    let mut schemas: Vec<PathBuf> = CONTRACTS
+        .iter()
+        .map(|contract| {
+            repo_root()
+                .join("contracts")
+                .join(contract.name())
+                .join("v1.schema.json")
+        })
+        .collect();
+    schemas.push(manifest_schema_path());
+    for path in schemas {
+        let schema = read_json(&path);
+        let label = path.display().to_string();
+        assert!(
+            non_empty_text(&schema["description"]),
+            "{label}: root description"
+        );
+        for (key, property) in schema["properties"].as_object().expect("properties") {
+            assert!(
+                non_empty_text(&property["description"]),
+                "{label}: top-level property `{key}` needs a description"
+            );
+        }
+    }
+}
+
+/// AC4 evidence: every fixture and example is human-readable pretty JSON.
+#[test]
+fn every_fixture_and_example_is_pretty_printed() {
+    let mut files = Vec::new();
+    for contract in CONTRACTS {
+        let dir = fixtures_dir(contract);
+        for entry in fs::read_dir(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
+        {
+            let path = entry.expect("dir entry").path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                files.push(path);
+            }
+        }
+        files.push(
+            repo_root()
+                .join("contracts")
+                .join(contract.name())
+                .join("examples/minimal.json"),
+        );
+    }
+    for path in files {
+        let text = fs::read_to_string(&path).expect("read fixture");
+        assert!(
+            text.contains('\n') && text.contains("\n  "),
+            "{} must be pretty-printed with two-space indentation",
+            path.display()
+        );
+        let value: Value = serde_json::from_str(&text).expect("fixture JSON");
+        let pretty = serde_json::to_string_pretty(&value).expect("pretty JSON");
+        let normalised = text.replace("\r\n", "\n");
+        assert_eq!(
+            normalised.trim_end_matches('\n'),
+            pretty,
+            "{} must round-trip through serde_json::to_string_pretty",
+            path.display()
+        );
+    }
 }
