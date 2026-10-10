@@ -14,8 +14,8 @@
 
 use std::fmt;
 use std::future::Future;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 mod migrations;
@@ -73,6 +73,9 @@ pub enum StorageError {
     NewerSchema { found: u32, supported: u32 },
     /// An applied migration's recorded checksum differs from the bundled SQL.
     ChecksumMismatch { id: u32 },
+    /// The ledger is not a contiguous prefix 1..=k of the bundled migration
+    /// ids. `id` is the first ledger row that does not match its position.
+    UnknownMigrationLedger { id: u32 },
     /// A migration failed and was rolled back in full.
     MigrationFailed { id: u32, message: String },
     /// An operation ran before a successful open.
@@ -97,6 +100,10 @@ impl fmt::Display for StorageError {
             Self::ChecksumMismatch { id } => {
                 write!(f, "migration {id} checksum does not match the bundled SQL")
             }
+            Self::UnknownMigrationLedger { id } => write!(
+                f,
+                "migration ledger row {id} does not continue the bundled migration sequence"
+            ),
             Self::MigrationFailed { id, message } => {
                 write!(f, "migration {id} failed and was rolled back: {message}")
             }
@@ -112,9 +119,12 @@ impl fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// Handle to the storage worker. Not `Clone`: exactly one owner.
+///
+/// The worker thread is detached at spawn; the handle keeps only the request
+/// sender and the receiving end of the oneshot exit-outcome channel.
 pub struct Storage {
     tx: Option<async_channel::Sender<Message>>,
-    handle: Option<JoinHandle<Exit>>,
+    exit: Option<async_channel::Receiver<Exit>>,
 }
 
 impl Storage {
@@ -164,58 +174,73 @@ impl Storage {
         worker::submit(self.tx.as_ref(), |core: &mut Core| core.parish_note_count())
     }
 
-    /// Checkpoints the WAL (TRUNCATE), closes the connection, and joins the
-    /// worker thread.
+    /// Checkpoints the WAL (TRUNCATE), closes the connection, and reports how
+    /// the worker thread ended.
+    ///
+    /// This future never blocks: it sends the shutdown message without waiting
+    /// and then awaits the worker's exit outcome, so it is safe to poll on the
+    /// GPUI thread. The thread itself is detached, not joined.
+    ///
+    /// Outcomes: `Clean` after an orderly checkpoint; `WorkerPanicked(msg)` if
+    /// the worker panicked (before or during shutdown); `AlreadyStopped` if the
+    /// thread is gone without recording an outcome, or never started.
     pub fn shutdown(mut self) -> impl Future<Output = ShutdownOutcome> + use<> {
         let tx = self.tx.take();
-        let handle = self.handle.take();
+        let exit = self.exit.take();
         async move {
-            let Some(handle) = handle else {
+            let Some(exit) = exit else {
                 return ShutdownOutcome::AlreadyStopped;
             };
             if let Some(tx) = tx {
-                let (reply, acknowledged) = async_channel::bounded(1);
-                if tx.try_send(Message::Shutdown(reply)).is_ok() {
-                    // The worker replies only after the connection is closed;
-                    // a closed reply channel means it had already exited.
-                    let _ = acknowledged.recv().await;
-                }
+                // If the worker already exited, the send fails and the exit
+                // outcome (if any) is already waiting in the oneshot channel.
+                let _ = tx.try_send(Message::Shutdown);
             }
-            match handle.join() {
+            match exit.recv().await {
                 Ok(Exit::Clean) => ShutdownOutcome::Clean,
                 Ok(Exit::Panicked(message)) => ShutdownOutcome::WorkerPanicked(message),
-                Err(payload) => {
-                    ShutdownOutcome::WorkerPanicked(worker::panic_message(payload.as_ref()))
-                }
+                Err(_) => ShutdownOutcome::AlreadyStopped,
             }
         }
     }
 }
 
 impl Drop for Storage {
-    /// Requests shutdown without joining, so dropping never blocks.
+    /// Requests shutdown and returns immediately. The worker thread is
+    /// detached and finishes its work (including the checkpoint) independently.
+    /// Callers that want an orderly WAL checkpoint must await [`Storage::shutdown`].
     fn drop(&mut self) {
         if let Some(tx) = self.tx.take() {
-            let (reply, _ignored) = async_channel::bounded(1);
-            let _ = tx.try_send(Message::Shutdown(reply));
+            let _ = tx.try_send(Message::Shutdown);
         }
     }
 }
 
 fn spawn_with(config: StorageConfig, migrations: Vec<Migration>) -> Storage {
     let (tx, rx) = async_channel::unbounded();
+    let (exit_tx, exit_rx) = async_channel::bounded(1);
     let spawned = std::thread::Builder::new()
         .name("ordo-storage".to_owned())
-        .spawn(move || worker::run(config, migrations, rx));
+        .spawn(move || {
+            // Any unwind that escapes `worker::run` is still recorded, so the
+            // outcome channel always delivers WorkerPanicked for a panic.
+            let exit = match catch_unwind(AssertUnwindSafe(|| worker::run(config, migrations, rx)))
+            {
+                Ok(exit) => exit,
+                Err(payload) => Exit::Panicked(worker::panic_message(payload.as_ref())),
+            };
+            let _ = exit_tx.try_send(exit);
+        });
     match spawned {
-        Ok(handle) => Storage {
+        // Dropping the JoinHandle detaches the thread.
+        Ok(_detached) => Storage {
             tx: Some(tx),
-            handle: Some(handle),
+            exit: Some(exit_rx),
         },
         // Spawn failed: every operation reports WorkerUnavailable.
         Err(_) => Storage {
             tx: None,
-            handle: None,
+            exit: None,
         },
     }
 }

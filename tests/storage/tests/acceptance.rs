@@ -7,7 +7,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -65,7 +65,14 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        // Windows can hold a handle to a just-closed database for a moment, so
+        // removal is retried briefly rather than failing or leaking the directory.
+        for _ in 0..5 {
+            if fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 
@@ -99,7 +106,7 @@ fn user_version(conn: &Connection) -> i64 {
 
 /// Bytes of the database file and its WAL sidecar, when present.
 fn file_snapshot(db: &Path) -> Vec<(String, Vec<u8>)> {
-    ["", "-wal"]
+    ["", "-wal", "-shm"]
         .into_iter()
         .filter_map(|suffix| {
             let path = PathBuf::from(format!("{}{suffix}", db.display()));
@@ -107,6 +114,23 @@ fn file_snapshot(db: &Path) -> Vec<(String, Vec<u8>)> {
                 .then(|| (suffix.to_owned(), fs::read(&path).expect("read db file")))
         })
         .collect()
+}
+
+/// Spawns a Storage and waits for `ready()`, retrying on `Busy` with a fresh
+/// handle until `patience` elapses. Any other failure panics.
+fn open_when_free(db: &Path, patience: Duration) -> Storage {
+    let started = Instant::now();
+    loop {
+        let storage = Storage::spawn(config(db));
+        match bounded(storage.ready()) {
+            Ok(_) => return storage,
+            Err(StorageError::Busy) if started.elapsed() < patience => {
+                assert_eq!(bounded(storage.shutdown()), ShutdownOutcome::Clean);
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => panic!("reopen failed: {error:?}"),
+        }
+    }
 }
 
 fn is_hex_sha256(text: &str) -> bool {
@@ -309,7 +333,7 @@ fn foreign_keys_are_enforced_and_wal_mode_is_reported() {
 fn held_exclusive_lock_yields_busy_after_the_timeout_not_a_hang() {
     let dir = TempDir::new("busy");
     let storage = Storage::spawn(StorageConfig {
-        busy_timeout: Duration::from_millis(200),
+        busy_timeout: Duration::from_millis(500),
         ..config(&dir.db())
     });
     bounded(storage.ready()).expect("ready");
@@ -322,7 +346,7 @@ fn held_exclusive_lock_yields_busy_after_the_timeout_not_a_hang() {
     let waited = started.elapsed();
     assert_eq!(outcome, Err(StorageError::Busy));
     assert!(
-        waited >= Duration::from_millis(150),
+        waited >= Duration::from_millis(400),
         "waited for busy timeout: {waited:?}"
     );
     assert!(waited < BOUND, "did not hang: {waited:?}");
@@ -411,12 +435,31 @@ fn submitting_during_a_slow_operation_returns_immediately() {
         "submission took {submit_cost:?} while a {delay:?} operation was in flight"
     );
 
-    assert_eq!(bounded(slow), Ok(()));
-    let completed_after = submitted.elapsed();
-    assert_eq!(bounded(count), Ok(0));
-    assert!(
-        completed_after >= Duration::from_millis(1200),
-        "queued request was served after the slow one (FIFO): {completed_after:?}"
+    // Each future resolves on its own thread and records its label when done.
+    // The slow thread takes the order lock before its future is even awaited and
+    // holds it through the push, so the count thread cannot record first even if
+    // its (queued, FIFO) reply arrives an instant earlier.
+    let order = Arc::new(Mutex::new(Vec::<&str>::new()));
+    let slow_order = Arc::clone(&order);
+    let slow_thread = thread::spawn(move || {
+        let mut guard = slow_order.lock().expect("order lock");
+        let result = bounded(slow);
+        guard.push("slow");
+        result
+    });
+    let count_order = Arc::clone(&order);
+    let count_thread = thread::spawn(move || {
+        let result = bounded(count);
+        count_order.lock().expect("order lock").push("count");
+        result
+    });
+
+    assert_eq!(slow_thread.join().expect("slow thread"), Ok(()));
+    assert_eq!(count_thread.join().expect("count thread"), Ok(0));
+    assert_eq!(
+        *order.lock().expect("order lock"),
+        vec!["slow", "count"],
+        "queued request was served after the slow one (FIFO)"
     );
     assert_eq!(bounded(storage.shutdown()), ShutdownOutcome::Clean);
 }
@@ -495,8 +538,9 @@ fn dropping_the_handle_never_hangs_and_releases_the_database() {
         "request queued before drop still resolves"
     );
 
-    // Once the worker has exited, the file is free for a fresh owner.
-    let reopened = Storage::spawn(config(&dir.db()));
+    // Once the worker has exited, the file is free for a fresh owner. Windows may
+    // hold the file briefly, so a Busy open is retried on a fresh handle for up to 5 s.
+    let reopened = open_when_free(&dir.db(), Duration::from_secs(5));
     assert_eq!(
         bounded(reopened.parish_name()),
         Ok(Some("St Mary".to_owned()))

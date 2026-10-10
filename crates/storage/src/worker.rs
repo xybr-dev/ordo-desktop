@@ -21,8 +21,8 @@ use crate::{SchemaStatus, StorageConfig, StorageError, map_error};
 /// Work sent to the worker.
 pub(crate) enum Message {
     Job(Job),
-    /// Checkpoint, close, reply, exit.
-    Shutdown(Sender<()>),
+    /// Checkpoint, close, exit. Acknowledged through the exit outcome channel.
+    Shutdown,
 }
 
 /// A typed operation, type-erased so the request channel has one item type.
@@ -35,7 +35,8 @@ pub(crate) struct Job {
     reject: Box<dyn FnOnce() + Send>,
 }
 
-/// How the worker thread finished.
+/// How the worker thread finished. Sent once over a oneshot channel just
+/// before the thread ends, so `Storage::shutdown` can await it without joining.
 pub(crate) enum Exit {
     Clean,
     Panicked(String),
@@ -43,7 +44,7 @@ pub(crate) enum Exit {
 
 /// Why the serving loop stopped, with any reply still owed to a caller.
 enum Stop {
-    Shutdown(Sender<()>),
+    Shutdown,
     Panicked(String, Box<dyn FnOnce(String) + Send>),
     /// Every sender is gone without a shutdown message.
     Disconnected,
@@ -94,11 +95,12 @@ where
 }
 
 /// Thread body. Opens and migrates, then serves requests until shutdown or
-/// until a handler panics.
+/// until a handler panics. Returns the exit outcome; the spawn closure sends it.
 ///
-/// Exit protocol, identical for every path: stop serving, close the connection,
-/// close the request channel, answer each queued request `WorkerUnavailable`,
-/// and only then send the shutdown acknowledgement or the panic reply.
+/// Exit protocol, identical for every path: stop serving, checkpoint on
+/// shutdown, close the connection, close the request channel, answer each
+/// queued request `WorkerUnavailable`, and only then reply `WorkerPanicked` to
+/// a panicking request. The outcome is returned after all of that.
 pub(crate) fn run(
     config: StorageConfig,
     migrations: Vec<Migration>,
@@ -106,31 +108,24 @@ pub(crate) fn run(
 ) -> Exit {
     let mut core = Core::open(&config, &migrations);
     let stop = serve(&mut core, &requests);
-    if let Stop::Shutdown(_) = stop {
+    if let Stop::Shutdown = stop {
         core.checkpoint();
     }
     drop(core);
 
     requests.close();
     while let Ok(message) = requests.try_recv() {
-        match message {
-            Message::Job(job) => (job.reject)(),
-            // Dropping an unanswered shutdown closes its ack channel, so that
-            // caller stops waiting and reports the thread's actual exit.
-            Message::Shutdown(_) => {}
+        if let Message::Job(job) = message {
+            (job.reject)();
         }
     }
 
     match stop {
-        Stop::Shutdown(reply) => {
-            let _ = reply.try_send(());
-            Exit::Clean
-        }
+        Stop::Shutdown | Stop::Disconnected => Exit::Clean,
         Stop::Panicked(message, on_panic) => {
             on_panic(message.clone());
             Exit::Panicked(message)
         }
-        Stop::Disconnected => Exit::Clean,
     }
 }
 
@@ -148,7 +143,7 @@ fn serve(core: &mut Core, requests: &Receiver<Message>) -> Stop {
                     return Stop::Panicked(panic_message(&*payload), on_panic);
                 }
             }
-            Message::Shutdown(reply) => return Stop::Shutdown(reply),
+            Message::Shutdown => return Stop::Shutdown,
         }
     }
 }
@@ -164,6 +159,11 @@ pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> String {
 }
 
 impl Core {
+    /// Connects, sets the busy timeout, and runs the open sequence.
+    ///
+    /// A failed open (including `Busy`) is permanent for that Storage handle:
+    /// the connection is never retried. Callers that want to retry must spawn
+    /// a new Storage handle.
     fn open(config: &StorageConfig, migrations: &[Migration]) -> Core {
         let mut conn = match Connection::open(&config.path) {
             Ok(conn) => conn,
@@ -195,6 +195,7 @@ impl Core {
     }
 
     /// Checkpoint failure is not data loss: the WAL is replayed on next open.
+    /// Runs only on the shutdown path, before the connection is dropped.
     fn checkpoint(&self) {
         if let Some(conn) = &self.conn {
             conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))

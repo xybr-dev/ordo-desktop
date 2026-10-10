@@ -4,6 +4,17 @@
 //! name, hex SHA-256 of its SQL bytes, and application time. Each migration
 //! runs in its own immediate transaction together with its ledger row and
 //! `PRAGMA user_version`, so a failure rolls back schema, data, and history.
+//!
+//! Authoring rules:
+//! - Migration SQL must not contain `BEGIN`, `COMMIT`, or `ROLLBACK`. The
+//!   runner owns the transaction; a nested transaction control statement would
+//!   break the atomicity guarantee above.
+//! - `PRAGMA foreign_keys` is a no-op inside a transaction, so policy pragmas
+//!   are set before the apply transaction starts, never inside a migration.
+//! - The ledger is inspected outside the apply transaction. That is acceptable
+//!   for this single-owner spike, where only the storage worker opens the file.
+//!   A concurrent second writer would need the inspection inside the
+//!   transaction.
 
 use rusqlite::{Connection, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -25,7 +36,7 @@ const LEDGER_DDL: &str = "CREATE TABLE IF NOT EXISTS ordo_migrations (\
 
 /// The migrations bundled into this build, in order.
 pub(crate) fn bundled() -> Vec<Migration> {
-    vec![
+    let migrations = vec![
         Migration {
             id: 1,
             name: "0001_parish_profile",
@@ -36,7 +47,12 @@ pub(crate) fn bundled() -> Vec<Migration> {
             name: "0002_parish_note",
             sql: include_str!("../../../../migrations/0002_parish_note.sql"),
         },
-    ]
+    ];
+    debug_assert!(
+        migrations.windows(2).all(|pair| pair[0].id < pair[1].id),
+        "bundled migration ids must be strictly increasing"
+    );
+    migrations
 }
 
 /// Hex-encoded SHA-256 of the migration SQL bytes.
@@ -76,8 +92,12 @@ pub(crate) fn open_and_migrate(
     status(conn)
 }
 
-/// Read-only validation of the ledger against the bundled migrations. Refuses
-/// a newer schema or any checksum mismatch before anything is mutated.
+/// Read-only validation of the database against the bundled migrations. Runs
+/// before anything is mutated. Refuses, in order:
+/// 1. a `user_version` or ledger id above the bundled head (`NewerSchema`);
+/// 2. a ledger that is not a contiguous prefix of the bundled ids
+///    (`UnknownMigrationLedger`);
+/// 3. a recorded checksum that differs from the bundled SQL (`ChecksumMismatch`).
 fn inspect(
     conn: &Connection,
     migrations: &[&Migration],
@@ -85,6 +105,13 @@ fn inspect(
     let applied = read_ledger(conn)?;
     let head = migrations.last().map_or(0, |migration| migration.id);
 
+    let user_version = user_version(conn)?;
+    if user_version > i64::from(head) {
+        return Err(StorageError::NewerSchema {
+            found: u32::try_from(user_version).unwrap_or(u32::MAX),
+            supported: head,
+        });
+    }
     if let Some(found) = applied.iter().map(|row| row.id).max()
         && found > head
     {
@@ -93,14 +120,24 @@ fn inspect(
             supported: head,
         });
     }
-    for row in &applied {
-        let known = migrations.iter().find(|migration| migration.id == row.id);
-        match known {
-            Some(migration) if checksum(migration.sql) == row.checksum => {}
-            _ => return Err(StorageError::ChecksumMismatch { id: row.id }),
+
+    for (position, row) in applied.iter().enumerate() {
+        let expected = migrations.get(position).map(|migration| migration.id);
+        if expected != Some(row.id) {
+            return Err(StorageError::UnknownMigrationLedger { id: row.id });
+        }
+    }
+    for (migration, row) in migrations.iter().zip(&applied) {
+        if checksum(migration.sql) != row.checksum {
+            return Err(StorageError::ChecksumMismatch { id: row.id });
         }
     }
     Ok(applied)
+}
+
+fn user_version(conn: &Connection) -> Result<i64, StorageError> {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(map_error)
 }
 
 fn read_ledger(conn: &Connection) -> Result<Vec<AppliedMigration>, StorageError> {
@@ -320,6 +357,71 @@ mod tests {
             scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
             tables_before
         );
+    }
+
+    #[test]
+    fn user_version_above_head_is_refused_without_mutation() {
+        let dir = TempDir::new("user-version-newer");
+        let mut conn = open(&dir);
+        assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
+        assert!(conn.pragma_update(None, "user_version", 7).is_ok());
+        let tables_before = scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master");
+
+        assert_eq!(
+            open_and_migrate(&mut conn, &bundled()),
+            Err(StorageError::NewerSchema {
+                found: 7,
+                supported: 2
+            })
+        );
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 2);
+        assert_eq!(
+            scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
+            tables_before
+        );
+    }
+
+    #[test]
+    fn non_prefix_ledger_is_refused() {
+        let dir = TempDir::new("gap-ledger");
+        let mut conn = open(&dir);
+        assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
+        // Ledger becomes [2] with no row 1: not a prefix of the bundled ids.
+        assert!(
+            conn.execute("DELETE FROM ordo_migrations WHERE id = 1", [])
+                .is_ok()
+        );
+
+        assert_eq!(
+            open_and_migrate(&mut conn, &bundled()),
+            Err(StorageError::UnknownMigrationLedger { id: 2 })
+        );
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 1);
+    }
+
+    #[test]
+    fn bundled_ids_are_strictly_increasing() {
+        let ids: Vec<u32> = bundled().iter().map(|migration| migration.id).collect();
+        assert!(!ids.is_empty());
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]), "ids: {ids:?}");
+    }
+
+    #[test]
+    fn bundled_sql_contains_no_transaction_control() {
+        for migration in bundled() {
+            let tokens = migration
+                .sql
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .map(|token| token.to_ascii_uppercase());
+            for token in tokens {
+                assert!(
+                    !matches!(token.as_str(), "BEGIN" | "COMMIT" | "ROLLBACK"),
+                    "migration {} contains transaction control `{token}`",
+                    migration.name
+                );
+            }
+        }
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
 /// Non-GPUI crates `domain` and `presentation` may not use. Every GPUI crate is
 /// forbidden there too, by `is_gpui_crate` rather than by listing, so a renamed
 /// or newly published GPUI family cannot slip past an outdated list.
+const FAULT_INJECTION_FEATURE: &str = "fault-injection";
 const FORBIDDEN_DOMAIN_DEPENDENCIES: &[&str] = &[
     "rusqlite",
     "libsqlite3-sys",
@@ -315,7 +316,53 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &direct_dependencies(false),
         &direct_dependencies(true),
         &workspace_names,
-    )
+    )?;
+    validate_fault_injection_policy(metadata)
+}
+
+/// Fault hooks are a test-only seam. No normal (non-dev) dependency edge between
+/// workspace packages may enable `storage`'s `fault-injection` feature.
+fn validate_fault_injection_policy(metadata: &Metadata) -> XtaskResult<()> {
+    let workspace_names: BTreeSet<_> = workspace_packages(metadata)
+        .into_iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    let edges: Vec<_> = workspace_packages(metadata)
+        .into_iter()
+        .flat_map(|package| {
+            package.dependencies.iter().map(move |dependency| {
+                (
+                    package.name.as_str(),
+                    dependency.name.as_str(),
+                    dependency.kind,
+                    dependency.features.as_slice(),
+                )
+            })
+        })
+        .collect();
+    validate_fault_injection_edges(&edges, &workspace_names)
+}
+
+fn validate_fault_injection_edges(
+    edges: &[(&str, &str, DependencyKind, &[String])],
+    workspace_names: &BTreeSet<&str>,
+) -> XtaskResult<()> {
+    let offending: Vec<_> = edges
+        .iter()
+        .filter(|(_, dependency, kind, features)| {
+            *kind == DependencyKind::Normal
+                && workspace_names.contains(dependency)
+                && features
+                    .iter()
+                    .any(|feature| feature == FAULT_INJECTION_FEATURE)
+        })
+        .map(|(package, dependency, _, _)| format!("{package} -> {dependency}"))
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("fault-injection enabled in normal dependencies: {offending:?}").into())
+    }
 }
 
 fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskResult<()> {
@@ -933,6 +980,34 @@ mod tests {
         assert!(validate_unsafe_opt_out("crates/ordo/src/lib.rs", opt_out).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", expect).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", "fn safe() {}").is_ok());
+    }
+
+    #[test]
+    fn rejects_fault_injection_in_normal_dependencies() {
+        let workspace = BTreeSet::from(["storage", "ordo", "storage-tests"]);
+        let on = vec![FAULT_INJECTION_FEATURE.to_owned()];
+        let off: Vec<String> = Vec::new();
+
+        // A normal edge from ordo to storage that enables the hook is rejected.
+        let leaked = [("ordo", "storage", DependencyKind::Normal, on.as_slice())];
+        assert!(validate_fault_injection_edges(&leaked, &workspace).is_err());
+
+        // The same feature on a dev edge (the storage-tests harness) is allowed.
+        let dev = [(
+            "storage-tests",
+            "storage",
+            DependencyKind::Development,
+            on.as_slice(),
+        )];
+        assert!(validate_fault_injection_edges(&dev, &workspace).is_ok());
+
+        // A normal edge without the feature is allowed.
+        let clean = [("ordo", "storage", DependencyKind::Normal, off.as_slice())];
+        assert!(validate_fault_injection_edges(&clean, &workspace).is_ok());
+
+        // Non-workspace crates are outside this policy.
+        let external = [("ordo", "other", DependencyKind::Normal, on.as_slice())];
+        assert!(validate_fault_injection_edges(&external, &workspace).is_ok());
     }
 
     #[test]
