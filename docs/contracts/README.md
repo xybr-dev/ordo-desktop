@@ -79,8 +79,11 @@ kinds: the first is embedded in a Celebration Package, the second is a local fil
   `requires an Ordo version supporting song-import v2; this build supports v1`.
   It is never guessed or partially read. The payload validator reports a
   supported-kind version mismatch as code `unsupported-version`.
-- A `format_version` other than `1`, a wrong `format` string, or an unknown or
-  missing manifest member is a bad manifest (`Invalid`).
+- A `format_version` greater than `1` is refused with the `Unsupported` outcome,
+  as kind `container`, supported `v1`, and the same compatible-version message
+  style: `requires an Ordo version supporting container v2; this build supports v1`.
+- A `format_version` that is not an integer, or is `0`, a wrong `format` string,
+  or an unknown or missing manifest member is a bad manifest (`Invalid`).
 
 ## 6. Payload contracts: shape and references
 

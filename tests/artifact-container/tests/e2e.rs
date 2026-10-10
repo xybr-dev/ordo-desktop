@@ -260,24 +260,43 @@ fn corpus() -> Vec<Case> {
         default(),
         Want::Failure(|f| matches!(f, Failure::UnsafePath { .. })),
     );
+    // The manifest lists `assets/a.txt` with the hash of the surviving copy, so
+    // the only defect is the duplicate record itself. The writer refuses
+    // duplicate names, so write distinct names of equal length and rewrite the
+    // second to the first in the raw bytes (local header and central directory).
+    let dup_manifest = manifest(SONG, 1, &payload, &[("assets/a.txt", b"two")]);
     add(
         "duplicate-path",
-        // The writer refuses duplicate names, so write distinct names of the
-        // same length and rewrite the second to the first in the raw bytes
-        // (local header and central directory alike).
         retarget(
-            &zip_of(song_with(vec![
-                file("assets/a.txt", b"one".to_vec()),
-                file("assets/b.txt", b"two".to_vec()),
-            ])),
+            &zip_of(container(
+                &dup_manifest,
+                &payload,
+                &[("assets/a.txt", b"one"), ("assets/b.txt", b"two")],
+            )),
             b"assets/b.txt",
             b"assets/a.txt",
         ),
         default(),
-        // Finding: the zip reader collapses byte-identical central-directory
-        // names, so the spike's DuplicatePath check sees one entry and the
-        // surplus content is refused as Unlisted. Either refusal is accepted.
-        Want::Failure(|f| matches!(f, Failure::DuplicatePath { .. } | Failure::Unlisted { .. })),
+        // The raw record count (4) exceeds the reader's unique count (3), so
+        // the archive is refused as a count mismatch before any listing check.
+        Want::Failure(|f| {
+            matches!(
+                f,
+                Failure::EntryCountMismatch { .. } | Failure::DuplicatePath { .. }
+            )
+        }),
+    );
+    add(
+        "windows-device-name",
+        zip_of(song_with(vec![file("assets/CON.txt", b"x".to_vec())])),
+        default(),
+        Want::Failure(|f| matches!(f, Failure::UnsafePath { .. })),
+    );
+    add(
+        "windows-trailing-dot",
+        zip_of(song_with(vec![file("assets/name.", b"x".to_vec())])),
+        default(),
+        Want::Failure(|f| matches!(f, Failure::UnsafePath { .. })),
     );
     add(
         "case-duplicate-path",
@@ -317,6 +336,22 @@ fn corpus() -> Vec<Case> {
     add(
         "wrong-format",
         zip_of(container(&wrong_format, &payload, &[])),
+        default(),
+        Want::Failure(|f| matches!(f, Failure::BadManifest { .. })),
+    );
+    let mut future_format = manifest(SONG, 1, &payload, &[]);
+    future_format["format_version"] = json!(2);
+    add(
+        "future-format-version",
+        zip_of(container(&future_format, &payload, &[])),
+        default(),
+        Want::Unsupported,
+    );
+    let mut text_format = manifest(SONG, 1, &payload, &[]);
+    text_format["format_version"] = json!("1");
+    add(
+        "text-format-version",
+        zip_of(container(&text_format, &payload, &[])),
         default(),
         Want::Failure(|f| matches!(f, Failure::BadManifest { .. })),
     );

@@ -6,8 +6,6 @@
 //! stages verified files into a caller-provided directory and routes it by the
 //! manifest's artifact kind. Nothing here touches a Parish: the API has no
 //! Parish argument, so "no Parish mutation" is structural.
-//!
-//! The payload contract check is a stub until WP2 lands (see [`contracts`]).
 
 pub mod contracts;
 mod create;
