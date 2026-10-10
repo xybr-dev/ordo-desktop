@@ -116,7 +116,7 @@ jobs:
       - name: Run qualification bundle
         shell: pwsh
         run: |
-          cargo xtask qualify --skip "verify=covered by the verify job" --skip "measure-presenter=covered by windows-presenter-performance" || exit $LASTEXITCODE
+          cargo xtask qualify --skip "verify=covered by the verify job" --skip "measure-presenter=covered by windows-presenter-performance"
       - name: Upload qualification bundle
         if: always()
         uses: actions/upload-artifact@v4

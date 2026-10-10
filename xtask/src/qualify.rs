@@ -21,7 +21,7 @@ use std::{
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use cargo_metadata::MetadataCommand;
@@ -61,11 +61,31 @@ const PROVENANCE_FIELDS: [&str; 10] = [
 ];
 
 /// The schema of `index.json`. Bump when its shape changes.
-const INDEX_SCHEMA: u32 = 1;
+const INDEX_SCHEMA: u32 = 2;
+
+/// The longest one step may run before its command is killed and the step is
+/// recorded as failed. Measurement and verify steps are long, so this is
+/// generous.
+const STEP_TIMEOUT: Duration = Duration::from_secs(120 * 60);
+
+/// How long each output reader may keep running after its command has ended.
+/// A grandchild that inherited the pipes can hold them open; the reader is
+/// then detached instead of joined.
+const READER_GRACE: Duration = Duration::from_secs(5);
+
+/// How often the runner checks whether a command has exited.
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// The prefix of a provenance value that could not be read.
+const UNKNOWN_PREFIX: &str = "unknown:";
+
+/// The provenance problem for a dirty working tree.
+const DIRTY_PROBLEM: &str = "working tree is dirty: qualification needs one clean commit";
 
 /// One qualification step. `commands` run in order, and the step stops at
 /// the first one that fails. `{artifacts}` in an argument is replaced with the
-/// run's absolute `artifacts/` directory.
+/// run's absolute `artifacts/` directory. `{xtask}` is replaced by the running
+/// xtask executable, so no step rebuilds it.
 #[derive(Clone, Copy, Debug)]
 pub struct Step {
     pub name: &'static str,
@@ -81,7 +101,7 @@ pub struct Step {
 pub const STEPS: &[Step] = &[
     Step {
         name: "verify",
-        commands: &[&["cargo", "xtask", "verify"]],
+        commands: &[&["{xtask}", "verify"]],
         copies: &[],
         produces: &[],
     },
@@ -135,7 +155,7 @@ pub const STEPS: &[Step] = &[
     },
     Step {
         name: "measure-presenter",
-        commands: &[&["cargo", "xtask", "measure-presenter"]],
+        commands: &[&["{xtask}", "measure-presenter"]],
         copies: &[(REPORT_RELATIVE_PATH, "report.json")],
         produces: &[],
     },
@@ -153,8 +173,7 @@ pub const STEPS: &[Step] = &[
                 "{artifacts}/emergency-fixture.pptx",
             ],
             &[
-                "cargo",
-                "xtask",
+                "{xtask}",
                 "inspect-pptx",
                 "{artifacts}/emergency-fixture.pptx",
             ],
@@ -220,15 +239,19 @@ pub struct Index {
     pub complete: bool,
     pub provenance: Value,
     pub provenance_problems: Vec<String>,
+    /// Problems that do not fail the exit code, such as a dirty tree under
+    /// `--allow-dirty`.
+    pub warnings: Vec<String>,
     pub steps: Vec<StepRecord>,
 }
 
 /// Runs every step that is not skipped, writes the bundle, and fails if any
 /// step failed or went missing, or if the provenance is incomplete.
 pub fn qualify(root: &Path, args: &[String]) -> XtaskResult<()> {
-    let skips = parse_skips(args)?;
+    let options = parse_args(args)?;
     let provenance = provenance(root);
-    let provenance_problems = provenance_problems(&provenance);
+    let (provenance_problems, warnings) =
+        split_dirty(provenance_problems(&provenance), options.allow_dirty);
     let started_unix = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let run_name = format!(
         "{}-{}",
@@ -241,21 +264,28 @@ pub fn qualify(root: &Path, args: &[String]) -> XtaskResult<()> {
     fs::create_dir_all(run_dir.join("logs"))?;
     fs::create_dir_all(run_dir.join("artifacts"))?;
 
+    let xtask = env::current_exe()?.display().to_string();
+    let context = Context {
+        root,
+        run_dir: &run_dir,
+        run: &run_name,
+        provenance: &provenance,
+        xtask: &xtask,
+    };
     let mut steps = Vec::with_capacity(STEPS.len());
     for step in STEPS {
-        let record = match skips.get(step.name) {
-            Some(reason) => skipped_record(&run_dir, step.name, reason)?,
+        let record = match options.skips.get(step.name) {
+            Some(reason) => skipped_record(&context, step.name, reason),
             None => {
                 println!("==> qualify step {}", step.name);
-                run_step(root, &run_dir, step)
+                run_step(&context, step)
             }
         };
         println!("    {}: {}", record.name, record.status);
         steps.push(record);
     }
 
-    let complete =
-        steps.iter().all(|step| step.status == Status::Pass) && provenance_problems.is_empty();
+    let complete = is_complete(&steps, &provenance_problems, &provenance);
     let index = Index {
         schema: INDEX_SCHEMA,
         run: run_name,
@@ -263,6 +293,7 @@ pub fn qualify(root: &Path, args: &[String]) -> XtaskResult<()> {
         complete,
         provenance,
         provenance_problems,
+        warnings,
         steps,
     };
     fs::write(
@@ -276,6 +307,9 @@ pub fn qualify(root: &Path, args: &[String]) -> XtaskResult<()> {
         format!("{}\n", run_dir.display()),
     )?;
     println!("qualification bundle: {}", run_dir.display());
+    for warning in &index.warnings {
+        println!("warning: {warning}");
+    }
     println!("complete: {complete}");
 
     let failing: Vec<String> = index
@@ -301,12 +335,47 @@ pub fn qualify(root: &Path, args: &[String]) -> XtaskResult<()> {
     }
 }
 
-/// Parses `--skip <step>=<reason>` (or `--skip=<step>=<reason>`) arguments.
-/// Unknown steps, missing reasons and other arguments are errors.
-pub fn parse_skips(args: &[String]) -> XtaskResult<BTreeMap<String, String>> {
-    let mut skips = BTreeMap::new();
+/// A bundle is complete only when every step passed, no provenance problem
+/// is recorded, and the working tree was clean.
+fn is_complete(steps: &[StepRecord], problems: &[String], provenance: &Value) -> bool {
+    steps.iter().all(|step| step.status == Status::Pass)
+        && problems.is_empty()
+        && provenance["dirty"] == json!(false)
+}
+
+/// Splits the dirty-tree problem out of the provenance problems, returning
+/// `(problems, warnings)`. With `allow_dirty` it becomes a warning and no
+/// longer fails the exit code; `is_complete` still requires a clean tree.
+fn split_dirty(problems: Vec<String>, allow_dirty: bool) -> (Vec<String>, Vec<String>) {
+    if !allow_dirty {
+        return (problems, Vec::new());
+    }
+    let (warnings, kept): (Vec<String>, Vec<String>) = problems
+        .into_iter()
+        .partition(|problem| problem == DIRTY_PROBLEM);
+    (kept, warnings)
+}
+
+/// The parsed `cargo xtask qualify` arguments.
+#[derive(Debug, Default)]
+pub struct Options {
+    /// Steps to skip, with the reason for each.
+    pub skips: BTreeMap<String, String>,
+    /// Record a dirty working tree as a warning instead of a failure.
+    pub allow_dirty: bool,
+}
+
+/// Parses `--skip <step>=<reason>` (or `--skip=<step>=<reason>`) and
+/// `--allow-dirty`. Unknown steps, missing reasons and other arguments are
+/// errors.
+pub fn parse_args(args: &[String]) -> XtaskResult<Options> {
+    let mut options = Options::default();
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
+        if argument == "--allow-dirty" {
+            options.allow_dirty = true;
+            continue;
+        }
         let spec = if argument == "--skip" {
             iter.next()
                 .ok_or_else(|| "--skip needs <step>=<reason>".to_owned())?
@@ -315,7 +384,7 @@ pub fn parse_skips(args: &[String]) -> XtaskResult<BTreeMap<String, String>> {
             spec
         } else {
             return Err(format!(
-                "unknown argument `{argument}`; usage: cargo xtask qualify [--skip <step>=<reason>]..."
+                "unknown argument `{argument}`; usage: cargo xtask qualify [--allow-dirty] [--skip <step>=<reason>]..."
             )
             .into());
         };
@@ -334,9 +403,9 @@ pub fn parse_skips(args: &[String]) -> XtaskResult<BTreeMap<String, String>> {
         if reason.is_empty() {
             return Err(format!("--skip {name}= needs a reason").into());
         }
-        skips.insert(name.to_owned(), reason.to_owned());
+        options.skips.insert(name.to_owned(), reason.to_owned());
     }
-    Ok(skips)
+    Ok(options)
 }
 
 /// Collects the provenance block. Each field is a value, or `unknown: <reason>`
@@ -382,8 +451,9 @@ pub fn provenance(root: &Path) -> Value {
     })
 }
 
-/// Every empty or missing provenance field, as a path. Empty when the block is
-/// complete. Nulls, empty strings and empty containers all count as empty.
+/// Every empty, missing, unknown or dirty provenance field, as a path. Empty
+/// when the block is complete. Nulls, empty strings and empty containers all
+/// count as empty, and so does any string that starts with `unknown:`.
 pub fn provenance_problems(provenance: &Value) -> Vec<String> {
     let mut problems = Vec::new();
     for field in PROVENANCE_FIELDS {
@@ -392,6 +462,12 @@ pub fn provenance_problems(provenance: &Value) -> Vec<String> {
         }
     }
     collect_empty(provenance, "provenance", &mut problems);
+    match provenance.get("dirty") {
+        Some(Value::Bool(false)) => {}
+        // An unreadable dirty state is already reported as unknown above.
+        Some(Value::String(text)) if text.trim_start().starts_with(UNKNOWN_PREFIX) => {}
+        _ => problems.push(DIRTY_PROBLEM.to_owned()),
+    }
     problems
 }
 
@@ -400,6 +476,9 @@ fn collect_empty(value: &Value, path: &str, problems: &mut Vec<String>) {
         Value::Null => problems.push(format!("{path} is null")),
         Value::String(text) if text.trim().is_empty() => {
             problems.push(format!("{path} is empty"));
+        }
+        Value::String(text) if text.trim_start().starts_with(UNKNOWN_PREFIX) => {
+            problems.push(format!("{path} is {}", text.trim()));
         }
         Value::Array(items) if items.is_empty() => problems.push(format!("{path} is empty")),
         Value::Array(items) => {
@@ -428,12 +507,102 @@ fn short_commit(provenance: &Value) -> String {
     }
 }
 
+/// Everything a step needs from the run around it.
+struct Context<'a> {
+    root: &'a Path,
+    run_dir: &'a Path,
+    run: &'a str,
+    provenance: &'a Value,
+    /// The running xtask executable, which `{xtask}` expands to.
+    xtask: &'a str,
+}
+
+/// The header that starts every step log: the facts that tie the log to one
+/// commit and one run.
+fn log_header(context: &Context<'_>, step: &str) -> String {
+    format!(
+        "# commit: {}\n# dirty: {}\n# run: {}\n# step: {}\n\n",
+        text_of(&context.provenance["commit"]),
+        text_of(&context.provenance["dirty"]),
+        context.run,
+        step
+    )
+}
+
+/// A provenance value as plain text, without JSON quotes.
+fn text_of(value: &Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned)
+}
+
+/// Expands one command template. `{xtask}` becomes `xtask` (the executable
+/// path, or a display name), and `{artifacts}` inside an argument becomes the
+/// artifacts directory.
+fn expand(template: &[&str], artifacts: &str, xtask: &str) -> Vec<String> {
+    template
+        .iter()
+        .map(|argument| match *argument {
+            "{xtask}" => xtask.to_owned(),
+            other => other.replace("{artifacts}", artifacts),
+        })
+        .collect()
+}
+
+/// Writes `artifacts/<name>.provenance.json` for one artifact and returns its
+/// index record. The sidecar names the artifact, its SHA-256, the step and
+/// run, and the whole provenance block.
+fn write_sidecar(
+    context: &Context<'_>,
+    step: &str,
+    name: &str,
+    sha256: &str,
+) -> io::Result<ArtifactRecord> {
+    let path = format!("artifacts/{name}.provenance.json");
+    let sidecar = json!({
+        "artifact": format!("artifacts/{name}"),
+        "sha256": sha256,
+        "step": step,
+        "run": context.run,
+        "provenance": context.provenance,
+    });
+    let destination = context.run_dir.join(&path);
+    fs::write(
+        &destination,
+        serde_json::to_string_pretty(&sidecar).map_err(io::Error::other)?,
+    )?;
+    Ok(ArtifactRecord {
+        path,
+        sha256: sha256_file(&destination)?,
+    })
+}
+
+/// The index records for one artifact a step wrote: the artifact itself and
+/// its provenance sidecar.
+fn artifact_records(
+    context: &Context<'_>,
+    step: &str,
+    name: &str,
+) -> Result<Vec<ArtifactRecord>, String> {
+    let sha256 = sha256_file(&context.run_dir.join("artifacts").join(name))
+        .map_err(|error| format!("cannot hash {name}: {error}"))?;
+    let sidecar = write_sidecar(context, step, name, &sha256)
+        .map_err(|error| format!("cannot write the provenance sidecar for {name}: {error}"))?;
+    Ok(vec![
+        ArtifactRecord {
+            path: format!("artifacts/{name}"),
+            sha256,
+        },
+        sidecar,
+    ])
+}
+
 /// Runs one step and records everything about it. Commands run in order and
 /// the step stops at the first failure. A step that cannot start its command
 /// is `missing`, and so is a passing step whose expected artifact is absent.
-fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
+fn run_step(context: &Context<'_>, step: &Step) -> StepRecord {
     let started = Instant::now();
-    let artifacts_dir = run_dir.join("artifacts");
+    let artifacts_dir = context.run_dir.join("artifacts");
     let artifacts_text = artifacts_dir.display().to_string();
     let log = Arc::new(Mutex::new(Vec::new()));
 
@@ -442,19 +611,26 @@ fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
     let mut command_lines = Vec::new();
     let mut exit_code = None;
     for template in step.commands {
-        let argv: Vec<String> = template
-            .iter()
-            .map(|argument| argument.replace("{artifacts}", &artifacts_text))
-            .collect();
-        command_lines.push(argv.join(" "));
-        match run_logged(root, &argv, &log) {
+        let argv = expand(template, &artifacts_text, context.xtask);
+        let display = expand(template, &artifacts_text, "cargo xtask").join(" ");
+        command_lines.push(display.clone());
+        match run_logged(context.root, &argv, &display, &log, STEP_TIMEOUT) {
             Err(error) => {
                 status = Status::Missing;
                 reason = Some(error);
                 exit_code = None;
                 break;
             }
-            Ok(code) => {
+            Ok(Outcome::TimedOut) => {
+                status = Status::Fail;
+                reason = Some(format!(
+                    "timed out after {} minutes",
+                    STEP_TIMEOUT.as_secs() / 60
+                ));
+                exit_code = None;
+                break;
+            }
+            Ok(Outcome::Exited(code)) => {
                 exit_code = code;
                 if code != Some(0) {
                     status = Status::Fail;
@@ -470,17 +646,16 @@ fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
 
     let mut artifacts = Vec::new();
     for (source, name) in step.copies {
-        let source_path = root.join(source);
+        let source_path = context.root.join(source);
         let destination = artifacts_dir.join(name);
         if source_path.is_file() {
-            match fs::copy(&source_path, &destination).and_then(|_| sha256_file(&destination)) {
-                Ok(sha256) => artifacts.push(ArtifactRecord {
-                    path: format!("artifacts/{name}"),
-                    sha256,
-                }),
+            let copied = fs::copy(&source_path, &destination)
+                .map_err(|error| format!("cannot copy {source}: {error}"));
+            match copied.and_then(|_| artifact_records(context, step.name, name)) {
+                Ok(records) => artifacts.extend(records),
                 Err(error) => {
                     status = Status::Fail;
-                    reason = Some(format!("cannot copy {source}: {error}"));
+                    reason = Some(error);
                 }
             }
         } else if status == Status::Pass {
@@ -489,16 +664,12 @@ fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
         }
     }
     for name in step.produces {
-        let produced = artifacts_dir.join(name);
-        if produced.is_file() {
-            match sha256_file(&produced) {
-                Ok(sha256) => artifacts.push(ArtifactRecord {
-                    path: format!("artifacts/{name}"),
-                    sha256,
-                }),
+        if artifacts_dir.join(name).is_file() {
+            match artifact_records(context, step.name, name) {
+                Ok(records) => artifacts.extend(records),
                 Err(error) => {
                     status = Status::Fail;
-                    reason = Some(format!("cannot hash {name}: {error}"));
+                    reason = Some(error);
                 }
             }
         } else if status == Status::Pass {
@@ -507,8 +678,12 @@ fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
         }
     }
 
-    let log_path = run_dir.join("logs").join(format!("{}.log", step.name));
-    let log_bytes = log.lock().map(|bytes| bytes.clone()).unwrap_or_default();
+    let log_path = context
+        .run_dir
+        .join("logs")
+        .join(format!("{}.log", step.name));
+    let mut log_bytes = log_header(context, step.name).into_bytes();
+    log_bytes.extend(log.lock().map(|bytes| bytes.clone()).unwrap_or_default());
     if let Err(error) = fs::write(&log_path, log_bytes) {
         status = Status::Fail;
         reason = Some(format!("cannot write the log: {error}"));
@@ -527,33 +702,52 @@ fn run_step(root: &Path, run_dir: &Path, step: &Step) -> StepRecord {
 }
 
 /// The record for a step given with `--skip`. It still gets a log, which
-/// holds the reason.
-fn skipped_record(run_dir: &Path, name: &str, reason: &str) -> XtaskResult<StepRecord> {
-    fs::write(
-        run_dir.join("logs").join(format!("{name}.log")),
-        format!("skipped: {reason}\n"),
-    )?;
-    Ok(StepRecord {
+/// holds the header and the reason. A log that cannot be written fails the
+/// step rather than the run, as in `run_step`.
+fn skipped_record(context: &Context<'_>, name: &str, reason: &str) -> StepRecord {
+    let log_path = context.run_dir.join("logs").join(format!("{name}.log"));
+    let written = fs::write(
+        &log_path,
+        format!("{}skipped: {reason}\n", log_header(context, name)),
+    );
+    let (status, reason) = match written {
+        Ok(()) => (Status::Skipped, Some(reason.to_owned())),
+        Err(error) => (Status::Fail, Some(format!("cannot write the log: {error}"))),
+    };
+    StepRecord {
         name: name.to_owned(),
-        status: Status::Skipped,
-        reason: Some(reason.to_owned()),
+        status,
+        reason,
         command: Vec::new(),
         exit_code: None,
         duration_ms: 0,
         log: format!("logs/{name}.log"),
         artifacts: Vec::new(),
-    })
+    }
+}
+
+/// How one command ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Outcome {
+    /// The command exited. `None` means it ended without an exit code.
+    Exited(Option<i32>),
+    /// The command outlived its timeout and was killed.
+    TimedOut,
 }
 
 /// Runs one command with stdout and stderr both echoed to the console and
-/// appended to `log`. `Err` means the command could not be started, and
-/// `Ok(None)` means it ended without an exit code.
+/// appended to `log`. `Err` means the command could not be started or waited
+/// on. A command still running after `timeout` is killed. Its output readers
+/// then get `READER_GRACE` to finish and are detached if they do not, so a
+/// grandchild that keeps the pipes open cannot block the run.
 fn run_logged(
     root: &Path,
     argv: &[String],
+    display: &str,
     log: &Arc<Mutex<Vec<u8>>>,
-) -> Result<Option<i32>, String> {
-    append(log, &format!("$ {}\n", argv.join(" ")));
+    timeout: Duration,
+) -> Result<Outcome, String> {
+    append(log, &format!("$ {display}\n"));
     let (program, arguments) = argv
         .split_first()
         .ok_or_else(|| "empty command".to_owned())?;
@@ -574,21 +768,41 @@ fn run_logged(
         .stderr
         .take()
         .map(|pipe| pump(pipe, Arc::clone(log), true));
-    let status = child
-        .wait()
-        .map_err(|error| format!("cannot wait for {program}: {error}"))?;
+    let started = Instant::now();
+    let outcome = loop {
+        match child
+            .try_wait()
+            .map_err(|error| format!("cannot wait for {program}: {error}"))?
+        {
+            Some(status) => break Outcome::Exited(status.code()),
+            None if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Outcome::TimedOut;
+            }
+            None => thread::sleep(POLL_INTERVAL),
+        }
+    };
+
+    let grace_ends = Instant::now() + READER_GRACE;
     for reader in [stdout, stderr].into_iter().flatten() {
-        let _ = reader.join();
+        while !reader.is_finished() && Instant::now() < grace_ends {
+            thread::sleep(POLL_INTERVAL);
+        }
+        if reader.is_finished() {
+            let _ = reader.join();
+        }
     }
-    let code = status.code();
-    append(
-        log,
-        &format!(
+
+    let note = match outcome {
+        Outcome::Exited(code) => format!(
             "[exit {}]\n",
             code.map_or_else(|| "none".to_owned(), |code| code.to_string())
         ),
-    );
-    Ok(code)
+        Outcome::TimedOut => format!("[timed out after {} s; killed]\n", timeout.as_secs()),
+    };
+    append(log, &note);
+    Ok(outcome)
 }
 
 /// Copies one pipe into the log and the console until it closes.
@@ -716,8 +930,10 @@ fn fixtures_provenance(root: &Path) -> Value {
                 entries.push((tree.to_owned(), hash));
             }
             Ok(None) => {
-                trees.insert(tree.to_owned(), json!("absent"));
-                entries.push((tree.to_owned(), "absent".to_owned()));
+                // An absent expected tree is a provenance problem, not a value.
+                let text = format!("unknown: fixture tree {tree} is absent");
+                trees.insert(tree.to_owned(), json!(text));
+                entries.push((tree.to_owned(), text));
             }
             Err(error) => {
                 let text = format!("unknown: {error}");
@@ -973,6 +1189,14 @@ pub fn render_markdown(index: &Index) -> String {
         out.push('\n');
     }
 
+    if !index.warnings.is_empty() {
+        let _ = writeln!(out, "## Warnings\n");
+        for warning in &index.warnings {
+            let _ = writeln!(out, "- {}", md_cell(warning));
+        }
+        out.push('\n');
+    }
+
     let mut rows = Vec::new();
     flatten(&index.provenance, "", &mut rows);
     let _ = writeln!(out, "## Provenance\n\n| Field | Value |\n| --- | --- |");
@@ -1063,8 +1287,8 @@ mod tests {
             },
             "dependencies": {"cargo_lock_sha256": "ab"},
             "os": {"ver": "Microsoft Windows", "architecture": "AMD64"},
-            "gpu": "unknown: test",
-            "fixtures": {"trees": {"contracts": "absent"}, "aggregate_sha256": "cd"}
+            "gpu": "NVIDIA RTX (driver 555.85)",
+            "fixtures": {"trees": {"contracts": "cd"}, "aggregate_sha256": "cd"}
         })
     }
 
@@ -1202,6 +1426,7 @@ mod tests {
             complete: false,
             provenance: sample_provenance(),
             provenance_problems: Vec::new(),
+            warnings: Vec::new(),
             steps: vec![
                 step("verify", Status::Skipped, Some("covered by the verify job")),
                 step("build-release", Status::Pass, None),
@@ -1242,19 +1467,157 @@ mod tests {
 
     #[test]
     fn skip_arguments_are_validated() {
-        let skips = parse_skips(&[
+        let skips = parse_args(&[
             "--skip".to_owned(),
             "verify=covered by the verify job".to_owned(),
             "--skip=measure-presenter=covered elsewhere".to_owned(),
         ])
-        .unwrap();
+        .unwrap()
+        .skips;
         assert_eq!(skips["verify"], "covered by the verify job");
         assert_eq!(skips["measure-presenter"], "covered elsewhere");
 
-        assert!(parse_skips(&["--skip".to_owned(), "nonsense=x".to_owned()]).is_err());
-        assert!(parse_skips(&["--skip".to_owned(), "verify=".to_owned()]).is_err());
-        assert!(parse_skips(&["--skip".to_owned(), "verify".to_owned()]).is_err());
-        assert!(parse_skips(&["--other".to_owned()]).is_err());
+        assert!(parse_args(&["--skip".to_owned(), "nonsense=x".to_owned()]).is_err());
+        assert!(parse_args(&["--skip".to_owned(), "verify=".to_owned()]).is_err());
+        assert!(parse_args(&["--skip".to_owned(), "verify".to_owned()]).is_err());
+        assert!(parse_args(&["--other".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn unknown_provenance_values_are_problems() {
+        let mut unknown = sample_provenance();
+        unknown["gpu"] = json!("unknown: test");
+        assert_eq!(
+            provenance_problems(&unknown),
+            vec!["provenance.gpu is unknown: test".to_owned()]
+        );
+        // The value is still recorded in the bundle; only the problem list grows.
+        assert_eq!(unknown["gpu"], json!("unknown: test"));
+    }
+
+    #[test]
+    fn dirty_tree_fails_unless_allowed_and_never_completes() {
+        let mut dirty = sample_provenance();
+        dirty["dirty"] = json!(true);
+        let problems = provenance_problems(&dirty);
+        assert_eq!(problems, vec![DIRTY_PROBLEM.to_owned()]);
+
+        let passing = [step("verify", Status::Pass, None)];
+        let (kept, warnings) = split_dirty(problems.clone(), false);
+        assert_eq!(kept, problems);
+        assert!(warnings.is_empty());
+        assert!(!is_complete(&passing, &kept, &dirty));
+
+        let (kept, warnings) = split_dirty(problems, true);
+        assert!(kept.is_empty());
+        assert_eq!(warnings, vec![DIRTY_PROBLEM.to_owned()]);
+        assert!(!is_complete(&passing, &kept, &dirty));
+
+        let clean = sample_provenance();
+        assert!(provenance_problems(&clean).is_empty());
+        assert!(is_complete(&passing, &[], &clean));
+        assert!(!is_complete(
+            &[step("verify", Status::Fail, Some("exit code 1"))],
+            &[],
+            &clean
+        ));
+
+        assert!(
+            parse_args(&["--allow-dirty".to_owned()])
+                .unwrap()
+                .allow_dirty
+        );
+        assert!(!parse_args(&[]).unwrap().allow_dirty);
+    }
+
+    #[test]
+    fn sidecar_records_full_provenance_and_artifact_hash() {
+        let dir = scratch("sidecar");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("artifacts")).unwrap();
+        fs::write(dir.join("artifacts").join("report.json"), b"{}").unwrap();
+        let sha = sha256_file(&dir.join("artifacts").join("report.json")).unwrap();
+
+        let provenance = sample_provenance();
+        let context = Context {
+            root: &dir,
+            run_dir: &dir,
+            run: "run-1",
+            provenance: &provenance,
+            xtask: "xtask",
+        };
+        let record = write_sidecar(&context, "measure-presenter", "report.json", &sha).unwrap();
+        assert_eq!(record.path, "artifacts/report.json.provenance.json");
+
+        let text = fs::read_to_string(dir.join(&record.path)).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["artifact"], json!("artifacts/report.json"));
+        assert_eq!(value["sha256"], json!(sha));
+        assert_eq!(value["step"], json!("measure-presenter"));
+        assert_eq!(value["run"], json!("run-1"));
+        assert_eq!(value["provenance"], provenance);
+        assert_eq!(record.sha256, sha256_file(&dir.join(&record.path)).unwrap());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn log_header_names_commit_dirty_run_and_step() {
+        let provenance = sample_provenance();
+        let context = Context {
+            root: Path::new("."),
+            run_dir: Path::new("."),
+            run: "run-1",
+            provenance: &provenance,
+            xtask: "xtask",
+        };
+        let header = log_header(&context, "verify");
+        assert!(header.contains("# commit: 0123456789abcdef0123456789abcdef01234567\n"));
+        assert!(header.contains("# dirty: false\n"));
+        assert!(header.contains("# run: run-1\n"));
+        assert!(header.contains("# step: verify\n"));
+    }
+
+    #[test]
+    fn expand_replaces_xtask_and_artifacts_tokens() {
+        let argv = expand(
+            &["{xtask}", "inspect-pptx", "{artifacts}/deck.pptx"],
+            "/runs/artifacts",
+            "/target/xtask.exe",
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "/target/xtask.exe".to_owned(),
+                "inspect-pptx".to_owned(),
+                "/runs/artifacts/deck.pptx".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn run_logged_kills_a_command_that_outlives_its_timeout() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let argv: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".to_owned(),
+                "/C".to_owned(),
+                "ping -n 30 127.0.0.1 >NUL".to_owned(),
+            ]
+        } else {
+            vec!["sleep".to_owned(), "30".to_owned()]
+        };
+        let outcome = run_logged(
+            &env::temp_dir(),
+            &argv,
+            "sleep",
+            &log,
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        assert_eq!(outcome, Outcome::TimedOut);
+        let text = String::from_utf8_lossy(&log.lock().unwrap()).into_owned();
+        assert!(text.contains("[timed out after 0 s; killed]"));
     }
 
     #[test]
