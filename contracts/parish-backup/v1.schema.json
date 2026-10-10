@@ -17,13 +17,16 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
     },
     "id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this Parish Backup."
     },
     "created_at": {
-      "$ref": "#/$defs/timestamp"
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the Parish Backup was created."
     },
     "parish": {
       "type": "object",
@@ -42,7 +45,8 @@
         "logo_asset_id": {
           "$ref": "#/$defs/uuid"
         }
-      }
+      },
+      "description": "The Parish the backup belongs to: its id and name."
     },
     "database": {
       "type": "object",
@@ -70,17 +74,20 @@
           "type": "integer",
           "minimum": 1
         }
-      }
+      },
+      "description": "The Parish database captured in the backup: path, schema version, size, and SHA-256."
     },
     "assets": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/asset"
-      }
+      },
+      "description": "Assets stored with the backup, each with exact byte size and SHA-256."
     },
     "assets_fingerprint": {
-      "$ref": "#/$defs/sha256"
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 fingerprint over the listed assets."
     },
     "package_provenance": {
       "type": "array",
@@ -100,7 +107,8 @@
             "$ref": "#/$defs/sha256"
           }
         }
-      }
+      },
+      "description": "Installed Celebration Packages at backup time, kept for Library reconciliation."
     }
   },
   "$defs": {

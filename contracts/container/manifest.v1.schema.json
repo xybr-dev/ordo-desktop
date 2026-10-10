@@ -17,10 +17,12 @@
   ],
   "properties": {
     "format": {
-      "const": "ordo-container"
+      "const": "ordo-container",
+      "description": "Container format identifier; always ordo-container."
     },
     "format_version": {
-      "const": 1
+      "const": 1,
+      "description": "Container layout version; 1 in this build."
     },
     "kind": {
       "enum": [
@@ -29,16 +31,20 @@
         "celebration-package",
         "parish-backup",
         "diagnostic-report"
-      ]
+      ],
+      "description": "Artifact kind; selects the payload contract that validates payload.json."
     },
     "schema_version": {
-      "const": 1
+      "const": 1,
+      "description": "Schema version of the payload contract named by kind; 1 in v1."
     },
     "artifact_id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 identifying this artifact across copies."
     },
     "created_at": {
-      "$ref": "#/$defs/timestamp"
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the artifact was created."
     },
     "payload": {
       "type": "object",
@@ -59,7 +65,8 @@
           "type": "integer",
           "minimum": 0
         }
-      }
+      },
+      "description": "The single payload.json entry: its path, exact byte size, and SHA-256."
     },
     "assets": {
       "type": "array",
@@ -75,7 +82,27 @@
         "properties": {
           "path": {
             "type": "string",
-            "pattern": "^assets/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
+            "description": "Archive path under assets/: no backslash, NUL, empty, '.' or '..' segments.",
+            "allOf": [
+              {
+                "pattern": "^assets/[^\\\\\\u0000]+$"
+              },
+              {
+                "not": {
+                  "pattern": "(^|/)\\.{1,2}(/|$)"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "//"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "/$"
+                }
+              }
+            ]
           },
           "sha256": {
             "$ref": "#/$defs/sha256"
@@ -85,7 +112,8 @@
             "minimum": 0
           }
         }
-      }
+      },
+      "description": "Every file under assets/, each listed with exact byte size and SHA-256."
     }
   },
   "$defs": {

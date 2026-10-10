@@ -20,16 +20,20 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
     },
     "id": {
-      "$ref": "#/$defs/uuid"
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this diagnostic report."
     },
     "read_only": {
-      "const": true
+      "const": true,
+      "description": "Always true: the report is read-only diagnostic evidence, not Parish data."
     },
     "generated_at": {
-      "$ref": "#/$defs/timestamp"
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the report was generated."
     },
     "app": {
       "type": "object",
@@ -45,7 +49,8 @@
         "version": {
           "$ref": "#/$defs/text"
         }
-      }
+      },
+      "description": "Build and version of Ordo that produced the report."
     },
     "environment": {
       "type": "object",
@@ -61,31 +66,36 @@
         "arch": {
           "$ref": "#/$defs/text"
         }
-      }
+      },
+      "description": "Operating system and CPU architecture where the report was generated."
     },
     "checks": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/check"
-      }
+      },
+      "description": "Results of the diagnostic checks run on this machine."
     },
     "logs": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/log"
-      }
+      },
+      "description": "Log excerpts captured into the report."
     },
     "assets": {
       "type": "array",
       "minItems": 0,
       "items": {
         "$ref": "#/$defs/asset"
-      }
+      },
+      "description": "Attached files referenced by the report, each with exact byte size and SHA-256."
     },
     "assets_fingerprint": {
-      "$ref": "#/$defs/sha256"
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 fingerprint over the listed assets."
     }
   },
   "$defs": {
