@@ -215,6 +215,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "artifact-container-tests"
+version = "0.1.0"
+dependencies = [
+ "artifact-container-spike",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

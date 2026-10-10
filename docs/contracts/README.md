@@ -127,7 +127,8 @@ clean.
 
 ## 8. Limits
 
-The spike's inspection limits (`InspectLimits::default()` in `src/inspect.rs`):
+The spike's inspection limits (`InspectLimits::default()` in `src/inspect.rs`,
+used for every import and for reopen verification in `create`):
 
 | Limit | Value |
 |---|---|
@@ -141,7 +142,8 @@ The ZIP format constants (`lib.rs`): `FORMAT` = `ordo-container`,
 `FORMAT_VERSION` = 1, `MANIFEST_PATH` = `manifest.json`, `PAYLOAD_PATH` =
 `payload.json`, `ASSETS_PREFIX` = `assets/`, `SUPPORTED_VERSIONS` = `[1]`.
 
-The `parish-backup` contract refuses a database larger than 4 GiB.
+Parish Backups are temporarily capped at 64 MiB like every other kind. This
+is an owner decision; revisit it when a per-kind archive limit is needed.
 
 Exceeding a limit is an `Invalid` outcome, not a partial read. Entry content is
 read through a bounded reader that stops one byte past the declared size.
