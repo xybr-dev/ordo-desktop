@@ -333,27 +333,58 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
 /// Name suffix that marks a disposable prototype package (T0.10 AC5).
 const SPIKE_SUFFIX: &str = "-spike";
 
-/// No package outside `tests/` may depend on a `*-spike` package, at any
+/// A package is a spike when its name ends in `-spike`, or when its manifest
+/// lies under `tools/` in a directory whose name ends in `-spike`. The path
+/// clause catches a spike that was renamed to hide it from the name rule.
+fn is_spike_package(name: &str, directory: &str) -> bool {
+    if name.ends_with(SPIKE_SUFFIX) {
+        return true;
+    }
+    let normalized = directory.replace('\\', "/");
+    let mut parts = normalized.split('/').filter(|part| !part.is_empty());
+    parts.next() == Some("tools")
+        && parts
+            .next_back()
+            .is_some_and(|last| last.ends_with(SPIKE_SUFFIX))
+}
+
+/// No package outside `tests/` may depend on a spike package, at any
 /// dependency kind. Test packages may reach a spike only as a dev-dependency.
 fn validate_spike_reuse_policy(metadata: &Metadata) -> XtaskResult<()> {
+    let directory_of = |package: &Package| {
+        package
+            .manifest_path
+            .parent()
+            .and_then(|dir| dir.strip_prefix(&metadata.workspace_root).ok())
+            .map_or_else(String::new, |dir| dir.as_str().to_owned())
+    };
     let owned: Vec<(String, String, String, DependencyKind)> = workspace_packages(metadata)
         .into_iter()
         .flat_map(|package| {
-            let directory = package
-                .manifest_path
-                .parent()
-                .and_then(|dir| dir.strip_prefix(&metadata.workspace_root).ok())
-                .map_or_else(String::new, |dir| dir.as_str().to_owned());
+            let directory = directory_of(package);
             package
                 .dependencies
                 .iter()
-                .filter(|dependency| dependency.name.ends_with(SPIKE_SUFFIX))
-                .map(move |dependency| {
-                    (
-                        package.name.to_string(),
-                        directory.clone(),
-                        dependency.name.clone(),
-                        dependency.kind,
+                .filter_map(|dependency| {
+                    // Resolve the dependency's package so the path clause can
+                    // see where it lives. `no_deps` lists only workspace
+                    // packages, which are the only ones that can be spikes.
+                    let resolved = metadata
+                        .packages
+                        .iter()
+                        .find(|candidate| {
+                            candidate.name.as_str() == dependency.name && candidate.source.is_none()
+                        })
+                        .map(directory_of);
+                    is_spike_package(&dependency.name, resolved.as_deref().unwrap_or("")).then(
+                        || {
+                            (
+                                package.name.to_string(),
+                                directory.clone(),
+                                dependency.name.clone(),
+                                dependency.kind,
+                            )
+                        },
                     )
                 })
                 .collect::<Vec<_>>()
@@ -374,11 +405,11 @@ fn validate_spike_reuse_policy(metadata: &Metadata) -> XtaskResult<()> {
 }
 
 /// Pure form of the spike reuse rule. Each edge is
-/// `(package, manifest_dir_relative_to_workspace, dependency_name, kind)`.
+/// `(package, manifest_dir_relative_to_workspace, dependency_name, kind)`; the
+/// caller has already selected only edges whose dependency is a spike.
 fn validate_spike_reuse(edges: &[(&str, &str, &str, DependencyKind)]) -> XtaskResult<()> {
     let offending: Vec<String> = edges
         .iter()
-        .filter(|(_, _, dependency, _)| dependency.ends_with(SPIKE_SUFFIX))
         .filter_map(|(package, directory, dependency, kind)| {
             let normalized = directory.replace('\\', "/");
             let is_test_package = normalized.starts_with("tests/");
@@ -1175,8 +1206,6 @@ mod tests {
                 "powerpoint-spike",
                 Development,
             ),
-            // Non-spike edges are outside this rule.
-            ("ordo", "crates/ordo", "storage", Normal),
         ];
         assert!(validate_spike_reuse(&real).is_ok());
 
@@ -1200,6 +1229,32 @@ mod tests {
         // Windows-style separators are normalized before the test-directory check.
         let windows_dev = [("foo", "tests\\foo", "x-spike", Development)];
         assert!(validate_spike_reuse(&windows_dev).is_ok());
+    }
+
+    #[test]
+    fn spike_detection_covers_renamed_path_spikes() {
+        use DependencyKind::{Development, Normal};
+
+        // Name suffix and path both make a spike.
+        assert!(is_spike_package(
+            "powerpoint-spike",
+            "tools/powerpoint-spike"
+        ));
+        assert!(is_spike_package("renamed-engine", "tools/renamed-spike"));
+        assert!(is_spike_package("renamed-engine", "tools\\renamed-spike"));
+        // Outside tools/, or without the suffix on the directory, it is not.
+        assert!(!is_spike_package("renamed-engine", "crates/renamed-spike"));
+        assert!(!is_spike_package("renamed-engine", "tools/renamed"));
+        assert!(!is_spike_package("storage", "crates/storage"));
+
+        // A renamed spike reached from a product crate is rejected.
+        assert!(is_spike_package("renamed-engine", "tools/renamed-spike"));
+        let ordo_normal = [("ordo", "crates/ordo", "renamed-engine", Normal)];
+        assert!(validate_spike_reuse(&ordo_normal).is_err());
+
+        // The same renamed spike is allowed from a test package as a dev-dependency.
+        let test_dev = [("tests-foo", "tests/foo", "renamed-engine", Development)];
+        assert!(validate_spike_reuse(&test_dev).is_ok());
     }
 
     #[test]

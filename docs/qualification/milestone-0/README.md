@@ -53,8 +53,32 @@ Output goes to `target/qualification/milestone-0/`:
 - `index.md` is the same content as a readable table. Skipped steps are listed
   first.
 
-`qualify` exits non-zero when any step is `fail` or `missing`. The bundle is
-marked `complete: true` only when no step is skipped, failed, or missing.
+Each artifact copied into `artifacts/` gets a sidecar
+`artifacts/<name>.provenance.json` with `artifact`, `sha256`, `step`, `run`, and
+`provenance`. Every `logs/<step>.log` starts with a header that records the
+commit, the dirty flag, the run id, and the step. Steps invoke xtask subcommands
+through the running xtask executable (`current_exe`), not `cargo xtask`. Each
+step has a timeout of 120 minutes, and a timeout is recorded as `fail`.
+
+A provenance problem is any provenance value beginning `unknown:`, a dirty
+working tree, or an expected fixture tree that is absent. Provenance problems
+are recorded in the bundle, and they fail the run. A dirty working tree fails
+the run unless `--allow-dirty` is passed, which records a warning instead. The
+bundle is marked `complete: true` only when no step is skipped, failed, or
+missing and there is no provenance problem. With `--allow-dirty` the bundle is
+still `complete: false`, because qualification needs one clean commit.
+
+`qualify` exits non-zero when any step is `fail` or `missing`, when a step
+times out, or when there is a provenance problem.
+
+A report counts as qualification evidence only inside a bundle, meaning the
+`index.json` plus the sidecar for each artifact. Standalone reports, such as the
+CI-uploaded `presenter-performance-report`, are diagnostic only.
+
+Dependency revisions are identified by the SHA-256 of `Cargo.lock` plus the
+explicit GPUI and platform versions (`gpui-pre`, `gpui-pre-platform`, and
+`gpui-base` in `Cargo.lock`, and the `[workspace.metadata.ordo.gpui-supply]`
+pin). A crate version alone does not identify the GPUI revision.
 
 Manual review: open `target/qualification/milestone-0/latest.txt`, then the
 `index.md` it names. `cargo run -p ordo` still launches the walking skeleton.
@@ -68,9 +92,10 @@ The `verify` workflow (`.github/workflows/verify.yml`) runs the `verify`,
 The `windows-qualification` job runs `cargo xtask qualify` with
 two steps skipped as covered elsewhere: `verify` (the `verify` job) and
 `measure-presenter` (the `windows-presenter-performance` job). Its exit code
-fails on any failed step or incomplete provenance, and it uploads
-`target/qualification/` as an artifact. A CI run therefore cannot produce
-`complete: true`. Only a local full run can.
+fails on any failed step or provenance problem. The CI checkout is clean, so a
+dirty tree is not expected there. The job uploads `target/qualification/` as an
+artifact. A CI run therefore never produces `complete: true`, because two steps
+are skipped. Only a local full run can produce a complete bundle.
 
 ## Phase 0 proof map
 
@@ -107,8 +132,10 @@ Notes on the table:
 Phase 0 fixtures, contracts, inspectors, and instrumentation must stay reusable
 after Phase 0 (`MILESTONES.md`, T0.10 AC5). The rule is:
 
-- No package outside `tests/*` may depend on any `*-spike` package, through any
-  dependency kind. `tools/ui-lab` and `xtask` are included.
+- No package outside `tests/*` may depend on any spike package, through any
+  dependency kind. `tools/ui-lab` and `xtask` are included. A spike is a package
+  whose name ends in `-spike`, or whose manifest lies under `tools/` in a
+  directory ending in `-spike`, so a renamed spike is still caught.
 - Test packages may reach spikes only through `[dev-dependencies]`. Today the
   only such edges are `tests/artifact-container` and `tests/powerpoint`.
 - Reusable assets live outside `tools/*-spike`:
