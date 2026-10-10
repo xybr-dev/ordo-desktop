@@ -39,6 +39,7 @@ struct StorageLab {
     note_count: Option<u64>,
     note_seq: u32,
     rename_seq: u32,
+    refresh_seq: u32,
     last_outcome: String,
 }
 
@@ -53,6 +54,7 @@ impl StorageLab {
             note_count: None,
             note_seq: 0,
             rename_seq: 0,
+            refresh_seq: 0,
             last_outcome: "opening database".to_owned(),
         }
     }
@@ -81,6 +83,14 @@ impl StorageLab {
     }
 
     /// Re-reads the schema status, parish name, and note count.
+    /// The Refresh button: reports its own outcome, unlike the refresh that
+    /// follows an operation, which keeps that operation's outcome visible.
+    fn refresh_clicked(&mut self, cx: &mut Context<Self>) {
+        self.refresh_seq += 1;
+        self.last_outcome = format!("refreshed (#{})", self.refresh_seq);
+        self.refresh(cx);
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let Some(storage) = self.storage.as_ref() else {
             self.report_unavailable(cx);
@@ -275,7 +285,7 @@ impl Render for StorageLab {
                     .child(button(
                         "refresh",
                         "Refresh",
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.refresh(cx)),
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_clicked(cx)),
                     ))
                     .child(button(
                         "shutdown",
