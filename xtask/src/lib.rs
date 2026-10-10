@@ -260,6 +260,7 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         "native-runtime-tests",
         "display-tests",
         "presentation-tests",
+        "storage-tests",
         "performance-tests",
         "xtask",
     ]
@@ -340,6 +341,7 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
         ("native-runtime-tests", BTreeSet::new()),
         ("display-tests", BTreeSet::new()),
         ("presentation-tests", BTreeSet::new()),
+        ("storage-tests", BTreeSet::new()),
         ("performance-tests", BTreeSet::new()),
         ("xtask", BTreeSet::new()),
     ]

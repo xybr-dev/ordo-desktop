@@ -5589,6 +5589,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "storage-tests"
+version = "0.1.0"
+dependencies = [
+ "futures-lite",
+ "rusqlite",
+ "storage",
+]
+
+[[package]]
 name = "str_indices"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
