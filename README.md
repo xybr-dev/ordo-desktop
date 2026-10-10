@@ -47,6 +47,33 @@ The status line above the stage reports the scenario, preset, appearance, and
 scale in effect, with the resolved appearance in parentheses when it is
 following the system.
 
+## Run the Presenter lab
+
+`presenter-lab` opens the Presenter probe over a 500-Cue deck for review on
+real hardware. Right and Left move Preview, Space takes Preview live, `F`
+freezes Program, and `B` blacks it out. The footer shows live keydown-to-paint
+p50, p95, and p99 for each command and surface:
+
+```sh
+cargo run --release -p ordo --example presenter-lab
+```
+
+`cargo xtask measure-presenter` runs the same lab for its native measurement.
+Its measuring modes each run as a fresh process and write a JSON document:
+
+- `--measure <out.json>`: the real operator runtime, the probe beside it, and
+  the seeded 2,000-command stream, checked against a pure engine oracle.
+- `--display-path <out.json> [passes]`: the CPU raster and retained display
+  paths for one canonical frame.
+- `--baseline <empty|preparation|presenter> <out.json>`: process memory of the
+  real operator runtime (`empty_shell`); the runtime plus a synthetic
+  10,000-entry library (`preparation_stand_in`, no Preparation UI or storage
+  exists yet); and the runtime plus the 500-Cue probe with 500 canonical frames
+  held through the bounded caches (`presenter_probe_in_runtime`).
+
+The lab writes its temporary preferences file to the system temp directory and
+removes it on exit.
+
 ## Verify
 
 Install `cargo-deny`, then run:

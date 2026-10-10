@@ -10,6 +10,8 @@ members = [
     "tools/ui-lab",
     "tests/native-runtime",
     "tests/display",
+    "tests/presentation",
+    "tests/performance",
     "xtask",
 ]
 default-members = ["crates/ordo"]
@@ -30,6 +32,7 @@ presentation = { path = "crates/presentation" }
 ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # GPUI comes from Longbridge's exactly pinned `gpui-pre` crates.io snapshot of
 # Zed, the same snapshot `gpui-base` is built against (T0.4a,
@@ -49,7 +52,9 @@ zed = "279fe070bb389b79652e52065b2f001edcc0b11b"
 gpui-base = "0.7.1"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `deny`, not `forbid`, so Decision 269's one audited module can opt out;
+# xtask rejects `allow(unsafe_code)` anywhere else.
+unsafe_code = "deny"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]

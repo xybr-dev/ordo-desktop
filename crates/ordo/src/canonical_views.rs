@@ -28,6 +28,7 @@ use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment};
 /// padding instead of letterboxing it. Densities whose widths already align
 /// (100/150/200%) encode byte-identically to the unpadded raster.
 pub fn finish_frame(raster: &rendering::RasterizedFrame) -> Option<FinishedFrame> {
+    crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::ImageDecode);
     let (width, height) = (raster.width(), raster.height());
     let aligned = width.next_multiple_of(64);
     let png = if aligned == width {

@@ -28,7 +28,9 @@ use ui::environment::UiPreferences;
 
 pub mod canonical;
 pub mod canonical_views;
+pub mod diagnostics;
 pub mod output;
+pub mod performance;
 pub mod settings;
 pub mod shell;
 
@@ -161,6 +163,7 @@ impl CongregationView {
 /// unencodable frame (unreachable behind `ProgramFrame`'s invariants) paints
 /// nothing rather than a partial frame.
 fn congregation_image(program: &ProgramFrame) -> Arc<gpui::Image> {
+    crate::performance::hot_path::note(crate::performance::hot_path::HotPathKind::ImageDecode);
     let png = tiny_skia::IntSize::from_wh(program.width(), program.height())
         .and_then(|size| tiny_skia::Pixmap::from_vec(program.rgba().to_vec(), size))
         .and_then(|pixmap| pixmap.encode_png().ok())
@@ -325,8 +328,16 @@ impl RuntimeWorkers {
         let (canonical_commands, canonical_requests) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
+            // File access on this worker is never inside a GPUI-thread scope. The note
+            // counts only if a read or write is moved onto the GPUI thread.
+            crate::performance::hot_path::note(
+                crate::performance::hot_path::HotPathKind::FileAccess,
+            );
             let _ = restored_preferences.send_blocking(preferences.read());
             while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
+                crate::performance::hot_path::note(
+                    crate::performance::hot_path::HotPathKind::FileAccess,
+                );
                 preferences
                     .write(&contents)
                     .map_err(|error| error.to_string())?;
@@ -434,6 +445,9 @@ pub fn open_native_runtime_with(
     let save_preferences = {
         let commands = workers.borrow().preference_commands.clone();
         Rc::new(move |preferences: UiPreferences| {
+            crate::performance::hot_path::note(
+                crate::performance::hot_path::HotPathKind::PreferenceSave,
+            );
             if commands
                 .send(PreferenceCommand::Save(preferences.encode()))
                 .is_err()

@@ -463,21 +463,21 @@ baseline before full UI construction.
 
 **AC**
 
-- [ ] `[AUTO]` A pure Presentation Engine accepts commands and returns complete
+- [x] `[AUTO]` A pure Presentation Engine accepts commands and returns complete
       state without importing GPUI, SQLite, filesystem, or platform modules.
-- [ ] `[AUTO]` Instrument keydown→Preview paint and keydown→Program paint at
+- [x] `[AUTO]` Instrument keydown→Preview paint and keydown→Program paint at
       p50, p95, and p99 for navigation, Freeze, Blackout, and Space.
 - [ ] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
       autosave, pagination, image decode, blocking worker wait, or full-timeline
       rerender.
-- [ ] `[AUTO]` Rapid command sequences are ordered, coalesced only where
+- [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
-- [ ] `[AUTO]` Record process RSS/private memory, GPU allocations where the
+- [x] `[AUTO]` Record process RSS/private memory, GPU allocations where the
       platform exposes them, frame times, dropped frames, startup time, worker
       queue latency, and idle CPU.
-- [ ] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
+- [x] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are
       genuinely lower-resolution, virtualized, and released when obsolete.
-- [ ] `[AUTO]` Compare the two candidate display paths for the same canonical
+- [x] `[AUTO]` Compare the two candidate display paths for the same canonical
       frame and record latency and held bytes for each: the CPU raster path
       (`rendering::rasterize` composited to RGBA, encoded, decoded, uploaded)
       and a retained path that walks the logical `Frame` straight into the
@@ -487,11 +487,12 @@ baseline before full UI construction.
       rasterizes only for thumbnails, transitions, capture, and export; this
       measurement decides whether Ordo does the same. Record the per-slide
       cost of each path separately, because it sets T1.3's scope.
-- [ ] `[AUTO]` If the retained path is measured, confirm the GPUI text system
+- [x] `[AUTO]` If the retained path is measured, confirm the GPUI text system
       resolves the bundled Atkinson Hyperlegible Next and Noto Sans faces the
       canonical shaper uses, rather than a same-named system installation, on
-      both packaged targets. Shaped glyph IDs are face-intrinsic, so a silent
-      substitution would mispaint without failing.
+      both packaged targets (Linux retired, Decision 268). Shaped glyph IDs
+      are face-intrinsic, so a silent substitution would mispaint without
+      failing.
 - [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling. The Linux half is retired to T6.2
@@ -501,7 +502,7 @@ baseline before full UI construction.
       Every run stays within the 512 MiB qualification budget and the 1 GiB
       absolute ceiling; exceeding either blocks Phase 1 pending an explicit
       budget and native-memory rationale revision.
-- [ ] `[MANUAL]` Hardware acceleration is active by default; any software-
+- [x] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
 
 **E2E** `[NATIVE-AUTO]` — Run a packaged 500-Cue fixture through 2,000 mixed

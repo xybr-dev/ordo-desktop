@@ -10,9 +10,10 @@ fn main() -> ExitCode {
         "offline" => xtask::verify_offline_contract(&xtask::repo_root())
             .and_then(|()| xtask::verify_gpui_supply(&xtask::repo_root())),
         "bless-golden-frames" => xtask::bless_golden_frames(&xtask::repo_root()),
+        "measure-presenter" => xtask::measure_presenter::measure_presenter(&xtask::repo_root()),
         _ => {
             eprintln!(
-                "Usage: cargo xtask <verify|context|architecture|tokens|offline|bless-golden-frames>"
+                "Usage: cargo xtask <verify|context|architecture|tokens|offline|bless-golden-frames|measure-presenter>"
             );
             return ExitCode::FAILURE;
         }

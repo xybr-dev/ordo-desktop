@@ -1,0 +1,17 @@
+[package]
+name = "performance-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Presenter performance acceptance harness (T0.6 WP4). Every edge is a
+# dev-dependency, so the xtask dependency contract allows this package no
+# internal dependencies at all.
+[dev-dependencies]
+ordo = { path = "../../crates/ordo" }
+presentation.workspace = true
+
+[lints]
+workspace = true
