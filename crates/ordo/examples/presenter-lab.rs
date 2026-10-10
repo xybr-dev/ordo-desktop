@@ -11,7 +11,8 @@
 //!
 //! - `--measure <out.json>` opens the real operator runtime, then the probe
 //!   beside it, drives the seeded 2,000-command stream, idles, and writes the
-//!   report with the oracle check. Peak memory is sampled every 250 ms.
+//!   report with the oracle check. Peak memory is the OS-recorded peak on
+//!   Windows, with a 250 ms sampler as the fallback elsewhere.
 //! - `--display-path <out.json> [passes]` compares the CPU raster and retained
 //!   display paths for one canonical frame in a real window.
 //! - `--baseline <empty|preparation|presenter> <out.json>` samples process
@@ -102,9 +103,8 @@ const VISIBLE_THUMBNAILS: usize = 12;
 /// What the report's `startup_scope` names: the first frame after the first
 /// draw, timed from process start.
 const STARTUP_SCOPE: &str = "process_start_to_next_frame_after_first_present";
-/// Why `private_bytes` is null in a baseline document.
-const PRIVATE_BYTES_NOTE: &str =
-    "null: sysinfo 0.31.4 cannot read PrivateUsage on Windows (see performance/process.rs)";
+/// What `private_bytes` and the peaks mean in a baseline document.
+const PRIVATE_BYTES_NOTE: &str = "Windows PrivateUsage; peaks are OS-recorded since process start (Decision 269); null off Windows";
 
 /// Set by the first `finish`, so a late timeout cannot overwrite a result.
 static FINISHED: AtomicBool = AtomicBool::new(false);

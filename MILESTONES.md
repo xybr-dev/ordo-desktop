@@ -472,7 +472,7 @@ baseline before full UI construction.
       rerender.
 - [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
-- [ ] `[AUTO]` Record process RSS/private memory, GPU allocations where the
+- [x] `[AUTO]` Record process RSS/private memory, GPU allocations where the
       platform exposes them, frame times, dropped frames, startup time, worker
       queue latency, and idle CPU.
 - [x] `[AUTO]` Full-resolution frame cache size is bounded; thumbnails are

@@ -449,6 +449,47 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     for relative in ["crates", "tools/ui-lab"] {
         scan_runtime_source(&root.join(relative))?;
     }
+    for relative in ["crates", "tools", "xtask"] {
+        scan_unsafe_opt_outs(root, &root.join(relative))?;
+    }
+    Ok(())
+}
+
+/// The one source file allowed to opt out of the workspace `unsafe_code`
+/// lint (Decision 269). The lint is `deny` rather than `forbid` only so this
+/// file can; any other opt-out fails verification.
+const UNSAFE_EXCEPTION: &str = "crates/platform/src/process_memory.rs";
+
+fn scan_unsafe_opt_outs(root: &Path, path: &Path) -> XtaskResult<()> {
+    for entry in fs::read_dir(path)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            if path.file_name() != Some(OsStr::new("target")) {
+                scan_unsafe_opt_outs(root, &path)?;
+            }
+        } else if path.extension() == Some(OsStr::new("rs")) {
+            let relative = path
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            validate_unsafe_opt_out(&relative, &fs::read_to_string(&path)?)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_unsafe_opt_out(relative: &str, source: &str) -> XtaskResult<()> {
+    // The lint name is split so this file does not match its own scan.
+    let lint = concat!("(unsafe", "_code)");
+    let opts_out = ["allow", "expect", "warn"]
+        .iter()
+        .any(|level| source.contains(&format!("{level}{lint}")));
+    if opts_out && relative != UNSAFE_EXCEPTION {
+        return Err(format!(
+            "{relative}: only {UNSAFE_EXCEPTION} may opt out of unsafe_code (Decision 269)"
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -881,6 +922,16 @@ pub fn bless_golden_frames(root: &Path) -> XtaskResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_audited_module_may_opt_out_of_unsafe_code() {
+        let opt_out = concat!("#[allow(unsafe", "_code)]\nmod imp {}");
+        let expect = concat!("#![expect(unsafe", "_code)]");
+        assert!(validate_unsafe_opt_out(UNSAFE_EXCEPTION, opt_out).is_ok());
+        assert!(validate_unsafe_opt_out("crates/ordo/src/lib.rs", opt_out).is_err());
+        assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", expect).is_err());
+        assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", "fn safe() {}").is_ok());
+    }
 
     #[test]
     fn rejects_runtime_network_source() {

@@ -429,6 +429,8 @@ mod tests {
                 rss_bytes: 10,
                 virtual_bytes: 20,
                 private_bytes: None,
+                os_peak_private_bytes: None,
+                os_peak_rss_bytes: None,
                 cpu_percent: None,
             }),
         };

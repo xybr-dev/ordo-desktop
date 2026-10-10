@@ -6,6 +6,7 @@
 pub mod congregation_window;
 pub mod display;
 pub mod preferences;
+pub mod process_memory;
 pub mod tasks;
 pub mod windows;
 

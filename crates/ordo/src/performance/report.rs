@@ -591,6 +591,8 @@ mod tests {
             rss_bytes: rss,
             virtual_bytes: rss * 2,
             private_bytes: private,
+            os_peak_private_bytes: None,
+            os_peak_rss_bytes: None,
             cpu_percent: Some(1.5),
         }
     }
