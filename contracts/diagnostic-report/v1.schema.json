@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/diagnostic-report/v1.schema.json",
+  "title": "Diagnostic report v1",
+  "description": "Deliberately exported, sanitized troubleshooting evidence. Opening one is always read-only. assets_fingerprint is the SHA-256 of every assets[].sha256 sorted, each followed by LF. Each log asset_id must name one of the report assets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "app",
+    "assets",
+    "assets_fingerprint",
+    "checks",
+    "environment",
+    "generated_at",
+    "id",
+    "logs",
+    "read_only",
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "read_only": {
+      "const": true
+    },
+    "generated_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build",
+        "version"
+      ],
+      "properties": {
+        "build": {
+          "$ref": "#/$defs/text"
+        },
+        "version": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arch",
+        "os"
+      ],
+      "properties": {
+        "os": {
+          "$ref": "#/$defs/text"
+        },
+        "arch": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "logs": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/log"
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/asset"
+      }
+    },
+    "assets_fingerprint": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^assets/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "id",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "code": {
+          "$ref": "#/$defs/text"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ]
+        },
+        "detail": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "id",
+        "timestamp"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "asset_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "code": {
+          "$ref": "#/$defs/text"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}

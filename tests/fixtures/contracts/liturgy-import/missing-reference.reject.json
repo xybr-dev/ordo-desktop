@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000110",
+  "celebration": {
+    "id": "00000000-0000-4000-8000-000000000111",
+    "date": "2026-08-23",
+    "title": "21st Sunday in Ordinary Time"
+  },
+  "readings": [
+    {
+      "id": "00000000-0000-4000-8000-000000000112",
+      "role": "first-reading",
+      "language": "ceb",
+      "citation": "Isaiah 22:19-23",
+      "text": "Ako ang magbubukas ng pintuan ng sambahayan.",
+      "text_sha256": "f4d80467331b7979480d216e0df30f989d93e83bf8af4a1c1dd0d69976573c1f"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000113",
+      "role": "responsorial-psalm",
+      "language": "ceb",
+      "citation": "Psalm 138",
+      "text": "Ginoo, ikaw ang nagtubag sa akong pagtawag.",
+      "text_sha256": "a654cc9960b432033545320ff7d59fee5708579494017e739bb9bf59d3bf31e5"
+    }
+  ],
+  "responses": [
+    {
+      "id": "00000000-0000-4000-8000-000000000120",
+      "role": "greeting-response",
+      "language": "tl",
+      "text": "At sumaiyo rin ang Espiritu.",
+      "text_sha256": "559129c9b34fe2225eefca4e2b0b5ac729ff442fa0f1d51d985772f608de2982"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000121",
+      "role": "psalm-refrain",
+      "language": "ceb",
+      "follows": "00000000-0000-4000-8000-000000000199",
+      "text": "Ginoo, ang imong gugma dili mahurot.",
+      "text_sha256": "b4e01c3d89d1954d7657ec4bb75edbc082f14d849543a269d4924c1ee8f082e6"
+    }
+  ],
+  "source": "Parish worksheet (sample)"
+}

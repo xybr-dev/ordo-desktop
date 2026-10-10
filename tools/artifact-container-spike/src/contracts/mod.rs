@@ -1,9 +1,21 @@
-//! Payload contract validation.
+//! Payload contract validation (T0.8 WP2).
 //!
-//! WP1 ships only this stub: every contract checks that the document is a JSON
-//! object with `schema_version == 1`. WP2 replaces it with a typed validator per
-//! schema that mirrors `contracts/<kind>/v1.schema.json`. The signature is
-//! final, so callers do not change when the checks grow.
+//! Each contract has a typed validator that mirrors `contracts/<kind>/v1.schema.json`.
+//! Checks run in two phases: shape first (JSON pointers for every missing, unknown,
+//! or mistyped member, collected rather than stopping at the first), then semantic
+//! rules (internal references and hashes) once the shape is clean. The rules are
+//! documented in `docs/contracts/README.md`.
+
+mod backup;
+mod celebration;
+mod diagnostic;
+mod journal;
+mod liturgy;
+mod snapshot;
+mod song;
+mod support;
+#[cfg(test)]
+mod tests;
 
 use serde_json::Value;
 
@@ -44,29 +56,36 @@ pub struct ContractError {
     pub message: String,
 }
 
-/// Validates `doc` against `contract`. Stub: object shape and version only.
+/// Validates `doc` against `contract`, collecting every finding.
 pub fn validate_contract(contract: Contract, doc: &Value) -> Result<(), Vec<ContractError>> {
-    let Some(object) = doc.as_object() else {
-        return Err(vec![ContractError {
-            code: "schema",
-            path: String::new(),
-            message: format!("{} document must be a JSON object", contract.name()),
-        }]);
-    };
-    match object.get("schema_version") {
-        Some(version) if version.as_u64() == Some(1) => Ok(()),
-        Some(version) if version.as_u64().is_some() => Err(vec![ContractError {
-            code: "unsupported-version",
-            path: "/schema_version".to_owned(),
-            message: format!(
-                "{} schema_version {version} is not supported by this build (v1)",
-                contract.name()
-            ),
-        }]),
-        _ => Err(vec![ContractError {
-            code: "schema",
-            path: "/schema_version".to_owned(),
-            message: format!("{} requires an integer schema_version", contract.name()),
-        }]),
+    let mut errors = Vec::new();
+    match contract {
+        Contract::SongImport => song::check(doc, &mut errors),
+        Contract::LiturgyImport => liturgy::check(doc, &mut errors),
+        Contract::SnapshotManifest => snapshot::check(doc, &mut errors),
+        Contract::CelebrationPackage => celebration::check(doc, &mut errors),
+        Contract::ParishBackup => backup::check(doc, &mut errors),
+        Contract::DiagnosticReport => diagnostic::check(doc, &mut errors),
+        Contract::RecoveryJournal => journal::check(doc, &mut errors),
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// The top-level (required, optional) member names each validator declares.
+/// The schema drift guard compares these with the schema files.
+#[cfg(test)]
+fn declared_keys(contract: Contract) -> (&'static [&'static str], &'static [&'static str]) {
+    match contract {
+        Contract::SongImport => (song::REQUIRED, song::OPTIONAL),
+        Contract::LiturgyImport => (liturgy::REQUIRED, liturgy::OPTIONAL),
+        Contract::SnapshotManifest => (snapshot::REQUIRED, snapshot::OPTIONAL),
+        Contract::CelebrationPackage => (celebration::REQUIRED, celebration::OPTIONAL),
+        Contract::ParishBackup => (backup::REQUIRED, backup::OPTIONAL),
+        Contract::DiagnosticReport => (diagnostic::REQUIRED, diagnostic::OPTIONAL),
+        Contract::RecoveryJournal => (journal::REQUIRED, journal::OPTIONAL),
     }
 }

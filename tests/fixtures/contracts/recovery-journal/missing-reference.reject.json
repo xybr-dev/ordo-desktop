@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000600",
+  "session_id": "00000000-0000-4000-8000-000000000601",
+  "snapshot_id": "00000000-0000-4000-8000-000000000602",
+  "updated_at": "2026-08-23T18:05:00Z",
+  "cue_position": {
+    "cue_index": 3,
+    "last_entry_seq": 7
+  },
+  "entries": [
+    {
+      "seq": 1,
+      "at": "2026-08-23T18:00:00Z",
+      "kind": "cue",
+      "cue_index": 0
+    },
+    {
+      "seq": 2,
+      "at": "2026-08-23T18:00:20Z",
+      "kind": "cue",
+      "cue_index": 1
+    },
+    {
+      "seq": 3,
+      "at": "2026-08-23T18:01:02Z",
+      "kind": "freeze",
+      "cue_index": 1
+    },
+    {
+      "seq": 4,
+      "at": "2026-08-23T18:01:30Z",
+      "kind": "cue",
+      "cue_index": 3
+    }
+  ],
+  "entries_fingerprint": "54e75f13b8f955aa540a4a714350d57f09f41c3f94bda4cdf0834606df6b1d55"
+}
