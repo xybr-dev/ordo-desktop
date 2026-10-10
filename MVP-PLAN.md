@@ -995,3 +995,5 @@ The MVP is done when all of the following are true:
 2. Continue Phase 0 in dependency order; retain every new spike as a permanent regression fixture or qualification script. Ordo is Windows-only for the MVP: preparation, presentation, and all native and manual evidence run on Windows. Linux support is deferred post-MVP; its original criteria are kept in the retired [`MILESTONES.md` T6.2](./MILESTONES.md#t62--retired-linux-flatpak-and-diagnostic-zip-deferred-post-mvp) (Decision 268).
 3. Prepare the sanitized Normal Mass and Recovery Drill fixtures described in T1.1 from synthetic, in-repository examples that exercise the adopted contracts; do not depend on or copy parish-owned external source text.
 4. Establish the minimum-profile performance machine and schedule access to the actual church projector early, not only at final release.
+
+Phase 0 status: the qualification record and bundle procedure are in [`docs/qualification/milestone-0/README.md`](./docs/qualification/milestone-0/README.md); T0.6 and T0.9 remain open, so Phase 0 is not yet closed.
