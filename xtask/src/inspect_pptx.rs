@@ -50,6 +50,9 @@ const SAFETY_SECTION: &str = "Safety";
 const BLACK: &str = "000000";
 const IMAGE_REL: &str = "/image";
 const NOTES_REL: &str = "/notesSlide";
+/// Largest package part the inspector will read; a larger part is refused so
+/// a zip bomb cannot exhaust memory.
+const MAX_PART_BYTES: u64 = 64 * 1024 * 1024;
 
 type Parsed<T> = Result<T, String>;
 
@@ -264,12 +267,25 @@ fn open_zip(bytes: &[u8]) -> Parsed<ZipArchive<Cursor<&[u8]>>> {
 }
 
 fn read_part(zip: &mut ZipArchive<Cursor<&[u8]>>, name: &str) -> Parsed<Vec<u8>> {
-    let mut file = zip
+    read_part_limited(zip, name, MAX_PART_BYTES)
+}
+
+/// Reads at most `limit` bytes of a part and fails if it holds more.
+fn read_part_limited(
+    zip: &mut ZipArchive<Cursor<&[u8]>>,
+    name: &str,
+    limit: u64,
+) -> Parsed<Vec<u8>> {
+    let file = zip
         .by_name(name)
         .map_err(|error| format!("{name}: {error}"))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
         .map_err(|error| format!("{name}: {error}"))?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("{name}: larger than {limit} bytes"));
+    }
     Ok(bytes)
 }
 
@@ -329,20 +345,24 @@ enum Node {
     Text(String),
 }
 
-fn element(start: &BytesStart<'_>) -> Element {
-    Element {
+fn element(start: &BytesStart<'_>, part: &str) -> Parsed<Element> {
+    let attrs = start
+        .attributes()
+        .map(|attribute| {
+            let attribute =
+                attribute.map_err(|error| format!("{part}: malformed attribute: {error}"))?;
+            let key = String::from_utf8_lossy(attribute.key.as_ref()).into_owned();
+            let raw = String::from_utf8_lossy(&attribute.value);
+            let value = unescape(&raw)
+                .map_err(|error| format!("{part}: attribute {key}: {error}"))?
+                .into_owned();
+            Ok((key, value))
+        })
+        .collect::<Parsed<Vec<_>>>()?;
+    Ok(Element {
         name: String::from_utf8_lossy(start.local_name().as_ref()).into_owned(),
-        attrs: start
-            .attributes()
-            .filter_map(Result::ok)
-            .map(|attribute| {
-                let key = String::from_utf8_lossy(attribute.key.as_ref()).into_owned();
-                let raw = String::from_utf8_lossy(&attribute.value);
-                let value = unescape(&raw).map_or_else(|_| raw.to_string(), |v| v.into_owned());
-                (key, value)
-            })
-            .collect(),
-    }
+        attrs,
+    })
 }
 
 /// Streams the elements of one part in document order. Attributes keep their
@@ -355,9 +375,9 @@ fn walk(xml: &[u8], part: &str, mut visit: impl FnMut(Node) -> Parsed<()>) -> Pa
             .read_event()
             .map_err(|error| format!("{part}: malformed XML: {error}"))?
         {
-            Event::Start(start) => visit(Node::Start(element(&start)))?,
+            Event::Start(start) => visit(Node::Start(element(&start, part)?))?,
             Event::Empty(start) => {
-                let element = element(&start);
+                let element = element(&start, part)?;
                 let name = element.name.clone();
                 visit(Node::Start(element))?;
                 visit(Node::End(name))?;
@@ -417,8 +437,11 @@ fn parse_presentation(xml: &[u8]) -> Parsed<Presentation> {
                     }
                 }
                 "section" => {
+                    let name = element
+                        .attr("name")
+                        .ok_or_else(|| format!("{PRESENTATION}: section without name attribute"))?;
                     presentation.sections.push(Section {
-                        name: element.attr("name").unwrap_or("").to_owned(),
+                        name: name.to_owned(),
                         slide_ids: Vec::new(),
                     });
                     in_section = true;
@@ -466,12 +489,18 @@ fn parse_rels(xml: &[u8], part: &str, base: &str) -> Parsed<HashMap<String, Rela
         {
             let id = element
                 .attr("Id")
-                .ok_or_else(|| format!("{part}: Relationship without Id"))?;
+                .ok_or_else(|| format!("{part}: Relationship without Id attribute"))?;
+            let kind = element
+                .attr("Type")
+                .ok_or_else(|| format!("{part}: Relationship {id} without Type attribute"))?;
+            let target = element
+                .attr("Target")
+                .ok_or_else(|| format!("{part}: Relationship {id} without Target attribute"))?;
             rels.insert(
                 id.to_owned(),
                 Relationship {
-                    kind: element.attr("Type").unwrap_or("").to_owned(),
-                    target: resolve(base, element.attr("Target").unwrap_or("")),
+                    kind: kind.to_owned(),
+                    target: resolve(base, target),
                 },
             );
         }
@@ -848,6 +877,101 @@ mod tests {
                 .iter()
                 .any(|problem| problem.contains("image slide has notes")),
             "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn relationship_missing_target_or_type_is_an_error() {
+        let no_target = format!(
+            r#"<Relationships xmlns="x"><Relationship Id="rId1" Type="{SLIDE_TYPE_IMAGE}"/></Relationships>"#
+        );
+        let error = parse_rels(
+            no_target.as_bytes(),
+            "ppt/slides/_rels/slide1.xml.rels",
+            "ppt/slides",
+        )
+        .err()
+        .expect("missing Target is refused");
+        assert!(
+            error.contains("ppt/slides/_rels/slide1.xml.rels"),
+            "{error}"
+        );
+        assert!(
+            error.contains("rId1") && error.contains("Target"),
+            "{error}"
+        );
+
+        let no_type =
+            r#"<Relationships xmlns="x"><Relationship Id="rId2" Target="a.xml"/></Relationships>"#;
+        let error = parse_rels(no_type.as_bytes(), "ppt/_rels/presentation.xml.rels", "ppt")
+            .err()
+            .expect("missing Type is refused");
+        assert!(error.contains("rId2") && error.contains("Type"), "{error}");
+    }
+
+    #[test]
+    fn section_without_name_is_an_error() {
+        let xml = format!(
+            r#"<p:presentation {NS}><p:sldIdLst/><p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"><p14:section id="{{1}}"/></p14:sectionLst></p:presentation>"#
+        );
+        let error = parse_presentation(xml.as_bytes())
+            .err()
+            .expect("missing section name is refused");
+        assert!(
+            error.contains("section") && error.contains("name"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn malformed_attribute_is_an_error_not_dropped() {
+        // Unquoted attribute value: quick-xml reports it; the old code dropped it.
+        let xml = format!(
+            r#"<p:presentation {NS}><p:sldIdLst><p:sldId id=256 r:id="rId2"/></p:sldIdLst></p:presentation>"#
+        );
+        let error = parse_presentation(xml.as_bytes())
+            .err()
+            .expect("malformed attribute is refused");
+        assert!(error.contains(PRESENTATION), "{error}");
+    }
+
+    #[test]
+    fn part_over_the_limit_is_refused() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("ppt/big.xml", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&[b'x'; 100]).unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+
+        let mut zip = open_zip(&bytes).expect("zip opens");
+        let error = read_part_limited(&mut zip, "ppt/big.xml", 10)
+            .expect_err("part larger than the limit is refused");
+        assert!(
+            error.contains("ppt/big.xml") && error.contains("10"),
+            "{error}"
+        );
+        let exact = read_part_limited(&mut zip, "ppt/big.xml", 100).expect("exact size reads");
+        assert_eq!(exact.len(), 100);
+    }
+
+    #[test]
+    fn notes_join_paragraphs_with_newlines() {
+        let xml = r#"<p:notes xmlns:a="a" xmlns:p="p"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>First line</a:t></a:r></a:p><a:p><a:r><a:t>Second line</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"#;
+        let notes = notes_text(xml.as_bytes(), "ppt/notesSlides/notesSlide1.xml")
+            .expect("notes read")
+            .expect("notes present");
+        assert_eq!(notes, "First line\nSecond line");
+
+        let slide = SlideInfo {
+            index: 1,
+            section: "Safety".to_owned(),
+            kind: SlideKind::Black,
+            notes: Some(notes),
+        };
+        assert_eq!(
+            outline(&[slide]),
+            "  1 [Safety] black — First line Second line"
         );
     }
 }

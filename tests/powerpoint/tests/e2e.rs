@@ -150,6 +150,9 @@ fn failed_export_over_existing_destination_leaves_it_untouched() {
 
     // A truncated PNG cannot decode, so the export is refused as a BadFrame.
     // The spike exposes no helper for a wrong-size PNG, so truncation is used.
+    // This covers the pre-write BadFrame path only. The post-write
+    // validation-failure path (export_with) is covered by
+    // tools/powerpoint-spike/src/tests.rs.
     let mut plan = fixture_plan();
     let png = frame(1);
     plan.items[0].cues[0] = Cue::Image {
