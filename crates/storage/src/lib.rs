@@ -11,6 +11,42 @@
 //! (`foreign_keys=ON`, `journal_mode=WAL`, `synchronous=FULL`) and pending
 //! migrations applied, each in its own immediate transaction together with its
 //! ledger row and `user_version`. Shutdown checkpoints the WAL with TRUNCATE.
+//!
+//! The compile-fail examples below are the automated evidence that callers
+//! cannot reach the driver, a connection, SQL, or a transaction (T0.7 AC1-2).
+//! The baseline compiles:
+//!
+//! ```no_run
+//! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
+//! let _ready = storage.ready();
+//! ```
+//!
+//! The driver is not re-exported:
+//!
+//! ```compile_fail
+//! use storage::rusqlite::Connection;
+//! ```
+//!
+//! No connection accessor exists:
+//!
+//! ```compile_fail
+//! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
+//! let _connection = storage.connection();
+//! ```
+//!
+//! No SQL can be submitted:
+//!
+//! ```compile_fail
+//! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
+//! let _rows = storage.execute("DELETE FROM parish_note");
+//! ```
+//!
+//! No transaction can be opened:
+//!
+//! ```compile_fail
+//! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
+//! let _transaction = storage.transaction();
+//! ```
 
 use std::fmt;
 use std::future::Future;

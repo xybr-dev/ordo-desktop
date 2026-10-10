@@ -317,7 +317,34 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &direct_dependencies(true),
         &workspace_names,
     )?;
+    validate_sqlite_ownership(&direct_dependencies(false))?;
     validate_fault_injection_policy(metadata)
+}
+
+/// SQLite driver crates that only the Storage Module may link (T0.7 AC1).
+const SQLITE_DRIVERS: &[&str] = &["rusqlite", "libsqlite3-sys"];
+
+/// Only `storage` may name a SQLite driver as a normal dependency, so no other
+/// crate can open its own connection. Test crates may use one as a
+/// dev-dependency to plant fixtures.
+fn validate_sqlite_ownership(
+    normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+) -> XtaskResult<()> {
+    let offending: Vec<_> = normal_dependencies
+        .iter()
+        .filter(|(package, _)| **package != "storage")
+        .flat_map(|(package, dependencies)| {
+            dependencies
+                .iter()
+                .filter(|dependency| SQLITE_DRIVERS.contains(dependency))
+                .map(move |dependency| format!("{package} -> {dependency}"))
+        })
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("only storage may depend on a SQLite driver: {offending:?}").into())
+    }
 }
 
 /// Fault hooks are a test-only seam. No normal (non-dev) dependency edge between
@@ -1008,6 +1035,20 @@ mod tests {
         // Non-workspace crates are outside this policy.
         let external = [("ordo", "other", DependencyKind::Normal, on.as_slice())];
         assert!(validate_fault_injection_edges(&external, &workspace).is_ok());
+    }
+
+    #[test]
+    fn only_storage_may_depend_on_a_sqlite_driver() {
+        let owned = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["storage"])),
+        ]);
+        assert!(validate_sqlite_ownership(&owned).is_ok());
+        let leaked = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["rusqlite"])),
+        ]);
+        assert!(validate_sqlite_ownership(&leaked).is_err());
     }
 
     #[test]

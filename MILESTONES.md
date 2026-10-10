@@ -522,10 +522,10 @@ work on the Presenter hot path.
 
 **AC**
 
-- [ ] `[AUTO]` One supervised Rust worker thread is the sole owner of the pinned
+- [x] `[AUTO]` One supervised Rust worker thread is the sole owner of the pinned
       bundled `rusqlite` connection; no GPUI entity or feature view can acquire
       a raw connection.
-- [ ] `[AUTO]` The Storage Module exposes domain-shaped asynchronous operations;
+- [x] `[AUTO]` The Storage Module exposes domain-shaped asynchronous operations;
       callers cannot submit SQL or control transactions.
 - [x] `[AUTO]` A numbered migration runner applies migrations in order inside
       transactions and records their identifiers and checksums.
