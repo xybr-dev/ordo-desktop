@@ -2,7 +2,7 @@
 
 use quick_xml::{
     Reader,
-    events::{BytesStart, Event},
+    events::{BytesRef, BytesStart, Event},
 };
 
 #[derive(Debug, Clone)]
@@ -12,7 +12,7 @@ pub(crate) enum Ev {
     Text(String),
 }
 
-type Attrs = [(String, String)];
+pub(crate) type Attrs = [(String, String)];
 
 pub(crate) fn events(xml: &[u8]) -> Result<Vec<Ev>, String> {
     let mut reader = Reader::from_reader(xml);
@@ -35,16 +35,44 @@ pub(crate) fn events(xml: &[u8]) -> Result<Vec<Ev>, String> {
                 ));
             }
             Event::Text(text) => {
+                // Raw text never contains `&`; references arrive as `GeneralRef`
+                // events, so no unescaping is needed here.
                 let decoded = text.decode().map_err(|error| error.to_string())?;
-                let unescaped =
-                    quick_xml::escape::unescape(&decoded).map_err(|error| error.to_string())?;
-                out.push(Ev::Text(unescaped.into_owned()));
+                push_text(&mut out, &decoded);
+            }
+            Event::GeneralRef(reference) => {
+                let decoded = resolve_reference(&reference)?;
+                push_text(&mut out, &decoded);
             }
             Event::Eof => break,
             _ => {}
         }
     }
     Ok(out)
+}
+
+/// Appends `text` to a trailing text event so one logical text node stays one
+/// string even when quick-xml splits it around entity references.
+fn push_text(out: &mut Vec<Ev>, text: &str) {
+    if let Some(Ev::Text(previous)) = out.last_mut() {
+        previous.push_str(text);
+    } else {
+        out.push(Ev::Text(text.to_owned()));
+    }
+}
+
+/// Resolves `&name;`, `&#N;` or `&#xN;` to its text.
+fn resolve_reference(reference: &BytesRef<'_>) -> Result<String, String> {
+    if let Some(ch) = reference
+        .resolve_char_ref()
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(ch.to_string());
+    }
+    let name = reference.decode().map_err(|error| error.to_string())?;
+    quick_xml::escape::unescape(&format!("&{name};"))
+        .map(|decoded| decoded.into_owned())
+        .map_err(|error| error.to_string())
 }
 
 fn start_tag(start: &BytesStart<'_>) -> Result<(String, Vec<(String, String)>), String> {
@@ -108,6 +136,32 @@ pub(crate) fn text_in(evs: &[Ev], tag: &str) -> String {
         }
     }
     out
+}
+
+/// Text of every `a:p` paragraph (its `a:t` runs concatenated), joined with
+/// `\n`. Notes use this so multi-line notes round-trip exactly.
+pub(crate) fn paragraph_text(evs: &[Ev]) -> String {
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut in_paragraph = false;
+    let mut in_run_text = false;
+    for ev in evs {
+        match ev {
+            Ev::Start(name, _) if name.as_str() == "a:p" => {
+                paragraphs.push(String::new());
+                in_paragraph = true;
+            }
+            Ev::End(name) if name.as_str() == "a:p" => in_paragraph = false,
+            Ev::Start(name, _) if name.as_str() == "a:t" && in_paragraph => in_run_text = true,
+            Ev::End(name) if name.as_str() == "a:t" => in_run_text = false,
+            Ev::Text(text) if in_run_text => {
+                if let Some(current) = paragraphs.last_mut() {
+                    current.push_str(text);
+                }
+            }
+            _ => {}
+        }
+    }
+    paragraphs.join("\n")
 }
 
 /// `(section name, slide ids)` for each `p14:section`, in order.

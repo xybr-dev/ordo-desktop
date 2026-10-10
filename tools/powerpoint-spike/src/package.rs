@@ -257,7 +257,9 @@ pub(crate) fn package(
         rels_doc(&[rel("rId1", "theme", "../theme/theme2.xml")]),
     ));
 
-    // Document properties and package root.
+    // Document properties and package root. The created date is a fixed
+    // constant, deliberately: it keeps the output deterministic, so equal
+    // plans yield byte-identical decks.
     xml.push((
         "docProps/core.xml".to_owned(),
         format!(
@@ -319,10 +321,23 @@ fn black_slide() -> String {
     )
 }
 
+/// One `a:p` per line of `notes`; an empty line is an empty paragraph.
 fn notes_slide(notes: &str) -> String {
+    let paragraphs: String = notes
+        .split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                "<a:p/>".to_owned()
+            } else {
+                format!(
+                    "<a:p><a:r><a:rPr lang=\"en-US\"/><a:t>{}</a:t></a:r></a:p>",
+                    esc(line)
+                )
+            }
+        })
+        .collect();
     format!(
-        "{DECL}<p:notes {NS}><p:cSld><p:spTree>{GROUP_PROPS}<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>{}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>{MASTER_CLR_OVR}</p:notes>",
-        esc(notes)
+        "{DECL}<p:notes {NS}><p:cSld><p:spTree>{GROUP_PROPS}<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>{paragraphs}</p:txBody></p:sp></p:spTree></p:cSld>{MASTER_CLR_OVR}</p:notes>"
     )
 }
 

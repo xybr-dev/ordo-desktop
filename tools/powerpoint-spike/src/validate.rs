@@ -5,9 +5,15 @@
 //! two are separate so tests can inspect an outline directly.
 
 use crate::plan::{Kind, Planned, plan_slides};
-use crate::xmlscan::{Ev, attr, events, sections, starts, text_in, within};
+use crate::xmlscan::{Attrs, Ev, attr, events, paragraph_text, sections, starts, text_in, within};
 use crate::{DeckPlan, FRAME_HEIGHT, FRAME_WIDTH, SLIDE_CX, SLIDE_CY, png_dims, sha256_hex};
-use std::{collections::HashMap, io::Cursor, io::Read};
+use std::{
+    collections::{HashMap, HashSet},
+    io::{Cursor, Read},
+};
+
+/// Largest part accepted from the archive; anything bigger is an error.
+const MAX_PART_BYTES: u64 = 64 * 1024 * 1024;
 
 /// What one slide contains, as read from the archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +47,7 @@ struct Rel {
     id: String,
     ty: String,
     target: String,
+    external: bool,
 }
 
 /// Validates `pptx` against `plan`. Returns every failure found.
@@ -175,43 +182,44 @@ pub(crate) fn outline(pptx: &[u8]) -> Result<Outline, String> {
             return Err(format!("missing required part {required}"));
         }
     }
+    let integrity = package_integrity(&parts);
+    if !integrity.is_empty() {
+        return Err(integrity.join("; "));
+    }
     let presentation = events_of(&parts, "ppt/presentation.xml")?;
     let size = starts(&presentation, "p:sldSz")
         .first()
-        .map(|attrs| {
-            (
-                attr(attrs, "cx").unwrap_or_default().to_owned(),
-                attr(attrs, "cy").unwrap_or_default().to_owned(),
-            )
+        .map(|attrs| -> Result<(String, String), String> {
+            Ok((
+                required(attrs, "cx")?.to_owned(),
+                required(attrs, "cy")?.to_owned(),
+            ))
         })
-        .ok_or_else(|| "presentation has no sldSz".to_owned())?;
+        .ok_or_else(|| "presentation has no sldSz".to_owned())??;
 
     let pres_rels = rels_of(&parts, "ppt/presentation.xml")?;
     let mut slide_ids = Vec::new();
     let mut slides = Vec::new();
     for attrs in starts(&presentation, "p:sldId") {
-        let id = attr(attrs, "id").unwrap_or_default().to_owned();
-        let rid = attr(attrs, "r:id").unwrap_or_default();
+        let id = required(attrs, "id")?.to_owned();
+        let rid = required(attrs, "r:id")?;
         let target = find_rel(&pres_rels, rid)?;
         slide_ids.push(id);
         slides.push(read_slide(&parts, &target)?);
     }
 
-    let found_sections = sections(&presentation)
-        .into_iter()
-        .map(|(name, ids)| {
-            let indices = ids
+    let mut found_sections = Vec::new();
+    for (name, ids) in sections(&presentation) {
+        let mut indices = Vec::with_capacity(ids.len());
+        for id in &ids {
+            let index = slide_ids
                 .iter()
-                .map(|id| {
-                    slide_ids
-                        .iter()
-                        .position(|known| known == id)
-                        .unwrap_or(usize::MAX)
-                })
-                .collect();
-            (name, indices)
-        })
-        .collect();
+                .position(|known| known == id)
+                .ok_or_else(|| format!("section {name} references unknown slide id {id}"))?;
+            indices.push(index);
+        }
+        found_sections.push((name, indices));
+    }
 
     Ok(Outline {
         slide_size: size,
@@ -278,7 +286,7 @@ fn read_slide(parts: &HashMap<String, Vec<u8>>, part: &str) -> Result<OutlineSli
     }
 
     let notes = match rels.iter().find(|rel| rel.ty.ends_with("/notesSlide")) {
-        Some(rel) => Some(text_in(&events_of(parts, &rel.target)?, "a:t")),
+        Some(rel) => Some(paragraph_text(&events_of(parts, &rel.target)?)),
         None => None,
     };
 
@@ -305,11 +313,138 @@ fn read_parts(pptx: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
             .map_err(|error| format!("unreadable zip entry {index}: {error}"))?;
         let name = file.name().to_owned();
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
+        file.by_ref()
+            .take(MAX_PART_BYTES + 1)
+            .read_to_end(&mut bytes)
             .map_err(|error| format!("cannot read {name}: {error}"))?;
-        parts.insert(name, bytes);
+        if bytes.len() as u64 > MAX_PART_BYTES {
+            return Err(format!("{name} is larger than {MAX_PART_BYTES} bytes"));
+        }
+        if parts.insert(name.clone(), bytes).is_some() {
+            return Err(format!("duplicate zip entry {name}"));
+        }
     }
     Ok(parts)
+}
+
+/// Package-level checks that do not depend on the plan: content types, rels
+/// targets, id uniqueness and notes wiring. Returns every failure found.
+fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
+    let mut errors = Vec::new();
+    let content_types = match events_of(parts, "[Content_Types].xml") {
+        Ok(evs) => evs,
+        Err(error) => return vec![error],
+    };
+    let defaults: HashSet<String> = starts(&content_types, "Default")
+        .into_iter()
+        .filter_map(|attrs| attr(attrs, "Extension").map(str::to_owned))
+        .collect();
+    let overrides: HashSet<String> = starts(&content_types, "Override")
+        .into_iter()
+        .filter_map(|attrs| {
+            attr(attrs, "PartName").map(|name| name.trim_start_matches('/').to_owned())
+        })
+        .collect();
+    for name in parts.keys() {
+        if name == "[Content_Types].xml" {
+            continue;
+        }
+        // Every XML part here has a specific type, so a generic `xml` Default
+        // (application/xml) is not enough: those parts need an Override.
+        let extension = name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext)
+            .unwrap_or_default();
+        let covered = if extension == "xml" {
+            overrides.contains(name)
+        } else {
+            overrides.contains(name) || defaults.contains(extension)
+        };
+        if !covered {
+            errors.push(format!("part {name} has no content type"));
+        }
+    }
+
+    for name in parts.keys().filter(|name| name.ends_with(".rels")) {
+        let base = rels_base_dir(name);
+        let rels = match parse_rels(parts, name, &base) {
+            Ok(rels) => rels,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let mut ids = HashSet::new();
+        for rel in &rels {
+            if !ids.insert(rel.id.as_str()) {
+                errors.push(format!("{name}: duplicate relationship id {}", rel.id));
+            }
+            if !rel.external && !parts.contains_key(&rel.target) {
+                errors.push(format!("{name}: target {} is missing", rel.target));
+            }
+        }
+    }
+
+    match events_of(parts, "ppt/presentation.xml") {
+        Ok(presentation) => {
+            let mut seen = HashSet::new();
+            for attrs in starts(&presentation, "p:sldId") {
+                match attr(attrs, "id").and_then(|id| id.parse::<u32>().ok()) {
+                    Some(id) if id >= 256 => {
+                        if !seen.insert(id) {
+                            errors.push(format!("duplicate sldId {id}"));
+                        }
+                    }
+                    _ => errors.push("sldId is missing, not a number, or below 256".to_owned()),
+                }
+            }
+        }
+        Err(error) => errors.push(error),
+    }
+
+    for name in parts.keys() {
+        let Some(number) = name
+            .strip_prefix("ppt/notesSlides/notesSlide")
+            .and_then(|rest| rest.strip_suffix(".xml"))
+        else {
+            continue;
+        };
+        let rels_name = format!("ppt/notesSlides/_rels/notesSlide{number}.xml.rels");
+        match parse_rels(parts, &rels_name, "ppt/notesSlides") {
+            Ok(rels) => {
+                let slide = format!("ppt/slides/slide{number}.xml");
+                let points_to_slide = rels
+                    .iter()
+                    .any(|rel| rel.ty.ends_with("/slide") && rel.target == slide);
+                let points_to_master = rels.iter().any(|rel| {
+                    rel.ty.ends_with("/notesMaster")
+                        && rel.target == "ppt/notesMasters/notesMaster1.xml"
+                });
+                if !points_to_slide {
+                    errors.push(format!("{name} does not point to {slide}"));
+                }
+                if !points_to_master {
+                    errors.push(format!("{name} does not point to notesMaster1"));
+                }
+            }
+            Err(error) => errors.push(error),
+        }
+    }
+    errors
+}
+
+/// Directory that the targets of a `.rels` part are relative to.
+fn rels_base_dir(rels_name: &str) -> String {
+    let (dir, _) = rels_name.rsplit_once('/').unwrap_or(("", rels_name));
+    match dir.strip_suffix("_rels") {
+        Some(base) => base.trim_end_matches('/').to_owned(),
+        None => String::new(),
+    }
+}
+
+/// A required attribute; a missing one is a validation error, never "".
+fn required<'a>(attrs: &'a Attrs, key: &str) -> Result<&'a str, String> {
+    attr(attrs, key).ok_or_else(|| format!("element is missing attribute {key}"))
 }
 
 fn events_of(parts: &HashMap<String, Vec<u8>>, name: &str) -> Result<Vec<Ev>, String> {
@@ -327,15 +462,27 @@ fn rels_of(parts: &HashMap<String, Vec<u8>>, source: &str) -> Result<Vec<Rel>, S
     } else {
         format!("{dir}/_rels/{file}.rels")
     };
-    let evs = events_of(parts, &rels_name)?;
-    Ok(starts(&evs, "Relationship")
+    parse_rels(parts, &rels_name, dir)
+}
+
+/// Parses the `.rels` part `rels_name`, resolving targets against `base`.
+fn parse_rels(
+    parts: &HashMap<String, Vec<u8>>,
+    rels_name: &str,
+    base: &str,
+) -> Result<Vec<Rel>, String> {
+    let evs = events_of(parts, rels_name)?;
+    starts(&evs, "Relationship")
         .into_iter()
-        .map(|attrs| Rel {
-            id: attr(attrs, "Id").unwrap_or_default().to_owned(),
-            ty: attr(attrs, "Type").unwrap_or_default().to_owned(),
-            target: resolve(dir, attr(attrs, "Target").unwrap_or_default()),
+        .map(|attrs| {
+            Ok(Rel {
+                id: required(attrs, "Id")?.to_owned(),
+                ty: required(attrs, "Type")?.to_owned(),
+                target: resolve(base, required(attrs, "Target")?),
+                external: attr(attrs, "TargetMode") == Some("External"),
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn find_rel(rels: &[Rel], id: &str) -> Result<String, String> {

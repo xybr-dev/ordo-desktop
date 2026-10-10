@@ -66,6 +66,13 @@ pub enum ExportError {
         cue: usize,
         reason: String,
     },
+    /// Text that cannot be written faithfully: `cue` is `None` for an item
+    /// title and `Some` for a notes Cue. Nothing was written.
+    BadText {
+        item: usize,
+        cue: Option<usize>,
+        reason: String,
+    },
     /// A filesystem error. The destination was not touched.
     Io(io::Error),
     /// The written archive failed validation. Nothing was published.
@@ -78,6 +85,10 @@ impl fmt::Display for ExportError {
             ExportError::BadFrame { item, cue, reason } => {
                 write!(f, "item {item} cue {cue}: frame rejected: {reason}")
             }
+            ExportError::BadText { item, cue, reason } => match cue {
+                Some(cue) => write!(f, "item {item} cue {cue}: text rejected: {reason}"),
+                None => write!(f, "item {item}: title rejected: {reason}"),
+            },
             ExportError::Io(error) => write!(f, "I/O error: {error}"),
             ExportError::Validation(failures) => {
                 write!(f, "validation failed: {}", failures.join("; "))
@@ -103,20 +114,24 @@ const DECK_TITLE: &str = "Ordo emergency deck";
 /// first offending Cue is reported as [`ExportError::BadFrame`].
 pub fn build(plan: &DeckPlan) -> Result<Vec<u8>, ExportError> {
     for (item_index, item) in plan.items.iter().enumerate() {
+        check_title(item_index, &item.title)?;
         for (cue_index, cue) in item.cues.iter().enumerate() {
-            if let Cue::Image { png } = cue {
-                let reason = match png_dims(png) {
-                    Ok((FRAME_WIDTH, FRAME_HEIGHT)) => continue,
-                    Ok((width, height)) => {
-                        format!("expected {FRAME_WIDTH}x{FRAME_HEIGHT}, got {width}x{height}")
-                    }
-                    Err(reason) => format!("not a decodable PNG: {reason}"),
-                };
-                return Err(ExportError::BadFrame {
-                    item: item_index,
-                    cue: cue_index,
-                    reason,
-                });
+            match cue {
+                Cue::Image { png } => {
+                    let reason = match png_dims(png) {
+                        Ok((FRAME_WIDTH, FRAME_HEIGHT)) => continue,
+                        Ok((width, height)) => {
+                            format!("expected {FRAME_WIDTH}x{FRAME_HEIGHT}, got {width}x{height}")
+                        }
+                        Err(reason) => format!("not a decodable PNG: {reason}"),
+                    };
+                    return Err(ExportError::BadFrame {
+                        item: item_index,
+                        cue: cue_index,
+                        reason,
+                    });
+                }
+                Cue::OperatorOnly { notes } => check_notes(item_index, cue_index, notes)?,
             }
         }
     }
@@ -125,12 +140,60 @@ pub fn build(plan: &DeckPlan) -> Result<Vec<u8>, ExportError> {
     zip_parts(&parts).map_err(ExportError::Io)
 }
 
+/// XML 1.0 forbids these code points even when escaped.
+fn is_xml_forbidden(ch: char) -> bool {
+    matches!(ch,
+        '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}')
+}
+
+fn check_title(item: usize, title: &str) -> Result<(), ExportError> {
+    let reason = if title.trim().is_empty() {
+        "title is empty or whitespace-only".to_owned()
+    } else if let Some(ch) = title.chars().find(|ch| matches!(ch, '\t' | '\r' | '\n')) {
+        format!("title contains {:?}, which attributes cannot carry", ch)
+    } else if let Some(ch) = title.chars().find(|ch| is_xml_forbidden(*ch)) {
+        format!("title contains {:?}, which XML 1.0 forbids", ch)
+    } else {
+        return Ok(());
+    };
+    Err(ExportError::BadText {
+        item,
+        cue: None,
+        reason,
+    })
+}
+
+fn check_notes(item: usize, cue: usize, notes: &str) -> Result<(), ExportError> {
+    let reason = if let Some(ch) = notes.chars().find(|ch| is_xml_forbidden(*ch)) {
+        format!("notes contain {:?}, which XML 1.0 forbids", ch)
+    } else if notes.contains('\r') {
+        "notes contain a carriage return; use '\\n' for line breaks".to_owned()
+    } else {
+        return Ok(());
+    };
+    Err(ExportError::BadText {
+        item,
+        cue: Some(cue),
+        reason,
+    })
+}
+
 /// Writes `plan` to `dest` atomically.
 ///
 /// The deck is written to a temporary sibling, synced, read back from disk and
 /// validated, then renamed over `dest`. On any failure the temporary is removed
 /// and `dest` is left as it was.
 pub fn export(dest: &Path, plan: &DeckPlan) -> Result<(), ExportError> {
+    export_with(dest, plan, validate)
+}
+
+/// [`export`] with the post-write check injected. `check` receives the bytes
+/// as read back from disk; an `Err` aborts the publish.
+pub(crate) fn export_with(
+    dest: &Path,
+    plan: &DeckPlan,
+    check: impl FnOnce(&[u8], &DeckPlan) -> Result<(), Vec<String>>,
+) -> Result<(), ExportError> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let bytes = build(plan)?;
     let file_name = dest
@@ -141,6 +204,8 @@ pub fn export(dest: &Path, plan: &DeckPlan) -> Result<(), ExportError> {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
+    // The temporary name never ends in `.pptx`, so a crash mid-write leaves a
+    // file that does not look like a finished deck.
     let temp = parent.join(format!(
         ".{}.tmp-{}-{}",
         file_name.to_string_lossy(),
@@ -150,7 +215,7 @@ pub fn export(dest: &Path, plan: &DeckPlan) -> Result<(), ExportError> {
     // `create_new` never overwrites. If it fails the path is not ours, so this
     // early return must not reach the cleanup below.
     let file = File::create_new(&temp)?;
-    let result = publish(file, &temp, dest, &bytes, plan);
+    let result = publish(file, &temp, dest, &bytes, plan, check);
     if result.is_err() {
         // Best effort: this call created the temporary, and a failed removal
         // must not mask the error that caused the cleanup.
@@ -165,6 +230,7 @@ fn publish(
     dest: &Path,
     bytes: &[u8],
     plan: &DeckPlan,
+    check: impl FnOnce(&[u8], &DeckPlan) -> Result<(), Vec<String>>,
 ) -> Result<(), ExportError> {
     let mut file = file;
     file.write_all(bytes)?;
@@ -172,7 +238,7 @@ fn publish(
     // The handle must close before the rename on Windows.
     drop(file);
     let written = fs::read(temp)?;
-    validate(&written, plan).map_err(ExportError::Validation)?;
+    check(&written, plan).map_err(ExportError::Validation)?;
     fs::rename(temp, dest)?;
     Ok(())
 }
