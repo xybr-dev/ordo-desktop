@@ -621,7 +621,7 @@ platform assumption or an undocumented exception.
 
 **AC**
 
-- [ ] `[AUTO]` All Phase 0 automated and native reports identify the exact
+- [x] `[AUTO]` All Phase 0 automated and native reports identify the exact
       commit, Rust toolchain, GPUI/platform/dependency revisions, OS, GPU, and
       fixture hashes.
 - [ ] `[MANUAL]` Windows 10 22H2 packaged checks are signed off with failures
@@ -633,7 +633,7 @@ platform assumption or an undocumented exception.
 - [ ] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
       release is blocked or the supported hardware profile is explicitly
       revised; failures are not hidden by adding a second production shell.
-- [ ] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
+- [x] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
       regression tests rather than becoming an abandoned spike directory;
       reusable fixtures, contract cases, inspectors, and instrumentation remain
       outside `tools/*-spike`, while disposable generator prototypes are never
