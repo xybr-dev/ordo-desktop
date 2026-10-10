@@ -5,7 +5,8 @@
 //! thread. Production callers keep sampling and aggregation off the GPUI
 //! thread (see [`process::ProcessSampler`]). The exceptions are GPUI views:
 //! [`display_path`] and [`native_display_path`] compare the CPU raster and
-//! retained paths, and [`live`] measures keydown to presented frame in a
+//! retained paths, and [`live`] measures keydown to each surface's paint
+//! (before present) plus an upper bound to the next frame after present in a
 //! Presenter window.
 
 pub mod bench;
