@@ -106,9 +106,8 @@ impl StorageLab {
                     Ok(count) => this.note_count = Some(count),
                     Err(error) => this.last_outcome = format!("refresh: {error}"),
                 }
-                if !this.last_outcome.starts_with("refresh:") {
-                    this.last_outcome = "refreshed".to_owned();
-                }
+                // A successful refresh keeps the previous outcome, so an
+                // operation's error (e.g. a refused note) stays visible.
                 cx.notify();
             });
         })
@@ -128,6 +127,11 @@ impl StorageLab {
             let _ = this.update(cx, |this, cx| {
                 this.last_outcome = match result {
                     Ok(id) => format!("added note row {id}"),
+                    // Notes reference the parish profile (migration 0002), so
+                    // foreign keys refuse a note until the parish is named.
+                    Err(error @ StorageError::Sqlite(_)) => {
+                        format!("add note refused: {error} (rename the parish first)")
+                    }
                     Err(error) => format!("add note: {error}"),
                 };
                 this.refresh(cx);
