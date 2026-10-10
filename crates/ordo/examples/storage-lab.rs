@@ -104,6 +104,11 @@ impl StorageLab {
             let name = name.await;
             let count = count.await;
             let _ = this.update(cx, |this, cx| {
+                // A refresh still in flight when Shutdown was clicked must not
+                // replace the shutdown outcome.
+                if this.storage.is_none() {
+                    return;
+                }
                 match schema {
                     Ok(status) => this.schema = Some(status),
                     Err(error) => this.last_outcome = format!("refresh: {error}"),
