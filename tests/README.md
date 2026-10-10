@@ -13,3 +13,4 @@ location; no test may discover or mutate a developer's Parish data.
   in each file); `native_display.rs` enumerates the real Windows displays and
   runs in CI as `windows-display-control`.
 - `artifact-container/` (`artifact-container-tests`): T0.8 `.ordo` container acceptance. Every kind round-trips through `create` and `inspect`, and a malformed corpus is refused with no file escaping its staging directory.
+- `powerpoint/` (`powerpoint-tests`): T0.9 emergency `.pptx` acceptance. The fixture deck exports, reopens with `xtask inspect-pptx` rules and the expected outline in `fixtures/powerpoint/`, and a failed export leaves the destination untouched.

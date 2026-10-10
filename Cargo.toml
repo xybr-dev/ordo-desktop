@@ -15,6 +15,7 @@ members = [
     "tests/presentation",
     "tests/storage",
     "tests/artifact-container",
+    "tests/powerpoint",
     "tests/performance",
     "xtask",
 ]

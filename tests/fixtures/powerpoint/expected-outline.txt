@@ -1,0 +1,9 @@
+  1 [Safety] black — Safety lead-in: black slide before the first Mass item.
+  2 [Identification] image 1920x1080 f771bd66dd4e
+  3 [Entrance Song] image 1920x1080 fdb542762b43
+  4 [Entrance Song] image 1920x1080 f79c94e62b16
+  5 [Entrance Song] black — Hold: wait for the procession
+  6 [Penitential Act response] image 1920x1080 504452975af3
+  7 [First Reading] image 1920x1080 646908def339
+  8 [First Reading] black — Blackout: reader at ambo
+  9 [Safety] black — Safety closing: black slide after the final Mass item.
