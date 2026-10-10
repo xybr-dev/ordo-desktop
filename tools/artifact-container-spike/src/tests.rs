@@ -470,3 +470,233 @@ fn rfc3339_formats_known_instants() {
     assert_eq!(rfc3339_utc(1_000_000_000), "2001-09-09T01:46:40Z");
     assert_eq!(rfc3339_utc(951_782_400), "2000-02-29T00:00:00Z");
 }
+
+/// Rewrites every `from` to `to` (equal length) in an archive file, in the local
+/// headers and the central directory alike. The zip writer refuses duplicate
+/// names, so exact duplicates are made this way.
+fn rename_in_archive(path: &Path, from: &[u8], to: &[u8]) {
+    assert_eq!(from.len(), to.len());
+    let mut bytes = fs::read(path).unwrap();
+    let mut i = 0;
+    while i + from.len() <= bytes.len() {
+        if &bytes[i..i + from.len()] == from {
+            bytes[i..i + from.len()].copy_from_slice(to);
+            i += from.len();
+        } else {
+            i += 1;
+        }
+    }
+    fs::write(path, bytes).unwrap();
+}
+
+/// Builds `assets/a.txt` twice under the same name. The manifest lists the
+/// second copy's bytes, so only the duplicate itself is wrong. The raw record
+/// count is 4 (manifest, payload, and two `a.txt` records); the reader sees 3.
+fn exact_duplicate_archive(fixture: &Fixture) {
+    let payload_bytes = serde_json::to_vec(&payload()).unwrap();
+    let manifest = manifest_bytes(
+        "song-import",
+        1,
+        &payload_bytes,
+        &[("assets/a.txt", b"two")],
+    );
+    build_zip(
+        &fixture.archive(),
+        &[
+            ("manifest.json", &manifest),
+            ("payload.json", &payload_bytes),
+            ("assets/a.txt", b"one"),
+            ("assets/b.txt", b"two"),
+        ],
+    );
+    rename_in_archive(&fixture.archive(), b"assets/b.txt", b"assets/a.txt");
+}
+
+#[test]
+fn exact_duplicate_path_is_rejected() {
+    let fixture = Fixture::new();
+    exact_duplicate_archive(&fixture);
+
+    assert_eq!(
+        failures_of(fixture.inspect_default()),
+        vec![Failure::EntryCountMismatch {
+            declared: 4,
+            unique: 3
+        }]
+    );
+}
+
+#[test]
+fn raw_count_limit_counts_duplicate_records() {
+    let fixture = Fixture::new();
+    exact_duplicate_archive(&fixture);
+
+    // Three unique names would fit under this limit; four raw records do not.
+    let limits = InspectLimits {
+        max_entries: 3,
+        ..InspectLimits::default()
+    };
+    assert_eq!(
+        failures_of(fixture.inspect(&limits)),
+        vec![Failure::TooManyEntries { count: 4, limit: 3 }]
+    );
+}
+
+#[test]
+fn declared_count_of_0xffff_is_read_as_is() {
+    let fixture = Fixture::new();
+    create(
+        &fixture.archive(),
+        ArtifactKind::SongImport,
+        &payload(),
+        &[],
+    )
+    .unwrap();
+    // Patch the EOCD's entry-count fields (offsets 8 and 10 of the record, which
+    // has no comment, so it starts 22 bytes from the end) to 0xFFFF. No ZIP64
+    // locator precedes it.
+    let mut bytes = fs::read(fixture.archive()).unwrap();
+    let eocd = bytes.len() - 22;
+    bytes[eocd + 8..eocd + 10].copy_from_slice(&0xFFFFu16.to_le_bytes());
+    bytes[eocd + 10..eocd + 12].copy_from_slice(&0xFFFFu16.to_le_bytes());
+    fs::write(fixture.archive(), bytes).unwrap();
+
+    assert_eq!(
+        failures_of(fixture.inspect_default()),
+        vec![Failure::TooManyEntries {
+            count: 0xFFFF,
+            limit: 4096
+        }]
+    );
+}
+
+/// Writes a v1 song container whose manifest has `field` replaced by `value`.
+fn manifest_with_field(archive: &Path, field: &str, value: Value) {
+    let payload_bytes = serde_json::to_vec(&payload()).unwrap();
+    let mut manifest: Value =
+        serde_json::from_slice(&manifest_bytes("song-import", 1, &payload_bytes, &[])).unwrap();
+    manifest[field] = value;
+    let manifest = serde_json::to_vec(&manifest).unwrap();
+    build_zip(
+        archive,
+        &[
+            ("manifest.json", &manifest),
+            ("payload.json", &payload_bytes),
+        ],
+    );
+}
+
+#[test]
+fn newer_format_version_is_unsupported_container() {
+    let fixture = Fixture::new();
+    manifest_with_field(&fixture.archive(), "format_version", json!(2));
+
+    match fixture.inspect_default() {
+        Inspection::Unsupported {
+            kind,
+            version,
+            supported,
+        } => {
+            assert_eq!(kind, "container");
+            assert_eq!(version, 2);
+            assert_eq!(supported, &[1]);
+            assert_eq!(
+                unsupported_message(&kind, version, supported),
+                "requires an Ordo version supporting container v2; this build supports v1"
+            );
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+}
+
+#[test]
+fn malformed_format_version_is_a_bad_manifest() {
+    for value in [json!("1"), json!(0), json!(1.5), json!(null)] {
+        let fixture = Fixture::new();
+        manifest_with_field(&fixture.archive(), "format_version", value.clone());
+        assert!(
+            failures_of(fixture.inspect_default())
+                .iter()
+                .any(|f| matches!(f, Failure::BadManifest { .. })),
+            "format_version {value} was not a bad manifest"
+        );
+    }
+}
+
+#[test]
+fn oversized_manifest_is_refused_by_max_payload() {
+    let fixture = Fixture::new();
+    create(
+        &fixture.archive(),
+        ArtifactKind::SongImport,
+        &payload(),
+        &[],
+    )
+    .unwrap();
+    let limits = InspectLimits {
+        max_payload: 10,
+        ..InspectLimits::default()
+    };
+    let failures = failures_of(fixture.inspect(&limits));
+    for path in ["manifest.json", "payload.json"] {
+        assert!(
+            failures.iter().any(|f| matches!(
+                f,
+                Failure::EntryTooLarge { path: p, limit: 10, .. } if p == path
+            )),
+            "{path} not refused: {failures:?}"
+        );
+    }
+}
+
+#[test]
+fn windows_hostile_names_are_rejected() {
+    for name in [
+        "assets/CON",
+        "assets/con.txt",
+        "NUL.tar.gz",
+        "assets/Lpt9.bin",
+        "assets/com1",
+        "assets/x/PRN.",
+        "assets/trailing.",
+        "assets/trailing ",
+        "assets/dir /x",
+    ] {
+        assert!(
+            crate::inspect::check_entry_name(name).is_err(),
+            "{name:?} accepted"
+        );
+    }
+    for name in [
+        "assets/CONSOLE.png",
+        "assets/com10.bin",
+        "assets/lpt0",
+        "assets/nullify.txt",
+        "assets/a.b.c",
+    ] {
+        assert!(
+            crate::inspect::check_entry_name(name).is_ok(),
+            "{name:?} refused"
+        );
+    }
+}
+
+#[test]
+fn non_empty_staging_is_refused_up_front() {
+    let fixture = Fixture::new();
+    create(
+        &fixture.archive(),
+        ArtifactKind::SongImport,
+        &payload(),
+        &[],
+    )
+    .unwrap();
+    fs::write(fixture.staging.path().join("stale.txt"), b"left over").unwrap();
+
+    assert_eq!(
+        failures_of(fixture.inspect_default()),
+        vec![Failure::Unreadable {
+            message: "staging directory must be empty".to_owned()
+        }]
+    );
+}

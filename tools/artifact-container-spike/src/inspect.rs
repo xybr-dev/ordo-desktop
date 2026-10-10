@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeSet, HashMap},
     fs::{self, File},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     iter,
     path::{Path, PathBuf},
 };
@@ -28,17 +28,32 @@ use zip::ZipArchive;
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 
+/// End Of Central Directory record: fixed part, signature, and offsets.
+const EOCD_SIG: &[u8; 4] = b"PK\x05\x06";
+const EOCD_LEN: usize = 22;
+/// A comment can be up to 0xFFFF bytes, so the record can start this far back.
+const EOCD_SEARCH: usize = 0xFFFF + EOCD_LEN;
+/// ZIP64 End Of Central Directory locator, which sits just before the EOCD.
+const ZIP64_LOCATOR_SIG: &[u8; 4] = b"PK\x06\x07";
+const ZIP64_LOCATOR_LEN: usize = 20;
+/// ZIP64 End Of Central Directory record, read at the locator's offset.
+const ZIP64_EOCD_SIG: &[u8; 4] = b"PK\x06\x06";
+const ZIP64_EOCD_LEN: usize = 56;
+
 /// Size and shape ceilings applied before extraction. Defaults are the T0.8
 /// plan's constants; tests override them to exercise each limit cheaply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectLimits {
-    /// Largest archive file accepted, in bytes. Import ceiling is 64 MiB; the
-    /// 4 GiB backup ceiling is a caller choice passed in here.
+    /// Largest archive file accepted, in bytes. Every container kind is capped
+    /// at 64 MiB, Parish Backups included (owner decision, 2026-10-10).
     pub max_archive: u64,
-    /// Largest number of central-directory entries.
+    /// Largest number of central-directory entries, counted raw: duplicate
+    /// names count once per record.
     pub max_entries: usize,
     /// Largest declared uncompressed size for one entry.
     pub max_entry: u64,
+    /// Largest declared uncompressed size for `manifest.json` and `payload.json`.
+    pub max_payload: u64,
     /// Largest sum of declared uncompressed sizes across the archive.
     pub max_total: u64,
     /// Largest declared uncompressed/compressed ratio for one entry.
@@ -51,6 +66,7 @@ impl Default for InspectLimits {
             max_archive: 64 * MIB,
             max_entries: 4096,
             max_entry: GIB,
+            max_payload: 64 * MIB,
             max_total: 4 * GIB,
             max_ratio: 200,
         }
@@ -69,9 +85,18 @@ pub enum Failure {
         size: u64,
         limit: u64,
     },
+    /// The raw central-directory count (duplicates included) exceeds `max_entries`.
     TooManyEntries {
         count: usize,
         limit: usize,
+    },
+    /// The archive declares `declared` central-directory records but the zip
+    /// reader can name only `unique` of them. The reader keys entries by name,
+    /// so an exact-duplicate name collapses to one; this is how that is caught.
+    /// Case-only duplicates are reported as `DuplicatePath` instead.
+    EntryCountMismatch {
+        declared: u64,
+        unique: u64,
     },
     EntryTooLarge {
         path: String,
@@ -177,8 +202,13 @@ struct Entry {
 
 /// Inspects `archive`, staging verified files into `staging`.
 ///
-/// `staging` must be an existing, empty directory owned by the caller. Nothing
-/// is written anywhere else. The function takes no Parish handle.
+/// `staging` must be an existing, empty directory owned by the caller; a
+/// non-empty one is refused up front. Nothing is written anywhere else. The
+/// function takes no Parish handle.
+///
+/// Staging is written during inspection, so the caller must discard the
+/// staging directory on any outcome other than [`Inspection::Valid`]. A `Valid`
+/// result leaves verified files in staging for the caller to route or delete.
 pub fn inspect(archive: &Path, staging: &Path, limits: &InspectLimits) -> Inspection {
     match run(archive, staging, limits) {
         Ok(outcome) => outcome,
@@ -198,15 +228,29 @@ fn run(archive: &Path, staging: &Path, limits: &InspectLimits) -> Result<Inspect
     }
     let staging = fs::canonicalize(staging)
         .map_err(|e| vec![unreadable(format!("staging directory unavailable: {e}"))])?;
-    let file =
+    let mut staging_entries = fs::read_dir(&staging)
+        .map_err(|e| vec![unreadable(format!("cannot list staging directory: {e}"))])?;
+    if staging_entries.next().is_some() {
+        return Err(vec![unreadable("staging directory must be empty")]);
+    }
+    let mut file =
         File::open(archive).map_err(|e| vec![unreadable(format!("cannot open archive: {e}"))])?;
+
+    // The raw record count, read before the zip reader: it counts duplicate
+    // names, which the reader would otherwise collapse.
+    let declared = declared_entry_count(&mut file).map_err(|f| vec![f])?;
+    if declared > limits.max_entries as u64 {
+        return Err(vec![Failure::TooManyEntries {
+            count: usize::try_from(declared).unwrap_or(usize::MAX),
+            limit: limits.max_entries,
+        }]);
+    }
     let mut zip = ZipArchive::new(file)
         .map_err(|e| vec![unreadable(format!("not a readable ZIP archive: {e}"))])?;
-
-    if zip.len() > limits.max_entries {
-        return Err(vec![Failure::TooManyEntries {
-            count: zip.len(),
-            limit: limits.max_entries,
+    if declared != zip.len() as u64 {
+        return Err(vec![Failure::EntryCountMismatch {
+            declared,
+            unique: zip.len() as u64,
         }]);
     }
     let entries = scan_entries(&mut zip, limits)?;
@@ -295,6 +339,78 @@ fn run(archive: &Path, staging: &Path, limits: &InspectLimits) -> Result<Inspect
     }))
 }
 
+/// The total entry count the archive declares, read from the End Of Central
+/// Directory record before the zip reader sees the file.
+///
+/// The zip crate keys entries by name, so two records with the same name
+/// collapse into one and its count is short. This count is taken from the raw
+/// record instead. A ZIP64 record is followed when the EOCD's count is `0xFFFF`
+/// or a ZIP64 locator precedes it.
+fn declared_entry_count(file: &mut File) -> Result<u64, Failure> {
+    let len = file
+        .metadata()
+        .map_err(|e| unreadable(format!("cannot read archive metadata: {e}")))?
+        .len();
+    let tail_len = usize::try_from(len).map_or(EOCD_SEARCH, |len| len.min(EOCD_SEARCH));
+    let tail_start = len - tail_len as u64;
+    let mut tail = vec![0u8; tail_len];
+    file.seek(SeekFrom::Start(tail_start))
+        .and_then(|_| file.read_exact(&mut tail))
+        .map_err(|e| unreadable(format!("reading archive end: {e}")))?;
+
+    let eocd =
+        find_eocd(&tail).ok_or_else(|| unreadable("no end of central directory record found"))?;
+    let count = u64::from(u16::from_le_bytes([tail[eocd + 10], tail[eocd + 11]]));
+    let has_locator = eocd >= ZIP64_LOCATOR_LEN
+        && &tail[eocd - ZIP64_LOCATOR_LEN..eocd - ZIP64_LOCATOR_LEN + 4] == ZIP64_LOCATOR_SIG;
+    if !has_locator {
+        // Without a locator a 0xFFFF count is the field's true value.
+        return Ok(count);
+    }
+    // Locator layout: signature, disk number (4), offset of the ZIP64 EOCD
+    // record (u64 at 8), total disks (4).
+    let locator = eocd - ZIP64_LOCATOR_LEN;
+    let zip64_offset = u64::from_le_bytes(
+        tail[locator + 8..locator + 16]
+            .try_into()
+            .map_err(|_| unreadable("ZIP64 locator truncated"))?,
+    );
+    let mut record = [0u8; ZIP64_EOCD_LEN];
+    file.seek(SeekFrom::Start(zip64_offset))
+        .and_then(|_| file.read_exact(&mut record))
+        .map_err(|e| unreadable(format!("reading ZIP64 end record: {e}")))?;
+    if &record[0..4] != ZIP64_EOCD_SIG {
+        return Err(unreadable("ZIP64 locator does not point at a ZIP64 record"));
+    }
+    // Record layout: total entries on this disk at offset 32, u64 little endian.
+    Ok(u64::from_le_bytes(
+        record[32..40]
+            .try_into()
+            .map_err(|_| unreadable("ZIP64 record truncated"))?,
+    ))
+}
+
+/// Offset of the EOCD record inside `tail`. The record is followed by its
+/// comment, so the true one ends exactly at the end of `tail`; that match is
+/// preferred. Otherwise the last signature found is used.
+fn find_eocd(tail: &[u8]) -> Option<usize> {
+    let last_start = tail.len().checked_sub(EOCD_LEN)?;
+    let mut fallback = None;
+    for start in (0..=last_start).rev() {
+        if &tail[start..start + 4] != EOCD_SIG {
+            continue;
+        }
+        if fallback.is_none() {
+            fallback = Some(start);
+        }
+        let comment = usize::from(u16::from_le_bytes([tail[start + 20], tail[start + 21]]));
+        if start + EOCD_LEN + comment == tail.len() {
+            return Some(start);
+        }
+    }
+    fallback
+}
+
 /// Walks the central directory without decompressing anything. Collects every
 /// failure it can find rather than stopping at the first.
 fn scan_entries(
@@ -364,6 +480,15 @@ fn scan_entries(
             // A plain directory marker carries no content; nothing to list.
             continue;
         }
+        let is_document = bare == MANIFEST_PATH || bare == PAYLOAD_PATH;
+        if is_document && size > limits.max_payload {
+            failures.push(Failure::EntryTooLarge {
+                path: name,
+                size,
+                limit: limits.max_payload,
+            });
+            continue;
+        }
         if size > limits.max_entry {
             failures.push(Failure::EntryTooLarge {
                 path: name,
@@ -400,8 +525,18 @@ fn scan_entries(
     }
 }
 
+/// Windows device names. A segment whose stem (text before its first dot) is one
+/// of these, in any case, names a device on Windows whatever its extension.
+const WINDOWS_DEVICE_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 /// Path rules for every archive entry and every manifest-listed path. Applied
 /// to the name with any directory marker already removed.
+///
+/// Also refuses names Windows cannot store faithfully: device names in any
+/// segment, and segments ending in a dot or a space.
 ///
 /// NFC normalisation is not applied: the workspace has no normalisation crate,
 /// so duplicates are caught by case folding alone.
@@ -432,6 +567,16 @@ pub(crate) fn check_entry_name(name: &str) -> Result<(), &'static str> {
             "." => return Err("current-directory segment"),
             _ => {}
         }
+        if segment.ends_with('.') || segment.ends_with(' ') {
+            return Err("segment ends in a dot or space");
+        }
+        let stem = segment.split('.').next().unwrap_or(segment);
+        if WINDOWS_DEVICE_NAMES
+            .iter()
+            .any(|device| stem.eq_ignore_ascii_case(device))
+        {
+            return Err("Windows device name");
+        }
     }
     Ok(())
 }
@@ -450,8 +595,18 @@ fn parse_manifest(value: &Value) -> Result<ManifestCheck, Vec<Failure>> {
     if object.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(vec![bad_manifest("format must be \"ordo-container\"")]);
     }
-    if object.get("format_version").and_then(Value::as_u64) != Some(FORMAT_VERSION) {
-        return Err(vec![bad_manifest("format_version must be 1")]);
+    // A newer container format is refused as unsupported, like a newer schema.
+    // Zero, a non-integer, or a missing value is a malformed manifest.
+    match object.get("format_version").and_then(Value::as_u64) {
+        Some(FORMAT_VERSION) => {}
+        Some(version) if version > FORMAT_VERSION => {
+            return Ok(ManifestCheck::Refused(Inspection::Unsupported {
+                kind: "container".to_owned(),
+                version,
+                supported: &[FORMAT_VERSION],
+            }));
+        }
+        _ => return Err(vec![bad_manifest("format_version must be an integer 1")]),
     }
     let kind_text = object
         .get("kind")

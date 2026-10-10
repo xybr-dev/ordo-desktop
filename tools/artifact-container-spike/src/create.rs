@@ -62,6 +62,15 @@ impl From<io::Error> for CreateError {
 ///
 /// `assets` are `(archive path, bytes)` pairs whose paths must live under
 /// `assets/`. The returned manifest is the one written and verified.
+///
+/// Durability rests on two steps: the temporary archive is `sync_all`ed before
+/// it is reopened, and it is published by a rename over `dest`. On Windows that
+/// rename is `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`. std offers no
+/// directory fsync on Windows, so the rename itself is not made durable by this
+/// code; only the temporary file's contents are.
+///
+/// Only a temporary this call created is removed on failure. If the temporary
+/// name already exists, the call fails and that file is left alone.
 pub fn create(
     dest: &Path,
     kind: ArtifactKind,
@@ -117,7 +126,12 @@ pub fn create(
         next_unique()
     ));
 
+    // `create_new` refuses to overwrite. If it fails, the path is not ours to
+    // remove, so this early return must not reach the cleanup below.
+    let file = File::create_new(&temp)?;
+
     let published = write_and_publish(
+        file,
         &temp,
         dest,
         &manifest,
@@ -126,14 +140,15 @@ pub fn create(
         assets,
     );
     if published.is_err() {
-        // Best effort: the temp file is ours alone, and a failure to remove it
-        // must not mask the error that caused the cleanup.
+        // Best effort: the temp was created by this call, and a failure to
+        // remove it must not mask the error that caused the cleanup.
         let _ = fs::remove_file(&temp);
     }
     published.map(|()| manifest)
 }
 
 fn write_and_publish(
+    file: File,
     temp: &Path,
     dest: &Path,
     manifest: &Manifest,
@@ -141,21 +156,20 @@ fn write_and_publish(
     payload_bytes: &[u8],
     assets: &[(String, Vec<u8>)],
 ) -> Result<(), CreateError> {
-    write_archive(temp, manifest_bytes, payload_bytes, assets)?;
+    write_archive(file, manifest_bytes, payload_bytes, assets)?;
     verify_reopened(temp, manifest)?;
     // On Windows, std::fs::rename replaces an existing file via MoveFileEx.
     fs::rename(temp, dest)?;
     Ok(())
 }
 
-/// Writes and syncs the archive. `create_new` refuses to overwrite anything.
+/// Writes and syncs the archive through the handle this call created.
 fn write_archive(
-    path: &Path,
+    file: File,
     manifest_bytes: &[u8],
     payload_bytes: &[u8],
     assets: &[(String, Vec<u8>)],
 ) -> io::Result<()> {
-    let file = File::create_new(path)?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
