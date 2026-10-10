@@ -7782,9 +7782,12 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "cargo_metadata",
+ "png 0.18.1",
+ "quick-xml",
  "serde",
  "serde_json",
  "sha2",
+ "zip",
 ]
 
 [[package]]

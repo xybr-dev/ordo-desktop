@@ -1,3 +1,4 @@
+pub mod inspect_pptx;
 pub mod measure_presenter;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, semver::VersionReq};
