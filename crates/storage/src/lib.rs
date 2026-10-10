@@ -307,6 +307,67 @@ pub(crate) mod testing {
     }
 }
 
+#[cfg(all(test, feature = "fault-injection"))]
+mod panic_drain_tests {
+    use super::*;
+    use crate::testing::TempDir;
+    use std::sync::mpsc;
+
+    /// Resolves a storage future on its own thread, failing instead of hanging.
+    fn resolve<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(futures_lite::future::block_on(future));
+        });
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("storage future did not resolve")
+    }
+
+    #[test]
+    fn requests_queued_behind_a_panic_resolve_as_worker_unavailable() {
+        let dir = TempDir::new("queued-panic");
+        let storage = Storage::spawn(StorageConfig::new(dir.path().join("parish.sqlite3")));
+        assert!(resolve(storage.ready()).is_ok());
+
+        // Hold the worker inside a job until every request below is queued, so
+        // the panic and the requests behind it are all in the channel together.
+        let (release, gate) = mpsc::channel::<()>();
+        let hold = worker::submit(storage.tx.as_ref(), move |_core: &mut Core| {
+            let _ = gate.recv();
+            Ok::<(), StorageError>(())
+        });
+        let panicked = storage.inject_panic();
+        let note_count = storage.parish_note_count();
+        let name = storage.parish_name();
+        let status = storage.schema_status();
+        let note = storage.add_parish_note("queued".to_owned());
+
+        release.send(()).expect("worker is holding the gate");
+        assert_eq!(resolve(hold), Ok(()));
+        assert!(
+            matches!(resolve(panicked), Err(StorageError::WorkerPanicked(message))
+                if message.contains("injected storage worker panic"))
+        );
+        assert_eq!(resolve(note_count), Err(StorageError::WorkerUnavailable));
+        assert_eq!(resolve(name), Err(StorageError::WorkerUnavailable));
+        assert_eq!(
+            resolve(status).map(|_| ()),
+            Err(StorageError::WorkerUnavailable)
+        );
+        assert_eq!(resolve(note), Err(StorageError::WorkerUnavailable));
+
+        // A request sent after the exit fails fast, and shutdown reports the panic.
+        assert_eq!(
+            resolve(storage.parish_note_count()),
+            Err(StorageError::WorkerUnavailable)
+        );
+        assert!(matches!(
+            resolve(storage.shutdown()),
+            ShutdownOutcome::WorkerPanicked(_)
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

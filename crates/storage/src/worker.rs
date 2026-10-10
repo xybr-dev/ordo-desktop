@@ -2,7 +2,11 @@
 //!
 //! Requests arrive on one unbounded FIFO channel and are served one at a time.
 //! Each handler runs inside `catch_unwind`. After a handler panics, the worker
-//! replies `WorkerPanicked` to that request, drops the connection, and exits.
+//! drops the connection, closes the request channel, answers every request
+//! still queued with `WorkerUnavailable`, and only then replies
+//! `WorkerPanicked` to the request that panicked and exits. Every exit path
+//! follows that same order, so a send that the channel accepts is always
+//! answered and a send after close fails fast in `submit`.
 
 use std::any::Any;
 use std::future::Future;
@@ -23,16 +27,26 @@ pub(crate) enum Message {
 
 /// A typed operation, type-erased so the request channel has one item type.
 /// `run` sends the typed result to its caller; `on_panic` sends
-/// `WorkerPanicked` if `run` unwinds.
+/// `WorkerPanicked` if `run` unwinds; `reject` sends `WorkerUnavailable` when
+/// the worker exits before running the job.
 pub(crate) struct Job {
     run: Box<dyn FnOnce(&mut Core) + Send>,
     on_panic: Box<dyn FnOnce(String) + Send>,
+    reject: Box<dyn FnOnce() + Send>,
 }
 
 /// How the worker thread finished.
 pub(crate) enum Exit {
     Clean,
     Panicked(String),
+}
+
+/// Why the serving loop stopped, with any reply still owed to a caller.
+enum Stop {
+    Shutdown(Sender<()>),
+    Panicked(String, Box<dyn FnOnce(String) + Send>),
+    /// Every sender is gone without a shutdown message.
+    Disconnected,
 }
 
 /// Worker-owned state. Never leaves the worker thread.
@@ -52,6 +66,7 @@ where
 {
     let (reply, outcome) = async_channel::bounded(1);
     let panic_reply = reply.clone();
+    let reject_reply = reply.clone();
     let job = Job {
         run: Box::new(move |core: &mut Core| {
             let result = op(core);
@@ -60,7 +75,12 @@ where
         on_panic: Box::new(move |message: String| {
             let _ = panic_reply.try_send(Err(StorageError::WorkerPanicked(message)));
         }),
+        reject: Box::new(move || {
+            let _ = reject_reply.try_send(Err(StorageError::WorkerUnavailable));
+        }),
     };
+    // A send on a closed channel (worker exited or receiver closed) fails here,
+    // so the caller gets WorkerUnavailable without waiting on a reply.
     let accepted = sender.is_some_and(|sender| sender.try_send(Message::Job(job)).is_ok());
     async move {
         if !accepted {
@@ -75,31 +95,62 @@ where
 
 /// Thread body. Opens and migrates, then serves requests until shutdown or
 /// until a handler panics.
+///
+/// Exit protocol, identical for every path: stop serving, close the connection,
+/// close the request channel, answer each queued request `WorkerUnavailable`,
+/// and only then send the shutdown acknowledgement or the panic reply.
 pub(crate) fn run(
     config: StorageConfig,
     migrations: Vec<Migration>,
     requests: Receiver<Message>,
 ) -> Exit {
     let mut core = Core::open(&config, &migrations);
-    while let Ok(message) = requests.recv_blocking() {
+    let stop = serve(&mut core, &requests);
+    if let Stop::Shutdown(_) = stop {
+        core.checkpoint();
+    }
+    drop(core);
+
+    requests.close();
+    while let Ok(message) = requests.try_recv() {
         match message {
-            Message::Job(Job { run, on_panic }) => {
-                let outcome = catch_unwind(AssertUnwindSafe(|| run(&mut core)));
-                if let Err(payload) = outcome {
-                    let message = panic_message(&*payload);
-                    on_panic(message.clone());
-                    return Exit::Panicked(message);
-                }
-            }
-            Message::Shutdown(reply) => {
-                core.checkpoint();
-                drop(core);
-                let _ = reply.try_send(());
-                return Exit::Clean;
-            }
+            Message::Job(job) => (job.reject)(),
+            // Dropping an unanswered shutdown closes its ack channel, so that
+            // caller stops waiting and reports the thread's actual exit.
+            Message::Shutdown(_) => {}
         }
     }
-    Exit::Clean
+
+    match stop {
+        Stop::Shutdown(reply) => {
+            let _ = reply.try_send(());
+            Exit::Clean
+        }
+        Stop::Panicked(message, on_panic) => {
+            on_panic(message.clone());
+            Exit::Panicked(message)
+        }
+        Stop::Disconnected => Exit::Clean,
+    }
+}
+
+/// Runs queued work in FIFO order until a stop condition, without touching the
+/// queue after it returns.
+fn serve(core: &mut Core, requests: &Receiver<Message>) -> Stop {
+    loop {
+        let Ok(message) = requests.recv_blocking() else {
+            return Stop::Disconnected;
+        };
+        match message {
+            Message::Job(Job { run, on_panic, .. }) => {
+                let outcome = catch_unwind(AssertUnwindSafe(|| run(&mut *core)));
+                if let Err(payload) = outcome {
+                    return Stop::Panicked(panic_message(&*payload), on_panic);
+                }
+            }
+            Message::Shutdown(reply) => return Stop::Shutdown(reply),
+        }
+    }
 }
 
 pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> String {

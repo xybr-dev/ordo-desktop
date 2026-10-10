@@ -438,11 +438,8 @@ fn worker_panic_yields_structured_errors_then_unavailable_then_panicked_shutdown
         }
         other => panic!("expected WorkerPanicked, got {other:?}"),
     }
-    // The panic reply is sent before the worker thread drops its receiver. A
-    // request submitted inside that brief window is queued behind a dead
-    // receiver and never resolves (see the WP2 report). The public API has no
-    // exit signal, so give the worker time to unwind before the next request.
-    std::thread::sleep(Duration::from_millis(250));
+    // The worker closes its request channel before it sends the panic reply, so
+    // this request is refused immediately rather than queued behind a dead worker.
     assert_eq!(
         bounded(storage.parish_note_count()),
         Err(StorageError::WorkerUnavailable)
