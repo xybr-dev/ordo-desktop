@@ -14,12 +14,35 @@ use std::{
 };
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+/// The published minimal example for `kind`.
+fn example(kind: ArtifactKind) -> Value {
+    let text = match kind {
+        ArtifactKind::SongImport => {
+            include_str!("../../../contracts/song-import/examples/minimal.json")
+        }
+        ArtifactKind::LiturgyImport => {
+            include_str!("../../../contracts/liturgy-import/examples/minimal.json")
+        }
+        ArtifactKind::CelebrationPackage => {
+            include_str!("../../../contracts/celebration-package/examples/minimal.json")
+        }
+        ArtifactKind::ParishBackup => {
+            include_str!("../../../contracts/parish-backup/examples/minimal.json")
+        }
+        ArtifactKind::DiagnosticReport => {
+            include_str!("../../../contracts/diagnostic-report/examples/minimal.json")
+        }
+    };
+    serde_json::from_str(text).expect("minimal example parses")
+}
+
+/// The published minimal Song import document, so container tests run against
+/// a payload the real contract accepts.
 fn payload() -> Value {
-    json!({
-        "schema_version": 1,
-        "id": "00000000-0000-4000-8000-000000000001",
-        "title": "Test payload"
-    })
+    serde_json::from_str(include_str!(
+        "../../../contracts/song-import/examples/minimal.json"
+    ))
+    .expect("minimal song-import example parses")
 }
 
 fn options() -> SimpleFileOptions {
@@ -109,13 +132,13 @@ fn round_trip_each_kind() {
     for kind in ArtifactKind::ALL {
         let fixture = Fixture::new();
         let assets = vec![("assets/cover.png".to_owned(), vec![1, 2, 3, 4])];
-        let written = create(&fixture.archive(), kind, &payload(), &assets).unwrap();
+        let written = create(&fixture.archive(), kind, &example(kind), &assets).unwrap();
         assert_eq!(written.kind, kind);
 
         match fixture.inspect_default() {
             Inspection::Valid(routed) => {
                 assert_eq!(routed.kind, kind, "routed by manifest kind");
-                assert_eq!(routed.payload, payload());
+                assert_eq!(routed.payload, example(kind));
                 assert_eq!(routed.manifest, written);
                 assert_eq!(routed.staged_assets.len(), 1);
                 assert_eq!(
