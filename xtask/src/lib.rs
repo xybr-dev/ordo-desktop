@@ -325,7 +325,82 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &workspace_names,
     )?;
     validate_sqlite_ownership(&direct_dependencies(false))?;
+    validate_spike_reuse_policy(metadata)?;
     validate_fault_injection_policy(metadata)
+}
+
+/// Name suffix that marks a disposable prototype package (T0.10 AC5).
+const SPIKE_SUFFIX: &str = "-spike";
+
+/// No package outside `tests/` may depend on a `*-spike` package, at any
+/// dependency kind. Test packages may reach a spike only as a dev-dependency.
+fn validate_spike_reuse_policy(metadata: &Metadata) -> XtaskResult<()> {
+    let owned: Vec<(String, String, String, DependencyKind)> = workspace_packages(metadata)
+        .into_iter()
+        .flat_map(|package| {
+            let directory = package
+                .manifest_path
+                .parent()
+                .and_then(|dir| dir.strip_prefix(&metadata.workspace_root).ok())
+                .map_or_else(String::new, |dir| dir.as_str().to_owned());
+            package
+                .dependencies
+                .iter()
+                .filter(|dependency| dependency.name.ends_with(SPIKE_SUFFIX))
+                .map(move |dependency| {
+                    (
+                        package.name.to_string(),
+                        directory.clone(),
+                        dependency.name.clone(),
+                        dependency.kind,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let edges: Vec<_> = owned
+        .iter()
+        .map(|(package, directory, dependency, kind)| {
+            (
+                package.as_str(),
+                directory.as_str(),
+                dependency.as_str(),
+                *kind,
+            )
+        })
+        .collect();
+    validate_spike_reuse(&edges)
+}
+
+/// Pure form of the spike reuse rule. Each edge is
+/// `(package, manifest_dir_relative_to_workspace, dependency_name, kind)`.
+fn validate_spike_reuse(edges: &[(&str, &str, &str, DependencyKind)]) -> XtaskResult<()> {
+    let offending: Vec<String> = edges
+        .iter()
+        .filter(|(_, _, dependency, _)| dependency.ends_with(SPIKE_SUFFIX))
+        .filter_map(|(package, directory, dependency, kind)| {
+            let normalized = directory.replace('\\', "/");
+            let is_test_package = normalized.starts_with("tests/");
+            let allowed = is_test_package && *kind == DependencyKind::Development;
+            (!allowed).then(|| {
+                let kind = match kind {
+                    DependencyKind::Normal => "normal",
+                    DependencyKind::Development => "dev",
+                    DependencyKind::Build => "build",
+                    _ => "unknown",
+                };
+                format!(
+                    "{package} must not depend on spike package {dependency} ({kind}); \
+                     spikes are disposable prototypes (T0.10 AC5)"
+                )
+            })
+        })
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(offending.join("\n").into())
+    }
 }
 
 /// SQLite driver crates that only the Storage Module may link (T0.7 AC1).
@@ -1079,6 +1154,51 @@ mod tests {
             ("ordo", BTreeSet::from(["rusqlite"])),
         ]);
         assert!(validate_sqlite_ownership(&leaked).is_err());
+    }
+
+    #[test]
+    fn spike_reuse_follows_the_t0_10_rule() {
+        use DependencyKind::{Build, Development, Normal};
+
+        // The real graph: test packages reach spikes only as dev-dependencies.
+        let real = [
+            (
+                "artifact-container-tests",
+                "tests/artifact-container",
+                "artifact-container-spike",
+                Development,
+            ),
+            (
+                "powerpoint-tests",
+                "tests/powerpoint",
+                "powerpoint-spike",
+                Development,
+            ),
+            // Non-spike edges are outside this rule.
+            ("ordo", "crates/ordo", "storage", Normal),
+        ];
+        assert!(validate_spike_reuse(&real).is_ok());
+
+        let ordo_normal = [("ordo", "crates/ordo", "powerpoint-spike", Normal)];
+        assert!(validate_spike_reuse(&ordo_normal).is_err());
+
+        let ui_lab_dev = [(
+            "ui-lab",
+            "tools/ui-lab",
+            "artifact-container-spike",
+            Development,
+        )];
+        assert!(validate_spike_reuse(&ui_lab_dev).is_err());
+
+        let xtask_build = [("xtask", "xtask", "x-spike", Build)];
+        assert!(validate_spike_reuse(&xtask_build).is_err());
+
+        let test_normal = [("foo", "tests/foo", "x-spike", Normal)];
+        assert!(validate_spike_reuse(&test_normal).is_err());
+
+        // Windows-style separators are normalized before the test-directory check.
+        let windows_dev = [("foo", "tests\\foo", "x-spike", Development)];
+        assert!(validate_spike_reuse(&windows_dev).is_ok());
     }
 
     #[test]
