@@ -331,6 +331,32 @@ fn manifests_written_by_create_match_the_container_manifest_schema() {
     }
 }
 
+#[test]
+fn manifest_schema_rejects_unsafe_asset_paths() {
+    let validator = load_validator(&manifest_schema_path());
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let payload = read_json(&repo_root().join("contracts/song-import/examples/minimal.json"));
+    let assets = vec![("assets/note.txt".to_owned(), b"note\n".to_vec())];
+    let dest = scratch.path().join("song.ordo");
+    create(&dest, ArtifactKind::SongImport, &payload, &assets).expect("create");
+    let manifest = read_zip_manifest(&dest);
+    for bad in [
+        "assets/../evil",
+        "assets/./a",
+        "assets//a",
+        "assets/a/",
+        "assets\\a",
+        "other/a",
+    ] {
+        let mut doc = manifest.clone();
+        doc["assets"][0]["path"] = Value::String(bad.to_owned());
+        assert!(
+            !schema_errors(&validator, &doc).is_empty(),
+            "schema accepted unsafe asset path {bad:?}"
+        );
+    }
+}
+
 fn non_empty_text(value: &Value) -> bool {
     value.as_str().is_some_and(|text| !text.trim().is_empty())
 }

@@ -557,22 +557,22 @@ transfer data begin depending on it.
 
 **AC**
 
-- [ ] `[AUTO]` Publish versioned JSON Schemas for Song import, Liturgy import,
+- [x] `[AUTO]` Publish versioned JSON Schemas for Song import, Liturgy import,
       snapshot manifest, Celebration Package, Parish Backup, diagnostic report,
       and recovery journal.
-- [ ] `[AUTO]` Each schema has minimal, representative, boundary, invalid,
+- [x] `[AUTO]` Each schema has minimal, representative, boundary, invalid,
       unknown-version, missing-reference, and tampered-hash fixtures.
-- [ ] `[AUTO]` End-user exchange uses `.ordo` ZIP containers with required
+- [x] `[AUTO]` End-user exchange uses `.ordo` ZIP containers with required
       `manifest.json`, structured JSON payload, optional `assets/`, explicit
       artifact kind, schema version, stable IDs, and hashes.
-- [ ] `[AUTO]` JSON payloads remain human-readable and directly usable as AI
+- [x] `[AUTO]` JSON payloads remain human-readable and directly usable as AI
       extraction contracts and test fixtures.
-- [ ] `[AUTO]` Inspection enforces archive-size, entry-count, decompression,
+- [x] `[AUTO]` Inspection enforces archive-size, entry-count, decompression,
       traversal, duplicate-path, link, manifest, and checksum limits before any
       Parish mutation.
-- [ ] `[AUTO]` Unknown kinds or future versions fail with a compatible-version
+- [x] `[AUTO]` Unknown kinds or future versions fail with a compatible-version
       message rather than being guessed; Invalid is distinct from Needs decision.
-- [ ] `[AUTO]` Creation writes to a temporary sibling, reopens and verifies it,
+- [x] `[AUTO]` Creation writes to a temporary sibling, reopens and verifies it,
       then publishes atomically or recoverably without destroying an existing
       destination.
 
