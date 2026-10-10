@@ -23,11 +23,10 @@ Run from a clean checkout of the commit to qualify:
 cargo xtask qualify
 ```
 
-This command is added by T0.10 WP1 (`xtask/src/qualify.rs`). It is not present
-until that work lands.
+The command lives in `xtask/src/qualify.rs`.
 
 `qualify` runs these steps in order, each with its own log and a status of
-`pass`, `fail`, or `missing`:
+`pass`, `fail`, `missing`, or `skipped`:
 
 | Step | Command or check |
 |---|---|
@@ -66,7 +65,7 @@ The `verify` workflow (`.github/workflows/verify.yml`) runs the `verify`,
 `windows-shaping-probe`, `windows-canonical-invariance`,
 `windows-display-control`, and `windows-presenter-performance` jobs.
 
-The `windows-qualification` job, added by WP1, runs `cargo xtask qualify` with
+The `windows-qualification` job runs `cargo xtask qualify` with
 two steps skipped as covered elsewhere: `verify` (the `verify` job) and
 `measure-presenter` (the `windows-presenter-performance` job). Its exit code
 fails on any failed step or incomplete provenance, and it uploads
@@ -118,9 +117,8 @@ after Phase 0 (`MILESTONES.md`, T0.10 AC5). The rule is:
   - the PowerPoint inspector in `xtask/src/inspect_pptx.rs`;
   - instrumentation in `xtask/src/measure_presenter.rs` and `tests/performance`.
 
-The xtask check for this rule is part of T0.10 WP2. At the time of writing,
-`xtask/src/lib.rs` lists the spike packages in the workspace and architecture
-tables but does not yet enforce the rule.
+`cargo xtask architecture` (and therefore `cargo xtask verify`) enforces the
+rule through `validate_spike_reuse_policy` in `xtask/src/lib.rs`.
 
 ### Known gap
 
