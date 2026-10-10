@@ -1,0 +1,4 @@
+CREATE TABLE parish_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL
+);
