@@ -13,6 +13,7 @@ members = [
     "tests/display",
     "tests/presentation",
     "tests/storage",
+    "tests/artifact-container",
     "tests/performance",
     "xtask",
 ]

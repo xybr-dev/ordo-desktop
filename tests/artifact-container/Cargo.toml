@@ -1,0 +1,21 @@
+[package]
+name = "artifact-container-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Acceptance harness for the T0.8 `.ordo` container spike (WP3). Every edge is a
+# dev-dependency, so the xtask dependency contract allows this package no
+# internal dependencies in a normal build. Every test writes only under a
+# temporary root; none reads or mutates Parish data.
+[dev-dependencies]
+artifact-container-spike = { path = "../../tools/artifact-container-spike" }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+tempfile = "=3.27.0"
+zip.workspace = true
+
+[lints]
+workspace = true
