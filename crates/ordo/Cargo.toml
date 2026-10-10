@@ -14,6 +14,7 @@ rendering.workspace = true
 ui.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+storage.workspace = true
 # Row padding plus PNG encoding for finished viewport pixels, through the
 # same qualified edge and pin the canonical raster path uses.
 tiny-skia = "=0.11.4"
@@ -27,6 +28,8 @@ sysinfo = { version = "=0.31.4", default-features = false, features = ["system"]
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+# Fault hooks (injected panic) for the supervision tests only.
+storage = { workspace = true, features = ["fault-injection"] }
 
 [lints]
 workspace = true

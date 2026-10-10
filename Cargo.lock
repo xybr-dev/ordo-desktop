@@ -4195,6 +4195,7 @@ dependencies = [
  "presentation",
  "rendering",
  "rustybuzz",
+ "storage",
  "sysinfo",
  "tiny-skia",
  "ui",
