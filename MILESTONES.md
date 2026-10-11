@@ -633,9 +633,11 @@ platform assumption or an undocumented exception.
 - [ ] `[AUTO]` Any failed proof is resolved inside the responsible GPUI/native
       Adapter or Module Implementation and requalified; domain Interfaces
       remain independent of the workaround.
-- [ ] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
+- [x] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
       release is blocked or the supported hardware profile is explicitly
       revised; failures are not hidden by adding a second production shell.
+      Not triggered: every hard gate was met on the minimum-profile church PC
+      (`docs/plans/T0.6-implementation-plan.md`, Recorded results, church PC).
 - [x] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
       regression tests rather than becoming an abandoned spike directory;
       reusable fixtures, contract cases, inspectors, and instrumentation remain
