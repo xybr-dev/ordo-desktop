@@ -320,6 +320,63 @@ fn symlink_entry_is_rejected() {
     );
 }
 
+/// Rewrites the central directory record for `name` as if an MS-DOS/Windows
+/// archiver wrote it, with the given external attribute byte.
+fn set_dos_attributes(archive: &Path, name: &[u8], attributes: u8) {
+    let mut bytes = fs::read(archive).unwrap();
+    let record = (0..bytes.len() - 46)
+        .find(|&at| {
+            bytes[at..at + 4] == [0x50, 0x4b, 0x01, 0x02]
+                && bytes[at + 46..].starts_with(name)
+                && usize::from(u16::from_le_bytes([bytes[at + 28], bytes[at + 29]])) == name.len()
+        })
+        .expect("central directory record");
+    // Version made by: high byte 0 is MS-DOS (FAT). External attributes: low
+    // byte holds the DOS attribute bits.
+    bytes[record + 5] = 0;
+    bytes[record + 38..record + 42].copy_from_slice(&u32::from(attributes).to_le_bytes());
+    fs::write(archive, bytes).unwrap();
+}
+
+#[test]
+fn dos_directory_attribute_on_a_file_name_is_rejected() {
+    let fixture = Fixture::new();
+    create(
+        &fixture.archive(),
+        ArtifactKind::SongImport,
+        &payload(),
+        &[],
+    )
+    .unwrap();
+    // 0x10 is the DOS directory bit, set on an entry without a trailing slash.
+    set_dos_attributes(&fixture.archive(), b"payload.json", 0x10);
+
+    let failures = failures_of(fixture.inspect_default());
+    assert!(
+        failures
+            .iter()
+            .any(|f| matches!(f, Failure::NonRegular { path, .. } if path == "payload.json")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn dos_archive_attribute_on_a_file_is_accepted() {
+    let fixture = Fixture::new();
+    create(
+        &fixture.archive(),
+        ArtifactKind::SongImport,
+        &payload(),
+        &[],
+    )
+    .unwrap();
+    // 0x20 is the DOS archive bit that Windows archivers set on ordinary files.
+    set_dos_attributes(&fixture.archive(), b"payload.json", 0x20);
+
+    let outcome = fixture.inspect_default();
+    assert!(matches!(outcome, Inspection::Valid(_)), "{outcome:?}");
+}
+
 #[test]
 fn unknown_kind_is_unsupported_not_guessed() {
     let fixture = Fixture::new();
