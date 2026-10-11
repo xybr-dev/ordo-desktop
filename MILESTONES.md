@@ -467,9 +467,11 @@ baseline before full UI construction.
       state without importing GPUI, SQLite, filesystem, or platform modules.
 - [x] `[AUTO]` Instrument keydown→Preview paint and keydown→Program paint at
       p50, p95, and p99 for navigation, Freeze, Blackout, and Space.
-- [ ] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
+- [x] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
       autosave, pagination, image decode, blocking worker wait, or full-timeline
       rerender.
+      Closed on existing code; absent subsystems prove it where they land
+      (Decision 270, `crates/ordo/tests/hot_path_blocking.rs`).
 - [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
 - [x] `[AUTO]` Record process RSS/private memory, GPU allocations where the
