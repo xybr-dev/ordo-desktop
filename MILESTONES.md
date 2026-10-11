@@ -493,17 +493,20 @@ baseline before full UI construction.
       both packaged targets (Linux retired, Decision 268). Shaped glyph IDs
       are face-intrinsic, so a silent substitution would mispaint without
       failing.
-- [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
+- [x] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling. The Linux half is retired to T6.2
       (Decision 268).
-- [ ] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
+- [x] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
       representative 500-Cue Presenter memory baselines across three runs.
       Every run stays within the 512 MiB qualification budget and the 1 GiB
       absolute ceiling; exceeding either blocks Phase 1 pending an explicit
       budget and native-memory rationale revision.
 - [x] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
+
+**Native evidence:** church-PC run recorded in
+`docs/plans/T0.6-implementation-plan.md` (Recorded results, church PC).
 
 **E2E** `[NATIVE-AUTO]` — Run a packaged 500-Cue fixture through 2,000 mixed
 navigation/state commands, collect latency and process-memory reports, assert
