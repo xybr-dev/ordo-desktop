@@ -160,7 +160,9 @@ def check_baselines(files):
         if isinstance(doc.get("error"), str):
             failures.append("baseline %s run %d: %s" % (mode, run, doc["error"]))
             continue
-        mem, source = pick_memory(doc, ["private_bytes", "rss_bytes"])
+        mem, source = pick_memory(
+            doc, ["peak_private_bytes", "private_bytes", "peak_rss_bytes", "rss_bytes"]
+        )
         if mem is None:
             failures.append(
                 "baseline %s run %d: process memory was not sampled" % (mode, run)
@@ -212,6 +214,41 @@ def parse_systeminfo(text):
             out["cpu"] = value
         elif key == "total physical memory":
             out["ram"] = value
+        elif key == "system type":
+            out["arch"] = value
+    return out
+
+
+def parse_dxdiag(text):
+    """Processor, installed memory, DPI, and the first display's mode."""
+    out = {}
+    if not text:
+        return out
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        key, value = key.strip().lower(), value.strip()
+        if key == "processor":
+            out.setdefault("cpu", " ".join(value.split()))
+        elif key == "memory":
+            out.setdefault("ram", value)
+        elif key == "user dpi setting":
+            out.setdefault("dpi", value)
+        elif key == "current mode":
+            out.setdefault("modes", []).append(value)
+        elif key == "display topology":
+            out.setdefault("topology", value)
+    return out
+
+
+def parse_kit_sha(text):
+    """`KIT-SHA256.txt` lines (`<sha> *<name>`) as {name: sha}."""
+    out = {}
+    for line in (text or "").splitlines():
+        sha, sep, name = line.strip().partition(" ")
+        if sep:
+            out[name.lstrip("*")] = sha.lower()
     return out
 
 
@@ -291,6 +328,8 @@ def main():
             if n.startswith(prefix + "baseline-") and n.endswith(".json")
         }
         sysinfo = parse_systeminfo(get("systeminfo.txt"))
+        dxdiag = parse_dxdiag(get("dxdiag.txt"))
+        kit_sha = parse_kit_sha(get("KIT-SHA256.txt"))
         gpus = parse_gpu_list(get("gpu.txt"))
         exits, started, finished, drive_line = parse_run_log(get("run-log.txt"))
 
@@ -309,7 +348,8 @@ def main():
     except (ValueError, TypeError, OverflowError, OSError):
         run_date = NEEDS
 
-    if kit_commit and kit_commit != commit:
+    commit_mismatch = bool(kit_commit) and not commit.startswith(kit_commit)
+    if commit_mismatch:
         warnings.append(
             "COMMIT.txt (%s) does not match provenance.commit (%s)"
             % (kit_commit, commit)
@@ -352,6 +392,20 @@ def main():
         if args.ordo_exe:
             warnings.append("ordo exe not found: %s" % args.ordo_exe)
 
+    kit_mismatch = False
+    if not kit_sha:
+        warnings.append("KIT-SHA256.txt absent from results; kit binaries not tied to the bundle")
+    else:
+        for name, expected in (("ordo.exe", ordo_sha), ("emergency-fixture.pptx", pptx_sha)):
+            actual = kit_sha.get(name)
+            if actual is None:
+                warnings.append("%s is not listed in KIT-SHA256.txt" % name)
+            elif expected != NEEDS and actual != expected.lower():
+                kit_mismatch = True
+                warnings.append(
+                    "kit %s (%s) is not the bundle's (%s)" % (name, actual, expected)
+                )
+
     os_ver = " ".join(
         x for x in (sysinfo.get("os_name"), sysinfo.get("os_version")) if x
     ) or str(provenance.get("os", {}).get("ver", NEEDS))
@@ -370,10 +424,15 @@ def main():
         if not native_failures
         else "FAIL (prefilled):\n  - " + "\n  - ".join(native_failures)
     )
-    attempt_result = (
-        "pass"
-        if complete and not native_failures and not failing_steps and not prov_problems
-        else ("fail" if (native_failures or failing_steps or prov_problems) else "ambiguous")
+    automated_ok = complete and not native_failures and not failing_steps and not prov_problems
+    attempt_result = "%s; automated rows: %s" % (
+        NEEDS,
+        "pass" if automated_ok else "FAIL",
+    )
+    gates_affected = (
+        "none (prefilled): every native gate held"
+        if not native_failures
+        else "; ".join(native_failures)
     )
     fail_notes = "; ".join(failing_steps + prov_problems + native_failures) or "-"
 
@@ -403,7 +462,7 @@ def main():
 - Aggregate fixture SHA-256 (`provenance.fixtures`, aggregate): %(aggregate)s
 - `index.json` SHA-256: %(index_sha)s
 - `complete` value in `index.json` (must be `true`): %(complete)s
-- Test date and local time: %(run_date)s (UTC date of bundle start; confirm local time on site)
+- Test date and local time: %(needs)s (PC clock in run-log: %(started)s; an offline PC clock may be wrong)
 - Operator name or role: %(needs)s
 - Observer name or role: %(needs)s
 - Location of this completed sheet beside the bundle: %(needs)s
@@ -411,16 +470,16 @@ def main():
 ## Machine
 
 - Windows edition, version, and build (must be 10 22H2, build 19045.x): %(os_ver)s (prefilled from systeminfo.txt; confirm build on site)
-- `PROCESSOR_ARCHITECTURE`: %(arch)s (prefilled from provenance.os)
-- CPU model: %(cpu)s (prefilled from systeminfo.txt)
-- Installed RAM: %(ram)s (prefilled from systeminfo.txt)
+- `PROCESSOR_ARCHITECTURE`: %(arch)s (prefilled from systeminfo.txt)
+- CPU model: %(cpu)s (prefilled from dxdiag.txt)
+- Installed RAM: %(ram)s (prefilled from dxdiag.txt)
 - GPU name and driver version (from `provenance.gpu`): %(gpu)s (prefilled from gpu.txt)
 - Free storage before test: %(needs)s
-- Windows display scale: %(needs)s
+- Windows display scale: %(dpi)s (prefilled from dxdiag.txt; confirm on site)
 - Ordo Interface scale: %(needs)s
-- Operator display resolution and refresh rate: %(needs)s
+- Operator display resolution and refresh rate: %(needs)s (dxdiag modes: %(modes)s)
 - Congregation display or projector resolution and refresh rate: %(needs)s
-- Display topology: %(needs)s
+- Display topology: %(topology)s (prefilled from dxdiag.txt; confirm on site)
 - Installed PowerPoint version (`File > Account > About PowerPoint`): %(needs)s
 - Network confirmed unavailable: [ ]
 - Release `ordo` binary SHA-256 (`target/release/ordo.exe`): %(ordo)s
@@ -454,7 +513,7 @@ Emergency PowerPoint fixture:
 
 | Attempt # | Date | Bundle commit | Result (pass / fail / ambiguous) | Failure notes | Rerun of # |
 |---|---|---|---|---|---|
-| %(attempt)d | %(run_date)s | %(commit)s | %(result)s | %(failnotes)s | |
+| %(attempt)d | %(needs)s | %(commit)s | %(result)s | %(failnotes)s | |
 
 ## Hardware hard-gate outcome
 
@@ -462,7 +521,7 @@ Emergency PowerPoint fixture:
 - [ ] Supported hardware profile revised explicitly, with the revision and its
       rationale recorded in `MVP-PLAN.md` or the decision ledger.
 
-- Gate(s) affected: p95 Presenter commands under 50 ms; total memory under the 1 GiB ceiling; 512 MiB qualification budget
+- Gate(s) affected: %(gates)s
 - Profiling evidence reference: `%(results_name)s` + bundle `%(run)s`
 - Outcome selected: %(needs)s
 - Rationale: %(needs)s
@@ -514,11 +573,13 @@ Emergency PowerPoint fixture:
         complete=str(bool(complete)).lower(),
         run_date=run_date,
         os_ver=os_ver,
-        arch=provenance.get("os", {}).get("architecture", NEEDS)
-        if isinstance(provenance.get("os"), dict)
-        else NEEDS,
-        cpu=sysinfo.get("cpu", NEEDS),
-        ram=sysinfo.get("ram", NEEDS),
+        arch=sysinfo.get("arch", NEEDS),
+        cpu=dxdiag.get("cpu") or sysinfo.get("cpu", NEEDS),
+        ram=dxdiag.get("ram") or sysinfo.get("ram", NEEDS),
+        dpi=dxdiag.get("dpi", NEEDS),
+        modes="; ".join(dxdiag.get("modes", [])) or "none recorded",
+        topology=dxdiag.get("topology", NEEDS),
+        gates=gates_affected,
         gpu=gpu_str,
         ordo=ordo_sha,
         perf=perf_verdict,
@@ -536,7 +597,7 @@ Emergency PowerPoint fixture:
     print("perf verdict: %s" % ("PASS" if not native_failures else "FAIL"))
     for warning in warnings:
         print("warning: %s" % warning)
-    if kit_commit and kit_commit != commit:
+    if commit_mismatch or kit_mismatch:
         return 1
     return 0
 
