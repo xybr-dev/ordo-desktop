@@ -70,6 +70,42 @@ pub fn topology_from_displays(
     )
 }
 
+/// The one display whose bounds contain the centre of `window`, or `None`
+/// when no display or more than one display does.
+///
+/// GPUI display ids are `HMONITOR` values on Windows, reissued when the
+/// topology changes, so an id cached on a window can be stale or name the
+/// wrong monitor. Bounds are read fresh and carry no such identity problem.
+/// A window's logical origin and each monitor's logical bounds are both
+/// computed at that monitor's scale, so the true monitor contains the
+/// window's centre even with mixed DPI. Overlap is ambiguous and is refused
+/// rather than guessed.
+pub fn display_containing(
+    displays: impl IntoIterator<Item = (gpui::DisplayId, Bounds<Pixels>)>,
+    window: Bounds<Pixels>,
+) -> Option<gpui::DisplayId> {
+    let centre = window.center();
+    let mut containing = displays
+        .into_iter()
+        .filter(|(_, bounds)| bounds.contains(&centre))
+        .map(|(id, _)| id);
+    let found = containing.next()?;
+    containing.next().is_none().then_some(found)
+}
+
+/// [`display_containing`] over platform displays read now.
+pub fn display_containing_window(
+    displays: &[Rc<dyn PlatformDisplay>],
+    window: Bounds<Pixels>,
+) -> Option<gpui::DisplayId> {
+    display_containing(
+        displays
+            .iter()
+            .map(|display| (display.id(), display.bounds())),
+        window,
+    )
+}
+
 fn detected(
     id: gpui::DisplayId,
     uuid: Option<impl ToString>,
@@ -140,6 +176,56 @@ mod tests {
         assert_eq!(placement.height, 767.6);
         assert_eq!(Bounds::<Pixels>::from(placement), scaled);
         assert_eq!(placement.rounded(), DisplayBounds::new(1707, 0, 1365, 768));
+    }
+
+    fn area(x: f32, y: f32, w: f32, h: f32) -> Bounds<Pixels> {
+        Bounds {
+            origin: point(px(x), px(y)),
+            size: size(px(w), px(h)),
+        }
+    }
+
+    fn id(raw: u64) -> gpui::DisplayId {
+        gpui::DisplayId::new(raw)
+    }
+
+    fn layout() -> Vec<(gpui::DisplayId, Bounds<Pixels>)> {
+        vec![
+            (id(1), area(0.0, 0.0, 1920.0, 1080.0)),
+            (id(2), area(-1280.0, 0.0, 1280.0, 720.0)),
+            (id(3), area(0.0, -1080.0, 1920.0, 1080.0)),
+        ]
+    }
+
+    #[test]
+    fn window_centre_selects_the_single_containing_display() {
+        let window = area(100.0, 100.0, 800.0, 600.0);
+        assert_eq!(display_containing(layout(), window), Some(id(1)));
+    }
+
+    #[test]
+    fn window_on_displays_left_or_above_resolves_at_negative_coordinates() {
+        let left = area(-1200.0, 50.0, 800.0, 600.0);
+        assert_eq!(display_containing(layout(), left), Some(id(2)));
+        let above = area(100.0, -900.0, 800.0, 600.0);
+        assert_eq!(display_containing(layout(), above), Some(id(3)));
+    }
+
+    #[test]
+    fn off_screen_window_resolves_to_nothing() {
+        let window = area(5000.0, 5000.0, 800.0, 600.0);
+        assert_eq!(display_containing(layout(), window), None);
+        assert_eq!(display_containing([], window), None);
+    }
+
+    #[test]
+    fn overlapping_displays_are_ambiguous() {
+        let displays = vec![
+            (id(1), area(0.0, 0.0, 1920.0, 1080.0)),
+            (id(2), area(960.0, 0.0, 1920.0, 1080.0)),
+        ];
+        let window = area(1000.0, 100.0, 400.0, 300.0);
+        assert_eq!(display_containing(displays, window), None);
     }
 
     #[test]
