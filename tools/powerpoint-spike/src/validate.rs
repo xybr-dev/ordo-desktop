@@ -335,25 +335,30 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
         Ok(evs) => evs,
         Err(error) => return vec![error],
     };
-    let defaults = content_types_of(&content_types, "Default", "Extension");
-    let overrides: HashMap<String, String> =
-        content_types_of(&content_types, "Override", "PartName")
-            .into_iter()
-            .map(|(name, ty)| (name.trim_start_matches('/').to_owned(), ty))
-            .collect();
-    for name in overrides.keys() {
-        if !parts.contains_key(name) {
+    // OPC compares extensions and part names case-insensitively, so every key
+    // below is lower-cased.
+    let defaults = content_types_of(&content_types, "Default", "Extension", &mut errors);
+    let overrides = content_types_of(&content_types, "Override", "PartName", &mut errors);
+    let part_names: HashSet<String> = parts.keys().map(|name| name.to_ascii_lowercase()).collect();
+    let mut override_names: Vec<&String> = overrides.keys().collect();
+    override_names.sort();
+    for name in override_names {
+        if !part_names.contains(name) {
             errors.push(format!(
                 "Override names part {name}, which is not in the package"
             ));
         }
     }
-    let effective = |name: &str| -> Option<&String> {
-        let extension = name
-            .rsplit_once('.')
+    let extension_of = |name: &str| -> String {
+        name.rsplit_once('.')
             .map(|(_, ext)| ext)
-            .unwrap_or_default();
-        overrides.get(name).or_else(|| defaults.get(extension))
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    };
+    let effective = |name: &str| -> Option<&String> {
+        overrides
+            .get(&name.to_ascii_lowercase())
+            .or_else(|| defaults.get(&extension_of(name)))
     };
     for name in parts.keys() {
         if name == "[Content_Types].xml" {
@@ -361,14 +366,12 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
         }
         // Every XML part here has a specific type, so a generic `xml` Default
         // (application/xml) is not enough: those parts need an Override.
-        let extension = name
-            .rsplit_once('.')
-            .map(|(_, ext)| ext)
-            .unwrap_or_default();
+        let extension = extension_of(name);
+        let lower = name.to_ascii_lowercase();
         let covered = if extension == "xml" {
-            overrides.contains_key(name)
+            overrides.contains_key(&lower)
         } else {
-            overrides.contains_key(name) || defaults.contains_key(extension)
+            overrides.contains_key(&lower) || defaults.contains_key(&extension)
         };
         if !covered {
             errors.push(format!("part {name} has no content type"));
@@ -466,17 +469,29 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
 
 const RELS_TYPE: &str = "application/vnd.openxmlformats-package.relationships+xml";
 
-/// `(key attribute, ContentType)` of every `tag` element in `[Content_Types].xml`.
-fn content_types_of(evs: &[Ev], tag: &str, key: &str) -> HashMap<String, String> {
-    starts(evs, tag)
-        .into_iter()
-        .filter_map(|attrs| {
-            Some((
-                attr(attrs, key)?.to_owned(),
-                attr(attrs, "ContentType")?.to_owned(),
-            ))
-        })
-        .collect()
+/// `(lower-cased key attribute, ContentType)` of every `tag` element in
+/// `[Content_Types].xml`; a leading `/` is dropped from part names. Elements
+/// missing an attribute, and duplicate keys, are pushed onto `errors`.
+fn content_types_of(
+    evs: &[Ev],
+    tag: &str,
+    key: &str,
+    errors: &mut Vec<String>,
+) -> HashMap<String, String> {
+    let mut found = HashMap::new();
+    for attrs in starts(evs, tag) {
+        let (Some(name), Some(ty)) = (attr(attrs, key), attr(attrs, "ContentType")) else {
+            errors.push(format!(
+                "[Content_Types].xml: {tag} without {key} or ContentType attribute"
+            ));
+            continue;
+        };
+        let name = name.trim_start_matches('/').to_ascii_lowercase();
+        if found.insert(name.clone(), ty.to_owned()).is_some() {
+            errors.push(format!("[Content_Types].xml: duplicate {tag} for {name}"));
+        }
+    }
+    found
 }
 
 /// Content type a relationship's target must have, keyed by the last segment

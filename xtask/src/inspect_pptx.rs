@@ -7,7 +7,7 @@
 //! itself from the inspector.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{Cursor, Read},
     path::Path,
 };
@@ -560,7 +560,7 @@ fn required_type(relationship_type: &str) -> Option<&'static str> {
 struct ContentTypes {
     /// Lower-cased extension -> type.
     defaults: HashMap<String, String>,
-    /// Part name without the leading `/` -> type.
+    /// Lower-cased part name without the leading `/` -> type.
     overrides: HashMap<String, String>,
 }
 
@@ -568,7 +568,7 @@ impl ContentTypes {
     /// Override for the part name, else Default for its extension.
     fn effective(&self, part: &str) -> Option<&str> {
         self.overrides
-            .get(part)
+            .get(&part.to_ascii_lowercase())
             .or_else(|| {
                 let (_, extension) = part.rsplit_once('.')?;
                 self.defaults.get(&extension.to_ascii_lowercase())
@@ -597,16 +597,29 @@ fn parse_content_types(xml: &[u8]) -> Parsed<ContentTypes> {
                     let extension = element.attr("Extension").ok_or_else(|| {
                         format!("{CONTENT_TYPES}: Default without Extension attribute")
                     })?;
-                    types
+                    let extension = extension.to_ascii_lowercase();
+                    if types
                         .defaults
-                        .insert(extension.to_ascii_lowercase(), content_type(&element)?);
+                        .insert(extension.clone(), content_type(&element)?)
+                        .is_some()
+                    {
+                        return Err(format!(
+                            "{CONTENT_TYPES}: duplicate Default for extension {extension}"
+                        ));
+                    }
                 }
                 "Override" => {
                     let name = element.attr("PartName").ok_or_else(|| {
                         format!("{CONTENT_TYPES}: Override without PartName attribute")
                     })?;
-                    let name = name.strip_prefix('/').unwrap_or(name).to_owned();
-                    types.overrides.insert(name, content_type(&element)?);
+                    let name = name.strip_prefix('/').unwrap_or(name).to_ascii_lowercase();
+                    if types
+                        .overrides
+                        .insert(name.clone(), content_type(&element)?)
+                        .is_some()
+                    {
+                        return Err(format!("{CONTENT_TYPES}: duplicate Override for /{name}"));
+                    }
                 }
                 _ => {}
             }
@@ -627,12 +640,14 @@ fn content_type_problems(raw: &[u8]) -> Parsed<Vec<String>> {
         .filter(|name| !name.ends_with('/'))
         .map(str::to_owned)
         .collect();
+    // Part names are compared case-insensitively, as OPC requires.
+    let part_names: HashSet<String> = parts.iter().map(|name| name.to_ascii_lowercase()).collect();
     let mut problems = Vec::new();
 
     let mut overridden: Vec<&String> = types.overrides.keys().collect();
     overridden.sort();
     for name in overridden {
-        if !parts.contains(name) {
+        if !part_names.contains(name.as_str()) {
             problems.push(format!(
                 "{CONTENT_TYPES}: Override names /{name}, which is not in the package"
             ));
@@ -668,12 +683,15 @@ fn content_type_problems(raw: &[u8]) -> Parsed<Vec<String>> {
             Ok(())
         })?;
         for (kind, target) in targets {
+            if !part_names.contains(&target.to_ascii_lowercase()) {
+                problems.push(format!(
+                    "{target} (relationship {kind} in {part}) is missing"
+                ));
+                continue;
+            }
             let Some(expected) = required_type(&kind) else {
                 continue;
             };
-            if !parts.contains(&target) {
-                continue;
-            }
             let found = types.effective(&target);
             if found != Some(expected) {
                 problems.push(format!(
@@ -1083,6 +1101,25 @@ mod tests {
 
     const SLIDE_CT: &str = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
 
+    /// Rewrites `[Content_Types].xml` of a built deck.
+    fn rewrite_content_types(bytes: &[u8], edit: impl Fn(String) -> String) -> Vec<u8> {
+        let mut source = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for index in 0..source.len() {
+            let mut file = source.by_index(index).unwrap();
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            if file.name() == CONTENT_TYPES {
+                data = edit(String::from_utf8(data).unwrap()).into_bytes();
+            }
+            writer
+                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&data).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
     fn content_type_problems_of(extra: &[(&str, &str)]) -> Vec<String> {
         let bytes = deck_with_overrides((IMAGE_WIDTH, IMAGE_HEIGHT), false, false, extra);
         let slides = read_deck(&bytes).expect("deck reads");
@@ -1125,6 +1162,84 @@ mod tests {
                 .iter()
                 .any(|problem| problem.contains("/ppt/slides/slide9.xml")
                     && problem.contains("not in the package")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn upper_case_extension_and_part_name_are_accepted() {
+        let bytes = deck((IMAGE_WIDTH, IMAGE_HEIGHT), false, false);
+        let upper = rewrite_content_types(&bytes, |text| {
+            text.replace("Extension=\"png\"", "Extension=\"PNG\"")
+                .replace("/ppt/slides/slide1.xml", "/PPT/Slides/Slide1.xml")
+        });
+        let problems = check_rules(&read_deck(&upper).unwrap(), &upper);
+        assert_eq!(problems, Vec::<String>::new());
+    }
+
+    #[test]
+    fn duplicate_override_is_an_error() {
+        let bytes = deck((IMAGE_WIDTH, IMAGE_HEIGHT), false, false);
+        let doubled = rewrite_content_types(&bytes, |text| {
+            text.replace(
+                "</Types>",
+                &format!(
+                    "<Override PartName=\"/PPT/slides/slide1.xml\" ContentType=\"{SLIDE_CT}\"/></Types>"
+                ),
+            )
+        });
+        let problems = check_rules(&read_deck(&doubled).unwrap(), &doubled);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("duplicate Override")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_default_is_an_error() {
+        let bytes = deck((IMAGE_WIDTH, IMAGE_HEIGHT), false, false);
+        let doubled = rewrite_content_types(&bytes, |text| {
+            text.replace(
+                "</Types>",
+                "<Default Extension=\"PNG\" ContentType=\"image/png\"/></Types>",
+            )
+        });
+        let problems = check_rules(&read_deck(&doubled).unwrap(), &doubled);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("duplicate Default")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn missing_relationship_target_is_reported() {
+        let bytes = deck((IMAGE_WIDTH, IMAGE_HEIGHT), false, false);
+        let mut source = ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for index in 0..source.len() {
+            let mut file = source.by_index(index).unwrap();
+            if file.name() == "ppt/media/image1.png" {
+                continue;
+            }
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            writer
+                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&data).unwrap();
+        }
+        let stripped = writer.finish().unwrap().into_inner();
+        let problems = content_type_problems(&stripped).unwrap();
+        assert!(
+            problems.iter().any(
+                |problem| problem.contains("ppt/media/image1.png (relationship")
+                    && problem.contains("in ppt/slides/_rels/slide2.xml.rels")
+                    && problem.ends_with("is missing")
+            ),
             "{problems:?}"
         );
     }
