@@ -17,6 +17,14 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "pinned gpui-pre-linux accessibility stack (zvariant)" },
     { id = "RUSTSEC-2026-0371", reason = "pinned gpui-pre-linux accessibility stack (zbus_names)" },
     { id = "RUSTSEC-2026-0372", reason = "pinned gpui-pre-linux accessibility stack (zvariant_derive)" },
+    # zip 2.4.2: all three are in `ZipArchive::extract` / `ZipStreamReader::extract`
+    # (SUID/SGID bits, symlink targets, permissions through symlinks). Ordo never
+    # calls them: the spikes, xtask and tests read entries in memory, and the
+    # container spike writes through its own checked reader. Fixed in zip >= 9.0;
+    # remove these when the workspace upgrades (#53).
+    { id = "RUSTSEC-2026-0367", reason = "zip extract() not used" },
+    { id = "RUSTSEC-2026-0368", reason = "zip extract() not used" },
+    { id = "RUSTSEC-2026-0369", reason = "zip extract() not used" },
 ]
 
 [licenses]
