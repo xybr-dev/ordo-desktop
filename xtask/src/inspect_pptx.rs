@@ -48,6 +48,8 @@ const IMAGE_WIDTH: u32 = 1920;
 const IMAGE_HEIGHT: u32 = 1080;
 const SAFETY_SECTION: &str = "Safety";
 const BLACK: &str = "000000";
+const CONTENT_TYPES: &str = "[Content_Types].xml";
+const RELS_TYPE: &str = "application/vnd.openxmlformats-package.relationships+xml";
 const IMAGE_REL: &str = "/image";
 const NOTES_REL: &str = "/notesSlide";
 /// Largest package part the inspector will read; a larger part is refused so
@@ -108,7 +110,9 @@ pub fn read_deck(bytes: &[u8]) -> Result<Vec<SlideInfo>, String> {
 /// Returns one message per broken rule; an empty list means the deck passes.
 /// `raw` is the same deck the slides were read from.
 pub fn check_rules(slides: &[SlideInfo], raw: &[u8]) -> Vec<String> {
-    structure_problems(slides, raw).unwrap_or_else(|error| vec![error])
+    let mut problems = structure_problems(slides, raw).unwrap_or_else(|error| vec![error]);
+    problems.extend(content_type_problems(raw).unwrap_or_else(|error| vec![error]));
+    problems
 }
 
 fn structure_problems(slides: &[SlideInfo], raw: &[u8]) -> Parsed<Vec<String>> {
@@ -509,6 +513,179 @@ fn parse_rels(xml: &[u8], part: &str, base: &str) -> Parsed<HashMap<String, Rela
     Ok(rels)
 }
 
+// --- content types --------------------------------------------------------------
+
+/// The content type a relationship type requires of its target, by the last
+/// segment of the type URI. Unknown types carry no expectation.
+fn required_type(relationship_type: &str) -> Option<&'static str> {
+    Some(
+        match relationship_type.rsplit('/').next().unwrap_or_default() {
+            "officeDocument" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+            }
+            "slide" => "application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+            "slideLayout" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
+            }
+            "slideMaster" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
+            }
+            "notesSlide" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
+            }
+            "notesMaster" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
+            }
+            "theme" => "application/vnd.openxmlformats-officedocument.theme+xml",
+            "presProps" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
+            }
+            "viewProps" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
+            }
+            "tableStyles" => {
+                "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+            }
+            "core-properties" => "application/vnd.openxmlformats-package.core-properties+xml",
+            "extended-properties" => {
+                "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+            }
+            "image" => "image/png",
+            _ => return None,
+        },
+    )
+}
+
+#[derive(Default)]
+struct ContentTypes {
+    /// Lower-cased extension -> type.
+    defaults: HashMap<String, String>,
+    /// Part name without the leading `/` -> type.
+    overrides: HashMap<String, String>,
+}
+
+impl ContentTypes {
+    /// Override for the part name, else Default for its extension.
+    fn effective(&self, part: &str) -> Option<&str> {
+        self.overrides
+            .get(part)
+            .or_else(|| {
+                let (_, extension) = part.rsplit_once('.')?;
+                self.defaults.get(&extension.to_ascii_lowercase())
+            })
+            .map(String::as_str)
+    }
+}
+
+fn parse_content_types(xml: &[u8]) -> Parsed<ContentTypes> {
+    let mut types = ContentTypes::default();
+    walk(xml, CONTENT_TYPES, |node| {
+        if let Node::Start(element) = node {
+            let content_type = |element: &Element| {
+                element
+                    .attr("ContentType")
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        format!(
+                            "{CONTENT_TYPES}: {} without ContentType attribute",
+                            element.name
+                        )
+                    })
+            };
+            match element.name.as_str() {
+                "Default" => {
+                    let extension = element.attr("Extension").ok_or_else(|| {
+                        format!("{CONTENT_TYPES}: Default without Extension attribute")
+                    })?;
+                    types
+                        .defaults
+                        .insert(extension.to_ascii_lowercase(), content_type(&element)?);
+                }
+                "Override" => {
+                    let name = element.attr("PartName").ok_or_else(|| {
+                        format!("{CONTENT_TYPES}: Override without PartName attribute")
+                    })?;
+                    let name = name.strip_prefix('/').unwrap_or(name).to_owned();
+                    types.overrides.insert(name, content_type(&element)?);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    })?;
+    Ok(types)
+}
+
+/// Checks `[Content_Types].xml` against the role of each part: relationship
+/// parts, and the targets of internal relationships, must have the content
+/// type their role requires, and no Override may name a missing part.
+fn content_type_problems(raw: &[u8]) -> Parsed<Vec<String>> {
+    let mut zip = open_zip(raw)?;
+    let types = parse_content_types(&read_part(&mut zip, CONTENT_TYPES)?)?;
+    let parts: Vec<String> = zip
+        .file_names()
+        .filter(|name| !name.ends_with('/'))
+        .map(str::to_owned)
+        .collect();
+    let mut problems = Vec::new();
+
+    let mut overridden: Vec<&String> = types.overrides.keys().collect();
+    overridden.sort();
+    for name in overridden {
+        if !parts.contains(name) {
+            problems.push(format!(
+                "{CONTENT_TYPES}: Override names /{name}, which is not in the package"
+            ));
+        }
+    }
+
+    for part in &parts {
+        if !part.ends_with(".rels") {
+            continue;
+        }
+        let found = types.effective(part);
+        if found != Some(RELS_TYPE) {
+            problems.push(format!(
+                "{part}: content type is {}, expected {RELS_TYPE}",
+                found.unwrap_or("none")
+            ));
+        }
+        // `dir/_rels/name.rels` belongs to `dir/name`; `_rels/.rels` to the package.
+        let rels_dir = dir_of(part);
+        let base = rels_dir
+            .strip_suffix("_rels")
+            .map_or("", |dir| dir.trim_end_matches('/'));
+        let xml = read_part(&mut zip, part)?;
+        let mut targets = Vec::new();
+        walk(&xml, part, |node| {
+            if let Node::Start(element) = node
+                && element.name == "Relationship"
+                && element.attr("TargetMode") != Some("External")
+                && let (Some(kind), Some(target)) = (element.attr("Type"), element.attr("Target"))
+            {
+                targets.push((kind.to_owned(), resolve(base, target)));
+            }
+            Ok(())
+        })?;
+        for (kind, target) in targets {
+            let Some(expected) = required_type(&kind) else {
+                continue;
+            };
+            if !parts.contains(&target) {
+                continue;
+            }
+            let found = types.effective(&target);
+            if found != Some(expected) {
+                problems.push(format!(
+                    "{target}: content type is {}, expected {expected} (relationship {kind} in {part})",
+                    found.unwrap_or("none")
+                ));
+            }
+        }
+    }
+    Ok(problems)
+}
+
 // --- slides, pictures and notes --------------------------------------------------
 
 #[derive(Default)]
@@ -731,6 +908,64 @@ mod tests {
     /// `unsectioned_image` leaves the image's slide out of every section;
     /// `image_notes` gives the image slide a notes slide.
     fn deck(image: (u32, u32), image_notes: bool, unsectioned_image: bool) -> Vec<u8> {
+        deck_with_overrides(image, image_notes, unsectioned_image, &[])
+    }
+
+    /// `[Content_Types].xml` for the fixture deck: Defaults for rels, xml and
+    /// png, plus the Overrides the deck's parts need, then `extra`.
+    fn content_types(image_notes: bool, extra: &[(&str, &str)]) -> String {
+        const PML: &str = "application/vnd.openxmlformats-officedocument.presentationml";
+        let mut overrides = vec![
+            (
+                "/ppt/presentation.xml".to_owned(),
+                format!("{PML}.presentation.main+xml"),
+            ),
+            (
+                "/ppt/slides/slide1.xml".to_owned(),
+                format!("{PML}.slide+xml"),
+            ),
+            (
+                "/ppt/slides/slide2.xml".to_owned(),
+                format!("{PML}.slide+xml"),
+            ),
+            (
+                "/ppt/slides/slide3.xml".to_owned(),
+                format!("{PML}.slide+xml"),
+            ),
+            (
+                "/ppt/notesSlides/notesSlide1.xml".to_owned(),
+                format!("{PML}.notesSlide+xml"),
+            ),
+            (
+                "/ppt/notesSlides/notesSlide3.xml".to_owned(),
+                format!("{PML}.notesSlide+xml"),
+            ),
+        ];
+        if image_notes {
+            overrides.push((
+                "/ppt/notesSlides/notesSlide2.xml".to_owned(),
+                format!("{PML}.notesSlide+xml"),
+            ));
+        }
+        for (part, kind) in extra {
+            overrides.retain(|(name, _)| name != part);
+            overrides.push(((*part).to_owned(), (*kind).to_owned()));
+        }
+        let body: String = overrides
+            .iter()
+            .map(|(part, kind)| format!(r#"<Override PartName="{part}" ContentType="{kind}"/>"#))
+            .collect();
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="{RELS_TYPE}"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>{body}</Types>"#
+        )
+    }
+
+    fn deck_with_overrides(
+        image: (u32, u32),
+        image_notes: bool,
+        unsectioned_image: bool,
+        extra: &[(&str, &str)],
+    ) -> Vec<u8> {
         let presentation = format!(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation {NS}><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId3"/><p:sldId id="258" r:id="rId4"/></p:sldIdLst><p:sldSz cx="{SLIDE_WIDTH}" cy="{SLIDE_HEIGHT}"/><p:extLst><p:ext uri="{{521415D9-36F7-43E2-AB2F-B90AF26B5E84}}"><p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"><p14:section name="Safety" id="{{00000000-0000-0000-0000-000000000001}}"><p14:sldIdLst><p14:sldId id="256"/></p14:sldIdLst></p14:section><p14:section name="Item one" id="{{00000000-0000-0000-0000-000000000002}}">{item}</p14:section><p14:section name="Safety" id="{{00000000-0000-0000-0000-000000000003}}"><p14:sldIdLst><p14:sldId id="258"/></p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst></p:presentation>"#,
             item = if unsectioned_image {
@@ -765,6 +1000,10 @@ mod tests {
             rels(&[("rId1", SLIDE_TYPE_IMAGE, "../media/image1.png")])
         };
         let mut parts: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "[Content_Types].xml",
+                content_types(image_notes, extra).into_bytes(),
+            ),
             ("ppt/presentation.xml", presentation.into_bytes()),
             (
                 "ppt/_rels/presentation.xml.rels",
@@ -839,6 +1078,81 @@ mod tests {
                 "  1 [Safety] black — {LEAD_IN}\n  2 [Item one] image 1920x1080 {}\n  3 [Safety] black — {CLOSING}",
                 &sha256[..12]
             )
+        );
+    }
+
+    const SLIDE_CT: &str = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
+
+    fn content_type_problems_of(extra: &[(&str, &str)]) -> Vec<String> {
+        let bytes = deck_with_overrides((IMAGE_WIDTH, IMAGE_HEIGHT), false, false, extra);
+        let slides = read_deck(&bytes).expect("deck reads");
+        check_rules(&slides, &bytes)
+    }
+
+    #[test]
+    fn override_on_a_relationship_part_breaks_the_rules() {
+        let problems = content_type_problems_of(&[("/ppt/slides/_rels/slide1.xml.rels", SLIDE_CT)]);
+        assert!(
+            problems.iter().any(
+                |problem| problem.contains("ppt/slides/_rels/slide1.xml.rels")
+                    && problem.contains(SLIDE_CT)
+                    && problem.contains(RELS_TYPE)
+            ),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn slide_with_the_wrong_content_type_breaks_the_rules() {
+        let problems = content_type_problems_of(&[(
+            "/ppt/slides/slide2.xml",
+            "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml",
+        )]);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.starts_with("ppt/slides/slide2.xml")
+                    && problem.contains(SLIDE_CT)),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn override_for_a_missing_part_breaks_the_rules() {
+        let problems = content_type_problems_of(&[("/ppt/slides/slide9.xml", SLIDE_CT)]);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("/ppt/slides/slide9.xml")
+                    && problem.contains("not in the package")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn deck_without_content_types_breaks_the_rules() {
+        let bytes = deck((IMAGE_WIDTH, IMAGE_HEIGHT), false, false);
+        let mut source = ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for index in 0..source.len() {
+            let mut file = source.by_index(index).unwrap();
+            if file.name() == CONTENT_TYPES {
+                continue;
+            }
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            writer
+                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&data).unwrap();
+        }
+        let stripped = writer.finish().unwrap().into_inner();
+        let problems = check_rules(&read_deck(&stripped).unwrap(), &stripped);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains(CONTENT_TYPES)),
+            "{problems:?}"
         );
     }
 
