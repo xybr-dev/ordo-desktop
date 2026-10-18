@@ -42,7 +42,7 @@ The command lives in `xtask/src/qualify.rs`.
 | `shaping-probe` | `cargo test -p rendering --locked --test shaping_probe` |
 | `measure-presenter` | `cargo xtask measure-presenter`, report copied into the bundle |
 | `powerpoint-fixture` | `cargo run -p powerpoint-spike -- fixture`, then `cargo xtask inspect-pptx` on the output |
-| `walking-skeleton-lab` | `cargo xtask stage-example walking-skeleton-lab`, artifact `walking-skeleton-lab.exe` |
+| `walking-skeleton-lab` | `cargo xtask stage-example walking-skeleton-lab {artifacts}`, artifact `walking-skeleton-lab.exe` |
 
 A failed step does not stop later steps, so every result is recorded.
 

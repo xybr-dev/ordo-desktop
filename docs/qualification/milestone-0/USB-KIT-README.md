@@ -64,9 +64,12 @@ writes a note to storage.
    Space to take the current Cue live. The projector shows the same
    canonical slide as the lab's Program monitor.
 3. **Navigation:** Right/Left move Preview, Up/Down jump between items,
-   Space takes live, `F` freezes Program (navigation continues, the
-   projector holds), `B` blacks out. Each takes effect on Program as
-   described. **Storage:** the lab's status line shows the temporary
+   Space takes live. `F` shows `Freeze ON` in the status line while
+   Program and the projector stay unchanged as Preview moves; Space takes
+   live and clears Freeze (holding live content against a changing Program
+   is Phase 1). `B` blacks out Program and the projector; `B` again
+   releases Blackout but the projector stays black until you press Space,
+   which restores the current Cue. **Storage:** the lab's status line shows the temporary
    storage as ready; press `N` while navigating. A note is added and
    navigation never stalls.
 4. **Canonical rendering:** the projected slides' text placement and
@@ -80,7 +83,7 @@ writes a note to storage.
    then press `F8` and `F6`: output returns black, and content returns
    only after Space.
 6. **Supervision:** close Ordo's operator window (the shell window, not the
-   lab window). The projector window and the lab close, and the process
+   window titled "Ordo walking-skeleton lab (development only)"). The projector window and the lab close, and the process
    exits with no error dialog.
 7. **Performance by eye:** with `ordo.exe` running and a static window,
    Task Manager CPU for Ordo stays low (under 5 %); note memory in Task Manager.
