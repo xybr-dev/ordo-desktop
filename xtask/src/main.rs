@@ -19,7 +19,7 @@ fn main() -> ExitCode {
         "stage-example" => {
             let mut args = std::env::args().skip(2);
             match (args.next(), args.next()) {
-                (Some(example), Some(out_dir)) => xtask::measure_presenter::stage_example(
+                (Some(example), Some(out_dir)) => xtask::stage_example(
                     &xtask::repo_root(),
                     &example,
                     std::path::Path::new(&out_dir),
