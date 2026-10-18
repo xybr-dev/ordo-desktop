@@ -205,6 +205,92 @@ fn dropping_an_override_fails_validation() {
     );
 }
 
+fn edit_content_types(edit: impl Fn(String) -> String) -> Vec<u8> {
+    let bytes = build(&fixture_plan()).expect("builds");
+    rewrite_zip(&bytes, |name, data| {
+        if name == "[Content_Types].xml" {
+            Some(edit(String::from_utf8(data).expect("utf8")).into_bytes())
+        } else {
+            Some(data)
+        }
+    })
+}
+
+const SLIDE_TYPE: &str = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
+const NOTES_SLIDE_TYPE: &str =
+    "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml";
+
+#[test]
+fn override_on_a_relationship_part_fails_validation() {
+    let broken = edit_content_types(|text| {
+        text.replace(
+            "</Types>",
+            &format!(
+                "<Override PartName=\"/ppt/slides/_rels/slide1.xml.rels\" ContentType=\"{SLIDE_TYPE}\"/></Types>"
+            ),
+        )
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("rels override must fail");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("slide1.xml.rels") && f.contains("relationships+xml")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn wrong_override_type_for_a_slide_fails_validation() {
+    let broken = edit_content_types(|text| {
+        let needle =
+            format!("<Override PartName=\"/ppt/slides/slide1.xml\" ContentType=\"{SLIDE_TYPE}\"/>");
+        assert!(text.contains(&needle), "override present");
+        text.replace(&needle, &needle.replace(SLIDE_TYPE, NOTES_SLIDE_TYPE))
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("wrong type must fail");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("ppt/slides/slide1.xml") && f.contains("requires")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn override_for_a_missing_part_fails_validation() {
+    let broken = edit_content_types(|text| {
+        text.replace(
+            "</Types>",
+            &format!(
+                "<Override PartName=\"/ppt/slides/slide99.xml\" ContentType=\"{SLIDE_TYPE}\"/></Types>"
+            ),
+        )
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("ghost override must fail");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("slide99.xml") && f.contains("not in the package")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn built_package_has_no_override_on_relationship_parts() {
+    let bytes = build(&fixture_plan()).expect("builds");
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip");
+    let mut text = String::new();
+    archive
+        .by_name("[Content_Types].xml")
+        .expect("content types")
+        .read_to_string(&mut text)
+        .expect("read");
+    for chunk in text.split("<Override ").skip(1) {
+        let part = chunk.split('"').nth(1).expect("PartName value");
+        assert!(!part.ends_with(".rels"), "Override on {part}");
+    }
+}
+
 #[test]
 fn dropping_a_related_part_fails_validation() {
     let bytes = build(&fixture_plan()).expect("builds");

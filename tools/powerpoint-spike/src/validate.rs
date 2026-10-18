@@ -335,16 +335,26 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
         Ok(evs) => evs,
         Err(error) => return vec![error],
     };
-    let defaults: HashSet<String> = starts(&content_types, "Default")
-        .into_iter()
-        .filter_map(|attrs| attr(attrs, "Extension").map(str::to_owned))
-        .collect();
-    let overrides: HashSet<String> = starts(&content_types, "Override")
-        .into_iter()
-        .filter_map(|attrs| {
-            attr(attrs, "PartName").map(|name| name.trim_start_matches('/').to_owned())
-        })
-        .collect();
+    let defaults = content_types_of(&content_types, "Default", "Extension");
+    let overrides: HashMap<String, String> =
+        content_types_of(&content_types, "Override", "PartName")
+            .into_iter()
+            .map(|(name, ty)| (name.trim_start_matches('/').to_owned(), ty))
+            .collect();
+    for name in overrides.keys() {
+        if !parts.contains_key(name) {
+            errors.push(format!(
+                "Override names part {name}, which is not in the package"
+            ));
+        }
+    }
+    let effective = |name: &str| -> Option<&String> {
+        let extension = name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext)
+            .unwrap_or_default();
+        overrides.get(name).or_else(|| defaults.get(extension))
+    };
     for name in parts.keys() {
         if name == "[Content_Types].xml" {
             continue;
@@ -356,9 +366,9 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
             .map(|(_, ext)| ext)
             .unwrap_or_default();
         let covered = if extension == "xml" {
-            overrides.contains(name)
+            overrides.contains_key(name)
         } else {
-            overrides.contains(name) || defaults.contains(extension)
+            overrides.contains_key(name) || defaults.contains_key(extension)
         };
         if !covered {
             errors.push(format!("part {name} has no content type"));
@@ -366,6 +376,13 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
     }
 
     for name in parts.keys().filter(|name| name.ends_with(".rels")) {
+        match effective(name) {
+            Some(ty) if ty == RELS_TYPE => {}
+            found => errors.push(format!(
+                "{name}: content type {} is not {RELS_TYPE}",
+                found.map_or("(none)", String::as_str)
+            )),
+        }
         let base = rels_base_dir(name);
         let rels = match parse_rels(parts, name, &base) {
             Ok(rels) => rels,
@@ -379,8 +396,22 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
             if !ids.insert(rel.id.as_str()) {
                 errors.push(format!("{name}: duplicate relationship id {}", rel.id));
             }
-            if !rel.external && !parts.contains_key(&rel.target) {
+            if rel.external {
+                continue;
+            }
+            if !parts.contains_key(&rel.target) {
                 errors.push(format!("{name}: target {} is missing", rel.target));
+                continue;
+            }
+            let role = rel.ty.rsplit('/').next().unwrap_or_default();
+            if let Some(expected) = required_type(role) {
+                let found = effective(&rel.target).map_or("(none)", String::as_str);
+                if found != expected {
+                    errors.push(format!(
+                        "{}: content type {found} but {name} relationship {} ({role}) requires {expected}",
+                        rel.target, rel.id
+                    ));
+                }
             }
         }
     }
@@ -431,6 +462,56 @@ fn package_integrity(parts: &HashMap<String, Vec<u8>>) -> Vec<String> {
         }
     }
     errors
+}
+
+const RELS_TYPE: &str = "application/vnd.openxmlformats-package.relationships+xml";
+
+/// `(key attribute, ContentType)` of every `tag` element in `[Content_Types].xml`.
+fn content_types_of(evs: &[Ev], tag: &str, key: &str) -> HashMap<String, String> {
+    starts(evs, tag)
+        .into_iter()
+        .filter_map(|attrs| {
+            Some((
+                attr(attrs, key)?.to_owned(),
+                attr(attrs, "ContentType")?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// Content type a relationship's target must have, keyed by the last segment
+/// of the relationship type. Written independently of the generator.
+fn required_type(role: &str) -> Option<&'static str> {
+    Some(match role {
+        "officeDocument" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+        }
+        "slide" => "application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+        "slideLayout" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
+        }
+        "slideMaster" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
+        }
+        "notesSlide" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
+        }
+        "notesMaster" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
+        }
+        "theme" => "application/vnd.openxmlformats-officedocument.theme+xml",
+        "presProps" => "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml",
+        "viewProps" => "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml",
+        "tableStyles" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+        }
+        "core-properties" => "application/vnd.openxmlformats-package.core-properties+xml",
+        "extended-properties" => {
+            "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+        }
+        "image" => "image/png",
+        _ => return None,
+    })
 }
 
 /// Directory that the targets of a `.rels` part are relative to.

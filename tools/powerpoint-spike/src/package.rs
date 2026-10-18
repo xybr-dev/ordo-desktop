@@ -61,6 +61,14 @@ fn section_guid(ordinal: usize) -> String {
     format!("{{7A1C0000-0000-4000-8000-{ordinal:012X}}}")
 }
 
+/// True for exactly `{prefix}{digits}.xml`, so `_rels/*.rels` parts under the
+/// same directory never match.
+fn numbered_part(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .and_then(|rest| rest.strip_suffix(".xml"))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn content_type(name: &str) -> Option<&'static str> {
     Some(match name {
         "ppt/presentation.xml" => {
@@ -79,22 +87,22 @@ fn content_type(name: &str) -> Option<&'static str> {
         "docProps/app.xml" => {
             "application/vnd.openxmlformats-officedocument.extended-properties+xml"
         }
-        _ if name.starts_with("ppt/slideMasters/") => {
+        _ if numbered_part(name, "ppt/slideMasters/slideMaster") => {
             "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
         }
-        _ if name.starts_with("ppt/slideLayouts/") => {
+        _ if numbered_part(name, "ppt/slideLayouts/slideLayout") => {
             "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
         }
-        _ if name.starts_with("ppt/slides/") => {
+        _ if numbered_part(name, "ppt/slides/slide") => {
             "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
         }
-        _ if name.starts_with("ppt/notesMasters/") => {
+        _ if numbered_part(name, "ppt/notesMasters/notesMaster") => {
             "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
         }
-        _ if name.starts_with("ppt/notesSlides/") => {
+        _ if numbered_part(name, "ppt/notesSlides/notesSlide") => {
             "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
         }
-        _ if name.starts_with("ppt/theme/") => {
+        _ if numbered_part(name, "ppt/theme/theme") => {
             "application/vnd.openxmlformats-officedocument.theme+xml"
         }
         _ => return None,
