@@ -198,6 +198,20 @@ pub fn verify() -> XtaskResult<()> {
             "--locked",
         ],
     )?;
+    // The walking-skeleton lab is the church-PC kit's executable; its pure
+    // deck and frame mapping tests run here for the same reason.
+    run(
+        &root,
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "ordo",
+            "--example",
+            "walking-skeleton-lab",
+            "--locked",
+        ],
+    )?;
     println!("[10/10] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");

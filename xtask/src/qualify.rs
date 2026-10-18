@@ -97,6 +97,14 @@ pub struct Step {
     pub produces: &'static [&'static str],
 }
 
+/// The walking-skeleton lab's file name under `artifacts/`, with the platform
+/// executable suffix, as cargo names it.
+const WALKING_SKELETON_LAB_ARTIFACT: &str = if cfg!(windows) {
+    "walking-skeleton-lab.exe"
+} else {
+    "walking-skeleton-lab"
+};
+
 /// The Phase 0 proofs, in run order. Later phases append here.
 pub const STEPS: &[Step] = &[
     Step {
@@ -180,6 +188,17 @@ pub const STEPS: &[Step] = &[
         ],
         copies: &[],
         produces: &["emergency-fixture.pptx"],
+    },
+    Step {
+        name: "walking-skeleton-lab",
+        commands: &[&[
+            "{xtask}",
+            "stage-example",
+            "walking-skeleton-lab",
+            "{artifacts}",
+        ]],
+        copies: &[],
+        produces: &[WALKING_SKELETON_LAB_ARTIFACT],
     },
 ];
 

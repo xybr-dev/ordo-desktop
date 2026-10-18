@@ -136,7 +136,7 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
 /// process. Every result is kept, including failures, so one failed run does
 /// not hide the others.
 fn measure_native(root: &Path) -> XtaskResult<Value> {
-    let executable = build_lab(root)?;
+    let executable = build_example(root, LAB_EXAMPLE)?;
     let scratch =
         std::env::temp_dir().join(format!("ordo-measure-presenter-{}", std::process::id()));
     fs::create_dir_all(&scratch)?;
@@ -184,11 +184,11 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
     }))
 }
 
-/// Builds the lab example in release, with the same `--locked` pin as the
+/// Builds an `ordo` example in release, with the same `--locked` pin as the
 /// rest of the workspace, and returns the executable cargo reports. Asking
 /// cargo honours every source of the target directory: `CARGO_TARGET_DIR`,
 /// the repository's `.cargo/config.toml`, and the user's cargo config.
-fn build_lab(root: &Path) -> XtaskResult<PathBuf> {
+fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> {
     let output = Command::new("cargo")
         .args([
             "build",
@@ -196,7 +196,7 @@ fn build_lab(root: &Path) -> XtaskResult<PathBuf> {
             "-p",
             "ordo",
             "--example",
-            LAB_EXAMPLE,
+            example,
             "--locked",
             "--message-format=json-render-diagnostics",
         ])
@@ -205,21 +205,36 @@ fn build_lab(root: &Path) -> XtaskResult<PathBuf> {
         .output()?;
     if !output.status.success() {
         return Err(format!(
-            "command failed: cargo build --release -p ordo --example {LAB_EXAMPLE} --locked"
+            "command failed: cargo build --release -p ordo --example {example} --locked"
         )
         .into());
     }
-    lab_executable(&String::from_utf8_lossy(&output.stdout))
-        .ok_or_else(|| format!("cargo build did not report the {LAB_EXAMPLE} executable").into())
+    example_executable(&String::from_utf8_lossy(&output.stdout), example)
+        .ok_or_else(|| format!("cargo build did not report the {example} executable").into())
 }
 
-/// The lab executable named in cargo's JSON build messages, if any.
-fn lab_executable(messages: &str) -> Option<PathBuf> {
+/// Builds an example in release and copies its executable into `out_dir`
+/// under the name cargo gave it, so `qualify` can hash and record the exact
+/// binary a person will carry to another machine.
+pub fn stage_example(root: &Path, example: &str, out_dir: &Path) -> XtaskResult<()> {
+    let executable = build_example(root, example)?;
+    let name = executable
+        .file_name()
+        .ok_or_else(|| format!("cargo reported a path without a file name: {executable:?}"))?;
+    fs::create_dir_all(out_dir)?;
+    let destination = out_dir.join(name);
+    fs::copy(&executable, &destination)?;
+    println!("staged {}", destination.display());
+    Ok(())
+}
+
+/// The named example's executable in cargo's JSON build messages, if any.
+fn example_executable(messages: &str, example: &str) -> Option<PathBuf> {
     messages
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(|message| message["reason"] == "compiler-artifact")
-        .filter(|message| message["target"]["name"] == LAB_EXAMPLE)
+        .filter(|message| message["target"]["name"] == example)
         .find_map(|message| message["executable"].as_str().map(PathBuf::from))
 }
 
@@ -835,12 +850,16 @@ mod tests {
             "{\"reason\":\"build-finished\",\"success\":true}\n",
         );
         assert_eq!(
-            lab_executable(messages),
+            example_executable(messages, "presenter-lab"),
             Some(PathBuf::from(
                 "X:/cargo-target/release/examples/presenter-lab.exe"
             ))
         );
-        assert_eq!(lab_executable("{\"reason\":\"build-finished\"}"), None);
+        assert_eq!(example_executable(messages, "walking-skeleton-lab"), None);
+        assert_eq!(
+            example_executable("{\"reason\":\"build-finished\"}", "presenter-lab"),
+            None
+        );
     }
 
     #[test]
