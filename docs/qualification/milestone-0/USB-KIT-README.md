@@ -54,7 +54,7 @@ status line, key help) plus the congregation output on the projector. It
 loads a small Mass-shaped deck of 7 Cues in 4 items: Entrance Song (3 Cues),
 Penitential Act (1), First Reading (2), Blackout (1). Keys work with the lab
 window focused: Right/Left move Preview by one Cue, Up/Down jump to the
-previous/next item, Space takes Preview live, `F` freezes, `B` blacks out,
+previous/next item, Space takes Preview live, `F` toggles Freeze and Live, `B` blacks out,
 `F6` enables output, `F8` re-reads the displays, `F9` disables output, `N`
 writes a note to storage.
 
@@ -63,13 +63,14 @@ writes a note to storage.
    and press `F6` to enable output (the projector is black first). Press
    Space to take the current Cue live. The projector shows the same
    canonical slide as the lab's Program monitor.
-3. **Navigation:** Right/Left move Preview, Up/Down jump between items,
-   Space takes live. `F` shows `Freeze ON` in the status line while
-   Program and the projector stay unchanged as Preview moves; Space takes
-   live and clears Freeze (holding live content against a changing Program
-   is Phase 1). `B` blacks out Program and the projector; `B` again
-   releases Blackout but the projector stays black until you press Space,
-   which restores the current Cue. **Storage:** the lab's status line shows the temporary
+3. **Navigation:** after the first Space the lab is Live (the status line
+   says `Live`): Right/Left/Up/Down move Preview and the projector with it,
+   and the lab's Program monitor follows. `F` freezes (`Frozen`): the
+   projector holds its Cue while Preview keeps moving; `F` again returns to
+   Live and the projector jumps to Preview. `B` blacks out (`Blackout`):
+   the projector goes black; `B` again restores (the current Preview, or the
+   held Cue if frozen). Before the first Space, and after `F6`, navigation
+   never changes the projector; only Space does. **Storage:** the lab's status line shows the temporary
    storage as ready; press `N` while navigating. A note is added and
    navigation never stalls.
 4. **Canonical rendering:** the projected slides' text placement and
@@ -82,6 +83,10 @@ writes a note to storage.
    status does not change within a second or two, press `F8`. Reconnect,
    then press `F8` and `F6`: output returns black, and content returns
    only after Space.
+   **Hot-plug:** launch the lab with the projector disconnected, then
+   connect it. Press `F8`: the message shows the display count and the
+   suggested congregation display. Press `F6` to enable output (black),
+   then Space.
 6. **Supervision:** close Ordo's operator window (the shell window, not the
    window titled "Ordo walking-skeleton lab (development only)"). The projector window and the lab close, and the process
    exits with no error dialog.

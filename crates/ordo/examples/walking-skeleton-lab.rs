@@ -17,10 +17,18 @@
 //!
 //! Keys, with the lab window focused: `Right` / `Left` move Preview by one
 //! Cue; `Up` / `Down` jump to the first Cue of the previous / next item;
-//! `Space` takes Preview live; `F` toggles Freeze; `B` toggles Blackout;
+//! `Space` takes Preview live; `F` toggles Freeze and Live (Frozen: the
+//! projector holds while Preview moves; `F` again returns to Live and Program
+//! jumps to Preview); `B` toggles Blackout;
 //! `F6` assigns the only other display and enables output (black until
 //! `Space`); `F8` re-reads the display topology; `F9` disables output; `N`
 //! writes a note through the Storage Module while navigation continues.
+//!
+//! Live means Program has been taken, output is not awaiting restore, and
+//! neither Freeze nor Blackout is active. While Live, Program follows Preview
+//! after every command (Decision 11); the pure engine only moves Program on
+//! `TakeLive`, so the lab applies `TakeLive` itself. Before the first Space and
+//! after `F6`, only Space puts content on the projector.
 //!
 //! Closing the lab window closes the operator window too, which runs the
 //! runtime's existing supervision and quits the whole app. Closing the
@@ -43,6 +51,7 @@ use ordo::{
     canonical::CanonicalCommand, canonical_views, open_native_runtime_at,
     output::CongregationOutput,
 };
+use platform::display::OutputLifecycle;
 use presentation::{
     OutputStatus, ProgramFrame,
     presenter::{PresenterCommand, PresenterEngine, PresenterState},
@@ -72,7 +81,7 @@ actions!(
     ]
 );
 
-const KEY_HELP: &str = "Right/Left Cue · Up/Down item · Space take live · F freeze · B blackout · F6 enable output · F8 refresh displays · F9 disable output · N storage write";
+const KEY_HELP: &str = "Right/Left Cue · Up/Down item · Space take live · F freeze/live · B blackout · F6 enable output · F8 refresh displays · F9 disable output · N storage write";
 
 /// The Mass-shaped deck: each item and the rendering fixtures (by file stem
 /// under `tests/fixtures/rendering/`) that become its Cues.
@@ -310,6 +319,79 @@ fn program_update(
     (changed || command == PresenterCommand::TakeLive).then(|| visible_target(after))
 }
 
+/// Whether Program follows Preview in `state`: Program has been taken, output
+/// is not awaiting restore, and neither Freeze nor Blackout is active.
+fn follows_preview(state: &PresenterState, awaiting_restore: bool) -> bool {
+    state.program().is_some() && !awaiting_restore && !state.frozen() && !state.blackout()
+}
+
+/// The result of one command through [`step`].
+#[derive(Debug, Eq, PartialEq)]
+struct Step {
+    /// What to send to the congregation output, if anything.
+    target: Option<ProgramTarget>,
+    /// A Cue Program should have followed to but whose frames are not composed
+    /// yet; nothing was linked, so Program is unchanged.
+    uncomposed: Option<usize>,
+}
+
+/// Apply `command`, then, while Live, relink Program to Preview with
+/// `TakeLive` (only when that Cue is composed, so the engine never points at a
+/// Cue the output cannot show). Returns what the output should now show.
+fn step(
+    engine: &mut PresenterEngine,
+    command: PresenterCommand,
+    awaiting_restore: bool,
+    composed: impl Fn(usize) -> bool,
+) -> Step {
+    let before = *engine.state();
+    let after = *engine.apply(command);
+    let mut uncomposed = None;
+    if follows_preview(&after, awaiting_restore) && after.program() != Some(after.preview()) {
+        if composed(after.preview()) {
+            engine.apply(PresenterCommand::TakeLive);
+            return Step {
+                target: Some(ProgramTarget::Cue(after.preview())),
+                uncomposed: None,
+            };
+        }
+        uncomposed = Some(after.preview());
+    }
+    Step {
+        target: program_update(&before, &after, command, awaiting_restore),
+        uncomposed,
+    }
+}
+
+/// The mode shown in the status line; Blackout wins over Frozen.
+fn mode_label(state: &PresenterState, awaiting_restore: bool) -> &'static str {
+    if state.blackout() {
+        "Blackout"
+    } else if state.frozen() {
+        "Frozen"
+    } else if state.program().is_some() && !awaiting_restore {
+        "Live"
+    } else {
+        "Not live"
+    }
+}
+
+/// The `F8` message: display count, operator display known or not, and the
+/// suggested congregation display.
+fn displays_message(count: usize, operator_known: bool, suggestion: Option<&str>) -> String {
+    let operator = if operator_known { "known" } else { "unknown" };
+    let head = format!("Displays: {count} · operator display {operator}");
+    if count <= 1 {
+        return format!(
+            "{head}. Only one display detected: extend the desktop (Windows+P) and press F8."
+        );
+    }
+    match suggestion {
+        Some(id) => format!("{head} · suggested congregation display {id}. Press F6 to enable."),
+        None => format!("{head} · no single congregation display to suggest."),
+    }
+}
+
 /// "item / cue" text for a Preview index, one-based.
 fn position_label(counts: &[usize], preview: usize) -> String {
     let (item, offset) = locate(counts, preview);
@@ -498,13 +580,18 @@ impl SkeletonLab {
     }
 
     fn command(&mut self, command: PresenterCommand, cx: &mut Context<Self>) {
-        let before = *self.engine.state();
-        let after = *self.engine.apply(command);
-        if let Some(target) = program_update(&before, &after, command, self.awaiting_restore) {
+        let cues = &self.cues;
+        let outcome = step(&mut self.engine, command, self.awaiting_restore, |cue| {
+            cues.get(cue).is_some_and(Option::is_some)
+        });
+        if let Some(target) = outcome.target {
             let sent = self.send_program(target, cx);
             if sent && command == PresenterCommand::TakeLive {
                 self.awaiting_restore = false;
             }
+        }
+        if let Some(cue) = outcome.uncomposed {
+            self.message = format!("Cue {} is not composed yet; Program unchanged.", cue + 1);
         }
         cx.notify();
     }
@@ -545,6 +632,14 @@ impl SkeletonLab {
     }
 
     fn enable_output(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.output.read(cx).display_control().output(),
+            OutputLifecycle::Enabled { .. }
+        ) {
+            self.message = "Output already enabled.".to_owned();
+            cx.notify();
+            return;
+        }
         let (notes, enabled) = self.output.update(cx, |output, cx| {
             output.refresh_displays(cx);
             let mut notes = Vec::new();
@@ -578,10 +673,16 @@ impl SkeletonLab {
     }
 
     fn refresh_displays(&mut self, cx: &mut Context<Self>) {
-        let events = self
-            .output
+        self.output
             .update(cx, |output, cx| output.refresh_displays(cx));
-        self.message = format!("Displays re-read: {events:?}");
+        let control = self.output.read(cx).display_control();
+        let topology = control.topology();
+        let suggestion = control.suggestion().map(|id| format!("{id:?}"));
+        self.message = displays_message(
+            topology.displays().len(),
+            topology.operator().is_some(),
+            suggestion.as_deref(),
+        );
         cx.notify();
     }
 
@@ -646,7 +747,8 @@ impl SkeletonLab {
             .map_or_else(|| "?".to_owned(), |count| count.to_string());
         (
             format!(
-                "Output {:?} · {:?} · assigned {:?} · Freeze {} · Blackout {}{}",
+                "{} · Output {:?} · {:?} · assigned {:?} · Freeze {} · Blackout {}{}",
+                mode_label(state, self.awaiting_restore),
                 control.output(),
                 output.congregation().output_status(),
                 control.assignment(),
@@ -1075,6 +1177,164 @@ mod tests {
             program_update(&before, &after, PresenterCommand::ToggleBlackout, false),
             None
         );
+    }
+
+    fn composed_all(_: usize) -> bool {
+        true
+    }
+
+    /// An engine with Program taken at Cue 0 (so Live), like after the first Space.
+    fn live_engine() -> PresenterEngine {
+        let mut engine = PresenterEngine::new(7);
+        engine.apply(PresenterCommand::TakeLive);
+        engine
+    }
+
+    #[test]
+    fn live_navigation_sends_the_new_cue_and_moves_program() {
+        let mut engine = live_engine();
+        let out = step(&mut engine, PresenterCommand::Next, false, composed_all);
+        assert_eq!(out.target, Some(ProgramTarget::Cue(1)));
+        assert_eq!(engine.state().program(), Some(1));
+        let out = step(&mut engine, PresenterCommand::Previous, false, composed_all);
+        assert_eq!(out.target, Some(ProgramTarget::Cue(0)));
+    }
+
+    #[test]
+    fn up_down_item_jump_while_live_sends_the_items_first_cue() {
+        let counts = item_cue_counts();
+        let mut engine = live_engine();
+        let target = down_target(&counts, engine.state().preview());
+        let out = step(
+            &mut engine,
+            PresenterCommand::GoTo(target),
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, Some(ProgramTarget::Cue(3)));
+        let target = up_target(&counts, engine.state().preview());
+        let out = step(
+            &mut engine,
+            PresenterCommand::GoTo(target),
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, Some(ProgramTarget::Cue(0)));
+    }
+
+    #[test]
+    fn frozen_navigation_sends_nothing_and_unfreeze_relinks() {
+        let mut engine = live_engine();
+        step(
+            &mut engine,
+            PresenterCommand::ToggleFreeze,
+            false,
+            composed_all,
+        );
+        let out = step(&mut engine, PresenterCommand::Next, false, composed_all);
+        assert_eq!(out.target, None);
+        assert_eq!(engine.state().preview(), 1);
+        assert_eq!(engine.state().program(), Some(0));
+        let out = step(
+            &mut engine,
+            PresenterCommand::ToggleFreeze,
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, Some(ProgramTarget::Cue(1)));
+        assert_eq!(engine.state().program(), Some(1));
+    }
+
+    #[test]
+    fn blackout_release_relinks_when_unfrozen_and_restores_held_cue_when_frozen() {
+        let mut engine = live_engine();
+        step(
+            &mut engine,
+            PresenterCommand::ToggleBlackout,
+            false,
+            composed_all,
+        );
+        let out = step(&mut engine, PresenterCommand::Next, false, composed_all);
+        assert_eq!(out.target, None, "blackout navigates Preview only");
+        let out = step(
+            &mut engine,
+            PresenterCommand::ToggleBlackout,
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, Some(ProgramTarget::Cue(1)));
+
+        let mut engine = live_engine();
+        step(
+            &mut engine,
+            PresenterCommand::ToggleFreeze,
+            false,
+            composed_all,
+        );
+        step(
+            &mut engine,
+            PresenterCommand::ToggleBlackout,
+            false,
+            composed_all,
+        );
+        step(&mut engine, PresenterCommand::Next, false, composed_all);
+        let out = step(
+            &mut engine,
+            PresenterCommand::ToggleBlackout,
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, Some(ProgramTarget::Cue(0)), "held Cue");
+        assert_eq!(engine.state().program(), Some(0));
+    }
+
+    #[test]
+    fn nothing_is_linked_before_the_first_take_or_while_awaiting_restore() {
+        let mut engine = PresenterEngine::new(7);
+        assert!(!follows_preview(engine.state(), false));
+        let out = step(&mut engine, PresenterCommand::Next, false, composed_all);
+        assert_eq!(out.target, None);
+        assert_eq!(engine.state().program(), None);
+
+        let mut engine = live_engine();
+        assert!(!follows_preview(engine.state(), true));
+        let out = step(&mut engine, PresenterCommand::Next, true, composed_all);
+        assert_eq!(out.target, None);
+        let out = step(&mut engine, PresenterCommand::TakeLive, true, composed_all);
+        assert_eq!(out.target, Some(ProgramTarget::Cue(1)));
+    }
+
+    #[test]
+    fn an_uncomposed_cue_is_not_linked_and_is_reported() {
+        let mut engine = live_engine();
+        let out = step(&mut engine, PresenterCommand::Next, false, |cue| cue != 1);
+        assert_eq!(out.target, None);
+        assert_eq!(out.uncomposed, Some(1));
+        assert_eq!(engine.state().program(), Some(0));
+    }
+
+    #[test]
+    fn mode_label_names_the_mode_and_blackout_wins() {
+        let mut engine = PresenterEngine::new(7);
+        assert_eq!(mode_label(engine.state(), false), "Not live");
+        engine.apply(PresenterCommand::TakeLive);
+        assert_eq!(mode_label(engine.state(), false), "Live");
+        assert_eq!(mode_label(engine.state(), true), "Not live");
+        engine.apply(PresenterCommand::ToggleFreeze);
+        assert_eq!(mode_label(engine.state(), false), "Frozen");
+        engine.apply(PresenterCommand::ToggleBlackout);
+        assert_eq!(mode_label(engine.state(), false), "Blackout");
+    }
+
+    #[test]
+    fn displays_message_reports_counts_and_next_step() {
+        let one = displays_message(1, false, None);
+        assert!(one.contains("Displays: 1") && one.contains("unknown"));
+        assert!(one.contains("Windows+P") && one.contains("F8"));
+        let two = displays_message(2, true, Some("DisplayId(2)"));
+        assert!(two.contains("known") && two.contains("DisplayId(2)"));
+        assert!(two.ends_with("Press F6 to enable."));
+        assert!(!displays_message(3, true, None).contains("F6"));
     }
 
     #[test]
