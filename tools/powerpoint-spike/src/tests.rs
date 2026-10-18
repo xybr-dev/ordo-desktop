@@ -276,6 +276,66 @@ fn override_for_a_missing_part_fails_validation() {
 }
 
 #[test]
+fn upper_case_extension_and_part_name_are_accepted() {
+    let plan = fixture_plan();
+    let upper = edit_content_types(|text| {
+        assert!(text.contains("Extension=\"png\""), "png default present");
+        text.replace("Extension=\"png\"", "Extension=\"PNG\"")
+            .replace("/ppt/slides/slide1.xml", "/PPT/Slides/Slide1.xml")
+    });
+    validate(&upper, &plan).expect("case differences are not failures");
+}
+
+#[test]
+fn duplicate_override_fails_validation() {
+    let broken = edit_content_types(|text| {
+        text.replace(
+            "</Types>",
+            &format!(
+                "<Override PartName=\"/PPT/slides/slide1.xml\" ContentType=\"{SLIDE_TYPE}\"/></Types>"
+            ),
+        )
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("duplicate must fail");
+    assert!(
+        failures.iter().any(|f| f.contains("duplicate Override")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn duplicate_default_fails_validation() {
+    let broken = edit_content_types(|text| {
+        text.replace(
+            "</Types>",
+            "<Default Extension=\"PNG\" ContentType=\"image/png\"/></Types>",
+        )
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("duplicate must fail");
+    assert!(
+        failures.iter().any(|f| f.contains("duplicate Default")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn override_without_content_type_fails_validation() {
+    let broken = edit_content_types(|text| {
+        text.replace(
+            "</Types>",
+            "<Override PartName=\"/ppt/slides/slide1.xml\"/></Types>",
+        )
+    });
+    let failures = validate(&broken, &fixture_plan()).expect_err("missing attribute must fail");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("without PartName or ContentType")),
+        "{failures:?}"
+    );
+}
+
+#[test]
 fn built_package_has_no_override_on_relationship_parts() {
     let bytes = build(&fixture_plan()).expect("builds");
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip");
