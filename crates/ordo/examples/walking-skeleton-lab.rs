@@ -28,12 +28,15 @@
 //! database live in one temporary directory that is removed on exit, so the
 //! lab never touches real Parish data.
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use gpui::{
     App, AppContext as _, Bounds, Context, FocusHandle, Focusable, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, StatefulInteractiveElement as _, Styled,
-    Window, WindowBounds, WindowOptions, actions, div, px, rgb, size,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, px, rgb, size,
 };
 use gpui_platform::application;
 use ordo::{
@@ -290,11 +293,19 @@ fn visible_target(state: &PresenterState) -> ProgramTarget {
 /// content changing sends; so does every explicit `TakeLive`, because the
 /// output may have been black or rejected while the engine state did not
 /// change (the restore path after enabling or after a display loss).
+///
+/// While `awaiting_restore` (output was just enabled and the congregation is
+/// on black), only `TakeLive` may send: releasing Blackout or any other
+/// command must not put content on the projector without an explicit Space.
 fn program_update(
     before: &PresenterState,
     after: &PresenterState,
     command: PresenterCommand,
+    awaiting_restore: bool,
 ) -> Option<ProgramTarget> {
+    if awaiting_restore && command != PresenterCommand::TakeLive {
+        return None;
+    }
     let changed = visible_target(before) != visible_target(after);
     (changed || command == PresenterCommand::TakeLive).then(|| visible_target(after))
 }
@@ -325,14 +336,17 @@ struct CueFrames {
 type CueResult = (usize, Result<CueFrames, String>);
 
 /// Compose every Cue in order on the runtime's canonical worker, then
-/// rasterize and finish on this thread. The GPUI thread only receives results.
+/// rasterize and finish on a background thread. The GPUI thread only receives
+/// results. The caller owns the returned handle and joins it after the app
+/// loop returns; the thread ends when every Cue is done, when the canonical
+/// channel closes, or when the results receiver is dropped.
 fn compose_cues(
     contents: Vec<TemplateContent>,
     canonical: std::sync::mpsc::Sender<CanonicalCommand>,
     environment: UiEnvironment,
     window_scale: f32,
     results: async_channel::Sender<CueResult>,
-) {
+) -> Option<std::thread::JoinHandle<()>> {
     let spawned = std::thread::Builder::new()
         .name("ordo-skeleton-raster".to_owned())
         .spawn(move || {
@@ -343,8 +357,12 @@ fn compose_cues(
                 }
             }
         });
-    if let Err(error) = spawned {
-        eprintln!("cannot start the raster thread: {error}");
+    match spawned {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            eprintln!("cannot start the raster thread: {error}");
+            None
+        }
     }
 }
 
@@ -394,6 +412,9 @@ struct SkeletonLab {
     /// What the output last accepted. Reset to black when output is enabled
     /// or disabled; reads as black whenever output is not connected.
     on_air: ProgramTarget,
+    /// Set after a successful output enable: the congregation is on black and
+    /// only an explicit `TakeLive` (Space) may put content back.
+    awaiting_restore: bool,
     storage: Option<Storage>,
     storage_state: String,
     parish_named: bool,
@@ -444,6 +465,18 @@ impl SkeletonLab {
         })
         .detach();
         cx.observe(&output, |_, _, cx| cx.notify()).detach();
+        // GPUI polls this future during quit, so the storage worker
+        // checkpoints and closes its database before the process exits.
+        cx.on_app_quit(|this, _| {
+            let shutdown = this.storage.take().map(Storage::shutdown);
+            async move {
+                if let Some(shutdown) = shutdown {
+                    let outcome = shutdown.await;
+                    eprintln!("storage shutdown: {outcome:?}");
+                }
+            }
+        })
+        .detach();
         let counts = item_cue_counts();
         Self {
             engine: PresenterEngine::new(counts.iter().sum()),
@@ -452,6 +485,7 @@ impl SkeletonLab {
             composed: 0,
             output,
             on_air: ProgramTarget::Black,
+            awaiting_restore: false,
             storage: Some(storage),
             storage_state: "opening".to_owned(),
             parish_named: false,
@@ -466,13 +500,16 @@ impl SkeletonLab {
     fn command(&mut self, command: PresenterCommand, cx: &mut Context<Self>) {
         let before = *self.engine.state();
         let after = *self.engine.apply(command);
-        if let Some(target) = program_update(&before, &after, command) {
-            self.send_program(target, cx);
+        if let Some(target) = program_update(&before, &after, command, self.awaiting_restore) {
+            let sent = self.send_program(target, cx);
+            if sent && command == PresenterCommand::TakeLive {
+                self.awaiting_restore = false;
+            }
         }
         cx.notify();
     }
 
-    fn send_program(&mut self, target: ProgramTarget, cx: &mut Context<Self>) {
+    fn send_program(&mut self, target: ProgramTarget, cx: &mut Context<Self>) -> bool {
         let frame = match target {
             ProgramTarget::Black => ProgramFrame::black(0),
             ProgramTarget::Cue(cue) => match self.cues.get(cue).and_then(Option::as_ref) {
@@ -480,7 +517,7 @@ impl SkeletonLab {
                 None => {
                     self.message =
                         format!("Cue {} is not composed yet; Program unchanged.", cue + 1);
-                    return;
+                    return false;
                 }
             },
         };
@@ -494,8 +531,12 @@ impl SkeletonLab {
                     ProgramTarget::Black => "Program: black.".to_owned(),
                     ProgramTarget::Cue(cue) => format!("Program: Cue {}.", cue + 1),
                 };
+                true
             }
-            Err(error) => self.message = format!("Program change rejected: {error:?}"),
+            Err(error) => {
+                self.message = format!("Program change rejected: {error:?}");
+                false
+            }
         }
     }
 
@@ -528,6 +569,7 @@ impl SkeletonLab {
             // Enabling always starts the congregation on black; content only
             // appears after an explicit Space.
             self.on_air = ProgramTarget::Black;
+            self.awaiting_restore = true;
             self.message = "Output enabled, Program black. Press Space to take live.".to_owned();
         } else {
             self.message = notes.join("; ");
@@ -547,6 +589,7 @@ impl SkeletonLab {
         self.output
             .update(cx, |output, cx| output.disable_output(cx));
         self.on_air = ProgramTarget::Black;
+        self.awaiting_restore = false;
         self.message = "Output disabled.".to_owned();
         cx.notify();
     }
@@ -593,17 +636,23 @@ impl SkeletonLab {
         let control = output.display_control();
         let state = self.engine.state();
         let flag = |on: bool| if on { "ON" } else { "off" };
+        let restore = if self.awaiting_restore {
+            " · Press Space to restore"
+        } else {
+            ""
+        };
         let notes = self
             .notes
             .map_or_else(|| "?".to_owned(), |count| count.to_string());
         (
             format!(
-                "Output {:?} · {:?} · assigned {:?} · Freeze {} · Blackout {}",
+                "Output {:?} · {:?} · assigned {:?} · Freeze {} · Blackout {}{}",
                 control.output(),
                 output.congregation().output_status(),
                 control.assignment(),
                 flag(state.frozen()),
                 flag(state.blackout()),
+                restore,
             ),
             format!(
                 "Storage {} · writes {} · notes {} · {}",
@@ -666,7 +715,6 @@ impl Render for SkeletonLab {
             self.cues.len(),
             position_label(&self.counts, state.preview())
         );
-        let counts = self.counts.clone();
 
         div()
             .id("walking-skeleton-lab")
@@ -683,8 +731,8 @@ impl Render for SkeletonLab {
             .on_action(cx.listener(|this, _: &PreviousCue, _, cx| {
                 this.command(PresenterCommand::Previous, cx);
             }))
-            .on_action(cx.listener(move |this, _: &PreviousItem, _, cx| {
-                let target = up_target(&counts, this.engine.state().preview());
+            .on_action(cx.listener(|this, _: &PreviousItem, _, cx| {
+                let target = up_target(&this.counts, this.engine.state().preview());
                 this.go_to(target, cx);
             }))
             .on_action(cx.listener(|this, _: &NextItem, _, cx| {
@@ -750,7 +798,13 @@ impl Render for SkeletonLab {
 
 /// The lab's one temporary directory (preferences file and database).
 fn lab_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("ordo-walking-skeleton-lab-{}", std::process::id()))
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    std::env::temp_dir().join(format!(
+        "ordo-walking-skeleton-lab-{}-{nanos}",
+        std::process::id()
+    ))
 }
 
 /// Remove the temporary directory, retrying briefly because the storage
@@ -780,9 +834,17 @@ fn main() {
         .map(|name| parse_fixture(name, fixture_source(name)))
         .collect();
 
+    let raster_thread = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let raster_owner = std::rc::Rc::clone(&raster_thread);
     application().run(move |cx: &mut App| {
-        let runtime =
-            open_native_runtime_at(cx, &preferences).expect("the native runtime should open");
+        let runtime = match open_native_runtime_at(cx, &preferences) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                eprintln!("the native runtime did not open: {error:?}");
+                cx.quit();
+                return;
+            }
+        };
         let output = runtime.output();
         let operator = runtime.operator();
         cx.bind_keys([
@@ -801,11 +863,14 @@ fn main() {
 
         let (results_tx, results_rx) = async_channel::unbounded();
         let cue_total = contents.len();
-        let database = database.clone();
         let bounds = Bounds::centered(None, size(px(1560.0), px(900.0)), cx);
         let lab = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Ordo walking-skeleton lab (development only)".into()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             move |window, cx| {
@@ -829,8 +894,8 @@ fn main() {
             .unwrap_or(1.0);
         // Composition runs on the runtime's canonical worker; rasterizing
         // and finishing run on a background thread, never the GPUI thread.
-        compose_cues(
-            contents.clone(),
+        *raster_owner.borrow_mut() = compose_cues(
+            contents,
             runtime.canonical_commands(),
             UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light),
             window_scale,
@@ -852,6 +917,12 @@ fn main() {
         .detach();
         cx.activate(true);
     });
+    // Named owner of the raster thread: join it now that the app loop is done.
+    if let Some(handle) = raster_thread.borrow_mut().take()
+        && handle.join().is_err()
+    {
+        eprintln!("the raster thread panicked");
+    }
     remove_lab_dir(&dir);
 }
 
@@ -919,7 +990,7 @@ mod tests {
     fn navigation_alone_never_updates_program() {
         let (before, after) = state_after(7, &[PresenterCommand::Next]);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::Next),
+            program_update(&before, &after, PresenterCommand::Next, false),
             None
         );
     }
@@ -928,7 +999,7 @@ mod tests {
     fn take_live_selects_the_previewed_cue_even_when_state_repeats() {
         let (before, after) = state_after(7, &[PresenterCommand::Next, PresenterCommand::TakeLive]);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::TakeLive),
+            program_update(&before, &after, PresenterCommand::TakeLive, false),
             Some(ProgramTarget::Cue(1))
         );
         // A second take of the same Cue changes no state but still sends,
@@ -939,7 +1010,7 @@ mod tests {
         let after = *engine.apply(PresenterCommand::TakeLive);
         assert_eq!(before, after);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::TakeLive),
+            program_update(&before, &after, PresenterCommand::TakeLive, false),
             Some(ProgramTarget::Cue(0))
         );
     }
@@ -951,13 +1022,40 @@ mod tests {
         let before = *engine.state();
         let after = *engine.apply(PresenterCommand::ToggleBlackout);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::ToggleBlackout),
+            program_update(&before, &after, PresenterCommand::ToggleBlackout, false),
             Some(ProgramTarget::Black)
         );
         let before = after;
         let after = *engine.apply(PresenterCommand::ToggleBlackout);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::ToggleBlackout),
+            program_update(&before, &after, PresenterCommand::ToggleBlackout, false),
+            Some(ProgramTarget::Cue(0))
+        );
+    }
+
+    #[test]
+    fn after_enable_only_take_live_restores_content() {
+        let mut engine = PresenterEngine::new(7);
+        engine.apply(PresenterCommand::TakeLive);
+        // Output was just enabled: awaiting restore. Blackout on then off
+        // changes Program's visible target but must send nothing.
+        let before = *engine.state();
+        let after = *engine.apply(PresenterCommand::ToggleBlackout);
+        assert_eq!(
+            program_update(&before, &after, PresenterCommand::ToggleBlackout, true),
+            None
+        );
+        let before = after;
+        let after = *engine.apply(PresenterCommand::ToggleBlackout);
+        assert_eq!(
+            program_update(&before, &after, PresenterCommand::ToggleBlackout, true),
+            None
+        );
+        // Space sends the Cue.
+        let before = after;
+        let after = *engine.apply(PresenterCommand::TakeLive);
+        assert_eq!(
+            program_update(&before, &after, PresenterCommand::TakeLive, true),
             Some(ProgramTarget::Cue(0))
         );
     }
@@ -968,13 +1066,13 @@ mod tests {
         let before = *engine.state();
         let after = *engine.apply(PresenterCommand::ToggleFreeze);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::ToggleFreeze),
+            program_update(&before, &after, PresenterCommand::ToggleFreeze, false),
             None
         );
         let before = after;
         let after = *engine.apply(PresenterCommand::ToggleBlackout);
         assert_eq!(
-            program_update(&before, &after, PresenterCommand::ToggleBlackout),
+            program_update(&before, &after, PresenterCommand::ToggleBlackout, false),
             None
         );
     }

@@ -411,6 +411,8 @@ def main():
             actual = kit_sha.get(name)
             if actual is None:
                 warnings.append("%s is not listed in KIT-SHA256.txt" % name)
+                if name == "walking-skeleton-lab.exe" and lab_sha != NEEDS:
+                    kit_mismatch = True
             elif expected != NEEDS and actual != expected.lower():
                 kit_mismatch = True
                 warnings.append(
@@ -506,7 +508,7 @@ attempts table, not here.
 - [ ] Task supervision (`walking-skeleton-lab.exe`): closing Ordo's operator window closes the congregation window and the lab, and the process exits with no error dialog.
 - [ ] Storage (`walking-skeleton-lab.exe`): the Storage Module worker opens a fresh temporary database and stays responsive during navigation.
 - [ ] Canonical rendering (`walking-skeleton-lab.exe`): the projected slides' text placement and wrapping look right at the projector's scale.
-- [ ] Navigation (`walking-skeleton-lab.exe`): Left/Right, Up/Down, Freeze, Blackout, and Space take effect on Program.
+- [ ] Navigation (`walking-skeleton-lab.exe`): Left/Right and Up/Down move Preview without changing Program; Space takes Preview live; Blackout blacks Program and the projector and Space restores the Cue; `F` shows `Freeze ON` in the status line while Program stays unchanged as Preview moves, and Space clears it (holding live content against a changing Program is Phase 1).
 - [ ] Display loss (`walking-skeleton-lab.exe`): unplugging or disabling the congregation display fails to black with no retargeting to another display, the state shows only in the operator's lab status line, and reconnect returns black first until output is restored.
 - [ ] Performance: static Program idle CPU, Presenter open time, and memory stay within the adopted gates, and the observations are recorded.
   - Prefilled verdict: %(perf)s
