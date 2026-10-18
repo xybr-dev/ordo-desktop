@@ -70,19 +70,22 @@ pub fn topology_from_displays(
     )
 }
 
-/// The one display whose bounds contain the centre of `window`, or `None`
-/// when no display or more than one display does.
+/// The display whose bounds contain the centre of `window`.
 ///
 /// GPUI display ids are `HMONITOR` values on Windows, reissued when the
 /// topology changes, so an id cached on a window can be stale or name the
 /// wrong monitor. Bounds are read fresh and carry no such identity problem.
 /// A window's logical origin and each monitor's logical bounds are both
-/// computed at that monitor's scale, so the true monitor contains the
-/// window's centre even with mixed DPI. Overlap is ambiguous and is refused
-/// rather than guessed.
+/// computed at that monitor's scale, so the window's centre is always inside
+/// its true monitor. With mixed DPI the logical rectangles overlap, so the
+/// centre may also be inside a neighbour. One match is returned as is. With
+/// several matches, `hint` (the platform's own report of the window's display)
+/// breaks the tie when it is one of them; otherwise the answer is `None`
+/// rather than a guess.
 pub fn display_containing(
     displays: impl IntoIterator<Item = (gpui::DisplayId, Bounds<Pixels>)>,
     window: Bounds<Pixels>,
+    hint: Option<gpui::DisplayId>,
 ) -> Option<gpui::DisplayId> {
     let centre = window.center();
     let mut containing = displays
@@ -90,19 +93,27 @@ pub fn display_containing(
         .filter(|(_, bounds)| bounds.contains(&centre))
         .map(|(id, _)| id);
     let found = containing.next()?;
-    containing.next().is_none().then_some(found)
+    match containing.next() {
+        None => Some(found),
+        Some(second) => [found, second]
+            .into_iter()
+            .chain(containing)
+            .find(|id| Some(*id) == hint),
+    }
 }
 
 /// [`display_containing`] over platform displays read now.
 pub fn display_containing_window(
     displays: &[Rc<dyn PlatformDisplay>],
     window: Bounds<Pixels>,
+    hint: Option<gpui::DisplayId>,
 ) -> Option<gpui::DisplayId> {
     display_containing(
         displays
             .iter()
             .map(|display| (display.id(), display.bounds())),
         window,
+        hint,
     )
 }
 
@@ -200,22 +211,22 @@ mod tests {
     #[test]
     fn window_centre_selects_the_single_containing_display() {
         let window = area(100.0, 100.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), window), Some(id(1)));
+        assert_eq!(display_containing(layout(), window, None), Some(id(1)));
     }
 
     #[test]
     fn window_on_displays_left_or_above_resolves_at_negative_coordinates() {
         let left = area(-1200.0, 50.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), left), Some(id(2)));
+        assert_eq!(display_containing(layout(), left, None), Some(id(2)));
         let above = area(100.0, -900.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), above), Some(id(3)));
+        assert_eq!(display_containing(layout(), above, None), Some(id(3)));
     }
 
     #[test]
     fn off_screen_window_resolves_to_nothing() {
         let window = area(5000.0, 5000.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), window), None);
-        assert_eq!(display_containing([], window), None);
+        assert_eq!(display_containing(layout(), window, None), None);
+        assert_eq!(display_containing([], window, None), None);
     }
 
     #[test]
@@ -225,7 +236,37 @@ mod tests {
             (id(2), area(960.0, 0.0, 1920.0, 1080.0)),
         ];
         let window = area(1000.0, 100.0, 400.0, 300.0);
-        assert_eq!(display_containing(displays, window), None);
+        assert_eq!(display_containing(displays.clone(), window, None), None);
+        // A hint naming a non-containing display does not resolve it either.
+        assert_eq!(display_containing(displays, window, Some(id(9))), None);
+    }
+
+    #[test]
+    fn mixed_dpi_overlap_is_broken_by_the_platform_hint() {
+        // 1.0 display at 0..1920 beside a 1.5 display at physical 1920.. whose
+        // logical bounds start at 1280, overlapping the first.
+        let displays = vec![
+            (id(1), area(0.0, 0.0, 1920.0, 1080.0)),
+            (id(2), area(1280.0, 0.0, 1920.0, 1080.0)),
+        ];
+        let on_second = area(1400.0, 100.0, 600.0, 400.0);
+        let on_first = area(1000.0, 100.0, 600.0, 400.0);
+        assert_eq!(
+            display_containing(displays.clone(), on_second, Some(id(2))),
+            Some(id(2))
+        );
+        assert_eq!(
+            display_containing(displays.clone(), on_first, Some(id(1))),
+            Some(id(1))
+        );
+        // Unambiguous windows ignore a stale hint.
+        let far_left = area(100.0, 100.0, 600.0, 400.0);
+        assert_eq!(
+            display_containing(displays.clone(), far_left, Some(id(2))),
+            Some(id(1))
+        );
+        // Ambiguous without a hint stays refused.
+        assert_eq!(display_containing(displays, on_second, None), None);
     }
 
     #[test]

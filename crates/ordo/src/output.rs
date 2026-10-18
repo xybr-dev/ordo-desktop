@@ -86,7 +86,7 @@ impl DisplaySource for GpuiDisplaySource {
     }
 
     fn reported_display(&self, window: &Window, _: DisplayId, cx: &App) -> Option<DisplayId> {
-        window.display(cx).map(|display| display.id().into())
+        window_display(window, &cx.displays(), cx).map(DisplayId::from)
     }
 }
 
@@ -520,12 +520,21 @@ impl CongregationOutput {
 fn read_operator_display(window: Option<AnyWindowHandle>, cx: &mut App) -> Option<gpui::DisplayId> {
     let displays = cx.displays();
     window?
-        .update(cx, |_, window, cx| {
-            display_containing_window(&displays, window.bounds())
-                .or_else(|| window.display(cx).map(|display| display.id()))
-        })
+        .update(cx, |_, window, cx| window_display(window, &displays, cx))
         .ok()
         .flatten()
+}
+
+/// The display `window` is on: its live bounds resolved against `displays`,
+/// with the platform's own report as the tie-break for mixed-DPI overlap and
+/// as the fallback when the bounds match nothing.
+fn window_display(
+    window: &Window,
+    displays: &[Rc<dyn gpui::PlatformDisplay>],
+    cx: &App,
+) -> Option<gpui::DisplayId> {
+    let reported = window.display(cx).map(|display| display.id());
+    display_containing_window(displays, window.bounds(), reported).or(reported)
 }
 
 #[cfg(test)]
