@@ -11,9 +11,10 @@ the automated part, then about 20 minutes of checks by hand.
 |---|---|
 | `run.cmd` | Automated performance run. Double-click it. |
 | `presenter-lab.exe` | Performance harness that `run.cmd` drives. |
-| `ordo.exe` | Release Ordo, for the checks by hand. |
+| `ordo.exe` | Release Ordo, for the launch and performance checks by hand. |
+| `walking-skeleton-lab.exe` | The operator and congregation walking skeleton, for checks 2-6. A development lab, not Presenter Mode. |
 | `emergency-fixture.pptx` | Emergency PowerPoint fixture (T0.9). |
-| `vcruntime140*.dll` | Runtime libraries for both executables. |
+| `vcruntime140*.dll` | Runtime libraries for the executables. |
 | `COMMIT.txt`, `BUNDLE.txt` | Commit and qualification bundle this kit was built from. |
 | `KIT-SHA256.txt` | Checksums. `run.cmd` refuses to run if any file differs. |
 | `previous/` | Earlier results. Do not delete. |
@@ -44,27 +45,53 @@ the automated part, then about 20 minutes of checks by hand.
 
 ### 3. Checks by hand
 
-Run `ordo.exe` straight from the stick. Tick each row on the sign-off
+Run the programs straight from the stick. Tick each row on the sign-off
 sheet only for what you actually saw.
 
+Checks 2-6 use `walking-skeleton-lab.exe`. It is a development lab, not
+Presenter Mode: one lab window (title, Preview, Program, Cue position,
+status line, key help) plus the congregation output on the projector. It
+loads a small Mass-shaped deck of 7 Cues in 4 items: Entrance Song (3 Cues),
+Penitential Act (1), First Reading (2), Blackout (1). Keys work with the lab
+window focused: Right/Left move Preview by one Cue, Up/Down jump to the
+previous/next item, Space takes Preview live, `F` freezes, `B` blacks out,
+`F6` enables output, `F8` re-reads the displays, `F9` disables output, `N`
+writes a note to storage.
+
 1. **Launch offline:** `ordo.exe` opens with the network unplugged.
-2. **Both windows:** enable congregation output; Program on the projector
-   shows the same canonical frame as the operator's Program monitor.
-3. **Navigation:** Left/Right, Up/Down, `F` (Freeze), `B` (Blackout), and
-   Space each take effect on Program.
-4. **Canonical rendering:** the projected slide matches the golden
-   composition (text placement and wrapping look right at this scale).
-5. **Display loss:** unplug or disable the projector. Program fails to
-   black and only the operator sees a message. Reconnect: output comes
-   back black first, then content only when you resume.
-6. **Supervision:** close the operator window. The congregation window
-   closes too, and Ordo exits without an error dialog.
-7. **Performance by eye:** with a static slide, Task Manager CPU for Ordo
-   stays low (under 5 %); note memory in Task Manager.
+2. **Both windows:** start `walking-skeleton-lab.exe`. Focus the lab window
+   and press `F6` to enable output (the projector is black first). Press
+   Space to take the current Cue live. The projector shows the same
+   canonical slide as the lab's Program monitor.
+3. **Navigation:** Right/Left move Preview, Up/Down jump between items,
+   Space takes live, `F` freezes Program (navigation continues, the
+   projector holds), `B` blacks out. Each takes effect on Program as
+   described. **Storage:** the lab's status line shows the temporary
+   storage as ready; press `N` while navigating. A note is added and
+   navigation never stalls.
+4. **Canonical rendering:** the projected slides' text placement and
+   wrapping look right at the projector's scale: song title, two- and
+   three-line lyrics, Cebuano response, reading identification and
+   passage.
+5. **Display loss:** with content live, unplug or disable the projector.
+   Program goes black and the lab's status line (operator only) shows the
+   output is disconnected. Nothing appears on another display. If the
+   status does not change within a second or two, press `F8`. Reconnect,
+   then press `F8` and `F6`: output returns black, and content returns
+   only after Space.
+6. **Supervision:** close Ordo's operator window (the shell window, not the
+   lab window). The projector window and the lab close, and the process
+   exits with no error dialog.
+7. **Performance by eye:** with `ordo.exe` running and a static window,
+   Task Manager CPU for Ordo stays low (under 5 %); note memory in Task Manager.
 8. **Emergency PowerPoint:** open `emergency-fixture.pptx`. No repair
    prompt. Sections and slide order are right, slides fill the frame,
    notes and the black safety slides are present. Run Slide Show on the
-   projector to the end.
+   projector to the end. The deck is a synthetic test pattern: five
+   striped colour images (the stripes should reach all four edges in Slide
+   Show) and four black operator-only slides (1, 5, 8, 9) with notes.
+   Sections are Safety, Identification, Entrance Song, Penitential Act
+   response, First Reading, Safety.
 
 ### 4. Finish
 
@@ -86,8 +113,9 @@ Bring home: the new `results-<PC>-<date>.zip` and your notes.
      --out sheet-attempt1.md
    ```
    It fills Bundle identification, Machine, the perf verdict, the
-   PowerPoint SHA-256, and the attempt row, and checks that the kit's
-   `ordo.exe` and deck are the bundle's. It ticks nothing. It exits 1 if
+   PowerPoint SHA-256, the lab's SHA-256, and the attempt row, and checks that
+   the kit's `ordo.exe`, `walking-skeleton-lab.exe`, and deck are the
+   bundle's. It ticks nothing. It exits 1 if
    the kit does not match the bundle.
 3. Fill every `_(fill on site)_` from your notes (use the real time, not
    the PC clock), tick checklist rows only for what you observed, and
