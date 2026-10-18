@@ -510,6 +510,7 @@ attempts table, not here.
 - [ ] Canonical rendering (`walking-skeleton-lab.exe`): the projected slides' text placement and wrapping look right at the projector's scale.
 - [ ] Navigation (`walking-skeleton-lab.exe`): after the first Space the status line says `Live` and Left/Right and Up/Down move Preview and the projector together (Program monitor follows); `F` shows `Frozen` and the projector holds while Preview moves, `F` again returns to `Live` and the projector shows Preview; `B` shows `Blackout` and blacks the projector, `B` again restores (Preview, or the held Cue if frozen); before the first Space and after `F6`, only Space puts content on the projector.
 - [ ] Display loss (`walking-skeleton-lab.exe`): unplugging or disabling the congregation display fails to black with no retargeting to another display, the state shows only in the operator's lab status line, and reconnect returns black first until output is restored.
+- [ ] Hot-plug (`walking-skeleton-lab.exe`): launch with the projector disconnected, then connect it; `F8` shows the display count and the suggested congregation display, `F6` enables black output, and Space shows the Cue.
 - [ ] Performance: static Program idle CPU, Presenter open time, and memory stay within the adopted gates, and the observations are recorded.
   - Prefilled verdict: %(perf)s
 - [ ] Emergency PowerPoint fixture opens and presents in the installed PowerPoint version (`MILESTONES.md` T0.9 `[MANUAL]`). Record the generated file name and SHA-256 below.
