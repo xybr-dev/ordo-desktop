@@ -664,36 +664,40 @@ fn run_step(context: &Context<'_>, step: &Step) -> StepRecord {
     }
 
     let mut artifacts = Vec::new();
-    for (source, name) in step.copies {
-        let source_path = context.root.join(source);
-        let destination = artifacts_dir.join(name);
-        if source_path.is_file() {
-            let copied = fs::copy(&source_path, &destination)
-                .map_err(|error| format!("cannot copy {source}: {error}"));
-            match copied.and_then(|_| artifact_records(context, step.name, name)) {
-                Ok(records) => artifacts.extend(records),
-                Err(error) => {
-                    status = Status::Fail;
-                    reason = Some(error);
-                }
+    let copied = step
+        .copies
+        .iter()
+        .map(|(source, name)| (Some(*source), *name));
+    let produced = step.produces.iter().map(|name| (None, *name));
+    for (source, name) in copied.chain(produced) {
+        let (present, label) = match source {
+            Some(source) => (context.root.join(source).is_file(), source.to_owned()),
+            None => (
+                artifacts_dir.join(name).is_file(),
+                format!("artifacts/{name}"),
+            ),
+        };
+        if !present {
+            if status == Status::Pass {
+                status = Status::Missing;
+                reason = Some(format!("expected {label} was not written"));
             }
-        } else if status == Status::Pass {
-            status = Status::Missing;
-            reason = Some(format!("expected {source} was not written"));
+            continue;
         }
-    }
-    for name in step.produces {
-        if artifacts_dir.join(name).is_file() {
-            match artifact_records(context, step.name, name) {
-                Ok(records) => artifacts.extend(records),
-                Err(error) => {
-                    status = Status::Fail;
-                    reason = Some(error);
-                }
+        let recorded = match source {
+            Some(source) => fs::copy(context.root.join(source), artifacts_dir.join(name))
+                .map_err(|error| format!("cannot copy {source}: {error}"))
+                .and_then(|_| artifact_records(context, step.name, name)),
+            None => artifact_records(context, step.name, name),
+        };
+        match recorded {
+            Ok(records) => artifacts.extend(records),
+            // An earlier failure keeps its own reason.
+            Err(error) if status == Status::Pass => {
+                status = Status::Fail;
+                reason = Some(error);
             }
-        } else if status == Status::Pass {
-            status = Status::Missing;
-            reason = Some(format!("expected artifacts/{name} was not written"));
+            Err(_) => {}
         }
     }
 

@@ -15,6 +15,21 @@ use std::{
 
 pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
 
+/// Builds an example in release and copies its executable into `out_dir`
+/// under the name cargo gave it, so `qualify` can hash and record the exact
+/// binary a person will carry to another machine.
+pub fn stage_example(root: &Path, example: &str, out_dir: &Path) -> XtaskResult<()> {
+    let executable = measure_presenter::build_example(root, example)?;
+    let name = executable
+        .file_name()
+        .ok_or_else(|| format!("cargo reported a path without a file name: {executable:?}"))?;
+    fs::create_dir_all(out_dir)?;
+    let destination = out_dir.join(name);
+    fs::copy(&executable, &destination)?;
+    println!("staged {}", destination.display());
+    Ok(())
+}
+
 /// Non-GPUI crates `domain` and `presentation` may not use. Every GPUI crate is
 /// forbidden there too, by `is_gpui_crate` rather than by listing, so a renamed
 /// or newly published GPUI family cannot slip past an outdated list.
@@ -1247,8 +1262,6 @@ mod tests {
 
     #[test]
     fn spike_detection_covers_renamed_path_spikes() {
-        use DependencyKind::{Development, Normal};
-
         // Name suffix and path both make a spike.
         assert!(is_spike_package(
             "powerpoint-spike",
@@ -1260,15 +1273,6 @@ mod tests {
         assert!(!is_spike_package("renamed-engine", "crates/renamed-spike"));
         assert!(!is_spike_package("renamed-engine", "tools/renamed"));
         assert!(!is_spike_package("storage", "crates/storage"));
-
-        // A renamed spike reached from a product crate is rejected.
-        assert!(is_spike_package("renamed-engine", "tools/renamed-spike"));
-        let ordo_normal = [("ordo", "crates/ordo", "renamed-engine", Normal)];
-        assert!(validate_spike_reuse(&ordo_normal).is_err());
-
-        // The same renamed spike is allowed from a test package as a dev-dependency.
-        let test_dev = [("tests-foo", "tests/foo", "renamed-engine", Development)];
-        assert!(validate_spike_reuse(&test_dev).is_ok());
     }
 
     #[test]

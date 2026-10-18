@@ -188,7 +188,7 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
 /// rest of the workspace, and returns the executable cargo reports. Asking
 /// cargo honours every source of the target directory: `CARGO_TARGET_DIR`,
 /// the repository's `.cargo/config.toml`, and the user's cargo config.
-fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> {
+pub(crate) fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> {
     let output = Command::new("cargo")
         .args([
             "build",
@@ -211,21 +211,6 @@ fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> {
     }
     example_executable(&String::from_utf8_lossy(&output.stdout), example)
         .ok_or_else(|| format!("cargo build did not report the {example} executable").into())
-}
-
-/// Builds an example in release and copies its executable into `out_dir`
-/// under the name cargo gave it, so `qualify` can hash and record the exact
-/// binary a person will carry to another machine.
-pub fn stage_example(root: &Path, example: &str, out_dir: &Path) -> XtaskResult<()> {
-    let executable = build_example(root, example)?;
-    let name = executable
-        .file_name()
-        .ok_or_else(|| format!("cargo reported a path without a file name: {executable:?}"))?;
-    fs::create_dir_all(out_dir)?;
-    let destination = out_dir.join(name);
-    fs::copy(&executable, &destination)?;
-    println!("staged {}", destination.display());
-    Ok(())
 }
 
 /// The named example's executable in cargo's JSON build messages, if any.
