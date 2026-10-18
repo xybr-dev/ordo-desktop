@@ -43,7 +43,8 @@ use platform::{
     congregation_window::congregation_window_options,
     display::{
         AssignError, DisplayAdapter, DisplayControl, DisplayEvent, DisplayId, EnableError,
-        OutputLifecycle, RelativeDirection, Topology, gpui_adapter::GpuiDisplayAdapter,
+        OutputLifecycle, RelativeDirection, Topology,
+        gpui_adapter::{GpuiDisplayAdapter, display_containing_window},
     },
 };
 use presentation::{
@@ -510,10 +511,18 @@ impl CongregationOutput {
 
 /// The display carrying the operator window, when it can be read now. A
 /// window mid-update cannot be read, and the caller then uses its last value.
+///
+/// On Windows display ids are `HMONITOR` values reissued on display change,
+/// and `Window::display` matches a core id refreshed only on bounds change, so
+/// after a hot-plug it can read `None` or name the wrong monitor. The live
+/// window bounds are therefore resolved against freshly read displays first,
+/// and `Window::display` is only the fallback.
 fn read_operator_display(window: Option<AnyWindowHandle>, cx: &mut App) -> Option<gpui::DisplayId> {
+    let displays = cx.displays();
     window?
         .update(cx, |_, window, cx| {
-            window.display(cx).map(|display| display.id())
+            display_containing_window(&displays, window.bounds())
+                .or_else(|| window.display(cx).map(|display| display.id()))
         })
         .ok()
         .flatten()
