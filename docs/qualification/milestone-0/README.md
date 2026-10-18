@@ -12,6 +12,11 @@ closes a task. Where a manual box is unticked, this file says so.
 
 - `README.md` (this file): how to run and read the bundle, and the proof map.
 - `EXCEPTIONS.md`: ledger of every workaround and deviation Phase 0 adopted.
+- `USB-KIT-README.md`: church-PC instructions for the kit, including the checks
+  by hand (checks 2-6 run on `walking-skeleton-lab.exe`).
+- `prefill-signoff.py`: prefills the sign-off sheet from a bundle and a results
+  zip, and checks the kit's `ordo.exe`, `walking-skeleton-lab.exe`, and deck
+  against the bundle.
 - `WINDOWS-10-SIGNOFF.md`: blank manual sheet for the Windows 10 22H2 packaged
   checks. Completed sheets are not committed.
 
@@ -37,6 +42,7 @@ The command lives in `xtask/src/qualify.rs`.
 | `shaping-probe` | `cargo test -p rendering --locked --test shaping_probe` |
 | `measure-presenter` | `cargo xtask measure-presenter`, report copied into the bundle |
 | `powerpoint-fixture` | `cargo run -p powerpoint-spike -- fixture`, then `cargo xtask inspect-pptx` on the output |
+| `walking-skeleton-lab` | `cargo xtask stage-example walking-skeleton-lab`, artifact `walking-skeleton-lab.exe` |
 
 A failed step does not stop later steps, so every result is recorded.
 
@@ -81,7 +87,8 @@ explicit GPUI and platform versions (`gpui-pre`, `gpui-pre-platform`, and
 pin). A crate version alone does not identify the GPUI revision.
 
 Manual review: open `target/qualification/milestone-0/latest.txt`, then the
-`index.md` it names. `cargo run -p ordo` still launches the walking skeleton.
+`index.md` it names. `cargo run -p ordo` launches the operator shell; the operator and congregation
+walking skeleton is `cargo run -p ordo --example walking-skeleton-lab`.
 
 ### CI
 
@@ -119,6 +126,15 @@ boxes in `MILESTONES.md` at the time of writing.
 
 Notes on the table:
 
+- The manual checks 2-6 of the sign-off (both windows, navigation, canonical
+  rendering, display loss, supervision) and the storage row run on
+  `walking-skeleton-lab.exe` (the `walking-skeleton-lab` step). It composes the
+  T0.2, T0.4, T0.5, T0.6, and T0.7 Module Interfaces and adds no product
+  behaviour. Display loss is stated as T0.5 delivers it: fail to black, no
+  retargeting, and black until restored; the state shows in the lab's
+  operator status line, and an operator message in the product shell is
+  Phase 1. Storage is a fresh temporary database owned by the Storage Module
+  worker, because the runtime does not open SQLite in Milestone 0.
 - T0.4b is a rescope, not a separate proof. It is recorded in `MILESTONES.md`
   and reflected in the T0.4 row.
 - T0.5 has no gate file in this folder even though its manual boxes are ticked.

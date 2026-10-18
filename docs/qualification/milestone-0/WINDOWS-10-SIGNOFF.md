@@ -41,19 +41,20 @@ overwritten. A rerun gets a new row that names the attempt it reruns.
 - Installed PowerPoint version (`File > Account > About PowerPoint`):
 - Network confirmed unavailable: [ ]
 - Release `ordo` binary SHA-256 (`target/release/ordo.exe`):
+- `walking-skeleton-lab` binary SHA-256 (bundle artifact `walking-skeleton-lab.exe`):
 
 ## Checklist
 
 Mark each row with the attempt number it passed on. Record findings in the
 attempts table, not here.
 
-- [ ] Release `ordo` binary launches from the built artifact, offline.
-- [ ] Operator window and congregation window run the walking skeleton with the same fixture-based canonical frame.
-- [ ] Task supervision: closing the operator window closes the congregation window, and worker failures appear as structured results.
-- [ ] Storage: the SQLite worker opens the clean fixture state and stays responsive during navigation.
-- [ ] Canonical rendering: Program matches the canonical golden composition at the operator's display scale.
-- [ ] Navigation: Left/Right, Up/Down, Freeze, Blackout, and Space take effect on Program.
-- [ ] Display loss: unplugging or disabling the congregation display fails safely to black and reports only to the operator; reconnect follows the black-first recovery path.
+- [ ] Launch: `ordo.exe` launches from the kit, offline.
+- [ ] Walking skeleton (`walking-skeleton-lab.exe`): the lab's operator window and the congregation output show the same canonical frame for the same Cue.
+- [ ] Task supervision (`walking-skeleton-lab.exe`): closing Ordo's operator window closes the congregation window and the lab, and the process exits with no error dialog.
+- [ ] Storage (`walking-skeleton-lab.exe`): the Storage Module worker opens a fresh temporary database and stays responsive during navigation.
+- [ ] Canonical rendering (`walking-skeleton-lab.exe`): the projected slides' text placement and wrapping look right at the projector's scale.
+- [ ] Navigation (`walking-skeleton-lab.exe`): Left/Right, Up/Down, Freeze, Blackout, and Space take effect on Program.
+- [ ] Display loss (`walking-skeleton-lab.exe`): unplugging or disabling the congregation display fails to black with no retargeting to another display, the state shows only in the operator's lab status line, and reconnect returns black first until output is restored.
 - [ ] Performance: static Program idle CPU, Presenter open time, and memory stay within the adopted gates, and the observations are recorded.
 - [ ] Emergency PowerPoint fixture opens and presents in the installed PowerPoint version (`MILESTONES.md` T0.9 `[MANUAL]`). Record the generated file name and SHA-256 below.
 
