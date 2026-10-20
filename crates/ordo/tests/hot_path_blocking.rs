@@ -64,16 +64,38 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Production lines only: everything before the first `#[cfg(test)]` or
-/// `#[cfg(all(test` attribute. Test modules sit at the end of each file.
+/// Production lines only: everything before the first `#[cfg(test)]`-guarded
+/// module. A test module's body is never production. Mid-file `#[cfg(test)]`
+/// items — hook fields, hook functions, gated statements — do not end the
+/// scan, so production code after them is still checked.
 fn production_lines(source: &str) -> impl Iterator<Item = &str> {
-    source
-        .lines()
-        .take_while(|line| {
-            let line = line.trim_start();
-            !line.starts_with("#[cfg(test)]") && !line.starts_with("#[cfg(all(test")
+    let lines: Vec<&str> = source.lines().collect();
+    let stop = (0..lines.len())
+        .find(|&index| {
+            let line = lines[index].trim_start();
+            (line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test"))
+                && guards_a_module(&lines[index + 1..])
         })
-        .map(str::trim)
+        .unwrap_or(lines.len());
+    lines.into_iter().take(stop).map(str::trim)
+}
+
+/// Whether the item after a test attribute is a `mod` declaration, looking
+/// past any further attributes and doc comments.
+fn guards_a_module(after_attribute: &[&str]) -> bool {
+    let item = after_attribute
+        .iter()
+        .map(|line| line.trim_start())
+        .find(|line| !line.is_empty() && !line.starts_with("#[") && !line.starts_with("///"));
+    let Some(item) = item else {
+        return false;
+    };
+    let item = item
+        .strip_prefix("pub(crate) ")
+        .or_else(|| item.strip_prefix("pub(super) "))
+        .or_else(|| item.strip_prefix("pub "))
+        .unwrap_or(item);
+    item.starts_with("mod ")
 }
 
 #[test]
@@ -116,5 +138,41 @@ fn every_blocking_wait_in_production_source_is_reviewed() {
     assert!(
         stale.is_empty(),
         "reviewed sites no longer exist; remove them: {stale:#?}"
+    );
+}
+
+#[test]
+fn production_lines_scan_past_mid_file_test_items_and_stop_at_the_test_module() {
+    let source = "\
+fn production(requests: Receiver<()>) {
+    let _ = requests.recv();
+}
+#[cfg(test)]
+fn test_hook() -> bool {
+    true
+}
+fn later_production(worker: JoinHandle<()>) {
+    let _ = worker.join();
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_in_tests(worker: JoinHandle<()>) {
+        let _ = worker.join();
+    }
+}
+";
+    let lines: Vec<_> = production_lines(source).collect();
+    assert!(
+        lines.contains(&"let _ = requests.recv();"),
+        "production before the test item must be scanned"
+    );
+    assert!(
+        lines.contains(&"let _ = worker.join();"),
+        "production after a mid-file test item must still be scanned"
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("only_in_tests")),
+        "the test module's body must not be scanned"
     );
 }
