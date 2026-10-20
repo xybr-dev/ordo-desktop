@@ -44,7 +44,7 @@ use platform::{
     display::{
         AssignError, DisplayAdapter, DisplayControl, DisplayEvent, DisplayId, EnableError,
         OutputLifecycle, RelativeDirection, Topology,
-        gpui_adapter::{GpuiDisplayAdapter, display_containing_window},
+        gpui_adapter::{DisplayResolution, GpuiDisplayAdapter, display_containing_window},
     },
 };
 use presentation::{
@@ -534,7 +534,28 @@ fn window_display(
     cx: &App,
 ) -> Option<gpui::DisplayId> {
     let reported = window.display(cx).map(|display| display.id());
-    display_containing_window(displays, window.bounds(), reported).or(reported)
+    resolved_display(
+        display_containing_window(displays, window.bounds(), reported),
+        reported,
+    )
+}
+
+/// The operator display from a bounds lookup and the platform's report.
+///
+/// `NoMatch` falls back to the report: the window may be between monitors, and
+/// the cached id is the only other evidence. `Ambiguous` does not: several
+/// displays contain the centre and none is the reported one, so the bounds
+/// have already ruled the report out, and a guess could land on another
+/// display. `None` tells the caller to keep its last known value.
+fn resolved_display(
+    resolution: DisplayResolution,
+    reported: Option<gpui::DisplayId>,
+) -> Option<gpui::DisplayId> {
+    match resolution {
+        DisplayResolution::Matched(display) => Some(display),
+        DisplayResolution::NoMatch => reported,
+        DisplayResolution::Ambiguous => None,
+    }
 }
 
 #[cfg(test)]
@@ -573,5 +594,29 @@ mod tests {
         assert_eq!(locate_cursor(&topology, DisplayId::new(2)), None);
         let topology = Topology::new(vec![display(1, 0, 0)], Some(DisplayId::new(1)));
         assert_eq!(locate_cursor(&topology, DisplayId::new(9)), None);
+    }
+
+    #[test]
+    fn ambiguous_bounds_keep_the_last_display_instead_of_guessing() {
+        let reported = Some(gpui::DisplayId::new(1));
+        assert_eq!(
+            resolved_display(
+                DisplayResolution::Matched(gpui::DisplayId::new(2)),
+                reported
+            ),
+            Some(gpui::DisplayId::new(2)),
+            "the containing display wins over the platform report"
+        );
+        assert_eq!(
+            resolved_display(DisplayResolution::NoMatch, reported),
+            Some(gpui::DisplayId::new(1)),
+            "no containing display falls back to the platform report"
+        );
+        assert_eq!(resolved_display(DisplayResolution::NoMatch, None), None);
+        assert_eq!(
+            resolved_display(DisplayResolution::Ambiguous, reported),
+            None,
+            "ambiguous bounds must not fall back to a display the bounds ruled out"
+        );
     }
 }

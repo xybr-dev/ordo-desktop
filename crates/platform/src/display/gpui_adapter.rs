@@ -70,35 +70,51 @@ pub fn topology_from_displays(
     )
 }
 
-/// The display whose bounds contain the centre of `window`.
+/// What [`display_containing`] found for a window's centre.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DisplayResolution {
+    /// One display contains the centre; with several overlapping matches,
+    /// `hint` chose among them.
+    Matched(gpui::DisplayId),
+    /// No display contains the centre.
+    NoMatch,
+    /// Several displays contain the centre and `hint` is none of them: these
+    /// bounds cannot decide, so the caller must not guess.
+    Ambiguous,
+}
+
+/// Resolves the display whose bounds contain the centre of `window`.
 ///
 /// GPUI display ids are `HMONITOR` values on Windows, reissued when the
 /// topology changes, so an id cached on a window can be stale or name the
 /// wrong monitor. Bounds are read fresh and carry no such identity problem.
 /// A window's logical origin and each monitor's logical bounds are both
-/// computed at that monitor's scale, so the window's centre is always inside
+/// computed at that monitor's scale, so the window's centre is usually inside
 /// its true monitor. With mixed DPI the logical rectangles overlap, so the
-/// centre may also be inside a neighbour. One match is returned as is. With
+/// centre may also be inside a neighbour. One match resolves as is. With
 /// several matches, `hint` (the platform's own report of the window's display)
-/// breaks the tie when it is one of them; otherwise the answer is `None`
-/// rather than a guess.
+/// breaks the tie when it is one of them; otherwise the result is
+/// [`Ambiguous`](DisplayResolution::Ambiguous) rather than a guess.
 pub fn display_containing(
     displays: impl IntoIterator<Item = (gpui::DisplayId, Bounds<Pixels>)>,
     window: Bounds<Pixels>,
     hint: Option<gpui::DisplayId>,
-) -> Option<gpui::DisplayId> {
+) -> DisplayResolution {
     let centre = window.center();
     let mut containing = displays
         .into_iter()
         .filter(|(_, bounds)| bounds.contains(&centre))
         .map(|(id, _)| id);
-    let found = containing.next()?;
+    let Some(found) = containing.next() else {
+        return DisplayResolution::NoMatch;
+    };
     match containing.next() {
-        None => Some(found),
+        None => DisplayResolution::Matched(found),
         Some(second) => [found, second]
             .into_iter()
             .chain(containing)
-            .find(|id| Some(*id) == hint),
+            .find(|id| Some(*id) == hint)
+            .map_or(DisplayResolution::Ambiguous, DisplayResolution::Matched),
     }
 }
 
@@ -107,7 +123,7 @@ pub fn display_containing_window(
     displays: &[Rc<dyn PlatformDisplay>],
     window: Bounds<Pixels>,
     hint: Option<gpui::DisplayId>,
-) -> Option<gpui::DisplayId> {
+) -> DisplayResolution {
     display_containing(
         displays
             .iter()
@@ -211,22 +227,37 @@ mod tests {
     #[test]
     fn window_centre_selects_the_single_containing_display() {
         let window = area(100.0, 100.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), window, None), Some(id(1)));
+        assert_eq!(
+            display_containing(layout(), window, None),
+            DisplayResolution::Matched(id(1))
+        );
     }
 
     #[test]
     fn window_on_displays_left_or_above_resolves_at_negative_coordinates() {
         let left = area(-1200.0, 50.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), left, None), Some(id(2)));
+        assert_eq!(
+            display_containing(layout(), left, None),
+            DisplayResolution::Matched(id(2))
+        );
         let above = area(100.0, -900.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), above, None), Some(id(3)));
+        assert_eq!(
+            display_containing(layout(), above, None),
+            DisplayResolution::Matched(id(3))
+        );
     }
 
     #[test]
     fn off_screen_window_resolves_to_nothing() {
         let window = area(5000.0, 5000.0, 800.0, 600.0);
-        assert_eq!(display_containing(layout(), window, None), None);
-        assert_eq!(display_containing([], window, None), None);
+        assert_eq!(
+            display_containing(layout(), window, None),
+            DisplayResolution::NoMatch
+        );
+        assert_eq!(
+            display_containing([], window, None),
+            DisplayResolution::NoMatch
+        );
     }
 
     #[test]
@@ -236,9 +267,15 @@ mod tests {
             (id(2), area(960.0, 0.0, 1920.0, 1080.0)),
         ];
         let window = area(1000.0, 100.0, 400.0, 300.0);
-        assert_eq!(display_containing(displays.clone(), window, None), None);
+        assert_eq!(
+            display_containing(displays.clone(), window, None),
+            DisplayResolution::Ambiguous
+        );
         // A hint naming a non-containing display does not resolve it either.
-        assert_eq!(display_containing(displays, window, Some(id(9))), None);
+        assert_eq!(
+            display_containing(displays, window, Some(id(9))),
+            DisplayResolution::Ambiguous
+        );
     }
 
     #[test]
@@ -253,20 +290,23 @@ mod tests {
         let on_first = area(1000.0, 100.0, 600.0, 400.0);
         assert_eq!(
             display_containing(displays.clone(), on_second, Some(id(2))),
-            Some(id(2))
+            DisplayResolution::Matched(id(2))
         );
         assert_eq!(
             display_containing(displays.clone(), on_first, Some(id(1))),
-            Some(id(1))
+            DisplayResolution::Matched(id(1))
         );
         // Unambiguous windows ignore a stale hint.
         let far_left = area(100.0, 100.0, 600.0, 400.0);
         assert_eq!(
             display_containing(displays.clone(), far_left, Some(id(2))),
-            Some(id(1))
+            DisplayResolution::Matched(id(1))
         );
         // Ambiguous without a hint stays refused.
-        assert_eq!(display_containing(displays, on_second, None), None);
+        assert_eq!(
+            display_containing(displays, on_second, None),
+            DisplayResolution::Ambiguous
+        );
     }
 
     #[test]

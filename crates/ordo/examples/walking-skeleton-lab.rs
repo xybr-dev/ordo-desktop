@@ -367,9 +367,10 @@ fn follow(
     step
 }
 
-/// Apply `command`, then, while Live, follow Preview. `TakeLive` on a Cue that
-/// is not composed is not applied at all, so the engine and the projector
-/// never disagree. Returns what the output should now show.
+/// Apply `command`, then, while Live, follow Preview. `TakeLive` with no
+/// connected output, or on a Cue that is not composed, is not applied at all,
+/// so the engine and the projector never disagree. Returns what the output
+/// should now show.
 fn step(
     engine: &mut PresenterEngine,
     command: PresenterCommand,
@@ -377,6 +378,15 @@ fn step(
     connected: bool,
     composed: impl Fn(usize) -> bool,
 ) -> Step {
+    if command == PresenterCommand::TakeLive && !connected {
+        // The projector cannot show anything, so taking Program would move the
+        // engine alone: the status line would say "Program unchanged" and the
+        // mode would read "Output off" while nothing was ever taken.
+        return Step {
+            target: None,
+            uncomposed: None,
+        };
+    }
     if command == PresenterCommand::TakeLive && !composed(engine.state().preview()) {
         return Step {
             target: None,
@@ -1522,6 +1532,22 @@ mod tests {
         assert_eq!(out.target, None);
         assert_eq!(out.uncomposed, Some(1));
         assert_eq!(engine.state().program(), None, "engine did not move");
+    }
+
+    #[test]
+    fn take_live_while_disconnected_leaves_program_untouched() {
+        let mut engine = PresenterEngine::new(7);
+        let out = step(
+            &mut engine,
+            PresenterCommand::TakeLive,
+            false,
+            false,
+            composed_all,
+        );
+        assert_eq!(out.target, None);
+        assert_eq!(out.uncomposed, None);
+        assert_eq!(engine.state().program(), None, "engine did not move");
+        assert_eq!(mode_label(engine.state(), false, false), "Not live");
     }
 
     #[test]
