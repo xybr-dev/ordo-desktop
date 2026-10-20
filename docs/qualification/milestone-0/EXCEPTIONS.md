@@ -1,10 +1,13 @@
 # Milestone 0 exceptions ledger
 
 This ledger lists every workaround, deviation, and recorded gap that Phase 0
-adopted. It is taken from the qualification documents in `docs/qualification/`
-and the Deviations sections of `docs/plans/T0.8-implementation-plan.md` and
-`docs/plans/T0.9-implementation-plan.md`. T0.3 to T0.7 plans have no Deviations
-section.
+adopted. It is taken from the qualification documents in
+`docs/qualification/milestone-0/`, the Deviations sections of
+`docs/plans/T0.8-implementation-plan.md` and
+`docs/plans/T0.9-implementation-plan.md`, the recorded results and caveats in
+`docs/plans/T0.6-implementation-plan.md`, and the sign-off findings and owner
+review in `docs/plans/T0.10-implementation-plan.md`. T0.3 to T0.5 and T0.7
+plans have no Deviations section.
 
 Each row names the owner, the proof that requalifies it, and the domain
 statement. "Requalifying proof" is the test or record that must pass again
@@ -15,8 +18,8 @@ when the item changes or closes.
 `crates/domain/Cargo.toml` has no dependencies. `cargo xtask architecture`
 checks the dependencies of `domain` and `presentation` and fails if either
 gains a GPUI, SQLite, filesystem, network, or OS-window dependency. Every row
-below is a platform or adapter workaround, so `domain` stays independent of all
-of them.
+below is a platform, adapter, or qualification-scope exception, so `domain`
+stays independent of all of them.
 
 ## Ledger
 
@@ -64,16 +67,40 @@ crates do not depend on them (see the reuse rule in `README.md`).
 | 19 | `export_with` is `pub(crate)` so unit tests can force a post-write validation failure. Public `export` delegates to it. | `tools/powerpoint-spike` | Unit tests in `tools/powerpoint-spike/src/tests.rs` that force validation failure and check that the destination is untouched; `tests/powerpoint/tests/e2e.rs` | Domain has no PowerPoint dependency | `docs/plans/T0.9-implementation-plan.md` "Deviations" (Test seam) |
 | 20 | PowerPoint structure is checked by the inspector, not by PowerPoint. Opening without a repair prompt is not proved by automation. | `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` | Manual: "Emergency PowerPoint fallback" in `WINDOWS-10-SIGNOFF.md`, in the installed PowerPoint version. Still open | Domain has no PowerPoint dependency | `docs/plans/T0.9-implementation-plan.md` "Deviations" (Not verified here); `MILESTONES.md` T0.9 `[MANUAL]` |
 
+### Phase 0 sign-off scope and T0.6 evidence (T0.5, T0.6, T0.10)
+
+Rows 21 to 23 reconcile the sign-off sheets with what Milestone 0 delivered,
+and rows 24 to 26 record the caveats and deferrals under which T0.6's evidence
+is accepted.
+
+| # | Exception | Owner | Requalifying proof | Domain independence | Source |
+|---|---|---|---|---|---|
+| 21 | Hand checks 2-6 of the sign-off (both windows, navigation, canonical rendering, display loss, supervision) run on the `walking-skeleton-lab` example, not `ordo.exe`: the product shell has no output, navigation, or Presenter controls before Phase 1. | `ordo` (development-only example) | The attempt-2 sign-off rows in `WINDOWS-10-SIGNOFF.md` on the lab binary; the lab's tests, `cargo test -p ordo --example walking-skeleton-lab` | Domain has no GPUI dependency | `docs/plans/T0.10-implementation-plan.md` "Church-PC finding 2"; `USB-KIT-README.md`; Decision 271 |
+| 22 | Display loss is checked as T0.5 delivers it: fail to black, no retargeting, black until restored. An operator message in the product shell is Phase 1; the lab shows output state in its own operator-only status line. | `ordo` runtime (`crates/ordo/src/output.rs`; lab status line) | The display-loss row in `WINDOWS-10-SIGNOFF.md`; display tests in `tests/display/` | Domain has no GPUI dependency | `docs/plans/T0.10-implementation-plan.md` "Church-PC finding 2"; Decision 271 |
+| 23 | The sign-off's storage row runs on a fresh temporary database owned by the Storage Module worker; the runtime does not open SQLite in Milestone 0. | `storage` (temporary database) | The storage row in `WINDOWS-10-SIGNOFF.md`; `tests/storage/tests/acceptance.rs` | Domain has no SQLite dependency | `docs/plans/T0.10-implementation-plan.md` "Church-PC finding 2"; Decision 271 |
+| 24 | T0.6's "large-library Preparation" memory baseline is a stand-in: a synthetic 10,000-entry library in memory, because no Preparation UI or storage exists yet. | `ordo` performance harness (T0.6) | The three-run baselines recorded for the church PC; close when a Preparation workspace backs the benchmark | Domain has no GPUI dependency | `docs/plans/T0.6-implementation-plan.md` "Recorded results (church PC, minimum profile)" caveats |
+| 25 | T0.6's native harness is the release `presenter-lab.exe` example, not an installed package; there is no installer before T6. | `ordo` performance harness (T0.6) | The church-PC run and its recorded hashes; requalify when T6 packaging lands | Domain has no GPUI dependency | `docs/plans/T0.6-implementation-plan.md` "Recorded results (church PC, minimum profile)" caveats; Decision 271 |
+| 26 | T0.6's hot-path AC closes on existing subsystems (Decision 270): SQLite, autosave, pagination, and a Cue timeline do not exist yet, so their checks are reserved (`HotPathKind::Pagination`, `HotPathKind::Autosave`) or move to the task that first builds them (T1.2's timeline). | `ordo` performance probe and `presentation` | `crates/ordo/tests/hot_path_blocking.rs` and the zero hot-path violations in the church-PC run; close as the reserved checks land | Domain has no GPUI dependency | `MILESTONES.md` T0.6 hot-path AC; Decision 270 |
+| 27 | Operator display after a hot-plug: with the pinned GPUI, `Window::display` goes stale because Windows reissues `HMONITOR` ids, so the operator window's display could read `None` or name another monitor. The operator display is resolved from the window's live bounds against a fresh display list; ambiguous mixed-DPI overlap keeps the last known display instead of guessing. | `ordo` runtime (`crates/platform/src/display/gpui_adapter.rs`, `crates/ordo/src/output.rs`) | Adapter tests (`display_containing` resolutions, `resolved_display`) and the hot-plug row in `WINDOWS-10-SIGNOFF.md` on attempt 2; re-check when the GPUI supply changes | Domain has no GPUI dependency | `docs/plans/T0.10-implementation-plan.md` "Owner review of the walking-skeleton lab (PR #46)"; `MILESTONES.md` T0.5 hot-plug note |
+
 ## Open items in this ledger
 
-- Rows 1 to 7 and row 10 close only when the pinned GPUI, `gpui-base`, or wgpu
-  revision changes the gap. Re-check them at every GPUI supply change, as
-  `GPUI-BASE-T0.4a.md` does.
+- Rows 1 to 7, row 10, and row 27 close only when the pinned GPUI, `gpui-base`,
+  or wgpu revision changes the gap. Re-check them at every GPUI supply change,
+  as `GPUI-BASE-T0.4a.md` does.
+- Rows 21, 22, 23, and 27 requalify together on the Phase 0 sign-off attempt 2
+  (issue #50), when the sign-off sheets run against the rebuilt kit.
+- Row 25 stays open until T6 packaging lands, when the packaged checks rerun
+  against the installed package.
+- Row 24 closes when a Preparation workspace backs the benchmark.
+- Row 26 closes as the reserved hot-path checks land with their first
+  production sites (Decision 270).
 - Row 11 remains until T6.2 completes Linux packaged sign-off, or the decision
   is revisited.
 - Row 12 remains open. The NFC gap is not closed by any Phase 0 proof.
 - Row 20 remains open until the manual PowerPoint check is recorded.
 - Known gap, not a workaround row: the `.ordo` container inspector is still
   spike code. It is promoted into a `portability` crate at its owning milestone
-  (`MVP-PLAN.md` section 6.4). Until then only tests reach it through
-  `[dev-dependencies]`.
+  (`MVP-PLAN.md` section 6.4); T0.10 AC5 stays ticked on the enforceable reuse
+  rule and the deferral is recorded in Decision 272. Until the promotion, only
+  tests reach it through `[dev-dependencies]`.
