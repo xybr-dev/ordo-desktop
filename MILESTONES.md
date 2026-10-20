@@ -449,6 +449,17 @@ black-first Program, take a fixture frame live, disconnect the assigned display,
 assert protective Disconnected state, reconnect it under a new OS ID with
 matching evidence, and assert Program remains black until explicitly restored.
 
+Hot-plug note (found and fixed during T0.10): the E2E reconnects a display
+present at launch, but a projector connected after launch could not get output.
+With the pinned GPUI, `Window::display` goes stale after a hot-plug because
+Windows reissues `HMONITOR` ids, so the operator display could not be read and
+output could not be enabled. Fixed on the T0.10 branch: the operator display is
+resolved from the operator window's live bounds against a fresh display list,
+and an ambiguous mixed-DPI overlap keeps the last known display instead of
+guessing. Recorded as row 27 in
+`docs/qualification/milestone-0/EXCEPTIONS.md`; the attempt-2 hot-plug check in
+`WINDOWS-10-SIGNOFF.md` is its requalification.
+
 ### T0.6 — Presentation Engine and performance instrumentation spike
 
 **Goal:** Establish the deterministic hot path and prove native GPUI can meet
@@ -645,6 +656,11 @@ platform assumption or an undocumented exception.
       reusable fixtures, contract cases, inspectors, and instrumentation remain
       outside `tools/*-spike`, while disposable generator prototypes are never
       imported by production crates.
+      Closed on the enforceable half: `validate_spike_reuse_policy` enforces the
+      rule and no production crate depends on a spike. The `.ordo` inspector
+      stays in `tools/artifact-container-spike` until its `portability`
+      promotion; the deferral is recorded in Decision 272 and
+      `docs/qualification/milestone-0/EXCEPTIONS.md`.
 
 **E2E** `[NATIVE-AUTO]` `[MANUAL]` — From one clean commit, build both native
 packages, launch the operator and congregation walking skeleton, exercise task
