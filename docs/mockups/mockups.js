@@ -116,9 +116,26 @@
       decisions: ["0240-approved-paired-mass-planning-responsive-acceptance"]
     },
     {
+      slug: "mass-planning-responsive-v2", group: "planning", title: "Mass Planning, 1366 and 1920", replaces: "mass-planning-responsive",
+      summary: "The three-pane hierarchy on the shared kit at 1366×768 and 1920×1080, holding the same Mass, Song item, Arrangement and Cue. Interactive: outline, generated Cues and Inspector stay in sync.",
+      status: "proposed",
+      decisions: ["0240-approved-paired-mass-planning-responsive-acceptance", "0169-inspector-navigation-follows-the-selected-mass-item-s-cue", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0257-make-library-a-multi-view-destination-with-revision-bound"],
+      interpretations: [
+        "The global rail shows Library rather than Songs (Decision 257).",
+        "The wide composition starts at an effective width of 1700 logical px. That is illustrative; production adapts to effective dimensions and minimum pane widths (Decisions 234 and 236).",
+        "The selected item is the Entrance Song rather than the original Kyrie, so that the comparison has enough generated Cues to show the thumbnail difference."
+      ]
+    },
+    {
       slug: "inspector-cue-navigation", group: "planning", title: "Inspector Cue navigation",
       summary: "Cue navigation synchronised between the editor and Inspector; black output plus private context for operator-only triggers; item boundaries.",
       status: "approved",
+      decisions: ["0169-inspector-navigation-follows-the-selected-mass-item-s-cue"]
+    },
+    {
+      slug: "inspector-cue-navigation-v2", group: "planning", title: "Inspector Cue navigation", replaces: "inspector-cue-navigation",
+      summary: "Inspector navigation over the selected item's Cue order on the shared kit: a black congregation frame with private context for an operator-only trigger, and the disabled boundary at the item's last Cue.",
+      status: "proposed",
       decisions: ["0169-inspector-navigation-follows-the-selected-mass-item-s-cue"]
     },
     {
