@@ -59,6 +59,7 @@
       decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
+        "Timeline Cues carry a ring for Program (green, amber while held) and for Preview (blue, borrowing the focus colour), each with its word in the caption; when both differ the timeline scrolls to keep both in view if they fit. DESIGN.md names no on-air treatment for timeline Cues.",
         "Four 300px frames per row at 1920 fit only with a 200px pinned Ordo rail and a 400px Output Dock, so the mockup uses those widths; at 1366 the dock is 360px and three frames fit."
       ]
     },

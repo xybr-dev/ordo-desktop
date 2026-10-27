@@ -124,7 +124,7 @@
     return '<div class="o-slide">' + canvas(c) + (opts.dim ? "" : "") + "</div>";
   }
   function statusLabel(state, text, marker) {
-    var m = marker === "square" ? "o-marker o-marker--square" : marker === "diamond" ? "o-marker o-marker--diamond" : "o-marker";
+    var m = marker === "square" ? "o-marker o-marker--square" : marker === "diamond" ? "o-marker o-marker--diamond" : marker === "ring" ? "o-marker o-marker--ring" : "o-marker";
     return '<span class="o-status" data-state="' + state + '"><span class="' + m + '"></span>' + esc(text) + "</span>";
   }
   function icons() { if (window.lucide) window.lucide.createIcons({ attrs: { "stroke-width": 2 } }); }
@@ -254,16 +254,20 @@
 
     function cueTile(c) {
       var cur = c.i === S.preview ? ' aria-current="true"' : "";
-      var onAir = c.i === S.program && S.output === "enabled" && !S.blackout ? '<span class="pr-onair">' + statusLabel(S.frozen ? "freeze" : "live", S.frozen ? "Held" : "Program", S.frozen ? "diamond" : null) + "</span>" : "";
+      // Program (live or held) and Preview each get a ring and a word; linked Live shows both on one Cue
+      var air = c.i === S.program && S.output === "enabled" && !S.blackout ? (S.frozen ? "held" : "live") : "";
+      var onAir = (air || cur) ? '<span class="pr-onair">' + (air ? statusLabel(air === "held" ? "freeze" : "live", air === "held" ? "Held" : "Program", air === "held" ? "diamond" : null) : "") +
+        (cur ? statusLabel("preview", "Preview", "ring") : "") + "</span>" : "";
+      var airAttr = air ? ' data-onair="' + air + '"' : "";
       if (S.mode === "grid" && (projectable(c) || c.k === "unavailable")) {
-        return '<button class="pr-tile" data-cue="' + c.i + '"' + cur + '><div class="o-slide-wrap"' + cur + ">" + slide(c) + "</div>" +
+        return '<button class="pr-tile" data-cue="' + c.i + '"' + cur + '><div class="o-slide-wrap"' + cur + airAttr + ">" + slide(c) + "</div>" +
           '<div class="o-caption"><span class="o-n">' + c.item.n + "." + (c.ci + 1) + '</span><span class="o-t">' + esc(KIND_LABEL[c.k] === "Unavailable" ? "Unavailable · " + c.b : cueLabel(c)) + "</span>" + onAir + "</div></button>";
       }
       var lead = c.k === "trigger" ? '<span class="pr-who">' + esc(c.who) + "</span>" :
         c.k === "wait" ? icon("hourglass") : c.k === "hold" ? icon("square") :
         c.k === "unavailable" ? icon("circle-off") : '<span class="pr-mini">' + slide(c) + "</span>";
       var kind = c.k === "unavailable" ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : '<span class="o-meta">' + KIND_LABEL[c.k] + "</span>";
-      return '<button class="o-row pr-row" data-cue="' + c.i + '"' + (cur ? ' aria-selected="true"' : "") + '><span class="o-n o-meta">' + c.item.n + "." + (c.ci + 1) + "</span>" + lead +
+      return '<button class="o-row pr-row" data-cue="' + c.i + '"' + (cur ? ' aria-selected="true"' : "") + airAttr + '><span class="o-n o-meta">' + c.item.n + "." + (c.ci + 1) + "</span>" + lead +
         '<span class="o-grow o-ellipsis">' + esc(cueLabel(c)) + "</span>" + kind + onAir + "</button>";
     }
     function preflight() {
@@ -350,10 +354,12 @@
       var tl = app.querySelector(".pr-timeline"), cur = tl && tl.querySelector('[data-cue="' + S.preview + '"]');
       if (tl) tl.scrollTop = kept;                     // F, B, Space and clicks never move the timeline
       if (cur && S.follow) {
-        var top = cur.getBoundingClientRect().top - tl.getBoundingClientRect().top + tl.scrollTop;
-        var k = tl.getBoundingClientRect().height / tl.clientHeight || 1;
-        top = top / k;
-        if (top < tl.scrollTop + 48 || top + cur.offsetHeight > tl.scrollTop + tl.clientHeight) tl.scrollTop = Math.max(0, top - 56);
+        // Keep Preview in view, and the Program Cue too when both fit (Freeze or Blackout lets them differ).
+        var k = tl.getBoundingClientRect().height / tl.clientHeight || 1, pad = 56;
+        function span(el) { var t = (el.getBoundingClientRect().top - tl.getBoundingClientRect().top) / k + tl.scrollTop; return [t, t + el.offsetHeight]; }
+        var want = span(cur), prog = S.program != null && S.program !== S.preview && tl.querySelector('[data-cue="' + S.program + '"]');
+        if (prog) { var ps = span(prog); if (Math.max(want[1], ps[1]) - Math.min(want[0], ps[0]) + pad <= tl.clientHeight) want = [Math.min(want[0], ps[0]), Math.max(want[1], ps[1])]; }
+        if (want[0] < tl.scrollTop + pad || want[1] > tl.scrollTop + tl.clientHeight) tl.scrollTop = Math.max(0, want[0] - pad);
       }
       S.follow = false;
     }

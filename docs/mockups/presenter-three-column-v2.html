@@ -27,12 +27,21 @@
     <div id="compact"></div>
   </section>
 
+  <section class="o-variant">
+    <h2>C. Frozen while preparing ahead</h2>
+    <p>Freeze holds verse 1 of the Entrance Song on Program while the operator moves Preview ahead to verse 2. Each is marked on its Cue: Program with a green ring, amber while held, and Preview with the blue ring, each with its word in the caption. In linked Live they sit on the same Cue, Program inside and Preview outside. <span class="o-kbd">F</span> again or <span class="o-kbd">Space</span> takes verse 2 live.</p>
+    <div id="frozen"></div>
+  </section>
+
 </main>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     OrdoKit.presenter(document.getElementById("wide"), { w: 1920, h: 1080, preview: 1 });
     OrdoKit.presenter(document.getElementById("compact"), {
       w: 1366, h: 768, state: { output: "enabled" }, live: true, preview: 10, program: 10
+    });
+    OrdoKit.presenter(document.getElementById("frozen"), {
+      w: 1366, h: 768, state: { output: "enabled" }, live: true, frozen: true, preview: 5, program: 3
     });
   });
 </script>
