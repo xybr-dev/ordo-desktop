@@ -517,6 +517,10 @@
         });
       });
       var bad = unavailableCount(it);
+      // Redrawing never moves the outline; the editor and Inspector keep their place until the item changes.
+      var keep = {};
+      [".pl-outline", ".pl-editor", ".pl-inspector"].forEach(function (q) { var el = app.querySelector(q + " .o-pane-body"); if (el) keep[q] = el.scrollTop; });
+      var sameItem = S.drawnItem === S.item; S.drawnItem = S.item;
       app.innerHTML =
         '<div class="o-body">' + navrail("Masses") +
         '<div class="o-grow pl-ws">' +
@@ -538,6 +542,10 @@
           "</div>" +
         "</div></div>";
       icons();
+      Object.keys(keep).forEach(function (q) {
+        var el = app.querySelector(q + " .o-pane-body");
+        if (el && (q === ".pl-outline" || sameItem)) el.scrollTop = keep[q];
+      });
     }
     app.addEventListener("click", function (e) {
       var t = e.target.closest("[data-item],[data-cue],[data-step]"); if (!t || t.disabled) return;
