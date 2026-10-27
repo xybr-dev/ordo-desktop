@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Song import review — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="song-import-review-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. A near-duplicate needs a decision</h2>
+    <p>Six documents were validated and classified before anything changed. This one is the same Song as <b>Pan sa Kinabuhi</b>, but its Arrangement differs from the Library's, so Ordo asks: add it as a new Arrangement (recommended), update the existing one, or skip it. <b>Import approved</b> waits until every decision is made. Try choosing an outcome, or another document.</p>
+    <div id="decide"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. A suggested action</h2>
+    <p>An Arrangement for a Choir the Song doesn't have yet is staged as <b>Attach Arrangement</b>, with the evidence. The staged action can still be changed.</p>
+    <div id="attach"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Compare contents</h2>
+    <p>Read-only, side by side with the nearest Library Arrangement, in <b>Overview</b>, <b>Lyrics</b>, <b>Sequence</b> and <b>Slides</b>. It doesn't change the staged action, and it never merges.</p>
+    <div id="compare"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. An invalid document</h2>
+    <p>The whole document is excluded and the exact failure is named. It stays visible here but never touches the Library.</p>
+    <div id="invalid"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Ready to commit</h2>
+    <p>With the decision made, <b>Import approved</b> applies the batch as one update: if any change fails, none is saved.</p>
+    <div id="ready"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("decide", { setup: function (l) { l.importDoc(1); } });
+    show("attach", { setup: function (l) { l.importDoc(0); } });
+    show("compare", { setup: function (l) { l.importDoc(1).compareDoc("lyrics"); } });
+    show("invalid", { setup: function (l) { l.importDoc(5); } });
+    show("ready", { setup: function (l) { l.importDoc(1).stage("1:0", "add"); } });
+  });
+</script>
+</body>
+</html>

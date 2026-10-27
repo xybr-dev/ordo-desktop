@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lyrics and pagination — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="arrangement-pagination-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. A blank line starts a new slide</h2>
+    <p>One section in a plain lyric editor. A newline continues the slide; a blank line starts the next. <b>Split after line 2</b> and <b>Join slide 2 with slide 1</b> name exactly what they do, and Join is disabled on the first slide. The navigator's thumbnails keep one size, even alone, and the Inspector is the single large preview. Type, or select a thumbnail.</p>
+    <div id="bounds"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Needs review</h2>
+    <p>The Koro's words changed since its slides were approved, so it needs review. That's a warning, not a block: <b>Approve pagination</b> clears it once the slides look right.</p>
+    <div id="review"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A slide that doesn't fit</h2>
+    <p>Bersikulo 2 has five lines in one slide. The thumbnail and the Inspector say so, and the Inspector never shows a squeezed frame. <b>Split after line 3</b> fixes it here.</p>
+    <div id="overflow"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Arriving through Fix pagination</h2>
+    <p>From a Mass Readiness finding, <b>Fix pagination</b> opens the Library Arrangement at the affected section, with a banner back to the Mass. There's no separate review workspace; fixing it here updates Readiness.</p>
+    <div id="fix"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("bounds", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d1").slide(1); } });
+    show("review", { setup: function (l) { l.open("s4", "a7", "lyrics").sec("p2"); } });
+    show("overflow", { setup: function (l) { l.open("s4", "a7", "lyrics").sec("p3"); } });
+    show("fix", { setup: function (l) { l.open("s4", "a7", "lyrics").sec("p3").fromMass("Mass Readiness · Ika-30 nga Domingo, 15. Communion Song"); } });
+  });
+</script>
+</body>
+</html>
