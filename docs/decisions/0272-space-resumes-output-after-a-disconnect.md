@@ -54,7 +54,7 @@ lands on the wrong display.
 - **Keep the click (Decision 49 as written).** Rejected: it adds a step at the worst moment
   without adding a safeguard that `Space` itself does not already provide.
 - **Space resumes onto any newly attached display.** Rejected: wrong-display targeting is a
-  release-qualification failure (MVP-PLAN §10). Only the recognized congregation display
+  release-qualification failure (MVP-PLAN §11.3). Only the recognized congregation display
   qualifies.
 - **Resume black, then a second Space.** Rejected for the same reason as the click: two presses
   for one intent.
