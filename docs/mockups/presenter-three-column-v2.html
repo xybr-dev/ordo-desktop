@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three-column Presenter — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-three-column-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. 1920×1080 at 100%: Ordo pinned, four frames per row</h2>
+    <p>Presenter opens with congregation output disabled. Try it: <span class="o-kbd">→</span> moves Preview only; <b>Enable Output</b> makes Program black; <span class="o-kbd">Space</span> takes Preview live, after which navigation updates Program directly and the primary area becomes a status, not a button. <span class="o-kbd">F</span> freezes, <span class="o-kbd">B</span> blacks out, <span class="o-kbd">Space</span> clears either. Navigate into the Offertory Song while live to see the fail-safe Freeze. Click the window first so it has the keys.</p>
+    <div id="wide"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. 1366×768 at 100%: Ordo collapsed to its tab, three frames per row</h2>
+    <p>Same session, already live on the Greeting response. The <b>ORDO</b> tab (or <span class="o-kbd">O</span>) opens the rail as an overlay over a scrim; choosing a title scrolls the timeline without changing Preview or Program. Program and Preview stay stacked in the Output Dock.</p>
+    <div id="compact"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    OrdoKit.presenter(document.getElementById("wide"), { w: 1920, h: 1080, preview: 1 });
+    OrdoKit.presenter(document.getElementById("compact"), {
+      w: 1366, h: 768, state: { output: "enabled" }, live: true, preview: 10, program: 10
+    });
+  });
+</script>
+</body>
+</html>
