@@ -148,9 +148,25 @@
         "The Readiness slide-over starts below the plan header and spans the Inspector column without a scrim, so the outline and editor stay usable (Decision 94 places it above the Inspector).",
         "The Song picker sits over a transparent click-blocker rather than a dimming scrim; Decision 69 says only that it floats above the planner.",
         "An Arrangement whose assets are broken is listed but can't be staged, with its reason. The decisions don't say whether a broken Arrangement appears in the picker.",
-        "Non-Song items added from the menu open as empty, incomplete items; their editors (Reading, Response, General Presentation, Custom sequence) are separate screens not mocked here.",
+        "Non-Song items added from the menu open in their own editors, shown on the Mass item editors page.",
         "Sequence reordering uses up and down buttons beside a drag handle; the decisions don't fix the gesture.",
         "Liturgical and Theme colours in the previews are sample Theme content."
+      ]
+    },
+    {
+      slug: "mass-item-editors", group: "planning", title: "Mass item editors",
+      summary: "The editor for each non-Song item type: Reading (with and without full-passage projection), Response or Prayer (linked, picked, customized), General Presentation (private delivery context, image Slide), Hold and Custom sequence. One live planner plus each state on its own.",
+      status: "proposed",
+      decisions: ["0071-add-mass-item-workflow-and-editor-presets", "0111-response-sequence-exchange-blocks", "0007-speaker-roles-and-cue-visibility", "0257-make-library-a-multi-view-destination-with-revision-bound", "0255-use-fixed-semantic-congregation-slide-layouts", "0262-render-reading-identification-in-sentence-case-at-the", "0263-render-reading-passage-at-a-readingpassage-only-88px", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0168-owner-directed-pagination-correction-instead-of-a-review"],
+      interpretations: [
+        "The Gospel keeps its plain Cue list here. Its acclamation, dialogue and Homily Hold don't fit the Reading editor's single closing exchange, and no decision gives the Gospel its own editor.",
+        "A Reading's closing exchange is one optional prompt plus one response. A new item starts from the template default, Ang Pulong sa Dios / Salamat sa Dios. The decisions fix the projection rule, not this form.",
+        "Passage pagination here breaks at blank lines, then at about 240 characters on sentence ends. The real rule is fit-driven (Decision 263).",
+        "While an item is linked, Response and General Presentation words are read-only in the Mass editor and change only after Customize for this Mass. This matches the Song editor (Decisions 105, 257).",
+        "General Presentation private delivery context stays editable while the Slides are linked, because Decision 257 attaches it to the Mass item.",
+        "The image Slide is a placeholder frame; image import and fitting controls are not mocked.",
+        "A Custom sequence starts with no Cues and is incomplete until one is added (Decision 71). Its Add Cue menu lists Response, Text Slide, Operator trigger, Wait, Hold and Blackout.",
+        "Liturgical text is sample Cebuano content."
       ]
     },
     {
