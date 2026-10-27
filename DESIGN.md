@@ -105,7 +105,7 @@ typography:
 `DESIGN.md` is the canonical visual-system contract for Ordo. Its YAML tokens
 are normative; this prose explains why the tokens exist and how to apply them.
 Product behavior remains in `MVP-PLAN.md`, historical rationale remains in
-`decision.md`, and domain vocabulary remains in `CONTEXT.md`.
+`docs/decisions/`, and domain vocabulary remains in `CONTEXT.md`.
 
 ## Overview
 
@@ -667,7 +667,7 @@ and may contain explicitly documented superseded details.
 Authority is by subject: this file owns visible behavior and visual tokens;
 `CONTEXT.md` owns domain terms and invariants; `MVP-PLAN.md` owns product scope
 and strategic architecture; and `MILESTONES.md` owns task status and acceptance
-gates. `decision.md` supplies adopted detail only where these shorter contracts
+gates. The records in `docs/decisions/` supply adopted detail only where these shorter contracts
 are silent. Approved references illustrate the contract and yield to it; any
 conflict between normative documents must be reconciled rather than resolved by
 silently choosing one. Update this file whenever an adopted visual rule or token

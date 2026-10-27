@@ -2,7 +2,7 @@
 
 Status: MVP design baseline finalized; clean-slate Rust/GPUI implementation locked
 Prepared: 2026-08-22  
-Decision source: [`decision.md`](./decision.md)  
+Decision source: [`docs/decisions/`](./docs/decisions/README.md)  
 Domain language: [`CONTEXT.md`](./CONTEXT.md)  
 Execution milestones: [`MILESTONES.md`](./MILESTONES.md)
 

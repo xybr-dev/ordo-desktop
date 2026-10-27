@@ -147,17 +147,19 @@ pub fn repo_root() -> PathBuf {
 pub fn verify() -> XtaskResult<()> {
     let root = repo_root();
     let metadata = metadata(&root)?;
-    println!("[1/9] workspace contracts");
+    println!("[1/10] workspace contracts");
     verify_architecture_metadata(&metadata)?;
-    println!("[2/9] design tokens");
+    println!("[2/10] design tokens");
     verify_design_tokens(&root)?;
-    println!("[3/9] offline runtime contract");
+    println!("[3/10] decision records");
+    verify_decision_records(&root)?;
+    println!("[4/10] offline runtime contract");
     verify_offline_contract(&root)?;
-    println!("[4/9] GPUI supply pins");
+    println!("[5/10] GPUI supply pins");
     verify_gpui_supply_metadata(&root, &metadata)?;
-    println!("[5/9] rustfmt");
+    println!("[6/10] rustfmt");
     run(&root, "cargo", &["fmt", "--all", "--check"])?;
-    println!("[6/9] clippy");
+    println!("[7/10] clippy");
     run(
         &root,
         "cargo",
@@ -171,13 +173,13 @@ pub fn verify() -> XtaskResult<()> {
             "warnings",
         ],
     )?;
-    println!("[7/9] shipping configuration");
+    println!("[8/10] shipping configuration");
     run(
         &root,
         "cargo",
         &["check", "-p", "ordo", "--release", "--locked"],
     )?;
-    println!("[8/9] tests");
+    println!("[9/10] tests");
     run(&root, "cargo", &["test", "--workspace", "--locked"])?;
     // The canonical-slide lab lives in an example, which the workspace suite
     // builds but never runs; drive its headless key test explicitly so the
@@ -194,7 +196,7 @@ pub fn verify() -> XtaskResult<()> {
             "--locked",
         ],
     )?;
-    println!("[9/9] dependencies, advisories, sources, and licenses");
+    println!("[10/10] dependencies, advisories, sources, and licenses");
     run(&root, "cargo", &["deny", "check"])?;
     println!("Ordo verification passed.");
     Ok(())
@@ -516,6 +518,25 @@ fn validate_rendering_dependency_policy(
 /// that only token checks run here.
 pub fn verify_design_tokens(root: &Path) -> XtaskResult<()> {
     run(root, "cargo", &["test", "-p", "ui", "--locked", "--lib"])
+}
+
+/// `docs/decisions/adr.py check`: every record's frontmatter, both directions of
+/// every supersede and amend link, and the generated index. The checker is the
+/// one shared with Ordo's sibling repositories, so it stays Python rather than
+/// being ported here; this only finds an interpreter to run it.
+pub fn verify_decision_records(root: &Path) -> XtaskResult<()> {
+    let python = ["python", "python3", "py"]
+        .into_iter()
+        .find(|program| {
+            Command::new(program)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+        .ok_or("decision records need Python 3 on the path (python, python3, or py)")?;
+    run(root, python, &["docs/decisions/adr.py", "check"])
 }
 
 pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {

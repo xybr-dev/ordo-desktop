@@ -4,7 +4,7 @@ Detailed implementation sequence for the product defined by
 [`MVP-PLAN.md`](./MVP-PLAN.md). Authority is by subject: this document owns task
 order, status, acceptance criteria, and delivery gates; `CONTEXT.md` owns domain
 terms and invariants; `DESIGN.md` owns visible behavior and visual tokens; and
-`MVP-PLAN.md` owns product scope and strategic architecture. `decision.md`
+`MVP-PLAN.md` owns product scope and strategic architecture. `docs/decisions/`
 records adopted detail and resolves gaps, but any conflict must be reconciled
 into the applicable shorter document rather than selected ad hoc.
 

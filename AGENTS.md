@@ -20,8 +20,9 @@ This list is a reading route, not a precedence stack. Authority is by subject:
 `MILESTONES.md` owns task order, status, and acceptance gates; `CONTEXT.md` owns
 domain terms and invariants; `DESIGN.md` owns visible behavior and visual
 tokens; and `MVP-PLAN.md` owns product scope and strategic architecture.
-`decision.md` is the detailed decision ledger. Consult it when the applicable
-shorter document is silent; if normative documents conflict, reconcile them
+`docs/decisions/` is the detailed decision ledger, one record per decision with
+its status in the index. Consult it when the applicable shorter document is
+silent; if normative documents conflict, reconcile them
 before implementation rather than choosing one silently.
 
 ## Source authority
