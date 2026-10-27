@@ -300,5 +300,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0268](0268-make-ordo-windows-only-for-the-mvp-and-defer-linux.md) | Make Ordo Windows-only for the MVP and defer Linux | accepted | 2026-10-09 | mass-plan, platform |
 | [0269](0269-allow-one-audited-unsafe-module-for-process-memory-record.md) | Allow one audited `unsafe` module for process memory; record GPU memory as unavailable | accepted | 2026-10-10 | platform |
 | [0270](0270-record-decisions-one-per-file.md) | Record decisions one per file | accepted | 2026-10-27 | repo, decisions |
+| [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
 
 <!-- adr-index:end -->

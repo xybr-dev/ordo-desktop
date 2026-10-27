@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canonical Slide Layout Gallery — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<script src="mockups.js"></script>
+</head>
+<body data-page="canonical-slide-layouts">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+<p>Renderer output, not HTML: each frame is a <code>1920x1080</code> capture from the <code>canonical-slide-lab</code> capture test, and a recapture that changes the bytes needs a fresh approval. Provenance and the full row table are in <a href="../../design-references/ordo-canonical-slide-layouts/capture-rows.md">capture-rows.md</a>; review it live with <code>cargo run -p ordo --example canonical-slide-lab</code>.</p>
+<div class="mk-gallery">
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/black.png" alt="black: Black slide" loading="lazy"><figcaption><b>black</b> · Black · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/celebration-title-overflow.png" alt="celebration-title-overflow: CelebrationTitle slide" loading="lazy"><figcaption><b>celebration-title-overflow</b> · CelebrationTitle · header absent<br><span class="mk-warn">celebration title has 4 rendered lines against a three-line ceiling; split before shrinking</span></figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/celebration-title.png" alt="celebration-title: CelebrationTitle slide" loading="lazy"><figcaption><b>celebration-title</b> · CelebrationTitle · header National Catechetical Day</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/general-image.png" alt="general-image: GeneralImage slide" loading="lazy"><figcaption><b>general-image</b> · GeneralImage · header Image header</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/general-text-mixed.png" alt="general-text-mixed: GeneralText slide" loading="lazy"><figcaption><b>general-text-mixed</b> · GeneralText · header Pahibalo</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-cebuano-one-line.png" alt="lyrics-cebuano-one-line: Lyrics slide" loading="lazy"><figcaption><b>lyrics-cebuano-one-line</b> · Lyrics · header Bersikulo</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-english-two-line.png" alt="lyrics-english-two-line: Lyrics slide" loading="lazy"><figcaption><b>lyrics-english-two-line</b> · Lyrics · header Verse</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-label-off.png" alt="lyrics-label-off: Lyrics slide" loading="lazy"><figcaption><b>lyrics-label-off</b> · Lyrics · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-long-word.png" alt="lyrics-long-word: Lyrics slide" loading="lazy"><figcaption><b>lyrics-long-word</b> · Lyrics · header Verse</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-missing-glyph.png" alt="lyrics-missing-glyph: Lyrics slide" loading="lazy"><figcaption><b>lyrics-missing-glyph</b> · Lyrics · header Verse</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-mixed-four-line.png" alt="lyrics-mixed-four-line: Lyrics slide" loading="lazy"><figcaption><b>lyrics-mixed-four-line</b> · Lyrics · header Mixed<br><span class="mk-warn">lyric body carries 4 phrases against a two-phrase target; split before shrinking</span></figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-overflow-warning.png" alt="lyrics-overflow-warning: Lyrics slide" loading="lazy"><figcaption><b>lyrics-overflow-warning</b> · Lyrics · header Verse<br><span class="mk-warn">body content needs 2080px but the body zone offers 862px at the approved minimum; split before shrinking · lyric body carries 20 phrases against a two-phrase target; split before shrinking · lyric body has 20 rendered lines against a four-line ceiling; split before shrinking</span></figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-punctuation.png" alt="lyrics-punctuation: Lyrics slide" loading="lazy"><figcaption><b>lyrics-punctuation</b> · Lyrics · header Verse</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/lyrics-tagalog-three-line.png" alt="lyrics-tagalog-three-line: Lyrics slide" loading="lazy"><figcaption><b>lyrics-tagalog-three-line</b> · Lyrics · header Taludtod<br><span class="mk-warn">lyric body carries 3 phrases against a two-phrase target; split before shrinking</span></figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/psalm-cebuano.png" alt="psalm-cebuano: Psalm slide" loading="lazy"><figcaption><b>psalm-cebuano</b> · Psalm · header SALMO RESPONSORYO:</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/psalm-header-empty.png" alt="psalm-header-empty: Psalm slide" loading="lazy"><figcaption><b>psalm-header-empty</b> · Psalm · header empty</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/reading-identification-mateo.png" alt="reading-identification-mateo: ReadingIdentification slide" loading="lazy"><figcaption><b>reading-identification-mateo</b> · ReadingIdentification · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/reading-identification-roma.png" alt="reading-identification-roma: ReadingIdentification slide" loading="lazy"><figcaption><b>reading-identification-roma</b> · ReadingIdentification · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/reading-identification.png" alt="reading-identification: ReadingIdentification slide" loading="lazy"><figcaption><b>reading-identification</b> · ReadingIdentification · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/reading-passage-cebuano.png" alt="reading-passage-cebuano: ReadingPassage slide" loading="lazy"><figcaption><b>reading-passage-cebuano</b> · ReadingPassage · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/reading-passage-english.png" alt="reading-passage-english: ReadingPassage slide" loading="lazy"><figcaption><b>reading-passage-english</b> · ReadingPassage · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/response-cebuano.png" alt="response-cebuano: Response slide" loading="lazy"><figcaption><b>response-cebuano</b> · Response · header TUBAG:</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/response-header-absent.png" alt="response-header-absent: Response slide" loading="lazy"><figcaption><b>response-header-absent</b> · Response · header absent</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/response-header-empty.png" alt="response-header-empty: Response slide" loading="lazy"><figcaption><b>response-header-empty</b> · Response · header empty</figcaption></figure>
+  <figure><img src="../../design-references/ordo-canonical-slide-layouts/song-identification.png" alt="song-identification: SongIdentification slide" loading="lazy"><figcaption><b>song-identification</b> · SongIdentification · header absent</figcaption></figure>
+</div>
+</main>
+</body>
+</html>
