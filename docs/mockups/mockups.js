@@ -155,9 +155,9 @@
     },
     {
       slug: "mass-item-editors", group: "planning", title: "Mass item editors",
-      summary: "The editor for each non-Song item type: Reading (with and without full-passage projection), Response or Prayer (linked, picked, customized), General Presentation (private delivery context, image Slide), Hold and Custom sequence. One live planner plus each state on its own.",
+      summary: "The editor for each non-Song item type: Reading (with and without full-passage projection), Responsorial Psalm (verses as Wait Cues or projected), Response or Prayer (linked, picked, customized), General Presentation (private delivery context, image Slide), Hold and Custom sequence. One live planner plus each state on its own.",
       status: "proposed",
-      decisions: ["0071-add-mass-item-workflow-and-editor-presets", "0111-response-sequence-exchange-blocks", "0007-speaker-roles-and-cue-visibility", "0257-make-library-a-multi-view-destination-with-revision-bound", "0255-use-fixed-semantic-congregation-slide-layouts", "0262-render-reading-identification-in-sentence-case-at-the", "0263-render-reading-passage-at-a-readingpassage-only-88px", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0168-owner-directed-pagination-correction-instead-of-a-review"],
+      decisions: ["0071-add-mass-item-workflow-and-editor-presets", "0006-projection-policy", "0111-response-sequence-exchange-blocks", "0007-speaker-roles-and-cue-visibility", "0257-make-library-a-multi-view-destination-with-revision-bound", "0255-use-fixed-semantic-congregation-slide-layouts", "0262-render-reading-identification-in-sentence-case-at-the", "0263-render-reading-passage-at-a-readingpassage-only-88px", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0168-owner-directed-pagination-correction-instead-of-a-review"],
       interpretations: [
         "The Gospel keeps its plain Cue list here. Its acclamation, dialogue and Homily Hold don't fit the Reading editor's single closing exchange, and no decision gives the Gospel its own editor.",
         "A Reading's closing exchange is one optional prompt plus one response. A new item starts from the template default, Ang Pulong sa Dios / Salamat sa Dios. The decisions fix the projection rule, not this form.",
@@ -166,6 +166,8 @@
         "General Presentation private delivery context stays editable while the Slides are linked, because Decision 257 attaches it to the Mass item.",
         "The image Slide is a placeholder frame; image import and fitting controls are not mocked.",
         "A Custom sequence starts with no Cues and is incomplete until one is added (Decision 71). Its Add Cue menu lists Response, Text Slide, Operator trigger, Wait, Hold and Blackout.",
+        "The Responsorial Psalm is Mass-owned, like the Readings, so it has no Library link. Verse projection is one switch for the whole Psalm; MVP-PLAN says verses may be enabled but not at what granularity.",
+        "The Responsorial Psalm isn't in the Add Mass item menu, because Decision 71's chooser doesn't list it; each Mass starts with one from its template.",
         "Liturgical text is sample Cebuano content."
       ]
     },

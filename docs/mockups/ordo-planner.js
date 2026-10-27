@@ -88,6 +88,15 @@
     "Tan-awa, dad-on ko sila gikan sa yuta sa amihanan, ug tigomon ko sila gikan sa kinatumyan sa kalibotan. Uban kanila ang buta ug ang bakol, ang mabdos ug ang nag-anak; usa ka dakong panon ang mobalik dinhi.\n\n" +
     "Moabot sila nga naghilak, ug giyahan ko sila samtang nag-ampo sila. Dad-on ko sila sa mga sapa sa tubig, sa tul-id nga dalan diin dili sila mapandol; kay ako amahan sa Israel, ug si Efraim akong panganay.";
   var SECOND_TEXT = "Ang matag labawng pari gipili gikan sa mga tawo ug gitudlo sa pag-alagad sa Dios alang kanila, sa paghalad og mga gasa ug mga halad alang sa mga sala.";
+  // The Responsorial Psalm is Mass-owned Scripture: one linked refrain before the first cantor
+  // verse and after every verse; verses are Wait Cues unless projected (MVP-PLAN §4, §8).
+  var PSALM_HDR = "SALMO RESPONSORYO";
+  var PSALM_VERSES = [
+    "Sa diha nga gipabalik sa Ginoo ang mga binihag sa Sion, sama kita sa mga nagdamgo. Napuno sa katawa ang among baba, ug ang among dila sa mga awit sa kalipay.",
+    "Unya miingon sila taliwala sa kanasoran: Dagkong mga butang ang gibuhat sa Ginoo alang kanila. Dagkong mga butang ang gibuhat sa Ginoo alang kanato; nalipay kaayo kami.",
+    "Ibalik, O Ginoo, ang among mga binihag, sama sa mga sapa sa Negeb. Ang nagpugas nga naghilak mag-ani nga nag-awit sa kalipay.",
+    "Siya nga nanglakaw nga naghilak, nga nagdala sa binhi nga ipugas, mobalik nga nag-awit sa kalipay, nga nagdala sa iyang mga binugkos."
+  ];
   function paginate(text) {
     var out = [];
     text.split(/\n\s*\n/).forEach(function (para) {                 // blank lines are hard boundaries
@@ -109,6 +118,15 @@
       if (r.prompt.trim()) cues.push({ k: "trigger", who: r.who, b: r.prompt });
       if (r.resp.trim()) cues.push({ k: "response", h: "TUBAG:", b: r.resp });
       it.cues = cues;
+    } else if (it.ps) {
+      var ps = it.ps, ph = ps.hdr === "inherit" ? PSALM_HDR : ps.hdr === "override" ? ps.hdrText : "";
+      var refrain = function () { return { k: "psalm", h: ph, b: ps.refrain, f: ps.ref }; };
+      it.cues = [refrain()];
+      ps.verses.forEach(function (v, vi) {
+        if (ps.project && v.trim()) paginate(v).forEach(function (b) { it.cues.push({ k: "reading", b: b, f: ps.ref, verse: vi }); });
+        else it.cues.push({ k: "wait", b: "Cantor · verse " + (vi + 1), text: v, verse: vi });
+        it.cues.push(refrain());
+      });
     } else if (it.ex) {
       var h = it.hdr === "inherit" ? "TUBAG:" : it.hdr === "override" ? it.hdrText : "";
       it.cues = [];
@@ -138,6 +156,8 @@
           var trig = it.cues.filter(function (c) { return c.k === "trigger"; })[0], resp = it.cues.filter(function (c) { return c.k === "response"; })[0];
           it.rd = { role: f.title, title: it.cues[0].b, ref: it.cues[0].f, text: f.title === "First Reading" ? FIRST_TEXT : SECOND_TEXT,
             project: f.title === "First Reading", who: trig ? trig.who : "L", prompt: trig ? trig.b : "", resp: resp ? resp.b : "" };
+        } else if (f.type === "Psalm") {
+          it.ps = { ref: it.cues[0].f, refrain: it.cues[0].b, hdr: "inherit", hdrText: "", verses: PSALM_VERSES.slice(), project: false };
         } else if (f.type === "Response sequence" && RESP_SRC[f.title]) {
           var e = respEntry(RESP_SRC[f.title]); it.src = e.name; it.ex = copy(e.ex); it.hdr = e.hdr; it.hdrText = "";
         } else if (f.type === "General Presentation") {
@@ -219,6 +239,7 @@
         else if (bad(it)) add(bad(it) + " Cues unavailable", it.cues[0].why + ", so these Cues can't produce a frame.", "Choose another Arrangement", "fix");
         else if (it.rd && !it.rd.title.trim()) add("No proclamation title", "The Reading has nothing to identify it on screen.", "Add the title", "rd.title");
         else if (it.rd && !it.rd.text.trim()) add("No reading text", "The reader's passage is missing" + (it.rd.project ? ", and full-reading projection has nothing to show." : "."), "Add the text", "rd.text");
+        else if (it.ps && !it.ps.refrain.trim()) add("No refrain", "The congregation's refrain is what this Psalm projects.", "Write the refrain", "ps.refrain");
         else if (it.ex && it.pending) add("No Response chosen", "Choose a Response or Prayer, or write one for this Mass.", "Choose Response", "choose");
         else if (it.ex && it.ex.some(function (x) { return !x.resp.trim(); })) add("A response is empty", "Every exchange needs the congregation's words.", "Write the response", "ex");
         else if (it.gp && it.pending) add("No General Presentation chosen", "Choose one from the Library, or make one for this Mass.", "Choose General Presentation", "choose");
@@ -353,9 +374,9 @@
       S.cue = Math.max(0, Math.min(S.cue, it.cues.length - 1));
     }
     // list editing for exchanges, Slides and custom Cues
-    function listOf(it, which) { return which === "ex" ? it.ex : which === "slides" ? it.gp.slides : it.cues; }
+    function listOf(it, which) { return which === "verses" ? it.ps.verses : which === "ex" ? it.ex : which === "slides" ? it.gp.slides : it.cues; }
     function cueOfEntry(it, which, i) {
-      for (var j = 0; j < it.cues.length; j++) { var c = it.cues[j]; if ((which === "ex" && c.block === i) || (which === "slides" && c.slide === i)) return j; }
+      for (var j = 0; j < it.cues.length; j++) { var c = it.cues[j]; if ((which === "verses" && c.verse === i) || (which === "ex" && c.block === i) || (which === "slides" && c.slide === i)) return j; }
       return which === "cues" ? i : 0;
     }
     function moveEntry(which, i, d) { var l = listOf(S.sel, which), x = l[i]; l[i] = l[i + d]; l[i + d] = x; regen(S.sel); S.cue = cueOfEntry(S.sel, which, i + d); if (S.sel.local) change("Reordered"); }
@@ -475,6 +496,27 @@
           '<div class="pl-ex-line"><span class="pl-who-t">All</span>' + field("rd.resp", r.resp, { ph: "Congregation response" }) + '<span class="pl-chip">Projected</span></div></div></div>' +
         generated(it, wide) + "</div>";
     }
+    function psalmEditor(it, wide) {
+      var ps = it.ps;
+      var verses = ps.verses.map(function (v, vi) {
+        var cues = []; it.cues.forEach(function (c, ci) { if (c.verse === vi) cues.push(ci); });
+        return '<div class="pl-exblock"><div class="pl-block-head"><b>Verse ' + (vi + 1) + '</b><span class="pl-acts">' + (ps.project ? '<span class="pl-chip">Projected</span>' : '<span class="pl-chip">Cantor · Wait Cue</span>') + mover("verses", vi, ps.verses.length) + "</span></div>" +
+          field("ps.verses." + vi, v, { rows: 3, ph: "Cantor verse" }) + (ps.project ? thumbs(it, cues) : "") + "</div>";
+      }).join("");
+      return '<div class="pl-ed-body"><div class="pl-meta-line">' + icon("book-open") + '<span class="o-meta">Mass-owned Responsorial Psalm · ' + esc(K.MASS.language) + " · edits save to this plan</span></div>" +
+        '<div class="pl-form">' +
+          row("Reference", field("ps.ref", ps.ref, { ph: "Salmo 126", small: true }), "Shown at the bottom left of every Psalm Slide.") +
+          row("Header", '<div class="pl-inline">' + choose("ps.hdr", ps.hdr, [["inherit", "Plan default · " + PSALM_HDR], ["hide", "Hide"], ["override", "Override"]], { label: "Psalm header" }) +
+            (ps.hdr === "override" ? field("ps.hdrText", ps.hdrText, { ph: PSALM_HDR, small: true }) : "") + "</div>", "Small header above the refrain; the Cebuano template's default is " + PSALM_HDR + ".") +
+          row("Refrain", field("ps.refrain", ps.refrain, { rows: 2, ph: "The congregation's response" }),
+            "Projected before the first verse and after every verse (" + (ps.verses.length + 1) + " times). One linked text: edit it once.") +
+          row("Cantor verses", toggle("ps.project", ps.project, "Project the verses for the congregation"),
+            ps.project ? "Each verse projects as a Reading-passage Slide, then the refrain returns." : "Off by default: each verse is a Wait Cue, so the refrain stays up while the cantor sings.") +
+        "</div>" +
+        '<div class="pl-block"><div class="pl-block-head"><b>Verses</b><span class="o-meta">' + ps.verses.length + " · sung by the cantor</span></div>" + verses +
+          '<button class="o-btn" data-addverse data-focus-key="addverse">' + icon("plus") + "Add verse</button></div>" +
+        generated(it, wide) + "</div>";
+    }
     function responseEditor(it, wide) {
       if (it.pending) return pendingEditor(it, "Response", "messages-square");
       var ro = !it.local, who = Object.keys(WHO).filter(function (k) { return k !== "T"; }).map(function (k) { return [k, WHO[k]]; });
@@ -566,7 +608,7 @@
     }
     function editor(it, wide) {
       var nBad = bad(it);
-      var body = it.type === "Song" ? songEditor(it, wide) : it.rd ? readingEditor(it, wide) : it.ex ? responseEditor(it, wide) : it.gp ? generalEditor(it, wide) :
+      var body = it.type === "Song" ? songEditor(it, wide) : it.rd ? readingEditor(it, wide) : it.ps ? psalmEditor(it, wide) : it.ex ? responseEditor(it, wide) : it.gp ? generalEditor(it, wide) :
         it.hold ? holdEditor(it) : it.custom ? customEditor(it, wide) : cueEditor(it);
       var sub = it.song || it.src || "";
       return '<section class="o-pane pl-editor" aria-label="Selected Mass item"><div class="o-pane-head"><div class="o-grow"><div class="o-meta">' + esc(S.sec[it.section].title) + " · " + esc(it.type) + "</div><b>" + it.n + ". " + esc(it.title) + "</b>" +
@@ -580,9 +622,12 @@
       var head = '<div class="o-pane-head"><b>Inspector</b>';
       if (!c) return '<aside class="o-pane pl-inspector" aria-label="Inspector">' + head + '</div><div class="o-pane-body pl-insp-body">' + tslide(null, th(it)) + '<div class="o-meta">Nothing to inspect: this item has no Cues yet.</div></div></aside>';
       var first = S.cue === 0, last = S.cue === n - 1, opOnly = !!OP_ONLY[c.k];
-      var frame = opOnly ? tslide(null, th(it)) : tslide(c, th(it));
+      var held = null;                                      // a Wait leaves Program as it is
+      if (c.k === "wait") for (var w = S.cue - 1; w >= 0; w--) if (projectable(it.cues[w])) { held = it.cues[w]; break; }
+      var frame = held ? tslide(held, th(it)) : opOnly ? tslide(null, th(it)) : tslide(c, th(it));
       var ctx = "";
       if (c.k === "trigger") ctx = '<div class="pr-private"><span class="pr-who">' + esc(c.who) + "</span><div><b>" + esc(WHO[c.who] || c.who) + ": " + esc(c.b || "(no prompt yet)") + '</b><div class="o-meta">Advance when this line is finished.</div></div></div>';
+      else if (c.k === "wait" && c.text != null) ctx = '<div class="pr-private">' + icon("hourglass") + "<div><b>" + esc(c.b) + " · refrain stays up</b><div>" + esc(c.text || "(no verse text yet)") + "</div></div></div>";
       else if (opOnly) ctx = '<div class="pr-private">' + icon(c.k === "wait" ? "hourglass" : c.k === "hold" ? "square" : "moon") + "<div><b>" + KIND[c.k] + " · " + esc(c.b) + '</b><div class="o-meta">' +
         (c.k === "wait" ? "Program stays as it is" : c.k === "hold" ? "Black checkpoint, not Blackout" : "Program stays black until Space takes Preview live") + "</div></div></div>";
       else if (c.k === "unavailable") ctx = '<div class="pr-private" data-state="unavailable">' + icon("circle-off") + "<div><b>Unavailable</b><div>" + esc(c.why) + "</div></div></div>";
@@ -590,7 +635,7 @@
       else if (it.gp && it.gp.note) ctx = '<div class="pr-private">' + icon("sticky-note") + "<div><b>Private delivery context</b><div>" + esc(it.gp.note) + "</div></div></div>";
       var all = items(), nextItem = all[it.n], prevItem = all[it.n - 2];
       var edge = last ? "End of " + it.title + "." + (nextItem ? " Select " + nextItem.title + " in the Mass outline to inspect it." : "") : first && prevItem ? "Start of " + it.title + "." : "";
-      var meta = [["Congregation frame", opOnly ? "Black" : c.k === "unavailable" ? "Unavailable" : "Canonical 16:9"], ["Theme", themeName(th(it)) + (it.theme ? " · item override" : "")],
+      var meta = [["Congregation frame", held ? "Unchanged · " + (held.k === "psalm" ? "refrain" : KIND[held.k] || "previous frame") + " stays up" : c.k === "wait" ? "Unchanged" : opOnly ? "Black" : c.k === "unavailable" ? "Unavailable" : "Canonical 16:9"], ["Theme", themeName(th(it)) + (it.theme ? " · item override" : "")],
         ["Pagination", c.k === "unavailable" ? "—" : it.warn ? "Not reviewed" : "Fits safely"], ["Output", "1920 × 1080"]];
       if (it.gp && !opOnly) meta.push(["Auto-play", (it.gp.slides[c.slide] && it.gp.slides[c.slide].dur || it.gp.dur) + " s"]);
       if (wide || it.local) meta.push(["Source", it.local ? (it.base ? "Mass-local override" : "Mass-local") : it.song ? "Library Arrangement" : it.src ? "Library · " + it.src : "Mass item"]);
@@ -793,7 +838,7 @@
     }
 
     app.addEventListener("click", function (e) {
-      var t = e.target.closest("[data-act],[data-item],[data-cue],[data-step],[data-add],[data-song],[data-arr],[data-entry],[data-theme],[data-ovr],[data-find],[data-fix],[data-mv],[data-del],[data-addex],[data-addslide],[data-addcue]");
+      var t = e.target.closest("[data-act],[data-item],[data-cue],[data-step],[data-add],[data-song],[data-arr],[data-entry],[data-theme],[data-ovr],[data-find],[data-fix],[data-mv],[data-del],[data-addex],[data-addverse],[data-addslide],[data-addcue]");
       if (!t || t.disabled) return;
       e.preventDefault();
       var d = t.dataset, a = d.act;
@@ -817,6 +862,7 @@
       else if (d.mv) { var p = d.mv.split(":"); if (p[0] === "cues" && S.sel.type === "Song") { var cs = S.sel.cues, i = +p[1], j = i + +p[2], x = cs[i]; cs[i] = cs[j]; cs[j] = x; S.cue = j; change("Reordered the sequence"); } else moveEntry(p[0], +p[1], +p[2]); }
       else if (d.del) { var q = d.del.split(":"); if (q[0] === "cues" && S.sel.type === "Song") { var gone = S.sel.cues.splice(+q[1], 1)[0]; S.cue = Math.max(0, Math.min(S.cue, S.sel.cues.length - 1)); change("Removed a " + (gone.h || "title") + " occurrence"); } else removeEntry(q[0], +q[1]); }
       else if (d.addex != null) { S.sel.ex.push({ who: "P", trig: "", rwho: "T", resp: "" }); regen(S.sel); S.cue = S.sel.cues.length - 1; S.focus = "ex." + (S.sel.ex.length - 1) + ".trig"; change("Added an exchange"); }
+      else if (d.addverse != null) { S.sel.ps.verses.push(""); regen(S.sel); S.cue = cueOfEntry(S.sel, "verses", S.sel.ps.verses.length - 1); S.focus = "ps.verses." + (S.sel.ps.verses.length - 1); }
       else if (d.addslide) { S.sel.gp.slides.push(d.addslide === "image" ? { kind: "image", file: "", alt: "", dur: null } : { kind: "text", h: "", b: "", f: "", dur: null }); regen(S.sel); S.cue = S.sel.cues.length - 1;
         S.focus = "gp.slides." + (S.sel.gp.slides.length - 1) + (d.addslide === "image" ? ".file" : ".b"); change("Added a Slide"); }
       else if (a === "cue-menu") S.cueMenu = !S.cueMenu;

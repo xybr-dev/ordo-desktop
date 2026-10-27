@@ -26,6 +26,7 @@
     <p>One working planner, opened on the First Reading. Select any item in the outline to open its editor. Every field regenerates the item's Cues as you type, and the Inspector follows. A suggested path:</p>
     <ol class="fl-steps">
       <li>Edit the <b>First Reading</b> text and add a blank line: a new passage Slide appears. Switch <b>Full-reading projection</b> off and the passage Slides go away; the title and closing response stay.</li>
+      <li>Open <b>7. Responsorial Psalm</b>. Edit the refrain once and every occurrence changes. Switch <b>Project the verses</b> on to see the cantor verses become Slides.</li>
       <li>Open <b>3. Greeting</b>. It's linked, so its words are read-only. Press <b>Customize for this Mass</b>, add an exchange, and set the header to <b>Override</b>.</li>
       <li>Open <b>1. Pahibalo</b>. Edit the private delivery context while the item is still linked. Then customize it and press <b>Add image Slide</b>.</li>
       <li>Press <b>+</b> and add a <b>Hold</b>, a <b>Custom sequence</b>, a <b>Response or Prayer</b> (the picker opens) or a <b>Reading</b>.</li>
@@ -50,6 +51,18 @@
     <h2>D. A new Reading</h2>
     <p>Added after the Responsorial Psalm. The title field takes focus, and the closing exchange starts from the template's default prompt and response. Readiness counts the item as incomplete until it has a title and text.</p>
     <div id="rd-new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D2. Responsorial Psalm</h2>
+    <p>Mass-owned, like the Readings. The refrain is one linked text, projected before the first verse and after every verse. By default each cantor verse is a Wait Cue: Program keeps the refrain up while the cantor sings, and the verse text shows privately to the operator. The header follows the plan default <b>SALMO RESPONSORYO</b> unless hidden or overridden.</p>
+    <div id="ps-default"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D3. Responsorial Psalm with projected verses</h2>
+    <p>With <b>Project the verses</b> on, each verse becomes a Reading-passage Slide under its own card, and the refrain still returns after each one.</p>
+    <div id="ps-project"></div>
   </section>
 
   <section class="o-variant">
@@ -106,6 +119,8 @@
     show("rd-full", { item: 6, cue: 2 });
     show("rd-private", { item: 8, setup: function (p) { p.set("rd.prompt", "").set("rd.resp", ""); } });
     show("rd-new", { item: 7, setup: function (p) { p.add("Reading").quiet(); } });
+    show("ps-default", { item: 7, cue: 1 });
+    show("ps-project", { item: 7, setup: function (p) { p.set("ps.project", true).cue(1); } });
     show("rs-linked", { item: 3, cue: 1 });
     show("rs-pick", { item: 13, setup: function (p) { p.add("Response or Prayer").stage("Kordero sa Dios").quiet(); } });
     show("rs-local", { item: 3, setup: function (p) {
