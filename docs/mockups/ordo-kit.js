@@ -206,13 +206,17 @@
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
       S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; say("");
     }
+    // F and B toggle; releasing either does exactly what Space does (Decision 273)
     function freeze() {
       if (S.output !== "enabled" || S.blackout) return;
-      if (!S.frozen) { S.frozen = true; S.frozenReason = ""; say(""); }
-      else if (S.live) take();                         // unfreeze: back to linked Live
-      else S.frozen = false;
+      if (S.frozen) take();
+      else { S.frozen = true; S.frozenReason = ""; say(""); }
     }
-    function blackout() { if (S.output === "enabled") { S.blackout = true; S.frozen = false; say(""); } }
+    function blackout() {
+      if (S.output !== "enabled") return;
+      if (S.blackout) take();
+      else { S.blackout = true; S.frozen = false; say(""); }
+    }
     function enable() { S.output = "enabled"; S.program = null; S.live = false; say("Output enabled. Program is black until you take Preview live."); }
 
     function primary() {
@@ -315,7 +319,7 @@
         '<div class="pr-monitor"><div class="pr-mon-head"><b>Preview</b><span class="o-meta">' + esc(CUES[S.preview].item.title) + "</span></div>" + previewSlide() + privateContext() + "</div>";
       var controls = outputStatus() +
         '<div class="pr-hs"><button class="o-btn o-btn--lg" data-act="freeze"' + (S.frozen ? ' aria-pressed="true"' : "") + (S.output !== "enabled" ? " disabled" : "") + ">" + icon("snowflake") + (S.frozen ? "Unfreeze" : "Freeze") + ' <span class="o-kbd">F</span></button>' +
-        '<button class="o-btn o-btn--lg" data-act="blackout"' + (S.blackout ? ' aria-pressed="true"' : "") + (S.output !== "enabled" ? " disabled" : "") + ">" + icon("square") + 'Blackout <span class="o-kbd">B</span></button></div>' +
+        '<button class="o-btn o-btn--lg" data-act="blackout"' + (S.blackout ? ' aria-pressed="true"' : "") + (S.output !== "enabled" ? " disabled" : "") + ">" + icon("square") + (S.blackout ? "End Blackout" : "Blackout") + ' <span class="o-kbd">B</span></button></div>' +
         '<div class="pr-primary">' + primary() + "</div>" +
         (S.message ? '<div class="pr-msg" role="status">' + esc(S.message) + "</div>" : "");
       if (l === "constrained") return '<div class="pr-band">' + monitors + '</div><div class="pr-band-controls">' + controls + "</div>";
@@ -339,10 +343,12 @@
       if (l === "constrained") body = tab + '<div class="pr-col">' + dock() + main + "</div>";
       else body = (pinned ? rail(false) : tab) + main + dock();
       var overlay = S.railOpen && !pinned ? '<div class="o-scrim" data-act="close-rail"></div>' + rail(true) : "";
+      var old = app.querySelector(".pr-timeline"), kept = old ? old.scrollTop : 0;
       app.innerHTML = header + '<div class="o-body pr-body">' + body + "</div>" + overlay;
       icons();
       // Keep the active Cue in view by scrolling the timeline only, never the page.
       var tl = app.querySelector(".pr-timeline"), cur = tl && tl.querySelector('[data-cue="' + S.preview + '"]');
+      if (tl) tl.scrollTop = kept;                     // F, B, Space and clicks never move the timeline
       if (cur && S.follow) {
         var top = cur.getBoundingClientRect().top - tl.getBoundingClientRect().top + tl.scrollTop;
         var k = tl.getBoundingClientRect().height / tl.clientHeight || 1;

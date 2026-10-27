@@ -758,8 +758,8 @@ immediately and contrary commands reverse the visible fade from current opacity.
 | Right / Down | Next Cue |
 | Page Up / Page Down | Previous / next Mass item |
 | Home / End | First / last Cue |
-| F | Toggle Freeze |
-| B | Activate Blackout |
+| F | Toggle Freeze; turning it off does what Space does (Decision 273) |
+| B | Toggle Blackout; turning it off does what Space does (Decision 273) |
 | A | Toggle auto-play for the current eligible General Presentation item |
 | O | Open/focus the Ordo rail without changing pin state |
 | Space | Take Preview live and clear Freeze/Blackout |

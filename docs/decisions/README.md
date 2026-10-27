@@ -40,8 +40,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0008](0008-song-identity-and-choir-repertoire.md) | Song identity and choir repertoire | accepted | 2026-08-29 | songs |
 | [0009](0009-song-authoring-and-generated-slides.md) | Song authoring and generated slides | accepted | 2026-08-29 | songs, rendering |
 | [0010](0010-presenter-layout.md) | Presenter layout | accepted, amended by [0203](0203-same-window-native-full-screen-presenter-mode.md) | 2026-08-29 | presenter, ui |
-| [0011](0011-program-preview-freeze-and-blackout-semantics.md) | Program, Preview, Freeze, and Blackout semantics | accepted, amended by [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md) | 2026-08-29 | presenter |
-| [0012](0012-safe-live-operations.md) | Safe live operations | accepted | 2026-08-29 |  |
+| [0011](0011-program-preview-freeze-and-blackout-semantics.md) | Program, Preview, Freeze, and Blackout semantics | accepted, amended by [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md), [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 | presenter |
+| [0012](0012-safe-live-operations.md) | Safe live operations | accepted, amended by [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 |  |
 | [0013](0013-mvp-permissions.md) | MVP permissions | accepted | 2026-08-29 |  |
 | [0014](0014-interrupted-session-recovery.md) | Interrupted-session recovery | accepted | 2026-08-29 | storage |
 | [0015](0015-emergency-powerpoint-export.md) | Emergency PowerPoint export | accepted | 2026-08-29 | transfer |
@@ -302,5 +302,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0270](0270-record-decisions-one-per-file.md) | Record decisions one per file | accepted | 2026-10-27 | repo, decisions |
 | [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
+| [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
 
 <!-- adr-index:end -->

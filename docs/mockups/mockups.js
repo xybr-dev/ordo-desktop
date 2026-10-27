@@ -56,9 +56,8 @@
       slug: "presenter-three-column-v2", group: "presenter", title: "Three-column Presenter", replaces: "presenter-three-column",
       summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, fail-safe Freeze on an unavailable Cue; 1920 and 1366 compositions.",
       status: "proposed", gate: false,
-      decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable"],
+      decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
-        "Pressing F again while frozen returns to linked Live: Program cuts to the current Preview. The keymap says only \"toggle Freeze\".",
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
         "Four 300px frames per row at 1920 fit only with a 200px pinned Ordo rail and a 400px Output Dock, so the mockup uses those widths; at 1366 the dock is 360px and three frames fit."
       ]
