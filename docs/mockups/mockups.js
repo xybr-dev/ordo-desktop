@@ -139,6 +139,21 @@
       decisions: ["0169-inspector-navigation-follows-the-selected-mass-item-s-cue"]
     },
     {
+      slug: "mass-planning-flows", group: "planning", title: "Mass Planning flows",
+      summary: "Adding a Mass item, choosing or replacing a Song and Arrangement (including an unavailable one), Readiness, the Mass Theme and its overrides, and Mass-local customization with its guarded replacement and return. One live planner plus each state on its own.",
+      status: "proposed",
+      decisions: ["0069-song-arrangement-picker-slide-over", "0070-mass-item-insertion-control-placement", "0071-add-mass-item-workflow-and-editor-presets", "0175-section-aware-mass-item-insertion", "0035-computed-mass-plan-readiness", "0094-mass-plan-readiness-panel-and-navigation", "0095-mass-theme-chooser-and-nested-theme-overrides-review", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0106-mass-local-arrangement-copy-and-repeated-section-linking", "0107-guarded-replacement-of-a-customized-song-item"],
+      interpretations: [
+        "Every change shows a toast with Undo. The decisions promise ordinary Undo but don't name its surface; the toast is one level deep here.",
+        "The Readiness slide-over starts below the plan header and spans the Inspector column without a scrim, so the outline and editor stay usable (Decision 94 places it above the Inspector).",
+        "The Song picker sits over a transparent click-blocker rather than a dimming scrim; Decision 69 says only that it floats above the planner.",
+        "An Arrangement whose assets are broken is listed but can't be staged, with its reason. The decisions don't say whether a broken Arrangement appears in the picker.",
+        "Non-Song items added from the menu open as empty, incomplete items; their editors (Reading, Response, General Presentation, Custom sequence) are separate screens not mocked here.",
+        "Sequence reordering uses up and down buttons beside a drag handle; the decisions don't fix the gesture.",
+        "Liturgical and Theme colours in the previews are sample Theme content."
+      ]
+    },
+    {
       slug: "song-library-master-detail", group: "songs", title: "Song Library",
       summary: "Persistent Song search and results on the left; the selected Song's identity and Arrangements on the right.",
       status: "approved",
