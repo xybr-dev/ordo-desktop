@@ -78,7 +78,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0046](0046-projector-calibration-and-overscan-compensation.md) | Projector calibration and overscan compensation | accepted, amended by [0255](0255-use-fixed-semantic-congregation-slide-layouts.md) | 2026-08-29 | presenter |
 | [0047](0047-calibration-setting-scope.md) | Calibration-setting scope | accepted | 2026-08-29 | presenter |
 | [0048](0048-presenter-mode-without-a-congregation-display.md) | Presenter Mode without a congregation display | accepted | 2026-08-29 | presenter |
-| [0049](0049-congregation-display-disconnection-and-recovery.md) | Congregation-display disconnection and recovery | accepted | 2026-08-29 | presenter, storage |
+| [0049](0049-congregation-display-disconnection-and-recovery.md) | Congregation-display disconnection and recovery | accepted, amended by [0272](0272-space-resumes-output-after-a-disconnect.md) | 2026-08-29 | presenter, storage |
 | [0050](0050-congregation-display-selection.md) | Congregation-display selection | accepted | 2026-08-29 | presenter |
 | [0051](0051-automatic-presenter-preflight.md) | Automatic Presenter preflight | accepted | 2026-08-29 | presenter |
 | [0052](0052-validated-emergency-powerpoint-export.md) | Validated emergency PowerPoint export | accepted | 2026-08-29 | transfer |
@@ -90,7 +90,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0058](0058-react-ui-foundation-and-ownership.md) | React UI foundation and ownership | superseded by [0252](0252-replace-electron-with-a-clean-slate-rust-and-gpui.md) | 2026-08-29 |  |
 | [0059](0059-context-sensitive-application-appearance.md) | Context-sensitive application appearance | accepted, amended by [0256](0256-refine-operator-appearance-overlays-and-bounded-output.md) | 2026-08-29 |  |
 | [0060](0060-unified-atkinson-operator-typography.md) | Unified Atkinson operator typography | accepted | 2026-08-29 | rendering |
-| [0061](0061-context-sensitive-presenter-primary-control.md) | Context-sensitive Presenter primary control | accepted | 2026-08-29 | presenter |
+| [0061](0061-context-sensitive-presenter-primary-control.md) | Context-sensitive Presenter primary control | accepted, amended by [0272](0272-space-resumes-output-after-a-disconnect.md) | 2026-08-29 | presenter |
 | [0062](0062-explicit-ordo-rail-reveal.md) | Explicit Ordo-rail reveal | accepted | 2026-08-29 | mass-plan, ui |
 | [0063](0063-minimum-visual-slide-grid-thumbnail-size.md) | Minimum Visual Slide Grid thumbnail size | accepted | 2026-08-29 | rendering |
 | [0064](0064-preparation-shell-primary-navigation.md) | Preparation-shell primary navigation | accepted, amended by [0257](0257-make-library-a-multi-view-destination-with-revision-bound.md) | 2026-08-29 | ui, platform |
@@ -301,5 +301,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0269](0269-allow-one-audited-unsafe-module-for-process-memory-record.md) | Allow one audited `unsafe` module for process memory; record GPU memory as unavailable | accepted | 2026-10-10 | platform |
 | [0270](0270-record-decisions-one-per-file.md) | Record decisions one per file | accepted | 2026-10-27 | repo, decisions |
 | [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
+| [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 
 <!-- adr-index:end -->

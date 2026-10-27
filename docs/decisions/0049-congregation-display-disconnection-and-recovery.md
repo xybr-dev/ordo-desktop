@@ -8,11 +8,13 @@ tags: [presenter, storage]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [272]
 sources: []
 ---
 
 # Congregation-display disconnection and recovery
+
+> **Amended by Decision [272](0272-space-resumes-output-after-a-disconnect.md).** After a disconnect, `Space` resumes output in one step once the same recognized congregation display is back.
 
 - If the active congregation display disappears during a Presentation session, Ordo immediately marks congregation output **Disconnected** and prevents its output window from being relocated onto the remaining operator display.
 - The Presentation session, Preview selection, and navigation context remain active so the operator can continue preparing the next Cue.

@@ -744,7 +744,7 @@ updated before implementation begins.
 | Live / unfrozen | Program and Preview are linked; selecting a projectable Cue cuts immediately to it. Operator-only triggers/Hold produce black; Wait leaves Program unchanged. | Changes Preview and, for projectable/black Cues, Program. | Keeps/takes current Preview live. |
 | Frozen | Last Program frame is held. | Changes Preview only. | Takes Preview live and clears Freeze. |
 | Blackout | Program is forced black. | Changes Preview only. | Takes Preview live and clears Blackout. |
-| Disconnected | No claim is made that external content remains visible; Program monitor shows disconnected. | Preview and session continue. | Has no external effect until output is deliberately re-enabled. |
+| Disconnected | No claim is made that external content remains visible; Program monitor shows disconnected. | Preview and session continue. | Once the same recognized congregation display is back, recreates the window and takes Preview live (Decision 272); otherwise refused with the reason. |
 
 Content-to-content changes are instantaneous cuts. Content-to-Blackout/Hold and
 Blackout/Hold-to-content fade for `500ms`; Presentation Engine state changes
