@@ -200,7 +200,7 @@
       // wait: Program unchanged
     }
     function take() {
-      if (S.output !== "enabled") { say("Enable output first. Space never exposes output on its own."); return; }
+      if (S.output !== "enabled") { say("Congregation output is disabled. Enable Output first; Space takes Preview live once output is on, and also clears Freeze or Blackout."); return; }
       var c = CUES[S.preview];
       if (c.k === "unavailable") { say("Can't take an unavailable Cue live: " + c.why + "."); return; }
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
