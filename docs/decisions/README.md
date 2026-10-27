@@ -256,7 +256,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0224](0224-coherent-degraded-rendering-for-a-missing-theme-background.md) | Coherent degraded rendering for a missing Theme background | accepted | 2026-08-29 | themes, rendering |
 | [0225](0225-advisory-theme-background-aspect-and-resolution.md) | Advisory Theme-background aspect and resolution qualification | accepted | 2026-08-29 | presenter, themes, repo |
 | [0226](0226-self-healing-bundled-font-cache-with-two-tier-trusted.md) | Self-healing bundled-font cache with two-tier trusted recovery | accepted | 2026-08-29 | rendering, storage, platform |
-| [0227](0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable.md) | Fail-safe Freeze when a future Cue becomes unavailable | accepted | 2026-08-29 | presenter |
+| [0227](0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable.md) | Fail-safe Freeze when a future Cue becomes unavailable | accepted, amended by [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | 2026-08-29 | presenter |
 | [0228](0228-non-modal-fail-closed-interrupted-session-presentation.md) | Non-modal fail-closed interrupted-session presentation | accepted | 2026-08-29 |  |
 | [0229](0229-installer-owned-repair-upgrade-and-downgrade-refusal.md) | Installer-owned Repair, Upgrade, and downgrade refusal | accepted | 2026-08-29 | platform |
 | [0230](0230-uninstall-preserves-parish-data-by-default.md) | Uninstall preserves Parish data by default | accepted | 2026-08-29 | platform |
@@ -303,5 +303,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 | [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
+| [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
 
 <!-- adr-index:end -->

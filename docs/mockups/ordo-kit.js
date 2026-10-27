@@ -160,7 +160,7 @@
       output: (opts.state && opts.state.output) || "disabled",
       preview: opts.preview != null ? opts.preview : 1,
       program: opts.program != null ? opts.program : null,
-      live: !!opts.live, frozen: !!opts.frozen, blackout: false, frozenReason: "",
+      live: !!opts.live, frozen: !!opts.frozen, blackout: false, frozenReason: "", blackReason: "",
       collapsed: {}, message: "", preflight: opts.preflight || null
     };
 
@@ -194,7 +194,8 @@
       S.preview = i; say("");
       var c = CUES[i];
       if (S.output !== "enabled" || !S.live || S.frozen || S.blackout) return;
-      if (c.k === "unavailable") { S.frozen = true; S.frozenReason = "Cue unavailable"; say("Frozen · Cue unavailable. Program keeps the last valid frame."); return; }
+      S.blackReason = "";
+      if (c.k === "unavailable") { S.program = null; S.blackReason = "Cue unavailable"; say("Program is black: " + c.why + ". The next valid Cue goes live as usual."); return; }   // Decision 274
       if (projectable(c)) S.program = i;
       else if (c.k === "trigger" || c.k === "hold") S.program = null;   // black
       // wait: Program unchanged
@@ -204,7 +205,7 @@
       var c = CUES[S.preview];
       if (c.k === "unavailable") { say("Can't take an unavailable Cue live: " + c.why + "."); return; }
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
-      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; say("");
+      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; say("");
     }
     // F and B toggle; releasing either does exactly what Space does (Decision 273)
     function freeze() {
@@ -228,6 +229,7 @@
       if (S.output !== "enabled") return statusLabel("disabled", "Output disabled", "square");
       if (S.blackout) return statusLabel("blackout", "BLACKOUT", "square");
       if (S.frozen) return statusLabel("freeze", S.frozenReason ? "FROZEN · " + S.frozenReason : "FROZEN", "diamond");
+      if (S.live && S.blackReason) return statusLabel("blackout", "LIVE · black · " + S.blackReason, "square");
       if (S.live) return statusLabel("live", "LIVE");
       return statusLabel("blackout", "BLACK · not live", "square");
     }

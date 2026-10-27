@@ -54,9 +54,9 @@
     },
     {
       slug: "presenter-three-column-v2", group: "presenter", title: "Three-column Presenter", replaces: "presenter-three-column",
-      summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, fail-safe Freeze on an unavailable Cue; 1920 and 1366 compositions.",
+      summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, Program black on an unavailable Cue; 1920 and 1366 compositions.",
       status: "proposed", gate: false,
-      decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
+      decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
         "Timeline Cues carry a ring for Program (green, amber while held) and for Preview (blue, borrowing the focus colour), each with its word in the caption; when both differ the timeline scrolls to keep both in view if they fit. DESIGN.md names no on-air treatment for timeline Cues.",
@@ -77,7 +77,7 @@
       slug: "timeline-modes-v2", group: "presenter", title: "Cue timeline modes", replaces: "timeline-modes",
       summary: "Visual Slide Grid and Compact Cue List on the shared kit, with operator-only rows breaking the grid in order, unavailable Cues kept in place, and a narrower window that drops a column but keeps the mode.",
       status: "proposed",
-      decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable"]
+      decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing"]
     },
     {
       slug: "presenter-high-scale", group: "presenter", title: "High-scale Presenter",
