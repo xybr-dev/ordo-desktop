@@ -304,19 +304,20 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 | [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
 | [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
-| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | accepted | 2026-10-28 | songs |
-| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | accepted | 2026-10-28 | songs |
-| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | accepted | 2026-10-28 | songs |
-| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | accepted | 2026-10-28 | songs |
-| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | accepted | 2026-10-28 | songs |
-| [0280](0280-settings-holds-parish-displays-and-interface-pages.md) | Settings holds Parish, Displays and Interface pages | accepted | 2026-10-28 | ui |
-| [0281](0281-help-holds-keyboard-shortcuts-offline-guides-and-about-ordo.md) | Help holds keyboard shortcuts, offline guides and About Ordo | accepted | 2026-10-28 | ui |
-| [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | Diagnostics opens from its own rail entry | accepted | 2026-10-28 | ui |
-| [0283](0283-transfer-and-backup-lists-protection-packages-and-backups.md) | Transfer and Backup lists protection, packages and backups in that order | accepted | 2026-10-28 | storage |
-| [0284](0284-theme-library-cards-the-layout-group-and-a-shared-save.md) | Theme library cards, the Layout group and a shared-save confirmation | accepted | 2026-10-28 | themes |
-| [0285](0285-masses-index-rows-name-the-presider-and-carry-the-backup.md) | Masses index rows name the presider and carry the backup reminder | accepted | 2026-10-28 | mass-plan |
-| [0286](0286-mass-template-list-language-fallback-and-archiving.md) | Mass template list, language fallback and archiving | accepted | 2026-10-28 | mass-plan |
-| [0287](0287-template-items-carry-their-requirement-and-an-inclusion-rule.md) | Template items carry their requirement and an inclusion rule | accepted | 2026-10-28 | mass-plan |
-| [0288](0288-add-mass-and-reuse-for-another-celebration-slide-overs.md) | Add Mass and Reuse for another Celebration slide-overs | accepted | 2026-10-28 | mass-plan |
+| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | proposed | 2026-10-28 | songs |
+| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | proposed | 2026-10-28 | songs |
+| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | proposed | 2026-10-28 | songs |
+| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | proposed | 2026-10-28 | songs |
+| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | proposed | 2026-10-28 | songs |
+| [0280](0280-settings-holds-parish-displays-and-interface-pages.md) | Settings holds Parish, Displays and Interface pages | proposed | 2026-10-28 | ui |
+| [0281](0281-help-holds-keyboard-shortcuts-offline-guides-and-about-ordo.md) | Help holds keyboard shortcuts, offline guides and About Ordo | proposed | 2026-10-28 | ui |
+| [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | Diagnostics opens from its own rail entry | proposed | 2026-10-28 | ui |
+| [0283](0283-transfer-and-backup-lists-protection-packages-and-backups.md) | Transfer and Backup lists protection, packages and backups in that order | proposed | 2026-10-28 | storage |
+| [0284](0284-theme-library-cards-the-layout-group-and-a-shared-save.md) | Theme library cards, the Layout group and a shared-save confirmation | proposed | 2026-10-28 | themes |
+| [0285](0285-masses-index-rows-name-the-presider-and-carry-the-backup.md) | Masses index rows name the presider and carry the backup reminder | proposed | 2026-10-28 | mass-plan |
+| [0286](0286-mass-template-list-language-fallback-and-archiving.md) | Mass template list, language fallback and archiving | proposed | 2026-10-28 | mass-plan |
+| [0287](0287-template-items-carry-their-requirement-and-an-inclusion-rule.md) | Template items carry their requirement and an inclusion rule | proposed | 2026-10-28 | mass-plan |
+| [0288](0288-add-mass-and-reuse-for-another-celebration-slide-overs.md) | Add Mass and Reuse for another Celebration slide-overs | proposed | 2026-10-28 | mass-plan |
+| [0289](0289-liturgy-import-review-copies-into-a-celebration-s-mass-plans.md) | Liturgy import review copies into a Celebration's Mass plans | proposed | 2026-10-28 | import |
 
 <!-- adr-index:end -->

@@ -30,6 +30,7 @@ They are not production source; screens are rebuilt as native GPUI views.
   `ordo-shell.js` adds `OrdoKit.shell()`: the Masses index and Set up Ordo, Themes and the Theme
   Editor, Transfer & Backup, Diagnostics, Help and Settings. The rail switches between them in place.
   `ordo-templates.js` adds `OrdoKit.templates()`: Masses → Templates and the Template Editor.
+  `ordo-liturgy.js` adds `OrdoKit.liturgy()`: the Liturgy import review.
 - `canonical-slide-layouts.html` shows the PNG gallery in `design-references/`, which the
   `canonical-slide-lab` capture test writes there.
 
