@@ -19,49 +19,58 @@ sources: [docs/mockups/presenter-insert.html]
 Decision [12](0012-safe-live-operations.md) makes `Insert` Freeze Program and open emergency
 insertion. Decision [258](0258-bound-live-insertion-auto-play-windows-and-save-safety.md) adds an
 anchored chooser for General text or image, Response sequence, or Song, inserting after the current
-Mass item. MVP-PLAN §8.5 makes the Song path a centred, keyboard-first **Quick Insert** chooser built
-from existing Field, list, Dialog and focus behaviour. None of them fixes what the chooser and dialog
-contain or how the operator reaches them without the keyboard.
+Mass item, and makes emergency editors slide-overs. MVP-PLAN §8.5 describes the Song path as a
+centred, keyboard-first **Quick Insert** chooser. A centred dialog for Songs and slide-overs for the
+other kinds would give the same task two shapes. Both shapes would also cover Program and Preview at
+the moment the operator most needs to see them.
 
 ## Decision
 
-- **Opening.** `Insert`, or **Insert after {item}** above the Cue timeline, opens the chooser. If
-  Program is Live, it Freezes first, with the status **FROZEN · inserting**. With output disabled
-  (rehearsal) nothing freezes, and the chooser says so.
-- **Chooser.** It is anchored at the top of the window. It opens with the destination, **Inserts
-  after {Mass item} · {section}**, then three choices with their keys: **Song** `S`, **Response
-  sequence** `R`, **Text or image** `T`. `Esc` closes it and leaves Program frozen, with a message
-  that Space or `F` takes Preview live.
-- **Quick Insert.** A centred dialog with one search field focused.
-  - With nothing typed, it lists the plan's choir's repertoire.
-  - Typing filters by title first, then other names and first lines, ignoring accents. A result that
-    matched on something other than its title shows why.
-  - `↑`/`↓` move the active result, and its first slides preview beside the list. `Enter` or
-    **Insert Song** inserts it.
-- **No match.** Quick Insert offers **Type "{query}" for this Mass**. It opens a slide-over with the
-  title and lyrics (a blank line starts a slide) and a live canonical preview. The Song is Mass-local,
-  and its title slide shows no choir or "Mass-local" label to the congregation.
-- **Response sequence and Text or image.** These open the same slide-over. A Response sequence is
-  picked from Responses & Prayers and copied, leaving the Library entry unchanged. Text has a heading
-  and body; an image is picked from this computer. Each shows a canonical preview before **Insert and
-  preview**.
+- **One Insert panel for every kind.**
+  - `Insert`, or **Insert after {item}** pinned above the Cue timeline, opens it.
+  - If Program is Live, it Freezes first, with the status **FROZEN · inserting**. With output disabled
+    (rehearsal) nothing freezes.
+  - The panel covers the Cue timeline only. Program, Preview, output status, Freeze, Blackout and the
+    primary control stay visible and usable by mouse.
+- **Panel layout.** The header names the destination: **After {Mass item} · {section}** and the
+  Program state. Tabs choose the kind: **Song** (`Alt+S`), **Response sequence** (`Alt+R`), **Text or
+  image** (`Alt+T`). It opens on Song with the search field focused.
+- **Song and Response sequence** share one keyboard-first pattern: a search field, a result list and
+  a canonical preview of the active result.
+  - `↑`/`↓` move and `Enter` inserts.
+  - Operator-only prompts appear in the preview as private rows, not slides.
+- **Song search.**
+  - The whole Library is searchable, by title first, then other names and first lines, ignoring
+    accents. A match on something other than the title shows why.
+  - Results are grouped: the plan's choir's repertoire first, then **Other Songs in the Library**.
+  - A Song outside the repertoire is marked **Not in {choir}'s repertoire** when active. Inserting it
+    doesn't add it to the repertoire.
+- **No Song matches.** The panel offers **Type "{query}" for this Mass**. It opens a form in the same
+  panel, with **Back to search** (or `Esc`), title, lyrics (a blank line starts a slide) and a live
+  preview. The Song is Mass-local, and its title slide shows no choir or "Mass-local" label to the
+  congregation.
+- **Text or image.** A heading and text, or a picture from this computer, with a canonical preview.
 - **After inserting.**
   - The new item sits after the current Mass item in the same section, marked **Inserted live** in the
     timeline and the Ordo rail.
   - Its first projectable Cue is selected in Preview, and Program stays frozen (**FROZEN · Insert
     ready**) until Space.
   - A message confirms that it was saved to this Mass plan only.
-- **Keys.** While the chooser, dialog or slide-over is open, no single-key Presenter command runs,
-  including `F`, `B`, Space and navigation (MVP-PLAN §8.2).
+- **Keys.** While the panel is open, no single-key Presenter command runs, including `F`, `B`, Space
+  and navigation (MVP-PLAN §8.2). `Esc` closes the panel and leaves Program frozen, with a message
+  that Space or `F` takes Preview live.
 
 ## Alternatives considered
 
-- **A global command palette.** MVP-PLAN §8.5 rules it out. A palette would also blur the difference
-  between live commands and content.
-- **Inserting after the current Cue instead of the item.** It would split a Song or Response sequence
-  in two; Decision 258 already chose the item boundary.
+- **A centred Quick Insert dialog for Songs and slide-overs for the rest** (MVP-PLAN §8.5 as
+  written). The two shapes differ for the same task, and both hide the Output Dock.
+- **A global command palette.** MVP-PLAN §8.5 rules it out. A palette would also blur live commands
+  and content.
+- **Searching only the choir's repertoire.** That fails exactly when an unplanned Song is requested.
+  Grouping keeps the repertoire first without hiding the rest.
 
 ## Consequences
 
-The Library list, search and preview used in preparation are reused live. Post-Mass promotion of a
-Mass-local Song stays a separate reviewed action.
+If accepted, MVP-PLAN §8.5's "centered" Quick Insert wording is updated to this panel. The Library
+search and preview used in preparation are reused live. Post-Mass promotion of a Mass-local Song stays
+a separate reviewed action.

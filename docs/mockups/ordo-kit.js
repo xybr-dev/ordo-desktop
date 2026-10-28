@@ -365,33 +365,42 @@
     }
 
     // ── Emergency insert (MVP-PLAN §8.5, Decisions 12, 258; proposed Decision 290) ─────────────
-    // Insert Freezes Program, then an anchored chooser offers Song, Response sequence or General
-    // text/image. The Song path is the keyboard-first Quick Insert dialog. Saving adds a Mass-local
-    // item right after the current Mass item and selects its first projectable Cue in Preview;
-    // Program stays frozen until Space.
+    // Insert Freezes Program and opens one Insert panel over the Cue timeline, leaving Program,
+    // Preview, Freeze and Blackout visible. Song, Response sequence and Text or image are tabs of
+    // the same panel; Song and Response share the keyboard-first search, list and preview. Saving
+    // adds a Mass-local item right after the current Mass item and selects its first projectable
+    // Cue in Preview; Program stays frozen until Space.
+    var KINDS = [["song", "music", "Song", "S"], ["resp", "messages-square", "Response sequence", "R"], ["general", "presentation", "Text or image", "T"]];
     function insAnchor() { return CUES[S.preview].item; }
-    function openInsert() {
+    function openInsert(kind) {
       if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "inserting"; }
       else if (S.frozen && S.frozenReason === "Insert ready") S.frozenReason = "inserting";
-      S.ins = { stage: "choose" }; say("");
+      S.ins = { kind: kind || "song", q: "", active: 0, create: null, mode: "Text", h: "", text: "" }; say("");
     }
-    function closeInsert(msg) {
+    function closeInsert() {
       S.ins = null;
       if (S.frozenReason === "inserting") S.frozenReason = "";
-      say(msg || (S.frozen ? "Insert cancelled. Program is still frozen; Space or F takes Preview live." : "Insert cancelled."));
+      say(S.frozen ? "Insert cancelled. Program is still frozen; Space or F takes Preview live." : "Insert cancelled.");
     }
     function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
-    function qiResults(q) {
+    // Songs in two groups: the plan's choir's repertoire first, then the rest of the Library.
+    function songResults(q) {
       q = norm(q).trim();
-      if (!q) return QI_SONGS.filter(function (s) { return s.rep; }).map(function (s) { return { s: s, why: "In " + M.choir + "’s repertoire" }; });
       var out = [];
       QI_SONGS.forEach(function (s) {
-        var t = norm(s.t), al = s.alias.map(norm).filter(function (a) { return a.indexOf(q) >= 0; })[0], fl = norm(s.first).indexOf(q) >= 0;
+        if (!q) { out.push({ x: s, rank: 0, why: "" }); return; }
+        var t = norm(s.t), al = s.alias.filter(function (a) { return norm(a).indexOf(q) >= 0; })[0], fl = norm(s.first).indexOf(q) >= 0;
         var rank = t.indexOf(q) === 0 ? 0 : t.indexOf(q) > 0 ? 1 : al ? 2 : fl ? 3 : -1;
-        if (rank >= 0) out.push({ s: s, rank: rank + (s.rep ? 0 : 0.5), why: rank === 2 ? "Also called " + s.alias.filter(function (a) { return norm(a).indexOf(q) >= 0; })[0] : rank === 3 ? "First line: " + s.first : "" });
+        if (rank >= 0) out.push({ x: s, rank: rank, why: rank === 2 ? "Also called " + al : rank === 3 ? "First line: " + s.first : "" });
       });
-      return out.sort(function (a, b) { return a.rank - b.rank; });
+      out.sort(function (a, b) { return (b.x.rep - a.x.rep) || (a.rank - b.rank); });
+      return out;
     }
+    function respResults(q) {
+      q = norm(q).trim();
+      return QI_RESP.filter(function (r) { return !q || norm(r.t).indexOf(q) >= 0 || r.cues.some(function (c) { return norm(c.b).indexOf(q) >= 0; }); }).map(function (r) { return { x: r, why: "" }; });
+    }
+    function results() { return S.ins.kind === "song" ? songResults(S.ins.q) : S.ins.kind === "resp" ? respResults(S.ins.q) : []; }
     // Insert a new Mass-local item after the anchor item; keep Program on its held Cue.
     function insertItem(it) {
       var anchor = insAnchor(), sec = M.sections[anchor.section], at = sec.items.indexOf(anchor) + 1, p = anchor.first + anchor.cues.length;
@@ -403,94 +412,88 @@
       say("Inserted " + it.title + " after " + anchor.title + ". Saved to this Mass plan only. " + (S.frozen ? "Program is still frozen; Space takes it live." : S.output === "enabled" ? "Space takes it live." : ""));
     }
     function songItem(s) {
-      return { title: s.t, song: s.a, type: "Song", local: !!s.local, cues: [{ k: "song-id", t: s.t, s: s.local ? "" : s.a }].concat(s.slides.map(function (b, i) { return { k: "lyrics", h: s.heads ? s.heads[i] : "Bersikulo " + (i + 1), b: b }; })) };
+      return { title: s.t, song: s.local ? "Typed for this Mass" : s.a, type: "Song", local: !!s.local, cues: [{ k: "song-id", t: s.t, s: s.local ? "" : s.a }].concat(s.slides.map(function (b, i) { return { k: "lyrics", h: s.local ? "" : "Bersikulo " + (i + 1), b: b }; })) };
     }
     function slidesOf(text) { return String(text).split(/\n\s*\n/).map(function (x) { return x.trim(); }).filter(Boolean); }
-    function chooser() {
-      var a = insAnchor(), sec = M.sections[a.section];
-      var opts = [["song", "music", "Song", "S", "Quick Insert: type to find a Song"], ["resp", "messages-square", "Response sequence", "R", "From Responses & Prayers"], ["general", "presentation", "Text or image", "T", "A slide typed or picked now"]];
-      return '<div class="pr-ins-scrim" data-act="ins-close"></div><div class="o-menu pr-ins-menu" role="menu" aria-label="Insert">' +
-        '<div class="pr-ins-dest o-meta">' + icon("corner-down-right") + "Inserts after <b>" + esc(a.title) + "</b> · " + esc(sec.title) + "</div>" +
-        opts.map(function (o) { return '<button class="o-row" role="menuitem" data-act="ins-' + o[0] + '">' + icon(o[1]) + '<span class="o-grow"><b>' + o[2] + '</b><span class="o-meta">' + o[4] + '</span></span><span class="o-kbd">' + o[3] + "</span></button>"; }).join("") +
-        '<div class="pr-ins-foot o-meta">' + (S.frozen ? "Program is frozen while you insert." : S.output === "enabled" ? "Program is not live, so nothing changes on screen." : "Output is disabled: rehearsal.") + ' <span class="o-kbd">Esc</span> closes</div></div>';
+    function chosenCues() {
+      var d = S.ins;
+      if (d.create) return [{ k: "song-id", t: d.create.title || "Untitled", s: "" }].concat(slidesOf(d.create.text).map(function (b) { return { k: "lyrics", h: "", b: b }; }));
+      if (d.kind === "general") return [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h, b: d.text || " ", f: "Parokya ni San Roque" }];
+      var r = results()[Math.min(d.active, results().length - 1)];
+      return r ? (d.kind === "song" ? songItem(r.x).cues : r.x.cues) : [];
     }
-    function quickInsert() {
-      var q = S.ins.q || "", r = qiResults(q), act = Math.min(S.ins.active || 0, Math.max(0, r.length - 1)), sel = r[act];
-      var rows = r.map(function (x, i) {
-        return '<div class="o-row pr-qi-row" role="option" id="qi-' + i + '" data-qi="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(x.s.t) + '</b><span class="o-meta">' + esc(x.s.a) + " · " + esc(x.s.lang) + " · " + x.s.slides.length + " slides" + (x.why ? " · " + esc(x.why) : "") + "</span></div>" +
-          (x.s.rep ? '<span class="pl-chip">' + icon("users") + "Repertoire</span>" : "") + "</div>";
-      }).join("");
-      var none = !r.length ? '<div class="pr-qi-none"><b>No Song matches “' + esc(q) + '”.</b><span class="o-meta">Type it for this Mass; it stays in this plan until someone adds it to the Library after Mass.</span>' +
-        '<button class="o-btn" data-act="ins-create">' + icon("plus") + "Type “" + esc(q) + "” for this Mass <span class=\"o-kbd\">Enter</span></button></div>" : "";
-      var prev = sel ? '<div class="pr-qi-prev"><div class="o-label">' + esc(sel.s.t) + '</div><div class="pl-thumbs">' + songItem(sel.s).cues.slice(0, 3).map(function (c) { return slide(c); }).join("") + "</div></div>" : "";
-      return '<div class="o-scrim" data-act="ins-close"></div><div class="o-dialog pr-qi" role="dialog" aria-modal="true" aria-labelledby="pr-qi-t"><div class="o-overlay-head"><h2 class="o-title" id="pr-qi-t">Quick Insert · Song</h2><span class="o-grow"></span><span class="o-meta">After ' + esc(insAnchor().title) + "</span></div>" +
-        '<div class="pr-qi-body"><label class="o-field pr-qi-search">' + icon("search") + '<input class="pl-input" data-qin="q" value="' + esc(q) + '" placeholder="Title, other name or first line" role="combobox" aria-expanded="true" aria-controls="qi-list" aria-activedescendant="' + (sel ? "qi-" + act : "") + '" autocomplete="off"></label>' +
-        '<div class="pr-qi-split"><div class="pr-qi-list" id="qi-list" role="listbox" aria-label="Songs">' + (q ? "" : '<div class="o-section-label">' + esc(M.choir) + "’s repertoire</div>") + rows + none + "</div>" + prev + "</div></div>" +
-        '<div class="o-overlay-foot"><span class="o-meta"><span class="o-kbd">↑</span><span class="o-kbd">↓</span> move · <span class="o-kbd">Enter</span> insert · <span class="o-kbd">Esc</span> close</span><span class="o-grow"></span><button class="o-btn" data-act="ins-close">Cancel</button>' +
-        '<button class="o-btn o-btn--primary" data-act="ins-pick"' + (sel ? "" : " disabled") + ">Insert Song</button></div></div>";
+    function searchList() {
+      var d = S.ins, r = results(), act = Math.min(d.active, Math.max(0, r.length - 1)), html = "", group = null;
+      r.forEach(function (o, i) {
+        if (d.kind === "song") {
+          var g = o.x.rep ? M.choir + "’s repertoire" : "Other Songs in the Library";
+          if (g !== group) { group = g; html += '<div class="o-section-label pr-qi-group">' + esc(g) + "</div>"; }
+        }
+        var meta = d.kind === "song" ? esc(o.x.a) + " · " + esc(o.x.lang) + " · " + o.x.slides.length + " slides" : o.x.cues.length + " Cues · " + esc(o.x.lang);
+        html += '<div class="o-row pr-qi-row" role="option" id="qi-' + i + '" data-qi="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(o.x.t) + '</b><span class="o-meta">' + meta + (o.why ? " · " + esc(o.why) : "") + "</span></div>" +
+          (d.kind === "song" && !o.x.rep && i === act ? '<span class="o-meta">Not in ' + esc(M.choir) + "’s repertoire</span>" : "") + "</div>";
+      });
+      if (!r.length) html = d.kind === "song" ? '<div class="pr-qi-none"><b>No Song matches “' + esc(d.q) + '”.</b><span class="o-meta">Type it for this Mass; it stays in this plan until someone adds it to the Library after Mass.</span>' +
+        '<button class="o-btn" data-act="ins-create">' + icon("plus") + "Type “" + esc(d.q) + '” for this Mass <span class="o-kbd">Enter</span></button></div>' :
+        '<div class="pr-qi-none"><b>Nothing in Responses &amp; Prayers matches “' + esc(d.q) + '”.</b><span class="o-meta">Use <b>Text or image</b> to type it.</span></div>';
+      var ph = d.kind === "song" ? "Title, other name or first line" : "Title or words of a response";
+      return '<label class="o-field pr-qi-search">' + icon("search") + '<input class="pl-input" data-qin="q" value="' + esc(d.q) + '" placeholder="' + ph + '" role="combobox" aria-expanded="true" aria-controls="qi-list" aria-activedescendant="' + (r.length ? "qi-" + act : "") + '" autocomplete="off"></label>' +
+        '<div class="pr-qi-list" id="qi-list" role="listbox" aria-label="' + (d.kind === "song" ? "Songs" : "Responses and Prayers") + '">' + html + "</div>";
     }
-    function editor() {
-      var st = S.ins.stage, d = S.ins, body = "", cues = [], title = "";
-      if (st === "create") {
-        title = "New Song for this Mass";
-        cues = [{ k: "song-id", t: d.title || "Untitled", s: "" }].concat(slidesOf(d.text).map(function (b) { return { k: "lyrics", h: "", b: b }; }));
-        body = '<label class="sh-field"><span class="o-label">Title</span><input class="pl-input" data-qin="title" value="' + esc(d.title) + '"></label>' +
-          '<label class="sh-field"><span class="o-label">Lyrics</span><textarea class="pl-input" rows="7" data-qin="text" placeholder="Type the lyrics. A blank line starts a new slide.">' + esc(d.text) + "</textarea>" +
-          '<span class="o-meta">A blank line starts a new slide. Saved in this Mass plan only; after Mass it can be added to the Library with a review.</span></label>';
-      } else if (st === "resp") {
-        title = "Insert a Response sequence";
-        var act = d.active || 0, r = QI_RESP[act];
-        cues = r.cues;
-        body = '<div class="sh-list" role="listbox" aria-label="Responses &amp; Prayers">' + QI_RESP.map(function (x, i) {
-          return '<div class="o-row pr-qi-row" role="option" data-qr="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(x.t) + '</b><span class="o-meta">' + x.cues.length + " Cues · " + esc(x.lang) + "</span></div></div>"; }).join("") + "</div>" +
-          '<p class="o-meta">Copied into this Mass plan; the Library entry is not changed.</p>';
-      } else {
-        title = "Insert text or image";
-        cues = [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h, b: d.text || " ", f: "Parokya ni San Roque" }];
-        body = '<div class="o-segmented" role="group" aria-label="Kind">' + ["Text", "Image"].map(function (m) { return '<button data-act="ins-mode" data-v="' + m + '" aria-pressed="' + (d.mode === m) + '">' + m + "</button>"; }).join("") + "</div>" +
-          (d.mode === "Image" ? '<div class="pr-ins-img">' + icon("image") + '<div><b>fiesta-poster.jpg</b><br><span class="o-meta">1920×1080 · fills the slide · from Pictures</span></div><button class="o-btn">Choose another…</button></div>' :
-            '<label class="sh-field"><span class="o-label">Heading</span><input class="pl-input" data-qin="h" value="' + esc(d.h) + '" placeholder="Optional"></label>' +
-            '<label class="sh-field"><span class="o-label">Text</span><textarea class="pl-input" rows="5" data-qin="text" placeholder="What the congregation should read">' + esc(d.text) + "</textarea></label>");
-      }
-      var ok = st === "create" ? d.title.trim() && slidesOf(d.text).length : st === "general" ? d.mode === "Image" || d.text.trim() : true;
-      return '<div class="o-scrim" data-act="ins-close"></div><div class="o-slideover pr-ins-over" role="dialog" aria-modal="true" aria-labelledby="pr-ie">' +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="pr-ie">' + title + '</h2><div class="o-meta">After ' + esc(insAnchor().title) + " · " + (S.frozen ? "Program frozen" : "Program unchanged") + "</div></div></div>" +
-        '<div class="o-overlay-body sh-form">' + body + '<div class="o-label">Preview</div><div class="pl-thumbs pr-ins-thumbs">' + cues.filter(projectable).slice(0, 4).map(function (c) { return slide(c); }).join("") + "</div></div>" +
-        '<div class="o-overlay-foot"><span class="o-meta">' + icon("save") + " Autosaves to this Mass plan</span><span class=\"o-grow\"></span><button class=\"o-btn\" data-act=\"ins-close\">Cancel</button><button class=\"o-btn o-btn--primary\" data-act=\"ins-save\"" + (ok ? "" : " disabled") + ">Insert and preview</button></div></div>";
+    function form() {
+      var d = S.ins;
+      if (d.create) return '<button class="o-btn o-btn--quiet pr-ins-back" data-act="ins-back">' + icon("arrow-left") + "Back to search</button>" +
+        '<label class="sh-field"><span class="o-label">Title</span><input class="pl-input" data-qin="create.title" value="' + esc(d.create.title) + '"></label>' +
+        '<label class="sh-field"><span class="o-label">Lyrics</span><textarea class="pl-input" rows="8" data-qin="create.text" placeholder="Type the lyrics. A blank line starts a new slide.">' + esc(d.create.text) + "</textarea>" +
+        '<span class="o-meta">Saved in this Mass plan only; after Mass it can be added to the Library with a review.</span></label>';
+      return '<div class="o-segmented" role="group" aria-label="Kind">' + ["Text", "Image"].map(function (m) { return '<button data-act="ins-mode" data-v="' + m + '" aria-pressed="' + (d.mode === m) + '">' + m + "</button>"; }).join("") + "</div>" +
+        (d.mode === "Image" ? '<div class="pr-ins-img">' + icon("image") + '<div><b>fiesta-poster.jpg</b><br><span class="o-meta">1920×1080 · fills the slide · from Pictures</span></div><button class="o-btn">Choose another…</button></div>' :
+          '<label class="sh-field"><span class="o-label">Heading</span><input class="pl-input" data-qin="h" value="' + esc(d.h) + '" placeholder="Optional"></label>' +
+          '<label class="sh-field"><span class="o-label">Text</span><textarea class="pl-input" rows="6" data-qin="text" placeholder="What the congregation should read">' + esc(d.text) + "</textarea></label>");
     }
-    function insertOverlay() {
+    function insertPanel() {
       if (!S.ins) return "";
-      return S.ins.stage === "choose" ? chooser() : S.ins.stage === "song" ? quickInsert() : editor();
+      var d = S.ins, a = insAnchor(), cues = chosenCues(), searching = (d.kind === "song" || d.kind === "resp") && !d.create;
+      var ok = d.create ? d.create.title.trim() && slidesOf(d.create.text).length : d.kind === "general" ? d.mode === "Image" || d.text.trim() : results().length > 0;
+      var label = d.create ? "Insert typed Song" : d.kind === "song" ? "Insert Song" : d.kind === "resp" ? "Insert Response sequence" : "Insert slide";
+      var r = searching ? results()[Math.min(d.active, results().length - 1)] : null;
+      return '<section class="pr-ins-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">Insert</h2>' +
+        '<div class="o-meta">' + icon("corner-down-right") + "After <b>" + esc(a.title) + "</b> · " + esc(M.sections[a.section].title) + " · " + (S.frozen ? "Program frozen" : S.output === "enabled" ? "Program not live" : "Rehearsal: output disabled") + "</div></div>" +
+        '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-close" aria-label="Close" title="Close (Esc)">' + icon("x") + "</button></div>" +
+        '<div class="o-tabs pr-ins-tabs" role="tablist">' + KINDS.map(function (k) { return '<button role="tab" data-act="ins-kind" data-v="' + k[0] + '" aria-selected="' + (d.kind === k[0]) + '">' + icon(k[1]) + k[2] + ' <span class="o-kbd">Alt+' + k[3] + "</span></button>"; }).join("") + "</div>" +
+        '<div class="pr-ins-split"><div class="pr-ins-main sh-form">' + (searching ? searchList() : form()) + "</div>" +
+        '<div class="pr-ins-prev"><div class="o-label">' + (r ? esc(r.x.t) : "Preview") + '</div><div class="pr-ins-thumbs">' + cues.slice(0, 4).map(function (c) { return projectable(c) ? slide(c) : '<div class="pr-private"><span class="pr-who">' + esc(c.who || "") + "</span><div><b>" + esc(c.b) + '</b><div class="o-meta">Operator-only · not projected</div></div></div>'; }).join("") + "</div></div></div>" +
+        '<div class="pr-ins-foot"><span class="o-meta">' + (searching ? '<span class="o-kbd">↑</span><span class="o-kbd">↓</span> move · <span class="o-kbd">Enter</span> insert · ' : "") + '<span class="o-kbd">Esc</span> ' + (d.create ? "back" : "close") + " · saves to this Mass plan</span>" +
+        '<span class="o-grow"></span><button class="o-btn" data-act="ins-close">Cancel</button><button class="o-btn o-btn--primary" data-act="ins-save"' + (ok ? "" : " disabled") + ">" + label + "</button></div></section>";
+    }
+    function insSave() {
+      var d = S.ins;
+      if (d.create) { var sl = slidesOf(d.create.text); insertItem(songItem({ t: d.create.title.trim(), slides: sl, local: true })); return; }
+      if (d.kind === "general") { insertItem({ title: d.mode === "Image" ? "Image · fiesta-poster.jpg" : d.h.trim() || "Announcement", type: "General Presentation", cues: [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h.trim(), b: d.text.trim(), f: "Parokya ni San Roque" }] }); return; }
+      var r = results()[Math.min(d.active, results().length - 1)]; if (!r) return;
+      if (d.kind === "song") insertItem(songItem(r.x));
+      else insertItem({ title: r.x.t, type: "Response sequence", cues: r.x.cues.map(function (c) { return Object.assign({}, c); }) });
     }
     function insAct(a, t) {
       if (a === "ins-open") openInsert();
       else if (a === "ins-close") closeInsert();
-      else if (a === "ins-song") S.ins = { stage: "song", q: "", active: 0 };
-      else if (a === "ins-resp") S.ins = { stage: "resp", active: 0 };
-      else if (a === "ins-general") S.ins = { stage: "general", mode: "Text", h: "", text: "" };
+      else if (a === "ins-kind") { S.ins.kind = t.dataset.v; S.ins.q = ""; S.ins.active = 0; S.ins.create = null; }
       else if (a === "ins-mode") S.ins.mode = t.dataset.v;
-      else if (a === "ins-create") S.ins = { stage: "create", title: (S.ins.q || "").trim().replace(/^\w/, function (c) { return c.toUpperCase(); }), text: "" };
-      else if (a === "ins-pick") { var r = qiResults(S.ins.q)[S.ins.active || 0]; if (r) insertItem(songItem(r.s)); }
-      else if (a === "ins-save") {
-        var d = S.ins;
-        if (d.stage === "create") insertItem(songItem({ t: d.title.trim(), a: "Mass-local", slides: slidesOf(d.text), heads: slidesOf(d.text).map(function () { return ""; }), local: true }));
-        else if (d.stage === "resp") { var x = QI_RESP[d.active || 0]; insertItem({ title: x.t, type: "Response sequence", cues: x.cues.map(function (c) { return Object.assign({}, c); }) }); }
-        else insertItem({ title: d.mode === "Image" ? "Image · fiesta-poster.jpg" : d.h.trim() || "Announcement", type: "General Presentation", cues: [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h.trim(), b: d.text.trim(), f: "Parokya ni San Roque" }] });
-      } else return false;
+      else if (a === "ins-create") S.ins.create = { title: (S.ins.q || "").trim().replace(/^\w/, function (c) { return c.toUpperCase(); }), text: "" };
+      else if (a === "ins-back") S.ins.create = null;
+      else if (a === "ins-save") insSave();
+      else return false;
       return true;
     }
     function insKey(e) {
-      var k = e.key, st = S.ins.stage;
-      if (k === "Escape") { closeInsert(); render(); return; }
-      if (st === "choose") { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); insAct("ins-" + m); render(); } return; }
-      if (st === "song") {
-        var n = qiResults(S.ins.q).length;
-        if (k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); S.ins.active = Math.max(0, Math.min(n - 1, (S.ins.active || 0) + (k === "ArrowDown" ? 1 : -1))); render(); }
-        else if (k === "Enter") { e.preventDefault(); insAct(n ? "ins-pick" : S.ins.q.trim() ? "ins-create" : ""); render(); }
-        return;
+      var k = e.key, d = S.ins;
+      if (k === "Escape") { e.preventDefault(); if (d.create) d.create = null; else closeInsert(); render(); return; }
+      if (e.altKey) { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); d.kind = m; d.q = ""; d.active = 0; d.create = null; render(); } return; }
+      if ((d.kind === "song" || d.kind === "resp") && !d.create) {
+        var n = results().length;
+        if (k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); d.active = Math.max(0, Math.min(n - 1, d.active + (k === "ArrowDown" ? 1 : -1))); render(); }
+        else if (k === "Enter") { e.preventDefault(); if (n) insSave(); else if (d.kind === "song" && d.q.trim()) insAct("ins-create"); render(); }
       }
-      if (st === "resp" && (k === "ArrowDown" || k === "ArrowUp")) { e.preventDefault(); S.ins.active = Math.max(0, Math.min(QI_RESP.length - 1, (S.ins.active || 0) + (k === "ArrowDown" ? 1 : -1))); render(); }
-      if (st === "resp" && k === "Enter") { e.preventDefault(); insAct("ins-save"); render(); }
       // Other keys belong to the focused field; no single-key Presenter command runs (MVP-PLAN §8.2).
     }
 
@@ -513,10 +516,12 @@
       var overlay = S.railOpen && !pinned ? '<div class="o-scrim" data-act="close-rail"></div>' + rail(true) : "";
       var old = app.querySelector(".pr-timeline"), kept = old ? old.scrollTop : 0;
       var fk = document.activeElement && app.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.qin : null, caret = fk && document.activeElement.selectionStart;
-      app.innerHTML = header + '<div class="o-body pr-body">' + body + "</div>" + overlay + insertOverlay();
+      app.innerHTML = header + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
       icons();
       if (S.ins) {
-        var f = app.querySelector('[data-qin="' + (fk || "") + '"]') || app.querySelector("[data-qin]") || app.querySelector(".pr-ins-menu .o-row, .pr-ins-over .pr-qi-row");
+        var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
+        if (pn) pn.style.right = (dk ? dk.offsetWidth : 0) + "px";
+        var f = app.querySelector('[data-qin="' + (fk || "") + '"]') || app.querySelector("[data-qin]") || pn;
         if (f) { f.focus({ preventScroll: true }); if (caret != null && f.setSelectionRange) try { f.setSelectionRange(caret, caret); } catch (e) { /* not text */ } }
         var on = app.querySelector('.pr-qi-row[aria-selected="true"]'); if (on) on.scrollIntoView({ block: "nearest" });
       }
@@ -542,12 +547,11 @@
 
     if (opts.interactive !== false) {
       app.addEventListener("click", function (e) {
-        var t = e.target.closest("[data-cue],[data-act],[data-view],[data-toggle],[data-jump],[data-qi],[data-qr]");
+        var t = e.target.closest("[data-cue],[data-act],[data-view],[data-toggle],[data-jump],[data-qi]");
         if (!t) return;
         if (t.dataset.qi) { S.ins.active = +t.dataset.qi; render(); return; }
-        if (t.dataset.qr) { S.ins.active = +t.dataset.qr; render(); return; }
         if (t.dataset.act && t.dataset.act.indexOf("ins-") === 0) { if (!t.disabled) insAct(t.dataset.act, t); render(); if (!S.ins) app.focus({ preventScroll: true }); return; }
-        if (S.ins) return;
+        if (S.ins && !t.closest(".pr-dock, .pr-band-controls")) return;   // the Output Dock stays usable by mouse
         if (t.dataset.cue) { select(+t.dataset.cue); }
         else if (t.dataset.view) S.mode = t.dataset.view;
         else if (t.dataset.toggle) S.collapsed[t.dataset.toggle] = !S.collapsed[t.dataset.toggle];
@@ -568,7 +572,8 @@
       });
       app.addEventListener("input", function (e) {
         var k = e.target.dataset && e.target.dataset.qin; if (!k || !S.ins) return;
-        S.ins[k] = e.target.value; if (k === "q") S.ins.active = 0; render();
+        if (k.indexOf("create.") === 0) S.ins.create[k.slice(7)] = e.target.value; else S.ins[k] = e.target.value;
+        if (k === "q") S.ins.active = 0; render();
       });
       app.addEventListener("keydown", function (e) {
         if (S.ins) { insKey(e); return; }
@@ -596,7 +601,7 @@
     return {
       setScale: function (s) { S.scale = s; render(); },
       setMode: function (m) { S.mode = m; render(); },
-      insert: function (stage, o) { openInsert(); if (stage) { insAct("ins-" + stage); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); } render(); },
+      insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
       insertSong: function (title) { openInsert(); insertItem(songItem(QI_SONGS.filter(function (x) { return x.t === title; })[0])); render(); },
       state: S, render: render, app: app
     };

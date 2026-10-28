@@ -82,14 +82,15 @@
     },
     {
       slug: "presenter-insert", group: "presenter", title: "Emergency insert and Quick Insert",
-      summary: "Insert while live at 1366×768: Program freezes, the anchored chooser offers Song, Response sequence or Text or image; Quick Insert finds a Song by title, other name or first line from the keyboard; a Song typed for this Mass when none matches; the inserted item in Preview with Program still frozen.",
+      summary: "Insert while live at 1366×768: Program freezes and one Insert panel opens over the timeline, leaving the Output Dock visible. Song, Response sequence and Text or image are tabs; Songs and Responses share keyboard-first search with preview. Songs outside the choir's repertoire are listed after it; a Song can be typed for this Mass when none matches; the inserted item lands in Preview with Program still frozen.",
       status: "proposed",
       decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0011-program-preview-freeze-and-blackout-semantics", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0290-emergency-insert-chooser-and-quick-insert-dialog"],
       interpretations: [
         "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
         "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
         "The image picker is a placeholder; the image slide is drawn as a gradient.",
-        "Ctrl+E emergency edit is not in this page."
+        "Ctrl+E emergency edit is not in this page.",
+        "MVP-PLAN §8.5 describes a centred Quick Insert dialog; this page proposes the side panel instead (Decision 290)."
       ]
     },
     {
