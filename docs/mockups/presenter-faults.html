@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presenter faults — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-faults">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Live on the Gloria, interactive</h2>
+    <p>Use the buttons to cause a fault, then drive the Presenter with the keys (click it first). Every fault fails closed: nothing is claimed to be on screen that may not be, and only <span class="o-kbd">Space</span> or the primary control puts content back.</p>
+    <div class="o-controls">
+      <button class="o-btn" data-demo="unplug">Unplug Display 2</button>
+      <button class="o-btn" data-demo="same">Plug Display 2 back</button>
+      <button class="o-btn" data-demo="other">Plug in another display</button>
+      <button class="o-btn" data-demo="fail">Next slide fails to render</button>
+      <button class="o-btn" data-demo="crash">Ordo closes unexpectedly</button>
+    </div>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Display 2 disconnected</h2>
+    <p>Program says <b>DISCONNECTED</b> instead of claiming the Gloria is still visible. Output never moves onto the operator screen. The session continues: the operator has moved Preview to the next slide; Freeze and Blackout don’t apply.</p>
+    <div id="out"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A different display was connected</h2>
+    <p>Ordo doesn’t use it. <span class="o-kbd">Space</span> is refused with the reason; the way forward is to reconnect Display 2 or choose a display deliberately.</p>
+    <div id="other"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Display 2 is back</h2>
+    <p>Its window is recreated black. Nothing shows until the operator presses <span class="o-kbd">Space</span> or <b>Resume Output</b>, which takes Preview live in one step (Decision 272).</p>
+    <div id="back"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. A later slide fails to render</h2>
+    <p>Found while live on the Gloria: the First Reading title can’t be drawn. Its card becomes <b>Output unavailable</b> with the reason; it stays in the timeline, and the urgent strip says what Ordo will do.</p>
+    <div id="fail"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Reaching the failed slide while live</h2>
+    <p>Program goes black (<b>LIVE · black · Cue unavailable</b>), never showing the failure; the next valid slide goes live as usual. <span class="o-kbd">Space</span> on it is refused.</p>
+    <div id="reached"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Reopened after Ordo closed unexpectedly</h2>
+    <p>No dialog: Ordo reopens straight into Presenter. Congregation output is black; Preview, the inserted Song and the operator’s place are restored. What Program showed before is private context only. <span class="o-kbd">Space</span> takes Preview live and dismisses the strip; <b>Exit Presenter</b> stays available.</p>
+    <div id="recovered"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Reopened, but Display 2 isn’t recognized</h2>
+    <p>Recovery enters Disconnected instead of guessing a display.</p>
+    <div id="recovered-lost"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var GLORIA = 13, NEXT = 14, READING = 15;
+    var WHY = "its Theme background image can’t be decoded";
+    var live = { w: 1366, h: 768, state: { output: "enabled" }, live: true, preview: GLORIA, program: GLORIA };
+    function show(id, setup, o) { var p = OrdoKit.presenter(document.getElementById(id), Object.assign({}, live, o || {})); if (setup) setup(p); return p; }
+
+    var p = show("live");
+    document.querySelector(".o-controls").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-demo]"); if (!b) return;
+      var d = b.dataset.demo, S = p.state;
+      if (d === "unplug") p.disconnect();
+      else if (d === "same") p.reconnect(true);
+      else if (d === "other") p.reconnect(false);
+      else if (d === "fail") p.failCue(Math.min(S.preview + 1, 40), WHY);
+      else if (d === "crash") p.recover({ preview: S.preview, program: S.program != null ? S.program : S.preview, state: S.frozen ? "FROZEN" : S.blackout ? "BLACKOUT" : "LIVE" });
+      p.app.focus({ preventScroll: true });
+    });
+
+    show("out", function (p) { p.disconnect(); p.go(NEXT); });
+    show("other", function (p) { p.disconnect(); p.reconnect(false); p.take(); });
+    show("back", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(true); });
+    show("fail", function (p) { p.failCue(READING, WHY); });
+    show("reached", function (p) { p.failCue(READING, WHY); p.go(READING); });
+    show("recovered", function (p) { p.insertSong("Pan sa Kinabuhi"); p.take(); p.go(16); p.recover({ preview: 17, program: 16 }); });
+    show("recovered-lost", function (p) { p.recover({ preview: NEXT, program: GLORIA, display: "lost" }); });
+  });
+</script>
+</body>
+</html>
