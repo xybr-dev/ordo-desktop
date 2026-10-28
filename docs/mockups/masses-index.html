@@ -36,42 +36,78 @@
 
   <section class="o-variant">
     <h2>D. New Celebration</h2>
-    <p>Creation is Celebration-first (Decision 84): the Celebration's details, then how its first Mass plan starts. Presider and location come from the parish defaults (Decision 89).</p>
+    <p>Creation is Celebration-first (Decision 84): the Celebration's details and how its first Mass plan starts. <b>Next: add the Mass</b> opens Add a Mass for the new Celebration; <b>Do this later</b> leaves it with no plans.</p>
     <div id="new"></div>
   </section>
 
   <section class="o-variant">
-    <h2>E. History</h2>
+    <h2>E. Add a Mass</h2>
+    <p>From <b>Add Mass</b> on a Celebration (Decision 84). Date, time, language, choir, presider and location, then the template. The Celebration's day is the default; the evening before asks to confirm <b>Anticipated</b> (Decision 85). Presider and location start as the parish defaults; the template recommendation follows the language (Decision 79).</p>
+    <div id="add"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. An anticipated Mass with a visiting presider</h2>
+    <p>The evening before, confirmed as Anticipated. A name typed in Presider that isn't a regular presider stays on this Mass only.</p>
+    <div id="add-ant"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. No template in the language</h2>
+    <p>Tagalog has no template, so the plan would start empty with a readiness warning rather than borrow another language's (Decision 79).</p>
+    <div id="add-notpl"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Duplicate a Mass into another language</h2>
+    <p>Duplicate within the Celebration (Decisions 74, 81). Choosing another language shows what carries over and what is left to finish.</p>
+    <div id="add-dup"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Reuse for another Celebration</h2>
+    <p>From a past Celebration's menu, or <b>Reuse</b> on one of its plans (Decision 36). Choose the plans and their new times, then an upcoming Celebration or a new one. Readings come over marked <b>Needs review</b>; a season change is flagged too.</p>
+    <div id="reuse"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. Reuse into a new Celebration</h2>
+    <p>One plan, reused into a Celebration created on the spot. Advent differs from the source's Ordinary Time, so the seasonal items are called out.</p>
+    <div id="reuse-new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. History</h2>
     <p>Celebrations whose date has passed move here by themselves; that isn't archiving and doesn't claim the Mass was presented (Decision 37). Older groups start collapsed.</p>
     <div id="history"></div>
   </section>
 
   <section class="o-variant">
-    <h2>F. Archive</h2>
+    <h2>L. Archive</h2>
     <p>Archived plans are hidden from Upcoming and History. Deleting is only possible here.</p>
     <div id="archive"></div>
   </section>
 
   <section class="o-variant">
-    <h2>G. Templates</h2>
+    <h2>M. Templates</h2>
     <p>The slot lists new Mass plans start from (Decision 76).</p>
     <div id="templates"></div>
   </section>
 
   <section class="o-variant">
-    <h2>H. First start: Set up Ordo</h2>
+    <h2>N. First start: Set up Ordo</h2>
     <p>A new installation opens here, with no rail and no Skip (Decision 218).</p>
     <div id="setup"></div>
   </section>
 
   <section class="o-variant">
-    <h2>I. Starting a new parish</h2>
+    <h2>O. Starting a new parish</h2>
     <p>Only the parish name is required. The first regular presider becomes the default for new Mass plans.</p>
     <div id="setup-new"></div>
   </section>
 
   <section class="o-variant">
-    <h2>J. A new parish with nothing planned</h2>
+    <h2>P. A new parish with nothing planned</h2>
     <p>After setup, Masses offers the three ways to begin (Decision 218).</p>
     <div id="empty"></div>
   </section>
@@ -87,6 +123,12 @@
     show("new", { setup: function (l) { l.newCel("Christ the King"); } });
     show("history", { setup: function (l) { l.tab("history"); } });
     show("archive", { setup: function (l) { l.tab("archive"); } });
+    show("add", { setup: function (l) { l.addMass("c4"); } });
+    show("add-ant", { setup: function (l) { l.addMass("c3", { day: "prev", ant: true, time: "17:30", presider: "Msgr. Cris Garcia", choir: "Youth Choir" }); } });
+    show("add-notpl", { setup: function (l) { l.addMass("c3", { lang: "Tagalog", time: "12:15" }); } });
+    show("add-dup", { setup: function (l) { l.addMass("c3", { method: "dup", src: "m8", lang: "English", time: "17:00", choir: "Youth Choir" }); } });
+    show("reuse", { setup: function (l) { l.reuse("c5"); } });
+    show("reuse-new", { setup: function (l) { l.reuse("c5", { plan: "m10", into: "new", nd: "Sun 29 Nov 2026", nt: "Unang Domingo sa Adviento", ns: "Advent" }); } });
     show("templates", { setup: function (l) { l.tab("templates"); } });
     show("setup", { setup: function (l) { l.firstRun(); } });
     show("setup-new", { setup: function (l) { l.firstRun("new", "Parokya ni San Roque"); } });

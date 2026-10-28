@@ -317,5 +317,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0285](0285-masses-index-rows-name-the-presider-and-carry-the-backup.md) | Masses index rows name the presider and carry the backup reminder | proposed | 2026-10-28 | mass-plan |
 | [0286](0286-mass-template-list-language-fallback-and-archiving.md) | Mass template list, language fallback and archiving | proposed | 2026-10-28 | mass-plan |
 | [0287](0287-template-items-carry-their-requirement-and-an-inclusion-rule.md) | Template items carry their requirement and an inclusion rule | proposed | 2026-10-28 | mass-plan |
+| [0288](0288-add-mass-and-reuse-for-another-celebration-slide-overs.md) | Add Mass and Reuse for another Celebration slide-overs | proposed | 2026-10-28 | mass-plan |
 
 <!-- adr-index:end -->

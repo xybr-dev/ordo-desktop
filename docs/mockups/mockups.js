@@ -321,9 +321,9 @@
     },
     {
       slug: "masses-index", group: "shell", title: "Masses index and first start",
-      summary: "The page Ordo opens on: Upcoming grouped by Celebration with readiness roll-ups and filters, a Celebration's menu, New Celebration, History, Archive and Templates, then Set up Ordo for a new installation and the empty parish after it.",
-      status: "approved",
-      decisions: ["0083-celebration-grouped-masses-index", "0064-preparation-shell-primary-navigation", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0084-optional-two-stage-celebration-and-first-plan-creation", "0085-celebration-date-scheduled-start-and-anticipated-masses", "0037-mass-plan-retention-and-organization", "0218-minimal-first-run-parish-setup-with-regular-presider", "0089-lightweight-presider-location-and-notes-input", "0198-manual-portable-backup-automatic-safety-backup-and-reminder", "0285-masses-index-rows-name-the-presider-and-carry-the-backup"],
+      summary: "The page Ordo opens on: Upcoming grouped by Celebration with readiness roll-ups and filters, a Celebration's menu, New Celebration, History, Archive and Templates, then Set up Ordo for a new installation and the empty parish after it.; Add a Mass (template, reuse or duplicate; date, Anticipated, time, language, choir, presider, location) and Reuse for another Celebration",
+      status: "proposed",
+      decisions: ["0083-celebration-grouped-masses-index", "0064-preparation-shell-primary-navigation", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0084-optional-two-stage-celebration-and-first-plan-creation", "0085-celebration-date-scheduled-start-and-anticipated-masses", "0037-mass-plan-retention-and-organization", "0218-minimal-first-run-parish-setup-with-regular-presider", "0089-lightweight-presider-location-and-notes-input", "0198-manual-portable-backup-automatic-safety-backup-and-reminder", "0285-masses-index-rows-name-the-presider-and-carry-the-backup", "0036-reusing-a-past-mass-plan", "0074-celebration-and-scheduled-mass-plan-relationship", "0081-language-aware-duplicate-for-another-mass", "0288-add-mass-and-reuse-for-another-celebration-slide-overs"],
       interpretations: [
         "Clicking a plan row only shows a toast here; the Mass Planner is on its own pages.",
         "New Celebration's fields and its First Mass plan choices are a sketch of Decision 84; template application and Reuse an earlier Mass plan aren't walked through.",
@@ -422,6 +422,9 @@
       ["incomplete-preflight", "resolve readiness"] ] },
     { title: "Carry a Celebration to the church PC (MVP-PLAN 4.3)", steps: [
       ["masses-index", "open the Celebration's menu"], ["transfer-backup", "export, then import and review"] ] },
+    { title: "Reuse for another Celebration (Decision 36)", steps: [
+      ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
+      ["mass-planning-responsive", "review the readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
       ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"],
       ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }

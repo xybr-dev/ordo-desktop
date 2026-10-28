@@ -909,3 +909,13 @@ a.o-btn { text-decoration: none; color: inherit; }
 .tp-check { display: flex; flex-direction: column; gap: 4px; padding-top: var(--o-s3); border-top: 1px solid var(--o-border); }
 .tp-check .pl-input--sel { width: 100%; }
 .tp-usage { display: flex; gap: 6px; padding-top: var(--o-s3); border-top: 1px solid var(--o-border); }
+
+/* Add Mass and Reuse for another Celebration */
+.sh-pick { gap: var(--o-s3); align-items: center; cursor: pointer; }
+.sh-pick > input { flex: none; }
+.sh-pick .o-grow { display: flex; flex-direction: column; gap: 2px; }
+.sh-rutime { display: flex; align-items: center; gap: var(--o-s2); }
+.sh-time-in { width: calc(72px * var(--o-scale)); text-align: center; }
+.sh-summary { display: flex; flex-direction: column; gap: var(--o-s3); padding: var(--o-s3); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); background: var(--o-bg); }
+.sh-summary .pl-changes { margin-top: 4px; }
+.sh-field > .o-segmented { align-self: flex-start; }
