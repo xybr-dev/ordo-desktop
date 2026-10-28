@@ -36,8 +36,26 @@
 
   <section class="o-variant">
     <h2>C. A different display was connected</h2>
-    <p>Ordo doesn’t use it. <span class="o-kbd">Space</span> is refused with the reason; the way forward is to reconnect Display 2 or choose a display deliberately.</p>
+    <p>Ordo doesn’t use it on its own. <span class="o-kbd">Space</span> is refused with the reason; <b>Select display…</b> becomes the primary control.</p>
     <div id="other"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C2. Select display…, without leaving Presenter</h2>
+    <p>The Settings → Displays picker opens in the Insert panel’s place: this computer’s displays as Windows arranges them, <b>Identify displays</b>, and Output Fit for a display new to Ordo. Program and Preview stay in view. <b>Use Display 3</b> opens its window black and saves the choice for this computer; nothing from Settings ever shows Mass content.</p>
+    <div id="pick"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C3. Select display… while Display 2 is still unplugged</h2>
+    <p>Only the operator display is present, so there is nothing to choose: Display 2 stays assigned and marked Unavailable. <b>Turn congregation output off</b> ends the disconnected state on purpose; Enable Output brings it back later.</p>
+    <div id="pick-none"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C4. Display 3 chosen</h2>
+    <p>Its window is open and black. <span class="o-kbd">Space</span> takes Preview live on it.</p>
+    <div id="picked"></div>
   </section>
 
   <section class="o-variant">
@@ -92,6 +110,9 @@
 
     show("out", function (p) { p.disconnect(); p.go(NEXT); });
     show("other", function (p) { p.disconnect(); p.reconnect(false); p.take(); });
+    show("pick", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(false); p.selectDisplay({ identify: true }); });
+    show("pick-none", function (p) { p.disconnect(); p.selectDisplay(); });
+    show("picked", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(false); p.selectDisplay(); p.app.querySelector('[data-act="ins-disp-use"]').click(); });
     show("back", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(true); });
     show("fail", function (p) { p.failCue(READING, WHY); });
     show("reached", function (p) { p.failCue(READING, WHY); p.go(READING); });

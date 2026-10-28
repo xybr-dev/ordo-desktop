@@ -998,3 +998,8 @@ a.o-btn { text-decoration: none; color: inherit; }
 .pr-prior .o-meta { color: var(--o-muted); }
 /* Compact dock: private context and messages stay short so Freeze, Blackout and the primary control fit */
 .o-presenter[data-layout="compact"] .pr-dock .pr-private > div, .o-presenter[data-layout="compact"] .pr-dock .pr-msg { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Presenter: Select display slide-over, reusing the Settings → Displays tiles */
+.pr-disp-main { flex: 1; padding: var(--o-s3) var(--o-s4); }
+.pr-disp-main .sh-topo { align-self: stretch; }
+.sh-disp[disabled] { cursor: default; }
