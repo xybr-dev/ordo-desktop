@@ -951,7 +951,9 @@ a.o-btn { text-decoration: none; color: inherit; }
 .li-tech { padding: var(--o-s3); background: var(--o-bg); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); font-size: calc(13px * var(--o-scale)); white-space: pre-wrap; }
 
 /* ── Presenter emergency insert and Quick Insert ── */
-.pr-tl-tools { display: flex; justify-content: flex-end; padding: 0 0 var(--o-s2); }
+.pr-tl-tools { display: flex; justify-content: flex-end; align-items: center; height: calc(44px * var(--o-scale)); position: sticky; top: calc(-1 * var(--o-s2)); z-index: 2; background: var(--o-bg); }
+/* item headers stick below the Insert row */
+.pr-timeline .pr-group-head { top: calc(44px * var(--o-scale) - var(--o-s2)); }
 .o-canvas[data-t="image"] .o-img { position: absolute; inset: 0; background: linear-gradient(135deg, #7a3b2e 0%, #c9893a 45%, #f1d27a 70%, #2f5d7a 100%); }
 .pr-ins-scrim { position: absolute; inset: 0; z-index: 40; }
 .pr-ins-menu { position: absolute; z-index: 41; left: 50%; top: calc(110px * var(--o-scale)); transform: translateX(-50%); width: calc(420px * var(--o-scale)); box-shadow: 0 12px 32px rgba(0,0,0,.28); }
