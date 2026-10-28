@@ -16,7 +16,7 @@
     { id: "system", title: "Design system", lead: "Tokens, semantic colour, and the canonical slide output every surface shares." },
     { id: "presenter", title: "Presenter", lead: "Live Control: Program and Preview, the Cue timeline, and Presenter entry." },
     { id: "planning", title: "Mass Planning", lead: "The three-pane planning workspace, Inspector Cue navigation, and readiness." },
-    { id: "songs", title: "Songs and Arrangements", lead: "The Song Library, import review, Arrangement authoring and pagination, and History." },
+    { id: "songs", title: "Library", lead: "The Library's Songs, Responses & Prayers, General Presentations and Choirs views, Song import review, Arrangement authoring and pagination, and History." },
     { id: "research", title: "Post-MVP research", lead: "Explored and kept, but deferred past the MVP." }
   ];
 
@@ -181,12 +181,45 @@
       slug: "song-library-master-detail-v2", group: "songs", title: "Song Library", replaces: "song-library-master-detail",
       summary: "The Library's Songs view as a working master-detail: search and Arrangement-level filters with match reasons, matching Arrangements first, New song with possible duplicates, and the empty, no-match and archived states.",
       status: "proposed",
-      decisions: ["0132-persistent-song-library-master-detail-workspace", "0133-arrangement-level-song-library-filtering", "0134-normalized-song-library-search-scope", "0219-empty-song-library-within-the-permanent-master-detail", "0114-arrangement-free-song-creation-and-nested-duplicate-preview", "0257-make-library-a-multi-view-destination-with-revision-bound", "0145-song-and-arrangement-lifecycle-action-placement", "0148-inspect-only-archived-song-and-arrangement-state", "0088-musical-composition-identity-and-translated-arrangements"],
+      decisions: ["0132-persistent-song-library-master-detail-workspace", "0133-arrangement-level-song-library-filtering", "0134-normalized-song-library-search-scope", "0219-empty-song-library-within-the-permanent-master-detail", "0114-arrangement-free-song-creation-and-nested-duplicate-preview", "0276-edit-song-identity-in-a-staged-song-details-slide-over", "0278-manage-choirs-as-a-library-view", "0257-make-library-a-multi-view-destination-with-revision-bound", "0145-song-and-arrangement-lifecycle-action-placement", "0148-inspect-only-archived-song-and-arrangement-state", "0088-musical-composition-identity-and-translated-arrangements"],
       interpretations: [
-        "The Library header carries Songs, Responses & Prayers and General Presentations as local views (Decision 257); only Songs is mocked here.",
+        "The Library header carries Songs, Responses & Prayers and General Presentations as local views (Decision 257), plus Choirs (proposed Decision 278). Each has its own page.",
         "Search matches case-insensitively on titles, aliases, composers, Choirs, languages and lyrics. Unicode normalization (Decision 134) isn't modelled.",
         "Merge with another song shows in the Song overflow but is disabled, because Decision 167 defers merging until after the MVP.",
-        "Usual moments and occasions are free text and chips here; their vocabularies aren't decided."
+        "Usual moments and occasions are free text and chips here; their vocabularies aren't decided.",
+        "Edit details reuses the New song slide-over; the possible-duplicate check reruns only when the title changes, and its preview can't merge."
+      ]
+    },
+    {
+      slug: "library-responses-prayers", group: "songs", title: "Responses & Prayers",
+      summary: "The Library's Responses & Prayers view: language and role filters, exchanges of private prompt and projected response with generated slides, the response header, revision binding, a new entry and an archived one.",
+      status: "proposed",
+      decisions: ["0257-make-library-a-multi-view-destination-with-revision-bound", "0279-library-views-beside-songs-share-its-master-detail", "0071-add-mass-item-workflow-and-editor-presets", "0255-use-fixed-semantic-congregation-slide-layouts", "0148-inspect-only-archived-song-and-arrangement-state"],
+      interpretations: [
+        "The liturgical roles in the Role filter are a placeholder list; their vocabulary isn't decided.",
+        "Plan and template counts are fixture numbers; how a plan shows Update available is the Mass planner's concern (Decision 257).",
+        "History and revision comparison for these entries aren't mocked; they would follow Song and Arrangement History (Decision 143)."
+      ]
+    },
+    {
+      slug: "library-general-presentations", group: "songs", title: "General Presentations",
+      summary: "The Library's General Presentations view: text and image Slides with per-Slide auto-play overrides, a new entry and an archived one.",
+      status: "proposed",
+      decisions: ["0257-make-library-a-multi-view-destination-with-revision-bound", "0279-library-views-beside-songs-share-its-master-detail", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0071-add-mass-item-workflow-and-editor-presets", "0148-inspect-only-archived-song-and-arrangement-state"],
+      interpretations: [
+        "Choose… for an image Slide does nothing; importing and storing images isn't mocked.",
+        "Private delivery context isn't on this page, because Decision 257 attaches it to the Mass item."
+      ]
+    },
+    {
+      slug: "library-choirs", group: "songs", title: "Choirs",
+      summary: "The Library's Choirs view: add a choir by name, short label, preferred languages and private notes, the repertoire of Arrangements that name it, rename, archive, and the empty state.",
+      status: "proposed",
+      decisions: ["0278-manage-choirs-as-a-library-view", "0087-simplified-celebration-metadata-and-choir-management", "0221-optional-choir-setup-with-inline-lightweight-creation", "0277-pick-arrangement-languages-from-a-built-in-list", "0279-library-views-beside-songs-share-its-master-detail"],
+      interpretations: [
+        "Preferred languages are described as ranking a choir's Arrangements first; Decision 87 names the field but not its effect.",
+        "The list's song count and the Repertoire skip archived Songs and Arrangements.",
+        "Choirs have no Duplicate, since two records for one choir is what duplicate prevention exists to stop."
       ]
     },
     {
@@ -217,11 +250,12 @@
     },
     {
       slug: "arrangement-details-v2", group: "songs", title: "Arrangement details", replaces: "arrangement-details",
-      summary: "The staged Arrangement-details slide-over for a shared Arrangement and for New Arrangement, the one-language validation, and the first-Arrangement landing in an empty Lyrics task.",
+      summary: "The staged Arrangement-details slide-over for a shared Arrangement and for New Arrangement, the one-language validation, the first-Arrangement landing in an empty Lyrics task, renaming a section in place, and adding a Choir or a language.",
       status: "proposed",
-      decisions: ["0117-arrangement-metadata-boundary-and-staged-details-surface", "0118-first-arrangement-creation-transition-and-empty-state", "0119-arrangement-section-creation-and-rename-surface", "0145-song-and-arrangement-lifecycle-action-placement", "0138-song-and-arrangement-autosave-boundaries"],
+      decisions: ["0117-arrangement-metadata-boundary-and-staged-details-surface", "0118-first-arrangement-creation-transition-and-empty-state", "0119-arrangement-section-creation-and-rename-surface", "0275-rename-a-section-in-place-in-the-lyric-editor-header", "0221-optional-choir-setup-with-inline-lightweight-creation", "0277-pick-arrangement-languages-from-a-built-in-list", "0278-manage-choirs-as-a-library-view", "0145-song-and-arrangement-lifecycle-action-placement", "0138-song-and-arrangement-autosave-boundaries"],
       interpretations: [
-        "Choices for languages, Choirs and occasions are toggle chips with an add chip; how new values are created isn't mocked.",
+        "Languages and Choirs are toggle chips with an add chip that opens a search. Choirs can be created by name (Decision 221); languages can only be picked from Ordo's list. Occasions' add chip does nothing, because their vocabulary isn't decided.",
+        "A quick-created choir's other details are edited in Library → Choirs (proposed Decision 278); that view isn't mocked yet.",
         "The shared-Arrangement notice appears when more than one Choir uses the Arrangement and names them.",
         "The Display title placeholder previews the label Ordo derives when it's left blank."
       ]

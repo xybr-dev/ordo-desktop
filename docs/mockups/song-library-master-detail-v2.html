@@ -18,7 +18,7 @@
 
   <section class="o-variant">
     <h2>A. Songs, interactive</h2>
-    <p>The Library's <b>Songs</b> view at 1366 × 768. Search and filters stay on the left; the selected Song's identity and Arrangements fill the right, and selecting another result changes only the right pane. Try searching an alias such as <i>Kyrie</i> or a lyric such as <i>pan ug bino</i>, filter by Choir, or press <b>New song</b>.</p>
+    <p>The Library's <b>Songs</b> view at 1366 × 768. Search and filters stay on the left; the selected Song's identity and Arrangements fill the right, and selecting another result changes only the right pane. Try searching an alias such as <i>Kyrie</i> or a lyric such as <i>pan ug bino</i>, filter by Choir, or press <b>New song</b> or <b>Edit details</b>.</p>
     <div id="live"></div>
   </section>
 
@@ -65,7 +65,13 @@
   </section>
 
   <section class="o-variant">
-    <h2>I. 1920 × 1080</h2>
+    <h2>I. Edit Song details</h2>
+    <p><b>Edit details</b> in the Song header opens the New song surface with the Song's current title, composer, aliases and usual moments. Changes are staged until <b>Save details</b>, which stays disabled until something changes. The notice says where the title and credits also appear before anything is saved (proposed Decision 276).</p>
+    <div id="songedit"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. 1920 × 1080</h2>
     <p>The same composition with a wider browser pane; nothing else changes.</p>
     <div id="wide"></div>
   </section>
@@ -83,6 +89,7 @@
     show("nomatch", { song: "s1", setup: function (l) { l.search("magnificat").filter("lang", "Latin"); } });
     show("empty", { setup: function (l) { l.empty(); } });
     show("archived", { song: "s9", setup: function (l) { l.showArchived(); } });
+    show("songedit", { song: "s1", setup: function (l) { l.songDetails().form("aliases", "Kyrie · Misa Bisaya, Kyrie Eleison"); } });
     show("wide", { w: 1920, h: 1080, song: "s2" });
   });
 </script>

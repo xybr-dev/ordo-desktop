@@ -36,8 +36,32 @@
 
   <section class="o-variant">
     <h2>D. Adding a section</h2>
-    <p>A small anchored popover with one required name and editable suggestions; the next number is proposed (<b>Bersikulo 3</b>). <b>Add section</b> selects the new section and puts the cursor in its lyrics. Renaming uses the same popover.</p>
+    <p>A small anchored popover with one required name and editable suggestions; the next number is proposed (<b>Bersikulo 3</b>). <b>Add section</b> selects the new section and puts the cursor in its lyrics.</p>
     <div id="addsec"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Renaming a section</h2>
+    <p>The section name above the lyrics is the name field: click it and type. <b>Enter</b> or clicking away renames the section everywhere it appears in the Sequence, with Undo; <b>Esc</b> puts the old name back. The section list has no rename button any more (proposed Decision 275).</p>
+    <div id="rename"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. A choir that isn't in the list yet</h2>
+    <p><b>+ Choir</b> opens a search over the parish's active choirs. When nothing matches what was typed, the first row offers <b>Create “…”</b>, and Enter picks it. Archived choirs aren't suggested (Decision 221).</p>
+    <div id="choir"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. After Create</h2>
+    <p>The choir is saved straight away with only its name and is selected here. Its short label, preferred languages and notes are filled in later in Library → Choirs. The Arrangement itself still waits for <b>Save details</b>.</p>
+    <div id="choirmade"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Adding a language</h2>
+    <p>Languages come from Ordo's built-in list instead of being typed in, so the Library, Mass plans and templates name each language the same way. Search also covers other names: <i>ilong</i> finds Hiligaynon. When nothing matches, the picker says so and offers no Create (proposed Decision 277).</p>
+    <div id="lang"></div>
   </section>
 
 </main>
@@ -48,6 +72,10 @@
     show("edit", { setup: function (l) { l.open("s1", "a1", "lyrics").details(false).form("translator", "Parish adaptation"); } });
     show("create", { setup: function (l) { l.song("s5").details(true).form("choirs", ["Youth Choir"]).tryCreate(); } });
     show("landed", { setup: function (l) { l.song("s5").createArr({ langs: ["Cebuano"], choirs: ["Youth Choir"] }); } });
+    show("rename", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d2").secName("Koro (Refrain)"); } });
+    show("choir", { setup: function (l) { l.open("s2", "a3", "lyrics").details(false).pick("choirs", "Koro Bag-ong Kinabuhi"); } });
+    show("choirmade", { setup: function (l) { l.open("s2", "a3", "lyrics").details(false).pick("choirs", "Koro Bag-ong Kinabuhi").createChoir(); } });
+    show("lang", { setup: function (l) { l.song("s5").details(true).pick("langs", "ilong"); } });
     show("addsec", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d3").addSection(); } });
   });
 </script>
