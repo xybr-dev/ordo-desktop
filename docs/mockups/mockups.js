@@ -332,6 +332,18 @@
       ]
     },
     {
+      slug: "mass-templates", group: "shell", title: "Mass templates and the Template Editor",
+      summary: "Masses → Templates with language filter, fallback and archive, the empty list and New template; the three-pane Template Editor with Mass sections, Song and Reading slots, conditional items and their rules, Response sequences, Check against a Celebration, section actions and Add.",
+      status: "proposed",
+      decisions: ["0077-template-library-ownership-and-organization", "0076-typed-template-slots-and-multiple-templates-per-language", "0075-conditional-template-items", "0078-template-instantiation-and-revision-boundary", "0079-template-recommendation-and-fallback-selection", "0220-empty-mass-templates-within-the-permanent-list-editor", "0112-mass-ownership-of-template-derived-response-sequences", "0170-mass-sections-group-the-outline-in-plans-and-templates", "0172-editable-and-independently-owned-mass-section-structure", "0177-mass-section-header-controls-and-structural-invariant", "0286-mass-template-list-language-fallback-and-archiving", "0287-template-items-carry-their-requirement-and-an-inclusion-rule"],
+      interpretations: [
+        "Rules cover days and seasons only; Celebration tags (Decision 75) wait for a tag vocabulary.",
+        "Section drag handles are drawn but don't drag; Move up and Move down in the section menu work, and Alt+↑/↓ moves items, crossing into the next section at the ends.",
+        "The sample Celebrations are fixed; a real check would offer upcoming Celebrations.",
+        "Field edits save silently; Undo is offered for structural changes, as in the Mass planner."
+      ]
+    },
+    {
       slug: "themes", group: "shell", title: "Themes and the Theme Editor",
       summary: "The Theme library with the protected Ordo Black, the staged Theme Editor with specimens, Typography, Appearance and Layout, shared-save warning and confirmation, save feedback with affected-plan review, dirty-exit, duplicate, History, a degraded background, and Ordo Black opened.",
       status: "approved",

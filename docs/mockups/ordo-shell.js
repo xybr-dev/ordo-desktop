@@ -173,7 +173,7 @@
       var tabs = [["upcoming", "Upcoming"], ["history", "History"], ["archive", "Archive"], ["templates", "Templates"]];
       return '<header class="sh-head"><h1 class="o-title">Masses</h1><div class="o-tabs sh-tabs" role="tablist">' +
         tabs.map(function (t) { return '<button role="tab" data-a="mtab" data-v="' + t[0] + '" aria-selected="' + (S.mtab === t[0]) + '">' + t[1] + "</button>"; }).join("") + "</div>" +
-        '<span class="o-grow"></span>' + reminder() + (S.mtab === "templates" ? '<button class="o-btn o-btn--primary" data-a="toast" data-msg="Opens a new template in the template editor">' + icon("plus") + "New template</button>"
+        '<span class="o-grow"></span>' + reminder() + (S.mtab === "templates" ? '<a class="o-btn o-btn--primary" href="mass-templates.html">' + icon("plus") + "New template</a>"
         : '<button class="o-btn o-btn--primary" data-a="newcel">' + icon("plus") + "New Celebration</button>") + "</header>";
     }
     function matches(x) {
@@ -225,7 +225,7 @@
       if (S.mtab === "templates") return '<div class="sh-page">' + mhead() + '<div class="sh-scroll"><div class="sh-col">' +
         '<p class="o-meta">A template sets the slots a new Mass plan starts with. Changing a template never changes plans already made from it (Decision 76).</p><div class="sh-list">' +
         S.templates.map(function (t) { return '<div class="o-row sh-trow">' + icon("layout-template") + '<div class="o-grow"><b>' + esc(t.name) + '</b><span class="o-meta">' + t.slots + " slots · used for " + t.used + " Mass plans</span></div>" +
-          '<button class="o-btn" data-a="toast" data-msg="Opens ' + esc(t.name) + ' in the template editor">Edit</button></div>'; }).join("") + "</div></div></div></div>";
+          '<a class="o-btn" href="mass-templates.html">Edit</a></div>'; }).join("") + "</div></div></div></div>";
       if (S.mtab === "archive") {
         var arch = S.cels.filter(function (c) { return c.archived; });
         return '<div class="sh-page">' + mhead() + '<div class="sh-scroll"><div class="sh-col"><p class="o-meta">Archived plans are hidden from Upcoming and History but stay searchable. Restore brings one back; deleting is permanent and only possible here (Decision 37).</p>' +
