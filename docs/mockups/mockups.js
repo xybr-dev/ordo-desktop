@@ -81,6 +81,18 @@
       decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing"]
     },
     {
+      slug: "presenter-insert", group: "presenter", title: "Emergency insert and Quick Insert",
+      summary: "Insert while live at 1366×768: Program freezes, the anchored chooser offers Song, Response sequence or Text or image; Quick Insert finds a Song by title, other name or first line from the keyboard; a Song typed for this Mass when none matches; the inserted item in Preview with Program still frozen.",
+      status: "proposed",
+      decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0011-program-preview-freeze-and-blackout-semantics", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0290-emergency-insert-chooser-and-quick-insert-dialog"],
+      interpretations: [
+        "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
+        "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
+        "The image picker is a placeholder; the image slide is drawn as a gradient.",
+        "Ctrl+E emergency edit is not in this page."
+      ]
+    },
+    {
       slug: "presenter-high-scale", group: "presenter", title: "High-scale Presenter",
       summary: "The constrained Presenter across 100%–200% Interface scale: the main-column Program/Preview band, fixed live-output controls, Grid/List choice and the overlay-only Ordo rail.",
       status: "approved", gate: true,
@@ -438,7 +450,7 @@
       ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
       ["liturgy-import", "replace readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
-      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"],
+      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"],
       ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }
   ];
 
