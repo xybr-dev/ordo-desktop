@@ -233,10 +233,10 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0201](0201-safety-backups-use-ordinary-manual-retention-in-the-mvp.md) | Safety Backups use ordinary manual retention in the MVP | accepted | 2026-08-29 | storage |
 | [0202](0202-installation-specific-displays-settings-page.md) | Installation-specific Displays settings page | accepted | 2026-08-29 | presenter, platform |
 | [0203](0203-same-window-native-full-screen-presenter-mode.md) | Same-window native-full-screen Presenter Mode | accepted | 2026-08-29 | presenter |
-| [0204](0204-offline-read-only-diagnostics-surface.md) | Offline read-only Diagnostics surface | accepted | 2026-08-29 |  |
+| [0204](0204-offline-read-only-diagnostics-surface.md) | Offline read-only Diagnostics surface | accepted, amended by [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | 2026-08-29 |  |
 | [0205](0205-deliberate-sanitized-diagnostic-report-export.md) | Deliberate sanitized Diagnostic-report export | accepted | 2026-08-29 | transfer |
 | [0206](0206-latest-result-plus-explicit-full-diagnostic-scan-lifecycle.md) | Latest-result plus explicit full Diagnostic scan lifecycle | accepted | 2026-08-29 |  |
-| [0207](0207-issue-first-single-column-diagnostics-hierarchy.md) | Issue-first single-column Diagnostics hierarchy | accepted | 2026-08-29 |  |
+| [0207](0207-issue-first-single-column-diagnostics-hierarchy.md) | Issue-first single-column Diagnostics hierarchy | accepted, amended by [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | 2026-08-29 |  |
 | [0208](0208-warm-neutral-and-graphite-semantic-color-language.md) | Warm-neutral and graphite semantic color language | accepted | 2026-08-29 | ui |
 | [0209](0209-google-labs-compatible-design-md-as-the-visual-source-of.md) | Google Labs-compatible DESIGN.md as the visual source of truth | accepted | 2026-08-29 |  |
 | [0210](0210-distinct-disabled-unavailable-read-only-and-not-assigned.md) | Distinct disabled, unavailable, read-only, and not-assigned semantics | accepted | 2026-08-29 |  |
@@ -304,10 +304,16 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 | [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
 | [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
-| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | accepted | 2026-10-28 | songs |
-| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | accepted | 2026-10-28 | songs |
-| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | accepted | 2026-10-28 | songs |
-| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | accepted | 2026-10-28 | songs |
-| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | accepted | 2026-10-28 | songs |
+| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | proposed | 2026-10-28 | songs |
+| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | proposed | 2026-10-28 | songs |
+| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | proposed | 2026-10-28 | songs |
+| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | proposed | 2026-10-28 | songs |
+| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | proposed | 2026-10-28 | songs |
+| [0280](0280-settings-holds-parish-displays-and-interface-pages.md) | Settings holds Parish, Displays and Interface pages | proposed | 2026-10-28 | ui |
+| [0281](0281-help-holds-keyboard-shortcuts-offline-guides-and-about-ordo.md) | Help holds keyboard shortcuts, offline guides and About Ordo | proposed | 2026-10-28 | ui |
+| [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | Diagnostics opens from its own rail entry | proposed | 2026-10-28 | ui |
+| [0283](0283-transfer-and-backup-lists-protection-packages-and-backups.md) | Transfer and Backup lists protection, packages and backups in that order | proposed | 2026-10-28 | storage |
+| [0284](0284-theme-library-cards-the-layout-group-and-a-shared-save.md) | Theme library cards, the Layout group and a shared-save confirmation | proposed | 2026-10-28 | themes |
+| [0285](0285-masses-index-rows-name-the-presider-and-carry-the-backup.md) | Masses index rows name the presider and carry the backup reminder | proposed | 2026-10-28 | mass-plan |
 
 <!-- adr-index:end -->

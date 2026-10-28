@@ -27,6 +27,8 @@ They are not production source; screens are rebuilt as native GPUI views.
   `ordo-songs.js` adds `OrdoKit.library()`: the Library's Songs view, the Arrangement editor,
   Arrangement details, History and Song import review. Each instance keeps its own working copy of
   its fixture, so a page's states can edit and Undo without affecting one another.
+  `ordo-shell.js` adds `OrdoKit.shell()`: the Masses index and Set up Ordo, Themes and the Theme
+  Editor, Transfer & Backup, Diagnostics, Help and Settings. The rail switches between them in place.
 - `canonical-slide-layouts.html` shows the PNG gallery in `design-references/`, which the
   `canonical-slide-lab` capture test writes there.
 

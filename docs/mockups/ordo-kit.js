@@ -425,8 +425,11 @@
   // ── Preparation shell and Mass Planning (Decisions 170-178, 250, 257) ───────────────────────
   var NAV = [["Masses", "calendar-days"], ["Library", "library"], ["Themes", "palette"], ["Transfer & Backup", "hard-drive-download"]];
   var NAV_FOOT = [["Diagnostics", "activity"], ["Help", "circle-help"], ["Settings", "settings"]];
+  // Each rail destination links to the mockup page that shows it.
+  var PAGE_OF = { Masses: "masses-index.html", Library: "song-library-master-detail-v2.html", Themes: "themes.html", "Transfer & Backup": "transfer-backup.html",
+    Diagnostics: "diagnostics.html", Help: "help.html", Settings: "settings.html" };
   function navrail(active) {
-    function a(n) { return '<a href="#" aria-current="' + (n[0] === active ? "page" : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
+    function a(n) { return '<a href="' + (PAGE_OF[n[0]] || "#") + '" data-dest="' + esc(n[0]) + '" aria-current="' + (n[0] === active ? "page" : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
     return '<nav class="o-navrail" aria-label="Global navigation">' + NAV.map(a).join("") + '<span class="o-spacer"></span>' + NAV_FOOT.map(a).join("") + "</nav>";
   }
 
