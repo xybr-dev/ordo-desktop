@@ -292,17 +292,20 @@
     // Presenter. Choosing a display opens its window black; only Space puts Preview on it.
     var DISPS = { "1": { name: "Built-in display", res: "1366 × 768", pos: "Left", op: true },
       "2": { name: "Epson EB-X51", res: "1920 × 1080", pos: "Right", known: true },
-      "3": { name: "Samsung TV", res: "1920 × 1080", pos: "Right" } };
+      "3": { name: "Samsung TV", res: "1920 × 1080", pos: "Right" },
+      "4": { name: "BenQ MW560", res: "1920 × 1080", pos: "Above" } };
     function present() {
       var out = ["1"];
       if (S.output !== "disconnected" || S.back === "same") out.push(S.cong.n);
       if (S.back === "other") out.push(S.cong.n === "3" ? "2" : "3");
+      (S.extra || []).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); });
       return out;
     }
-    function openDisp() { S.ins = { kind: "disp", pick: S.back ? present().filter(function (n) { return !DISPS[n].op; })[0] : null, identify: false, fit: 0 }; say(""); }
+    function candidates() { return present().filter(function (n) { return !DISPS[n].op && !(n === S.cong.n && S.output === "disconnected" && S.back !== "same"); }); }
+    function openDisp() { var c = candidates(); S.ins = { kind: "disp", pick: c.length === 1 ? c[0] : null, identify: false, fit: 0 }; say(""); }
     function dispPanel() {
       var d = S.ins, here = present(), lost = S.output === "disconnected" && S.back !== "same";
-      var tiles = ["1", "2", "3"].filter(function (n) { return here.indexOf(n) >= 0 || (n === S.cong.n && lost); }).map(function (n) {
+      var tiles = ["1", "2", "3", "4"].filter(function (n) { return here.indexOf(n) >= 0 || (n === S.cong.n && lost); }).map(function (n) {
         var x = DISPS[n], un = here.indexOf(n) < 0, on = d.pick === n;
         var chip = x.op ? '<span class="pl-chip">' + icon("monitor") + "Operator display</span>" : un ? statusLabel("unavailable", "Unavailable · congregation display", "ring") :
           on ? '<span class="pl-chip sh-chip-def">' + icon("presentation") + "Use for the congregation</span>" : '<span class="o-meta">' + (x.known ? "Recognised" : "New to Ordo") + "</span>";
@@ -310,7 +313,9 @@
           (d.identify ? '<span class="sh-ident">' + n + "</span>" : "") + "<b>" + n + " · " + esc(x.name) + '</b><span class="o-meta">' + x.res + " · 16:9 · " + x.pos + "</span>" + chip + "</button>";
       }).join("");
       var p = d.pick && DISPS[d.pick];
-      var note = !p ? '<div class="o-notice" data-state="warning">' + icon("unplug") + "<div><b>" + dn() + " isn’t connected.</b> Check its cable and power. Ordo won’t move output onto this screen or pick another display by itself.</div></div>" :
+      var many = candidates().length > 1;
+      var note = !p && many ? '<div class="o-notice" data-state="info">' + icon("scan-eye") + "<div><b>" + candidates().length + " displays could show the congregation output.</b> Ordo won’t guess. Press Identify displays, check which number is on the projector screen, then choose that tile.</div></div>" :
+        !p ? '<div class="o-notice" data-state="warning">' + icon("unplug") + "<div><b>" + dn() + " isn’t connected.</b> Check its cable and power. Ordo won’t move output onto this screen or pick another display by itself.</div></div>" :
         '<div class="o-notice" data-state="info">' + icon("info") + "<div><b>" + (p.known ? "Display " + d.pick + " is recognised." : "Display " + d.pick + " is new to Ordo.") + "</b> Using it opens its congregation window black and saves it for this computer, as in Settings → Displays. Space then takes Preview live.</div></div>" +
           (p.known ? "" : '<label class="sh-field"><span class="o-label">Output Fit</span><span class="sh-unit"><input type="range" min="0" max="10" step="1" data-qin="fit" value="' + d.fit + '"> ' + d.fit + '%</span><span class="o-meta">Shrinks the whole frame evenly if the edges are cut off. Check the calibration pattern in Settings → Displays outside Mass.</span></label>');
       var state = S.output === "disconnected" ? (S.back === "same" ? dn() + " is back · Program black" : dn() + " disconnected · Program black") : S.output === "enabled" ? "Output enabled on " + dn() : "Congregation output off";
@@ -318,7 +323,7 @@
         '<div class="o-meta">' + icon("monitor-cog") + esc(state) + " · the Presentation keeps running</div></div>" +
         '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-disp-close" aria-label="Close" title="Close (Esc)">' + icon("x") + "</button></div>" +
         '<div class="pr-ins-main pr-disp-main sh-form"><div class="o-label">This computer’s displays</div><div class="sh-topo">' + tiles + "</div>" +
-        '<div class="sh-inline"><button class="o-btn" data-act="ins-disp-identify"' + (d.identify ? ' aria-pressed="true"' : "") + ">" + icon("scan-eye") + "Identify displays</button>" +
+        '<div class="sh-inline"><button class="o-btn' + (many && !d.pick ? " o-btn--primary" : "") + '" data-act="ins-disp-identify"' + (d.identify ? ' aria-pressed="true"' : "") + ">" + icon("scan-eye") + "Identify displays</button>" +
         '<span class="o-meta">Shows each display’s number on it for a few seconds. Mass content is never shown from here.</span></div>' + note + "</div>" +
         '<div class="pr-ins-foot"><span class="o-meta"><span class="o-kbd">Esc</span> close</span><span class="o-grow"></span>' +
         '<button class="o-btn o-btn--quiet" data-act="ins-disp-off">' + icon("monitor-x") + "Turn congregation output off</button>" +
@@ -812,6 +817,7 @@
       disconnect: function () { disconnect(); render(); }, reconnect: function (same) { reconnect(same); render(); },
       failCue: function (i, why) { failCue(i, why); render(); }, recover: function (o) { recover(o); S.follow = true; render(); },
       go: function (i) { S.follow = true; select(i); render(); }, take: function () { take(); render(); },
+      connect: function (list) { S.extra = list; if (S.output === "disconnected" && !S.back) S.back = "other"; S.strip = { kind: "out", state: "danger", icon: "monitor-x", b: "Other displays were connected", t: "None of them is " + dfull() + ", so Ordo won’t use them on its own. Choose one in Select display…" }; render(); },
       selectDisplay: function (o) { openDisp(); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
       setMode: function (m) { S.mode = m; render(); },
       insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },

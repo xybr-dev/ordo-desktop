@@ -43,6 +43,11 @@ Program and Preview.
 - **Choosing a display.** **Use Display N** assigns it as the congregation display and saves the
   choice for this computer, as Settings does. Its window opens black, and a strip says so. Only
   Space or **Take Preview Live** then puts Preview on it.
+- **Several displays to choose from.** With more than one candidate, nothing is preselected and
+  **Use display** stays disabled until the operator picks a tile. **Identify displays** becomes the
+  primary action, so the numbers can be matched to the screens in the church. With exactly one
+  candidate, it is preselected but still needs **Use Display N**. Only one display is ever the
+  congregation display; showing the same output on several displays is not in the MVP.
 - **No display to choose.** If only the operator display is present, **Use display** is disabled
   and the panel explains why. **Turn congregation output off** ends the Disconnected state on purpose;
   **Enable Output** brings output back later, black first.

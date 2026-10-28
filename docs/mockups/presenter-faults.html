@@ -53,6 +53,12 @@
   </section>
 
   <section class="o-variant">
+    <h2>C3b. More than one display to choose from</h2>
+    <p>An edge case: Display 2 is gone and both a TV and a second projector are connected. Nothing is preselected and <b>Use display</b> stays disabled until the operator chooses a tile; <b>Identify displays</b> becomes the primary action so the numbers can be matched to the screens in the church.</p>
+    <div id="pick-many"></div>
+  </section>
+
+  <section class="o-variant">
     <h2>C4. Display 3 chosen</h2>
     <p>Its window is open and black. <span class="o-kbd">Space</span> takes Preview live on it.</p>
     <div id="picked"></div>
@@ -112,6 +118,7 @@
     show("other", function (p) { p.disconnect(); p.reconnect(false); p.take(); });
     show("pick", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(false); p.selectDisplay({ identify: true }); });
     show("pick-none", function (p) { p.disconnect(); p.selectDisplay(); });
+    show("pick-many", function (p) { p.disconnect(); p.connect(["3", "4"]); p.selectDisplay(); });
     show("picked", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(false); p.selectDisplay(); p.app.querySelector('[data-act="ins-disp-use"]').click(); });
     show("back", function (p) { p.disconnect(); p.go(NEXT); p.reconnect(true); });
     show("fail", function (p) { p.failCue(READING, WHY); });
