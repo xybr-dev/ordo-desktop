@@ -18,7 +18,7 @@
 
   <section class="o-variant">
     <h2>A. Choirs, interactive</h2>
-    <p>The Library's <b>Choirs</b> view at 1366 × 768 (Decision 278). Choirs are on the left; the selected choir's short label, preferred languages and private notes fill the right and save as you type. Click the name to rename it: its Arrangements and Mass plans show the new name. <b>Repertoire</b> lists the Songs whose Arrangements name this choir, and <b>Open</b> goes to the Arrangement.</p>
+    <p>The Library's <b>Choirs</b> view at 1366 × 768 (Decision 278). Choirs are on the left; the selected choir's short label, preferred languages and private notes fill the right and save as you type. Click the name to rename it: its Arrangements and Mass plans show the new name. <b>Repertoire</b> is a table with one row per Arrangement that names this choir, and <b>Open</b> goes to it.</p>
     <div id="live"></div>
   </section>
 
@@ -52,6 +52,12 @@
     <div id="empty"></div>
   </section>
 
+  <section class="o-variant">
+    <h2>G. Repertoire in a narrow window</h2>
+    <p>When the pane is too narrow for the table’s columns, each Song becomes a card with its Arrangements inside, and <b>Shared with</b> moves under the Arrangement it belongs to.</p>
+    <div id="narrow"></div>
+  </section>
+
 </main>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
@@ -63,6 +69,7 @@
     show("langs", { setup: function (l) { l.lview("choirs", "c2").pickFor("war"); } });
     show("archived", { setup: function (l) { l.lview("choirs", "c4").larchived(); } });
     show("empty", { setup: function (l) { l.noChoirs(); } });
+    show("narrow", { w: 1100, setup: function (l) { l.lview("choirs", "c2"); } });
   });
 </script>
 </body>

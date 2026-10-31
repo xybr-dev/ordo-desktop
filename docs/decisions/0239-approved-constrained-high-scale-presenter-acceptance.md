@@ -8,11 +8,13 @@ tags: [presenter, ui]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [294]
 sources: []
 ---
 
 # Approved constrained/high-scale Presenter acceptance reference
+
+> **Amended by Decision [294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md).** The reference this record names is now its `-v2` page; the v1 page is kept as superseded. The rest of this record stands.
 
 - Approve `design-references/ordo-presenter-high-scale.html` and its standalone rendering (now [`docs/mockups/presenter-high-scale.html`](../mockups/presenter-high-scale.html), Decision [271](0271-mockups-are-one-page-per-screen-with-a-status-each.md)) as the current visual acceptance reference for Presenter adaptation from `100%` through `200%` Interface scale at the compact physical desktop context.
 - Keep the `175%` view as the reference's default because it makes the constrained composition explicit: Ordo is overlay-only; Program and Preview remain simultaneously visible and identical while Live; output status, Freeze, Blackout, and the Live primary state remain fixed beneath them; and the Cue timeline alone receives the remaining scrolling space.

@@ -198,7 +198,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0166](0166-protect-later-song-metadata-during-merge-reversal.md) | Protect later Song metadata during merge reversal | accepted | 2026-08-29 | songs |
 | [0167](0167-defer-the-complete-song-merge-capability-until-after-the-mvp.md) | Defer the complete Song-merge capability until after the MVP | accepted | 2026-08-29 | songs |
 | [0168](0168-owner-directed-pagination-correction-instead-of-a-review.md) | Owner-directed pagination correction instead of a review workspace | accepted, amended by [0257](0257-make-library-a-multi-view-destination-with-revision-bound.md) | 2026-08-29 | rendering, ui |
-| [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md) | Inspector navigation follows the selected Mass item's Cue order | accepted | 2026-08-29 | mass-plan, ui |
+| [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md) | Inspector navigation follows the selected Mass item's Cue order | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | mass-plan, ui |
 | [0170](0170-mass-sections-group-the-outline-in-plans-and-templates.md) | Mass sections group the outline in plans and templates | accepted | 2026-08-29 | mass-plan |
 | [0171](0171-six-section-default-mass-scaffold.md) | Six-section default Mass scaffold | accepted | 2026-08-29 | mass-plan |
 | [0172](0172-editable-and-independently-owned-mass-section-structure.md) | Editable and independently owned Mass-section structure | accepted | 2026-08-29 | mass-plan |
@@ -207,7 +207,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0175](0175-section-aware-mass-item-insertion.md) | Section-aware Mass-item insertion | accepted | 2026-08-29 | mass-plan |
 | [0176](0176-hierarchical-mass-section-and-item-reordering.md) | Hierarchical Mass-section and item reordering | accepted | 2026-08-29 | mass-plan |
 | [0177](0177-mass-section-header-controls-and-structural-invariant.md) | Mass-section header controls and structural invariant | accepted | 2026-08-29 | mass-plan |
-| [0178](0178-automatic-presenter-handoff-with-focused-incomplete-content.md) | Automatic Presenter handoff with focused incomplete-content acknowledgment | accepted | 2026-08-29 | presenter, ui |
+| [0178](0178-automatic-presenter-handoff-with-focused-incomplete-content.md) | Automatic Presenter handoff with focused incomplete-content acknowledgment | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | presenter, ui |
 | [0179](0179-safe-planned-exit-from-presenter-mode.md) | Safe planned exit from Presenter Mode | accepted | 2026-08-29 | presenter |
 | [0180](0180-celebration-scoped-portable-transfer.md) | Celebration-scoped portable transfer | accepted | 2026-08-29 | mass-plan, transfer |
 | [0181](0181-two-layer-celebration-package-import-review.md) | Two-layer Celebration Package import review | accepted | 2026-08-29 | mass-plan, transfer |
@@ -237,7 +237,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0205](0205-deliberate-sanitized-diagnostic-report-export.md) | Deliberate sanitized Diagnostic-report export | accepted | 2026-08-29 | transfer |
 | [0206](0206-latest-result-plus-explicit-full-diagnostic-scan-lifecycle.md) | Latest-result plus explicit full Diagnostic scan lifecycle | accepted | 2026-08-29 |  |
 | [0207](0207-issue-first-single-column-diagnostics-hierarchy.md) | Issue-first single-column Diagnostics hierarchy | accepted, amended by [0282](0282-diagnostics-opens-from-its-own-rail-entry.md) | 2026-08-29 |  |
-| [0208](0208-warm-neutral-and-graphite-semantic-color-language.md) | Warm-neutral and graphite semantic color language | accepted | 2026-08-29 | ui |
+| [0208](0208-warm-neutral-and-graphite-semantic-color-language.md) | Warm-neutral and graphite semantic color language | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | ui |
 | [0209](0209-google-labs-compatible-design-md-as-the-visual-source-of.md) | Google Labs-compatible DESIGN.md as the visual source of truth | accepted | 2026-08-29 |  |
 | [0210](0210-distinct-disabled-unavailable-read-only-and-not-assigned.md) | Distinct disabled, unavailable, read-only, and not-assigned semantics | accepted | 2026-08-29 |  |
 | [0211](0211-dedicated-two-layer-visible-keyboard-focus.md) | Dedicated two-layer visible keyboard focus | accepted | 2026-08-29 | ui |
@@ -268,8 +268,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0236](0236-editor-first-adaptation-for-constrained-preparation.md) | Editor-first adaptation for constrained Preparation workspaces | accepted | 2026-08-29 | ui |
 | [0237](0237-safety-first-constrained-presenter-composition.md) | Safety-first constrained Presenter composition | accepted | 2026-08-29 | presenter |
 | [0238](0238-explicit-responsive-truncation-and-disclosure-hierarchy.md) | Explicit responsive truncation and disclosure hierarchy | accepted | 2026-08-29 |  |
-| [0239](0239-approved-constrained-high-scale-presenter-acceptance.md) | Approved constrained/high-scale Presenter acceptance reference | accepted | 2026-08-29 | presenter, ui |
-| [0240](0240-approved-paired-mass-planning-responsive-acceptance.md) | Approved paired Mass Planning responsive acceptance reference | accepted | 2026-08-29 | mass-plan |
+| [0239](0239-approved-constrained-high-scale-presenter-acceptance.md) | Approved constrained/high-scale Presenter acceptance reference | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | presenter, ui |
+| [0240](0240-approved-paired-mass-planning-responsive-acceptance.md) | Approved paired Mass Planning responsive acceptance reference | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | mass-plan |
 | [0241](0241-keep-physical-qualification-outside-the-mvp-application.md) | Keep physical qualification outside the MVP application | accepted | 2026-08-29 | repo |
 | [0242](0242-split-physical-qualification-into-normal-and-adversarial.md) | Split physical qualification into normal and adversarial passes | accepted | 2026-08-29 | repo |
 | [0243](0243-invalidate-physical-sign-off-according-to-change-risk.md) | Invalidate physical sign-off according to change risk | accepted | 2026-08-29 |  |
@@ -322,5 +322,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0290](0290-emergency-insert-chooser-and-quick-insert-dialog.md) | Emergency insert chooser and Quick Insert dialog | accepted | 2026-10-28 | presenter |
 | [0291](0291-emergency-edit-opens-the-selected-slide-in-the-insert-panel.md) | Emergency edit opens the selected slide in the Insert panel | accepted | 2026-10-28 | presenter |
 | [0292](0292-select-display-opens-a-display-picker-inside-presenter.md) | Select display opens a display picker inside Presenter | accepted | 2026-10-28 | presenter, displays |
+| [0293](0293-replace-swaps-a-mass-item-from-the-insert-panel.md) | Replace swaps a Mass item from the Insert panel | accepted | 2026-10-31 | presenter, mass-planning |
+| [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | The latest mockup page is canonical and superseded pages are hidden | accepted | 2026-10-31 | design, mockups, repo |
 
 <!-- adr-index:end -->

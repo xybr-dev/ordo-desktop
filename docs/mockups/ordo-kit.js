@@ -15,7 +15,7 @@
           { k: "general", h: "Pahibalo", b: "Maayong buntag! Palihug isira o i-silent ang inyong mga cellphone.", f: "Parokya ni San Roque" },
           { k: "general", h: "Pahibalo", b: "Ang Bible study matag Huwebes, 6:00 sa gabii, sa parish hall.", f: "Parokya ni San Roque" } ] } ] },
       { title: "Introductory Rites", items: [
-        { title: "Entrance Song", song: "Daygon Ta", type: "Song", cues: [
+        { title: "Entrance Song", song: "Daygon Ta", arr: "Koro San Roque", type: "Song", cues: [
           { k: "song-id", t: "Daygon Ta", s: "R. Villanueva · Koro San Roque" },
           { k: "lyrics", h: "Bersikulo 1", b: "Daygon ta ang Ginoo\nsa tanang kasingkasing" },
           { k: "lyrics", h: "Koro", b: "Daygon, daygon ta\nang ngalan sa Ginoo" },
@@ -53,7 +53,7 @@
           { k: "reading-id", b: "Ebanghelyo sumala kang San Marcos", f: "Marcos 10:46-52" },
           { k: "hold", b: "Homily" } ] } ] },
       { title: "Liturgy of the Eucharist", items: [
-        { title: "Offertory Song", song: "Ihalad Namo", type: "Song", cues: [
+        { title: "Offertory Song", song: "Ihalad Namo", arr: "Koro San Roque", type: "Song", cues: [
           { k: "unavailable", b: "Ihalad Namo", why: "Arrangement image asset is missing from the snapshot" },
           { k: "unavailable", b: "Ihalad Namo · Koro", why: "Arrangement image asset is missing from the snapshot" } ] },
         { title: "Sanctus", song: "Santos", type: "Song", cues: [
@@ -97,6 +97,16 @@
     { t: "Bayan Umawit", a: "Youth Choir", lang: "Tagalog", rep: false, alias: [], first: "Bayan, umawit ng papuri", slides: ["Bayan, umawit ng papuri\nsa Panginoon", "Purihin ang Kanyang ngalan"] },
     { t: "Halad", a: "Koro Sta. Cecilia", lang: "Cebuano", rep: false, alias: ["Offering"], first: "Kining pan ug bino", slides: ["Kining pan ug bino\namong ginahalad", "Dawata, O Ginoo,\nang among kinabuhi"] }
   ];
+  // Other Arrangements of the Songs planned in this Mass (Decision 293).
+  var QI_VERSIONS = {
+    "Daygon Ta": [
+      { t: "Daygon Ta", a: "Youth Choir", lang: "Cebuano", rep: false, note: "Starts on the Koro · 3 verses", secs: [["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 1", "Daygon ta ang Ginoo\nsa tanang kasingkasing"], ["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 2", "Siya ang atong bato\nug atong kalig-on"], ["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 3", "Ang iyang gugma\nwalay katapusan"]] },
+      { t: "Daygon Ta", a: "Parish Choir · short", lang: "Cebuano", rep: false, note: "1 verse, no repeat", secs: [["Bersikulo 1", "Daygon ta ang Ginoo\nsa tanang kasingkasing"], ["Koro", "Daygon, daygon ta\nang ngalan sa Ginoo"]] }
+    ],
+    "Ihalad Namo": [
+      { t: "Ihalad Namo", a: "Koro Sta. Cecilia", lang: "Cebuano", rep: false, note: "Lyrics only, no image", secs: [["Bersikulo 1", "Ihalad namo kanimo\nang among kinabuhi"], ["Koro", "Dawata, O Ginoo,\nkining among halad"]] }
+    ]
+  };
   var QI_RESP = [
     { t: "Pag-ampo alang sa mga Masakiton", lang: "Cebuano", cues: [{ k: "trigger", who: "P", b: "Mag-ampo kita alang sa atong mga masakiton." }, { k: "response", h: "TUBAG:", b: "Ginoo, ayoha sila." }] },
     { t: "Angelus", lang: "Cebuano", cues: [{ k: "trigger", who: "L", b: "Ang Anghel sa Ginoo nagpahibalo kang Maria." }, { k: "response", h: "TUBAG:", b: "Ug siya nanamkon pinaagi sa Espiritu Santo." }] },
@@ -242,7 +252,7 @@
       var c = CUES[S.preview];
       if (c.k === "unavailable") { say("Can't take an unavailable Cue live: " + c.why + "."); return; }
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
-      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; S.held = null; say("");
+      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; S.blackDoing = ""; S.held = null; say("");
       if (S.strip && S.strip.kind !== "fail") S.strip = null;
       S.prior = null;
     }
@@ -255,7 +265,7 @@
     function blackout() {
       if (S.output !== "enabled") return;
       if (S.blackout) take();
-      else { S.blackout = true; S.frozen = false; say(""); }
+      else { S.blackout = true; S.frozen = false; S.blackDoing = ""; say(""); }
     }
     // ── Faults (MVP-PLAN §6.28, §6.29, §8.1; Decisions 49, 228, 272, 274) ─────────────────────
     // Every fault fails closed: nothing stale or partial is claimed to be on screen, and only an
@@ -364,7 +374,7 @@
     function programState() {
       if (S.output === "disconnected") return statusLabel("danger", S.back === "same" ? "DISCONNECTED · display back" : "DISCONNECTED", "square");
       if (S.output !== "enabled") return statusLabel("disabled", "Output disabled", "square");
-      if (S.blackout) return statusLabel("blackout", "BLACKOUT", "square");
+      if (S.blackout) return statusLabel("blackout", S.blackDoing ? "BLACKOUT · " + S.blackDoing : "BLACKOUT", "square");
       if (S.frozen) return statusLabel("freeze", S.frozenReason ? "FROZEN · " + S.frozenReason : "FROZEN", "diamond");
       if (S.live && S.blackReason) return statusLabel("blackout", "LIVE · black · " + S.blackReason, "square");
       if (S.live) return statusLabel("live", "LIVE");
@@ -428,13 +438,14 @@
     }
     function timeline() {
       var html = preflight() + '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button>' +
+        '<button class="o-btn" data-act="ins-rep" title="Replace ' + esc(CUES[S.preview].item.title) + ' for this Mass">' + icon("replace") + "Replace " + (CUES[S.preview].item.type === "Song" ? "Song" : "item") + ' <span class="o-kbd">Ctrl+R</span></button>' +
         '<button class="o-btn" data-act="ins-edit"' + (projectable(CUES[S.preview]) && !CUES[S.preview].img ? "" : ' disabled title="Ctrl+E edits projectable slides"') + ">" + icon("pencil") + 'Edit slide <span class="o-kbd">Ctrl+E</span></button></div>';
       ITEMS.forEach(function (it) {
         var open = !S.collapsed[it.n];
         var bad = it.cues.filter(function (c) { return c.k === "unavailable"; }).length;
         html += '<section class="pr-group" data-item="' + it.n + '"><button class="pr-group-head" data-toggle="' + it.n + '" aria-expanded="' + open + '">' + icon(open ? "chevron-down" : "chevron-right") +
           '<span class="o-n o-meta">' + it.n + "</span><b>" + esc(it.title) + "</b>" + (it.song ? '<span class="o-meta">' + esc(it.song) + "</span>" : "") +
-          (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") +
+          (it.replaced ? '<span class="pl-chip">' + icon("replace") + "Replaced live</span>" : "") + (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") +
           (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">' + icon("pencil") + "Edited live · Mass-local</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + bad + " unavailable</span>" : "") +
           '<span class="o-meta">' + it.cues.length + (it.cues.length === 1 ? " Cue" : " Cues") + "</span></button>";
         if (open) {
@@ -457,7 +468,7 @@
       M.sections.forEach(function (sec) {
         html += '<div class="o-section-label">' + esc(sec.title) + "</div>";
         sec.items.forEach(function (it) {
-          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span>" + (it.inserted ? '<span class="pl-chip">Inserted</span>' : "") + (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">Edited</span>' : "") + "</button>";
+          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span>" + (it.inserted ? '<span class="pl-chip">Inserted</span>' : "") + (it.replaced ? '<span class="pl-chip">Replaced</span>' : "") + (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">Edited</span>' : "") + "</button>";
         });
       });
       var head = '<div class="o-pane-head"><b>Ordo</b><span class="o-grow"></span>' +
@@ -487,15 +498,20 @@
     // Cue in Preview; Program stays frozen until Space.
     var KINDS = [["song", "music", "Song", "S"], ["resp", "messages-square", "Response sequence", "R"], ["general", "presentation", "Text or image", "T"]];
     function insAnchor() { return CUES[S.preview].item; }
-    function openInsert(kind) {
-      if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "inserting"; }
-      else if (S.frozen && S.frozenReason === "Insert ready") S.frozenReason = "inserting";
-      S.ins = { kind: kind || "song", q: "", active: 0, create: null, mode: "Text", h: "", text: "" }; say("");
+    function openInsert(kind, target) {
+      // Replace blacks out rather than Freezes: the wrong version must leave the screen at once.
+      if (target) { if (S.output === "enabled" && (S.live || S.blackout)) { S.blackout = true; S.frozen = false; S.held = null; S.frozenReason = ""; S.blackDoing = "replacing"; } }
+      else if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "inserting"; }
+      else if (S.frozen && /ready$/.test(S.frozenReason)) S.frozenReason = "inserting";
+      S.ins = { kind: kind || "song", q: "", active: 0, create: null, mode: "Text", h: "", text: "", rep: target || null }; say("");
     }
+    function openReplace() { var it = CUES[S.preview].item; openInsert(it.type === "Song" ? "song" : it.type === "Response sequence" ? "resp" : "general", it); }
     function closeInsert() {
+      var what = S.ins.rep ? "Replace" : "Insert";
       S.ins = null;
       if (S.frozenReason === "inserting") S.frozenReason = "";
-      say(S.frozen ? "Insert cancelled. Program is still frozen; Space or F takes Preview live." : "Insert cancelled.");
+      if (S.blackDoing === "replacing") S.blackDoing = "";
+      say(S.frozen ? what + " cancelled. Program is still frozen; Space or F takes Preview live." : S.blackout ? what + " cancelled. Blackout stays on; Space or B takes Preview live." : what + " cancelled.");
     }
     function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
     // Songs in two groups: the plan's choir's repertoire first, then the rest of the Library.
@@ -509,7 +525,12 @@
         if (rank >= 0) out.push({ x: s, rank: rank, why: rank === 2 ? "Also called " + al : rank === 3 ? "First line: " + s.first : "" });
       });
       out.sort(function (a, b) { return (b.x.rep - a.x.rep) || (a.rank - b.rank); });
-      return out;
+      var it = S.ins.rep;
+      if (!it) return out;
+      // Replacing: other versions of this Song come first, so a wrong version is two keys away.
+      var name = it.st || it.song;
+      return (QI_VERSIONS[name] || []).filter(function (v) { return v.a !== it.arr && (!q || norm(v.t + " " + v.a).indexOf(q) >= 0); }).map(function (v) { return { x: v, ver: true, why: v.note }; })
+        .concat(out.filter(function (o) { return o.x.t !== name; }));
     }
     function respResults(q) {
       q = norm(q).trim();
@@ -527,7 +548,40 @@
       say("Inserted " + it.title + " after " + anchor.title + ". Saved to this Mass plan only. " + (S.frozen ? "Program is still frozen; Space takes it live." : S.output === "enabled" ? "Space takes it live." : ""));
     }
     function songItem(s) {
-      return { title: s.t, song: s.local ? "Typed for this Mass" : s.a, type: "Song", local: !!s.local, cues: [{ k: "song-id", t: s.t, s: s.local ? "" : s.a }].concat(s.slides.map(function (b, i) { return { k: "lyrics", h: s.local ? "" : "Bersikulo " + (i + 1), b: b }; })) };
+      var secs = s.secs || s.slides.map(function (b, i) { return [s.local ? "" : "Bersikulo " + (i + 1), b]; });
+      return { title: s.t, st: s.t, arr: s.a, song: s.local ? "Typed for this Mass" : s.a, type: "Song", local: !!s.local, cues: [{ k: "song-id", t: s.t, s: s.local ? "" : s.a }].concat(secs.map(function (x) { return { k: "lyrics", h: x[0], b: x[1] }; })) };
+    }
+    // Replace swaps one Mass item in place: its title and position stay, only its contents change.
+    // Preview lands on the same section when the new version has it, otherwise on the first slide.
+    function samePlace(c, cues) {
+      if (c.k === "song-id") return cues.filter(function (x) { return x.k === "song-id"; })[0];
+      if (c.k !== "lyrics" || !c.h) return null;
+      var nth = c.item.cues.slice(0, c.ci).filter(function (x) { return x.k === "lyrics" && x.h === c.h; }).length;
+      var same = cues.filter(function (x) { return x.k === "lyrics" && x.h === c.h; });
+      return same[Math.min(nth, same.length - 1)] || null;
+    }
+    function swapItem(old, it) {
+      var sec = M.sections[old.section], p = old.first, end = p + old.cues.length, from = CUES[S.preview];
+      var place = samePlace(from, it.cues) || it.cues.filter(projectable)[0] || it.cues[0];
+      if (S.program != null && S.program >= p && S.program < end) S.program = null;
+      else if (S.program != null && S.program >= end) S.program += it.cues.length - old.cues.length;
+      if (S.strip && S.strip.kind === "fail" && old.cues.some(function (c) { return c.k === "unavailable"; })) S.strip = null;
+      sec.items[sec.items.indexOf(old)] = it; reindex();
+      S.preview = place.i; S.follow = true; S.collapsed = {};
+      S.ins = null; S.blackDoing = S.blackout ? "Replace ready" : "";
+      return from.k === "lyrics" && from.h && place.h !== from.h ? from.h + " isn’t in it, so Preview is on its first slide. " : "";
+    }
+    function replaceItem(it) {
+      var old = S.ins.rep, name = it.type === "Song" && !it.local ? it.st + " · " + it.arr : it.title;
+      it.song = it.type === "Song" && !it.local ? name : it.local ? it.title + " · typed for this Mass" : it.title;
+      it.title = old.title; it.replaced = true; it.was = old.was || old; it.inserted = old.inserted;
+      var note = swapItem(old, it);
+      say(old.title + " is now " + name + ". " + (note || "This Mass only. " + (S.output === "enabled" ? "Space takes it live." : "")));
+    }
+    function putBack() {
+      var old = S.ins.rep, it = old.was; it.was = null; it.replaced = false;
+      var note = swapItem(old, it);
+      say(it.title + " is back as prepared. " + note + (it.cues.some(function (c) { return c.edited; }) ? "Its edits are kept. " : "") + (S.output === "enabled" ? "Space takes it live." : ""));
     }
     function slidesOf(text) { return String(text).split(/\n\s*\n/).map(function (x) { return x.trim(); }).filter(Boolean); }
     function chosenCues() {
@@ -541,12 +595,12 @@
       var d = S.ins, r = results(), act = Math.min(d.active, Math.max(0, r.length - 1)), html = "", group = null;
       r.forEach(function (o, i) {
         if (d.kind === "song") {
-          var g = o.x.rep ? M.choir + "’s repertoire" : "Other Songs in the Library";
+          var g = o.ver ? "Other versions of " + o.x.t : o.x.rep ? M.choir + "’s repertoire" : "Other Songs in the Library";
           if (g !== group) { group = g; html += '<div class="o-section-label pr-qi-group">' + esc(g) + "</div>"; }
         }
-        var meta = d.kind === "song" ? esc(o.x.a) + " · " + esc(o.x.lang) + " · " + o.x.slides.length + " slides" : o.x.cues.length + " Cues · " + esc(o.x.lang);
-        html += '<div class="o-row pr-qi-row" role="option" id="qi-' + i + '" data-qi="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(o.x.t) + '</b><span class="o-meta">' + meta + (o.why ? " · " + esc(o.why) : "") + "</span></div>" +
-          (d.kind === "song" && !o.x.rep && i === act ? '<span class="o-meta">Not in ' + esc(M.choir) + "’s repertoire</span>" : "") + "</div>";
+        var meta = d.kind === "song" ? (o.ver ? "" : esc(o.x.a) + " · ") + esc(o.x.lang) + " · " + (o.x.secs || o.x.slides).length + " slides" : o.x.cues.length + " Cues · " + esc(o.x.lang);
+        html += '<div class="o-row pr-qi-row" role="option" id="qi-' + i + '" data-qi="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(o.ver ? o.x.a : o.x.t) + '</b><span class="o-meta">' + meta + (o.why ? " · " + esc(o.why) : "") + "</span></div>" +
+          (d.kind === "song" && !o.x.rep && !o.ver && i === act ? '<span class="o-meta">Not in ' + esc(M.choir) + "’s repertoire</span>" : "") + "</div>";
       });
       if (!r.length) html = d.kind === "song" ? '<div class="pr-qi-none"><b>No Song matches “' + esc(d.q) + '”.</b><span class="o-meta">Type it for this Mass; it stays in this plan until someone adds it to the Library after Mass.</span>' +
         '<button class="o-btn" data-act="ins-create">' + icon("plus") + "Type “" + esc(d.q) + '” for this Mass <span class="o-kbd">Enter</span></button></div>' :
@@ -572,29 +626,37 @@
       if (S.ins.kind === "disp") return dispPanel();
       var d = S.ins, a = insAnchor(), cues = chosenCues(), searching = (d.kind === "song" || d.kind === "resp") && !d.create;
       var ok = d.create ? d.create.title.trim() && slidesOf(d.create.text).length : d.kind === "general" ? d.mode === "Image" || d.text.trim() : results().length > 0;
-      var label = d.create ? "Insert typed Song" : d.kind === "song" ? "Insert Song" : d.kind === "resp" ? "Insert Response sequence" : "Insert slide";
+      var verb = d.rep ? "Replace with " : "Insert ";
+      var label = d.create ? verb + "typed Song" : d.kind === "song" ? verb + "Song" : d.kind === "resp" ? verb + "Response sequence" : verb + (d.rep ? "this slide" : "slide");
       var r = searching ? results()[Math.min(d.active, results().length - 1)] : null;
-      return '<section class="pr-ins-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">Insert</h2>' +
-        '<div class="o-meta">' + icon("corner-down-right") + "After <b>" + esc(a.title) + "</b> · " + esc(M.sections[a.section].title) + " · " + (S.frozen ? "Program frozen" : S.output === "enabled" ? "Program not live" : "Rehearsal: output disabled") + "</div></div>" +
+      if (r && r.ver) label = "Replace with this version";
+      var inUse = d.rep ? (d.rep.st || d.rep.song || "") + (d.rep.arr ? " · " + d.rep.arr : "") : "";
+      var edits = d.rep ? d.rep.cues.filter(function (c) { return c.edited; }).length : 0;
+      var warn = edits ? '<div class="o-notice" data-state="warning">' + icon("pencil") + "<div><b>" + edits + (edits === 1 ? " slide was" : " slides were") + " edited live.</b> Replacing takes those edits out of this Mass; Put back restores them.</div></div>" : "";
+      return '<section class="pr-ins-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">' + (d.rep ? "Replace" : "Insert") + "</h2>" +
+        '<div class="o-meta">' + icon(d.rep ? "replace" : "corner-down-right") + (d.rep ? "" : "After ") + "<b>" + esc(a.title) + "</b>" + (inUse ? " · " + esc(inUse) : "") + " · " + esc(M.sections[a.section].title) + " · " + (S.blackout ? "Blackout on" : S.frozen ? "Program frozen" : S.output === "enabled" ? "Program not live" : "Rehearsal: output disabled") + "</div></div>" +
         '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-close" aria-label="Close" title="Close (Esc)">' + icon("x") + "</button></div>" +
         '<div class="o-tabs pr-ins-tabs" role="tablist">' + KINDS.map(function (k) { return '<button role="tab" data-act="ins-kind" data-v="' + k[0] + '" aria-selected="' + (d.kind === k[0]) + '">' + icon(k[1]) + k[2] + ' <span class="o-kbd">Alt+' + k[3] + "</span></button>"; }).join("") + "</div>" +
-        '<div class="pr-ins-split"><div class="pr-ins-main sh-form">' + (searching ? searchList() : form()) + "</div>" +
-        '<div class="pr-ins-prev"><div class="o-label">' + (r ? esc(r.x.t) : "Preview") + '</div><div class="pr-ins-thumbs">' + cues.slice(0, 4).map(function (c) { return projectable(c) ? slide(c) : '<div class="pr-private"><span class="pr-who">' + esc(c.who || "") + "</span><div><b>" + esc(c.b) + '</b><div class="o-meta">Operator-only · not projected</div></div></div>'; }).join("") + "</div></div></div>" +
-        '<div class="pr-ins-foot"><span class="o-meta">' + (searching ? '<span class="o-kbd">↑</span><span class="o-kbd">↓</span> move · <span class="o-kbd">Enter</span> insert · ' : "") + '<span class="o-kbd">Esc</span> ' + (d.create ? "back" : "close") + " · saves to this Mass plan</span>" +
-        '<span class="o-grow"></span><button class="o-btn" data-act="ins-close">Cancel</button><button class="o-btn o-btn--primary" data-act="ins-save"' + (ok ? "" : " disabled") + ">" + label + "</button></div></section>";
+        '<div class="pr-ins-split"><div class="pr-ins-main sh-form">' + warn + (searching ? searchList() : form()) + "</div>" +
+        '<div class="pr-ins-prev"><div class="o-label">' + (r ? esc(r.x.t) + (r.ver ? " · " + esc(r.x.a) : "") : "Preview") + '</div><div class="pr-ins-thumbs">' + cues.slice(0, 4).map(function (c) { return projectable(c) ? slide(c) : '<div class="pr-private"><span class="pr-who">' + esc(c.who || "") + "</span><div><b>" + esc(c.b) + '</b><div class="o-meta">Operator-only · not projected</div></div></div>'; }).join("") + "</div></div></div>" +
+        '<div class="pr-ins-foot"><span class="o-meta">' + (searching ? '<span class="o-kbd">↑</span><span class="o-kbd">↓</span> move · <span class="o-kbd">Enter</span> ' + (d.rep ? "replace" : "insert") + " · " : "") + '<span class="o-kbd">Esc</span> ' + (d.create ? "back" : "close") + " · saves to this Mass plan</span>" +
+        '<span class="o-grow"></span>' + (d.rep && d.rep.was ? '<button class="o-btn" data-act="ins-rep-back">' + icon("undo-2") + 'Put back the prepared version <span class="o-kbd">Alt+B</span></button>' : "") + '<button class="o-btn" data-act="ins-close">Cancel</button><button class="o-btn o-btn--primary" data-act="ins-save"' + (ok ? "" : " disabled") + ">" + label + "</button></div></section>";
     }
     function insSave() {
       var d = S.ins;
-      if (d.create) { var sl = slidesOf(d.create.text); insertItem(songItem({ t: d.create.title.trim(), slides: sl, local: true })); return; }
-      if (d.kind === "general") { insertItem({ title: d.mode === "Image" ? "Image · fiesta-poster.jpg" : d.h.trim() || "Announcement", type: "General Presentation", cues: [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h.trim(), b: d.text.trim(), f: "Parokya ni San Roque" }] }); return; }
+      var put = d.rep ? replaceItem : insertItem;
+      if (d.create) { var sl = slidesOf(d.create.text); put(songItem({ t: d.create.title.trim(), slides: sl, local: true })); return; }
+      if (d.kind === "general") { put({ title: d.mode === "Image" ? "Image · fiesta-poster.jpg" : d.h.trim() || "Announcement", type: "General Presentation", cues: [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h.trim(), b: d.text.trim(), f: "Parokya ni San Roque" }] }); return; }
       var r = results()[Math.min(d.active, results().length - 1)]; if (!r) return;
-      if (d.kind === "song") insertItem(songItem(r.x));
-      else insertItem({ title: r.x.t, type: "Response sequence", cues: r.x.cues.map(function (c) { return Object.assign({}, c); }) });
+      if (d.kind === "song") put(songItem(r.x));
+      else put({ title: r.x.t, type: "Response sequence", cues: r.x.cues.map(function (c) { return Object.assign({}, c); }) });
     }
     function insAct(a, t) {
       if (a.indexOf("ins-ed") === 0) return edAct(a, t);
       if (a.indexOf("ins-disp") === 0) return dispAct(a, t);
       if (a === "ins-open") openInsert();
+      else if (a === "ins-rep") openReplace();
+      else if (a === "ins-rep-back") putBack();
       else if (a === "ins-close") closeInsert();
       else if (a === "ins-kind") { S.ins.kind = t.dataset.v; S.ins.q = ""; S.ins.active = 0; S.ins.create = null; }
       else if (a === "ins-mode") S.ins.mode = t.dataset.v;
@@ -609,6 +671,7 @@
       if (S.ins.kind === "disp") { if (e.key === "Escape") { e.preventDefault(); S.ins = null; render(); app.focus({ preventScroll: true }); } return; }
       var k = e.key, d = S.ins;
       if (k === "Escape") { e.preventDefault(); if (d.create) d.create = null; else closeInsert(); render(); return; }
+      if (e.altKey && k.toLowerCase() === "b" && d.rep && d.rep.was) { e.preventDefault(); putBack(); render(); app.focus({ preventScroll: true }); return; }
       if (e.altKey) { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); d.kind = m; d.q = ""; d.active = 0; d.create = null; render(); } return; }
       if ((d.kind === "song" || d.kind === "resp") && !d.create) {
         var n = results().length;
@@ -642,9 +705,9 @@
     }
     function openEdit() {
       var c = CUES[S.preview];
-      if (c.k === "unavailable") { say("Can’t edit an unavailable Cue: " + c.why + ". Use Insert to put something in its place."); return; }
+      if (c.k === "unavailable") { say("Can’t edit an unavailable Cue: " + c.why + ". Replace puts something in its place."); return; }
       if (!projectable(c)) { say("Ctrl+E edits projectable slides; this " + KIND_LABEL[c.k].toLowerCase() + " is never shown."); return; }
-      if (c.img) { say("A picture can’t be edited live. Use Insert to add another one."); return; }
+      if (c.img) { say("A picture can’t be edited live. Replace swaps it for another."); return; }
       if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "editing"; }
       else if (S.frozen && /ready$/.test(S.frozenReason)) S.frozenReason = "editing";
       if (S.frozen && S.program != null && !S.held) S.held = Object.assign({}, CUES[S.program]);   // Program keeps its frame
@@ -792,6 +855,7 @@
         if (S.ins) { insKey(e); return; }
         var k = e.key, used = true;
         if (k === "Insert") { openInsert(); render(); e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && (k === "r" || k === "R")) { openReplace(); render(); e.preventDefault(); return; }
         if ((e.ctrlKey || e.metaKey) && (k === "e" || k === "E")) { openEdit(); render(); e.preventDefault(); return; }
         if (k === "ArrowRight" || k === "ArrowDown") step(1);
         else if (k === "ArrowLeft" || k === "ArrowUp") step(-1);
@@ -822,6 +886,8 @@
       setMode: function (m) { S.mode = m; render(); },
       insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
       edit: function (cue, o) { S.preview = cue; S.follow = true; openEdit(); o = o || {}; if (S.ins) { if (o.scope) S.ins.scope = o.scope; Object.keys(o.draft || {}).forEach(function (k) { S.ins.draft[k] = o.draft[k]; }); if (o.draft || o.scope) applyEdit(); if (o.done) closeEdit(); } render(); },
+      replace: function (cue, o) { S.preview = cue; S.follow = true; openReplace(); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
+      save: function () { insSave(); render(); },
       insertSong: function (title) { openInsert(); insertItem(songItem(QI_SONGS.filter(function (x) { return x.t === title; })[0])); render(); },
       state: S, render: render, app: app
     };

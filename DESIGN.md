@@ -649,14 +649,14 @@ status, decisions, and any superseded details listed on the page. They are not
 production source. A page marked *Acceptance reference* is one of those named
 below.
 
-- `docs/mockups/semantic-palette.html` is the current semantic-color and
+- `docs/mockups/semantic-palette-v2.html` is the current semantic-color and
   appearance reference.
-- `docs/mockups/presenter-three-column.html` and
-  `docs/mockups/timeline-modes.html` establish Presenter composition.
-- `docs/mockups/presenter-high-scale.html` establishes the approved
+- `docs/mockups/presenter-three-column-v2.html` and
+  `docs/mockups/timeline-modes-v2.html` establish Presenter composition.
+- `docs/mockups/presenter-high-scale-v2.html` establishes the approved
   constrained/high-scale Presenter hierarchy and the isolation of canonical
   frames from operator Interface scaling.
-- `docs/mockups/mass-planning-responsive.html` establishes the approved
+- `docs/mockups/mass-planning-responsive-v2.html` establishes the approved
   three-pane Mass Planning hierarchy and density at `1366x768` and `1920x1080`
   while holding selected content and canonical Slide composition constant.
 - `design-references/ordo-canonical-slide-layouts/` is the approved

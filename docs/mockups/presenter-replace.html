@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Replace live — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-replace">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Live on the Entrance Song, interactive</h2>
+    <p>The choir has started a different version. Click the Presenter, then press <span class="o-kbd">Ctrl+R</span> (or <b>Replace Song</b> above the timeline), <span class="o-kbd">↓</span> if needed, and <span class="o-kbd">Enter</span>. Blackout turns on at once, so the wrong words leave the screen; it stays on until <span class="o-kbd">Space</span> takes the new version live.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Replace opens on other versions of the Song</h2>
+    <p>The same panel as Insert (Decision 290). The search is focused and the first version is already active, so <span class="o-kbd">Ctrl+R</span> then <span class="o-kbd">Enter</span> is enough. The note on each row says how it differs, and the preview shows its slides. Every other Song stays searchable below.</p>
+    <div id="versions"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A different Song</h2>
+    <p>Searching works as in Insert. The Song being replaced isn’t offered again.</p>
+    <div id="search"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Replaced: Preview on the new version, Blackout still on</h2>
+    <p>The item keeps its name and place; only its slides change. It’s marked <b>Replaced live</b> in the timeline and the Ordo rail. Program stays black until <span class="o-kbd">Space</span> or <span class="o-kbd">B</span>.</p>
+    <div id="done"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Part-way through the Song</h2>
+    <p>The operator was on the second chorus. Preview lands on the second <b>Koro</b> of the new version, so nobody has to find the place again.</p>
+    <div id="place"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. A section the new version doesn’t have</h2>
+    <p>The short version has no Bersikulo 2. Preview goes to its first slide and the message says why.</p>
+    <div id="noplace"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Slides were edited live</h2>
+    <p>Replacing takes the <span class="o-kbd">Ctrl+E</span> edits out of this Mass, so the panel says so before anything changes. There’s no second confirmation, because <b>Put back</b> restores them.</p>
+    <div id="edited"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Changing it back</h2>
+    <p>Reopening Replace on a replaced item offers <b>Put back the prepared version</b> (<span class="o-kbd">Alt+B</span>), with any earlier edits intact.</p>
+    <div id="back"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. A Song that can’t be shown</h2>
+    <p>The Offertory Song’s image is missing from the snapshot. Replace is the way out: another version is offered first.</p>
+    <div id="broken"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. Not a Song</h2>
+    <p>Any Mass item can be replaced. A Response sequence opens on Response sequence, and a reading or announcement on Text or image.</p>
+    <div id="resp"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. Rehearsal, output disabled</h2>
+    <p>With no congregation output there’s nothing to black out; the replacement still saves to this Mass plan.</p>
+    <div id="rehearsal"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var V1 = 3, KORO2 = 6, V2 = 5, GREETING = 7, OFFERTORY = 29;
+    var base = { w: 1366, h: 768, state: { output: "enabled" }, live: true };
+    function show(id, cue, setup, o) { var p = OrdoKit.presenter(document.getElementById(id), Object.assign({}, base, { preview: cue, program: cue }, o || {})); if (setup) setup(p); }
+    var fix = { b: "Daygon, daygon ta\nang balaan nga ngalan" };
+    show("live", V1);
+    show("versions", V1, function (p) { p.replace(V1); });
+    show("search", V1, function (p) { p.replace(V1, { q: "sal" }); });
+    show("done", V1, function (p) { p.replace(V1); p.save(); });
+    show("place", KORO2, function (p) { p.replace(KORO2); p.save(); });
+    show("noplace", V2, function (p) { p.replace(V2, { active: 1 }); p.save(); });
+    show("edited", 4, function (p) { p.edit(4, { draft: fix, done: true }); p.replace(4); });
+    show("back", V1, function (p) { p.replace(V1); p.save(); p.replace(p.state.preview); });
+    show("broken", OFFERTORY, function (p) { p.replace(OFFERTORY); }, { program: OFFERTORY - 1 });
+    show("resp", GREETING, function (p) { p.replace(GREETING); }, { program: null });
+    show("rehearsal", V1, function (p) { p.replace(V1); }, { state: { output: "disabled" }, live: false, program: null });
+  });
+</script>
+</body>
+</html>
