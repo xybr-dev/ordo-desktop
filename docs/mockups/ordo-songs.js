@@ -685,13 +685,15 @@
       var langOpen = S.pick && S.pick.key === "langs" && S.pick.target === e;
       var langs = '<div class="sg-chipset">' + e.langs.map(function (l) { return '<button class="sg-toggle" aria-pressed="true" data-lv="lang-off" data-lang="' + esc(l) + '"' + (ro ? " disabled" : "") + ">" + icon("check") + esc(l) + (ro ? "" : " " + icon("x")) + "</button>"; }).join("") +
         (ro || langOpen ? "" : '<button class="sg-toggle sg-toggle--add" data-act="pick" data-key="langs" data-target="choir">' + icon("plus") + "Language</button>") + "</div>" + (langOpen ? pickerHtml("langs") : "");
-      var list = rep.length ? '<div class="sg-arrs">' + rep.map(function (r) {
-        return '<div class="sg-rep"><div class="sg-row"><b>' + esc(r.s.title) + '</b><span class="o-meta">' + esc(r.s.by) + "</span></div>" + r.arrs.map(function (a) {
+      // One row per Arrangement, one tbody per Song: a tbody becomes a card when the pane is narrow.
+      var list = rep.length ? '<div class="sg-rep-wrap"><table class="sg-rep-table"><thead><tr><th scope="col">Song</th><th scope="col">Arrangement</th><th scope="col">Status</th><th scope="col">Shared with</th><th scope="col"><span class="o-sr">Open</span></th></tr></thead>' + rep.map(function (r) {
+        return "<tbody>" + r.arrs.map(function (a, i) {
           var others = a.choirs.filter(function (c) { return c !== e.name; });
-          return '<div class="sg-arr is-compact"><div class="o-grow"><div class="sg-row"><span>' + esc(arrLabel(a)) + "</span>" + status(readiness(a)) + "</div>" +
-            (others.length ? '<div class="o-meta">Shared with ' + esc(others.join(", ")) + "</div>" : "") + '</div><button class="o-btn" data-lv="open" data-song="' + r.s.id + '" data-arr="' + a.id + '">Open</button></div>';
-        }).join("") + "</div>";
-      }).join("") + "</div>" :
+          return "<tr>" + (i ? "" : '<th scope="rowgroup" rowspan="' + r.arrs.length + '"><b>' + esc(r.s.title) + '</b><span class="o-meta">' + esc(r.s.by) + "</span></th>") +
+            "<td>" + esc(arrLabel(a)) + "</td><td>" + status(readiness(a)) + '</td><td class="o-meta">' + (others.length ? '<span class="sg-rep-with">Shared with </span>' + esc(others.join(", ")) : '<span class="sg-rep-none">—</span>') + "</td>" +
+            '<td><button class="o-btn o-btn--quiet" data-lv="open" data-song="' + r.s.id + '" data-arr="' + a.id + '" aria-label="Open ' + esc(r.s.title) + " · " + esc(arrLabel(a)) + '">Open</button></td></tr>';
+        }).join("") + "</tbody>";
+      }).join("") + "</table></div>" :
         '<div class="pl-empty">' + icon("list-music", "o-icon-20") + "<b>" + (ro ? "No active Arrangements name this choir" : "No Arrangements name this choir yet") + "</b>" + (ro ? "" : "<div class=\"o-meta\">Add the choir in an Arrangement’s details, under Choirs.</div>") + "</div>";
       return '<section class="o-pane sg-detail" aria-label="Selected choir">' + ldetailHead("choirs", e, e.archived ? '<span class="pl-chip">Archived</span>' : "") +
         '<div class="o-pane-body sg-detail-body">' + (ro ? archivedNote("choirs") : "") +

@@ -83,7 +83,7 @@
     Masses: [["Ctrl+N", "New Celebration"], ["Ctrl+F", "Search Masses"], ["Enter", "Open the selected Mass plan"]],
     Themes: [["Ctrl+S", "Save Theme"], ["Ctrl+D", "Duplicate Theme"], ["Esc", "Close a panel or dialog"]],
     Editing: [["Ctrl+Enter", "Commit the slide-over"], ["Alt+↑  Alt+↓", "Move the selected item"], ["F2", "Rename"]],
-    Presenter: [["Space", "Next Cue"], ["B", "Black"], ["F", "Freeze"], ["Enter", "Take Preview to Program"], ["Esc", "Leave a field; output is unchanged"]]
+    Presenter: [["Space", "Next Cue"], ["B", "Black"], ["F", "Freeze"], ["Enter", "Take Preview to Program"], ["Insert", "Freeze and insert"], ["Ctrl+R", "Blackout and replace this Mass item"], ["Ctrl+E", "Freeze and edit this slide"], ["Esc", "Leave a field; output is unchanged"]]
   };
   var GUIDES = [
     { id: "g-sunday", t: "Prepare a Sunday Mass", b: ["Create the Celebration in Masses, then add a Mass plan from a template or reuse last week's.", "Fill the Song and Reading slots. Readiness says what's left.", "Before Mass, open Presenter: it starts with congregation output black."] },

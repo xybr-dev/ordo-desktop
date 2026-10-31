@@ -89,7 +89,8 @@
         "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
         "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
         "The image picker is a placeholder; the image slide is drawn as a gradient.",
-        "Ctrl+E emergency edit is in presenter-edit."
+        "Ctrl+E emergency edit is in presenter-edit; replacing a Mass item is in presenter-replace.",
+        "MVP-PLAN §8.5 describes a centred Quick Insert dialog; this page proposes the side panel instead (Decision 290)."
       ]
     },
     {
@@ -101,6 +102,17 @@
         "Linked occurrences are found by matching Song, section label and words; production links them by Arrangement section identity.",
         "Only the fields the slide shows are editable; splitting one slide into two, pagination and Theme are not editable live.",
         "Post-Mass promotion of the correction to the Library is not in this page."
+      ]
+    },
+    {
+      slug: "presenter-replace", group: "presenter", title: "Replace a Mass item",
+      summary: "Ctrl+R while live at 1366×768: Blackout turns on and the Insert panel opens as Replace, with other versions of the Song listed first, so a wrong Arrangement is two keys from fixed. The item keeps its name and place, Preview lands on the same section where the new version has it, and Space takes it live. Any Mass item can be replaced, and Put back restores the prepared version with its edits.",
+      status: "proposed",
+      decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0107-guarded-replacement-of-a-customized-song-item", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0290-emergency-insert-chooser-and-quick-insert-dialog", "0291-emergency-edit-opens-the-selected-slide-in-the-insert-panel", "0293-replace-swaps-a-mass-item-from-the-insert-panel"],
+      interpretations: [
+        "Other versions come from a small sample list; production lists the Song's other Arrangements in the Library.",
+        "The same section is found by its label and its occurrence, such as the second Koro; production uses Arrangement section identity.",
+        "Replacing a Reading with Text or image gives one slide; choosing another Reading from the imported liturgy isn't mocked."
       ]
     },
     {
@@ -255,6 +267,7 @@
       interpretations: [
         "Preferred languages are described as ranking a choir's Arrangements first; Decision 87 names the field but not its effect.",
         "The list's song count and the Repertoire skip archived Songs and Arrangements.",
+        "Repertoire is a table with one row per Arrangement. Below 720px of pane width each Song becomes a card; the table stays because it's the one place that answers what a choir sings.",
         "Choirs have no Duplicate, since two records for one choir is what duplicate prevention exists to stop."
       ]
     },
@@ -473,7 +486,7 @@
       ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
       ["liturgy-import", "replace readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
-      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-edit", "correct a slide live"], ["presenter-faults", "when something fails"],
+      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-replace", "replace a Song live"], ["presenter-edit", "correct a slide live"], ["presenter-faults", "when something fails"],
       ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }
   ];
 

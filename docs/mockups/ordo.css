@@ -1003,3 +1003,30 @@ a.o-btn { text-decoration: none; color: inherit; }
 .pr-disp-main { flex: 1; padding: var(--o-s3) var(--o-s4); }
 .pr-disp-main .sh-topo { align-self: stretch; }
 .sh-disp[disabled] { cursor: default; }
+
+/* Choirs: Repertoire as a table; each Song's tbody becomes a card when the pane is narrow */
+.sg-rep-wrap { container-type: inline-size; }
+.sg-rep-table { width: 100%; border-collapse: collapse; }
+.sg-rep-table thead th { padding: 0 var(--o-s2) var(--o-s1, 4px); font-size: calc(12px * var(--o-scale)); font-weight: 600; color: var(--o-muted); text-align: left; border-bottom: 1px solid var(--o-border-strong); }
+.sg-rep-table tbody th, .sg-rep-table td { padding: 4px var(--o-s2); text-align: left; vertical-align: baseline; font-weight: 400; }
+.sg-rep-table .o-btn { min-height: 0; height: auto; padding: 2px var(--o-s2); }
+.sg-rep-table tbody + tbody tr:first-child > *, .sg-rep-table tr + tr td { border-top: 1px solid var(--o-border); }
+.sg-rep-table tbody th .o-meta { margin-left: var(--o-s2); }
+.sg-rep-table td:last-child { width: 1%; padding-right: 0; text-align: right; }
+.sg-rep-with { display: none; }
+.o-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@container (max-width: 720px) {
+  .sg-rep-table, .sg-rep-table tbody, .sg-rep-table tr { display: block; }
+  .sg-rep-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sg-rep-table tbody { padding: var(--o-s2) var(--o-s3); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); background: var(--o-surface); }
+  .sg-rep-table tbody + tbody { margin-top: var(--o-s2); }
+  .sg-rep-table tbody + tbody tr:first-child > *, .sg-rep-table tr + tr td { border-top: 0; }
+  .sg-rep-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--o-s3); }
+  .sg-rep-table tr + tr { margin-top: var(--o-s1, 4px); padding-top: var(--o-s1, 4px); border-top: 1px solid var(--o-border); }
+  .sg-rep-table tbody th { grid-column: 1 / -1; padding: 0 0 var(--o-s1, 4px); }
+  .sg-rep-table tbody th b, .sg-rep-table tbody th .o-meta { display: block; margin-left: 0; }
+  .sg-rep-table td { padding: 2px 0; }
+  .sg-rep-table td:nth-last-child(2) { grid-column: 1 / -1; grid-row: 3; }
+  .sg-rep-with { display: inline; }
+  .sg-rep-none { display: none; }
+}
