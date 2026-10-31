@@ -118,7 +118,7 @@
     {
       slug: "mass-planning-responsive-v2", group: "planning", title: "Mass Planning, 1366 and 1920", replaces: "mass-planning-responsive",
       summary: "The three-pane hierarchy on the shared kit at 1366×768 and 1920×1080, holding the same Mass, Song item, Arrangement and Cue. Interactive: outline, generated Cues and Inspector stay in sync.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0240-approved-paired-mass-planning-responsive-acceptance", "0169-inspector-navigation-follows-the-selected-mass-item-s-cue", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0257-make-library-a-multi-view-destination-with-revision-bound"],
       interpretations: [
         "The global rail shows Library rather than Songs (Decision 257).",
@@ -135,13 +135,13 @@
     {
       slug: "inspector-cue-navigation-v2", group: "planning", title: "Inspector Cue navigation", replaces: "inspector-cue-navigation",
       summary: "Inspector navigation over the selected item's Cue order on the shared kit: a black congregation frame with private context for an operator-only trigger, and the disabled boundary at the item's last Cue.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0169-inspector-navigation-follows-the-selected-mass-item-s-cue"]
     },
     {
       slug: "mass-planning-flows", group: "planning", title: "Mass Planning flows",
       summary: "Adding a Mass item, choosing or replacing a Song and Arrangement (including an unavailable one), Readiness, the Mass Theme and its overrides, and Mass-local customization with its guarded replacement and return. One live planner plus each state on its own.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0069-song-arrangement-picker-slide-over", "0070-mass-item-insertion-control-placement", "0071-add-mass-item-workflow-and-editor-presets", "0175-section-aware-mass-item-insertion", "0035-computed-mass-plan-readiness", "0094-mass-plan-readiness-panel-and-navigation", "0095-mass-theme-chooser-and-nested-theme-overrides-review", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0106-mass-local-arrangement-copy-and-repeated-section-linking", "0107-guarded-replacement-of-a-customized-song-item"],
       interpretations: [
         "Every change shows a toast with Undo. The decisions promise ordinary Undo but don't name its surface; the toast is one level deep here.",
@@ -156,7 +156,7 @@
     {
       slug: "mass-item-editors", group: "planning", title: "Mass item editors",
       summary: "The editor for each non-Song item type: Reading (with and without full-passage projection), Responsorial Psalm (verses as Wait Cues or projected), Response or Prayer (linked, picked, customized), General Presentation (private delivery context, image Slide), Hold and Custom sequence. One live planner plus each state on its own.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0071-add-mass-item-workflow-and-editor-presets", "0006-projection-policy", "0111-response-sequence-exchange-blocks", "0007-speaker-roles-and-cue-visibility", "0257-make-library-a-multi-view-destination-with-revision-bound", "0255-use-fixed-semantic-congregation-slide-layouts", "0262-render-reading-identification-in-sentence-case-at-the", "0263-render-reading-passage-at-a-readingpassage-only-88px", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0168-owner-directed-pagination-correction-instead-of-a-review"],
       interpretations: [
         "The Gospel keeps its plain Cue list here. Its acclamation, dialogue and Homily Hold don't fit the Reading editor's single closing exchange, and no decision gives the Gospel its own editor.",
