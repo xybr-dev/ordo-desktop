@@ -678,8 +678,8 @@ updated before implementation begins.
 
 ### 6.28 Unavailable future Cue during Presenter Mode
 
-- If a selected Cue unexpectedly lacks a complete canonical frame, never alter congregation output. Preserve the previous valid Program and automatically enter **Frozen · Cue unavailable** when output had been Live; preserve Blackout if it was already active.
-- Show one operator-only **Output unavailable** placeholder with the specific reason identically in its Cue card and Preview. Keep the Cue in navigation, permit navigation to later Cues, and require Space on a valid Preview to resume live output. Space on an unavailable Preview leaves Freeze or Blackout intact and explains the refusal.
+- If a selected Cue unexpectedly lacks a complete canonical frame, never send its failure to congregation output. While linked Live, Program goes to canonical black, as for a Hold, with the status **LIVE · black · Cue unavailable**, and the next valid Cue goes live as usual (Decision 274). Preserve Freeze or Blackout if either was already active.
+- Show one operator-only **Output unavailable** placeholder with the specific reason identically in its Cue card and Preview. Keep the Cue in navigation and permit navigation to later Cues. Space on an unavailable Preview is refused with the reason and leaves Freeze or Blackout intact.
 - Reuse the Presenter Preflight and Cue-availability result at runtime so corrupted, undecodable, or newly failed frames cannot bypass the complete-frame-or-structured-failure contract.
 
 ### 6.29 Interrupted-session Presenter recovery
@@ -744,7 +744,7 @@ updated before implementation begins.
 | Live / unfrozen | Program and Preview are linked; selecting a projectable Cue cuts immediately to it. Operator-only triggers/Hold produce black; Wait leaves Program unchanged. | Changes Preview and, for projectable/black Cues, Program. | Keeps/takes current Preview live. |
 | Frozen | Last Program frame is held. | Changes Preview only. | Takes Preview live and clears Freeze. |
 | Blackout | Program is forced black. | Changes Preview only. | Takes Preview live and clears Blackout. |
-| Disconnected | No claim is made that external content remains visible; Program monitor shows disconnected. | Preview and session continue. | Has no external effect until output is deliberately re-enabled. |
+| Disconnected | No claim is made that external content remains visible; Program monitor shows disconnected. | Preview and session continue. | Once the same recognized congregation display is back, recreates the window and takes Preview live (Decision 272); otherwise refused with the reason. |
 
 Content-to-content changes are instantaneous cuts. Content-to-Blackout/Hold and
 Blackout/Hold-to-content fade for `500ms`; Presentation Engine state changes
@@ -758,8 +758,8 @@ immediately and contrary commands reverse the visible fade from current opacity.
 | Right / Down | Next Cue |
 | Page Up / Page Down | Previous / next Mass item |
 | Home / End | First / last Cue |
-| F | Toggle Freeze |
-| B | Activate Blackout |
+| F | Toggle Freeze; turning it off does what Space does (Decision 273) |
+| B | Toggle Blackout; turning it off does what Space does (Decision 273) |
 | A | Toggle auto-play for the current eligible General Presentation item |
 | O | Open/focus the Ordo rail without changing pin state |
 | Space | Take Preview live and clear Freeze/Blackout |

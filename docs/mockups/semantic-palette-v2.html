@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokens and semantic palette — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+<style>
+  .tk-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .tk-pair > .o-app { padding: 16px; }
+  .tk-pair h3 { margin: 0 0 4px; font-size: 16px; }
+  .tk-sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0 16px; }
+  .tk-sw div { border: 1px solid var(--o-border); border-radius: 4px; overflow: hidden; font-size: 12px; background: var(--o-surface); }
+  .tk-sw i { display: block; height: 36px; border-bottom: 1px solid var(--o-border); }
+  .tk-sw span { display: block; padding: 4px 6px; }
+  .tk-sw code { color: var(--o-muted); font-size: 11px; }
+  .tk-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .tk-type > div { display: flex; align-items: baseline; gap: 16px; padding: 6px 0; border-bottom: 1px solid var(--o-border); }
+  .tk-type code { width: 210px; flex: none; font-size: 12px; color: var(--o-muted); }
+  .tk-space { display: flex; align-items: flex-end; gap: 16px; }
+  .tk-space div { background: var(--o-selection); border: 1px solid var(--o-primary); }
+  .tk-elev { display: flex; gap: 24px; padding: 12px 0; }
+  .tk-elev div { width: 180px; height: 72px; background: var(--o-surface); border: 1px solid var(--o-border-strong); display: grid; place-items: center; font-size: 13px; }
+  @media (max-width: 1000px) { .tk-pair { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="semantic-palette-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Colour: Preparation (warm paper) and Presenter (graphite)</h2>
+    <p>Every swatch reads its value live from <code>ordo.css</code>, which carries <code>DESIGN.md</code>'s frontmatter. When the tokens are revisited, this sheet and every regenerated screen follow without edits. The left panel follows the page's Light/Dark switch, as Preparation does; the right is always graphite, as Presenter is.</p>
+    <div class="tk-pair">
+      <div class="o-app" data-panel="prep"><h3>Preparation</h3><div class="o-meta">System, Light or Dark; Dark uses the graphite values</div></div>
+      <div class="o-app o-presenter" data-panel="pres"><h3>Presenter</h3><div class="o-meta">Always graphite</div></div>
+    </div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Operational states: colour, icon or shape, and words together</h2>
+    <p>No state is colour alone. Live, Freeze, Blackout, warning, unavailable and information each pair a word with a stable marker shape. Selection is a tinted fill; keyboard focus is the separate two-layer blue outline; they can coexist.</p>
+    <div class="tk-pair" id="states"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Liturgical colours are content, not chrome</h2>
+    <p>Purple, red, green, rose and white describe a Celebration or a congregation Theme. They never mark selection, state or focus, and never recolour the operator shell.</p>
+    <div class="o-app" style="padding:16px"><div class="tk-sw" id="lit"></div></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Type, spacing, radius and elevation</h2>
+    <div class="o-app" style="padding:16px">
+      <div class="tk-type">
+        <div><code>operator-title 24/600</code><span class="o-title">Ika-30 nga Domingo</span></div>
+        <div><code>operator-body 16/400</code><span>Daygon ta ang Ginoo sa tanang kasingkasing</span></div>
+        <div><code>operator-label 14/500</code><span class="o-label">Arrangement · Koro San Roque</span></div>
+        <div><code>meta 13/400</code><span class="o-meta">Cue 2 of 5 · Lyrics</span></div>
+      </div>
+      <h3 style="margin:16px 0 8px;font-size:14px">Spacing on the 4px unit</h3>
+      <div class="tk-space">
+        <div style="width:4px;height:4px"></div><div style="width:8px;height:8px"></div><div style="width:12px;height:12px"></div>
+        <div style="width:16px;height:16px"></div><div style="width:24px;height:24px"></div>
+        <span class="o-meta">4 related-tight · 8 related · 12 control-inset · 16 group · 24 section</span>
+      </div>
+      <h3 style="margin:16px 0 8px;font-size:14px">Controls: 32 compact, 36 default, 40 Presenter; radius 4 controls, 8 overlays</h3>
+      <div class="tk-row">
+        <button class="o-btn o-btn--icon" aria-label="More" title="More"><i data-lucide="ellipsis"></i></button>
+        <button class="o-btn">Default</button>
+        <button class="o-btn o-btn--lg"><i data-lucide="snowflake"></i>Freeze</button>
+        <div class="o-field" style="width:220px"><i data-lucide="search"></i><input placeholder="Search Songs"></div>
+        <button class="o-btn o-select" style="width:180px">Koro San Roque<i data-lucide="chevron-down"></i></button>
+      </div>
+      <h3 style="margin:16px 0 0;font-size:14px">Two elevations, both keeping their border</h3>
+      <div class="tk-elev"><div style="box-shadow:none">Pane: no shadow</div><div style="box-shadow:var(--o-shadow-floating);border-radius:8px">Floating: menus, tooltips</div><div style="box-shadow:var(--o-shadow-overlay);border-radius:8px">Overlay: dialogs, slide-overs</div></div>
+    </div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit;
+    var COLORS = [["bg", "background"], ["surface", "surface"], ["surface-muted", "surface-muted"], ["text", "text"], ["muted", "text-muted"],
+      ["border", "border"], ["border-strong", "border-strong"], ["primary", "primary"], ["selection", "selection"], ["live", "live"],
+      ["freeze", "freeze"], ["warning", "warning"], ["danger", "danger"], ["info", "information"], ["focus", "focus"], ["blackout", "blackout"]];
+    function hex(v) { return v.trim().toUpperCase(); }
+    document.querySelectorAll("[data-panel]").forEach(function (panel) {
+      var box = document.createElement("div"); box.className = "tk-sw";
+      var cs = getComputedStyle(panel);
+      COLORS.forEach(function (c) {
+        var v = hex(cs.getPropertyValue("--o-" + c[0]));
+        box.insertAdjacentHTML("beforeend", '<div><i style="background:var(--o-' + c[0] + ')"></i><span>' + c[1] + '<br><code>' + v + "</code></span></div>");
+      });
+      panel.appendChild(box);
+    });
+    var states = '<div class="tk-row">' + K.statusLabel("live", "LIVE") + K.statusLabel("freeze", "FROZEN", "diamond") + K.statusLabel("blackout", "BLACKOUT", "square") +
+      K.statusLabel("warning", "2 incomplete", "diamond") + K.statusLabel("unavailable", "Unavailable", "square") + K.statusLabel("info", "Display 2 found") + K.statusLabel("disabled", "Output disabled", "square") + "</div>" +
+      '<div class="tk-row"><button class="o-btn o-btn--primary">Present</button><button class="o-btn">Secondary</button><button class="o-btn o-btn--quiet">Quiet</button><button class="o-btn o-btn--warning">Present available content</button><button class="o-btn o-btn--danger">Delete permanently</button><button class="o-btn" disabled>Disabled</button></div>' +
+      '<div class="o-rows--open" style="border:1px solid var(--o-border);border-radius:4px;margin-top:8px"><div class="o-row">Ordinary row</div><div class="o-row" aria-selected="true">Selected row</div><div class="o-row o-focus" aria-selected="true">Selected and keyboard-focused</div><div class="o-row o-focus">Focused only</div></div>' +
+      '<div class="o-notice" data-state="warning" style="margin-top:8px"><i data-lucide="triangle-alert"></i><div><b>2 Cues unavailable.</b> Arrangement image asset is missing.</div></div>';
+    document.getElementById("states").innerHTML = '<div class="o-app" style="padding:16px">' + states + '</div><div class="o-app o-presenter" style="padding:16px">' + states + "</div>";
+    var lit = document.getElementById("lit");
+    ["purple", "red", "green", "rose", "white"].forEach(function (n) {
+      var v = hex(getComputedStyle(lit).getPropertyValue("--o-liturgical-" + n));
+      lit.insertAdjacentHTML("beforeend", '<div><i style="background:var(--o-liturgical-' + n + ')"></i><span>liturgical-' + n + "<br><code>" + v + "</code></span></div>");
+    });
+    K.icons();
+    // swatch values follow the theme switch
+    new MutationObserver(function () {
+      document.querySelectorAll("[data-panel] .tk-sw").forEach(function (box) {
+        var cs = getComputedStyle(box.parentElement);
+        box.querySelectorAll("div").forEach(function (d, i) { d.querySelector("code").textContent = hex(cs.getPropertyValue("--o-" + COLORS[i][0])); });
+      });
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  });
+</script>
+</body>
+</html>

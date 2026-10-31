@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cue timeline modes — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="timeline-modes-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Visual Slide Grid</h2>
+    <p>Projectable Cues are canonical thumbnails, never narrower than 300px, with captions outside the frame. Operator-only triggers, Waits and Holds break the grid as full-width compact rows, so the priest's line sits exactly where it falls in the order. Unavailable Cues stay in place with the operator-only <b>Output unavailable</b> placeholder. Groups collapse by their header; the active Cue keeps the focus outline.</p>
+    <div id="grid"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Compact Cue List</h2>
+    <p>The same Cues as one dense list: number, a small canonical thumbnail or the operator-only marker, the first line, and the Cue type. The choice of Grid or List is the operator's and persists; no window size changes it.</p>
+    <div id="list"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A narrower window keeps the mode</h2>
+    <p>A 1100×768 window: the grid drops to two columns rather than shrink frames below 300px, Ordo becomes its tab, and Grid stays Grid.</p>
+    <div id="narrow"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var live = { state: { output: "enabled" }, live: true };
+    OrdoKit.presenter(document.getElementById("grid"), Object.assign({ w: 1366, h: 768, preview: 27, program: 27, mode: "grid" }, live));
+    OrdoKit.presenter(document.getElementById("list"), Object.assign({ w: 1366, h: 768, preview: 27, program: 27, mode: "list" }, live));
+    OrdoKit.presenter(document.getElementById("narrow"), Object.assign({ w: 1100, h: 768, preview: 27, program: 27, mode: "grid" }, live));
+  });
+</script>
+</body>
+</html>

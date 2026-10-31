@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>High-scale Presenter — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-high-scale-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. 1366×768, Interface scale 100%–200% (opens at 175%)</h2>
+    <p>Interface scale enlarges operator chrome only. At 175% the wide composition no longer fits: Ordo becomes overlay-only, Program and Preview sit side by side in one fixed band above the timeline, and output status, Freeze, Blackout and the Live state stay fixed beneath them. Only the Cue timeline scrolls. Change the scale and the Grid/List view: the canonical frames never reflow, and the chosen view survives every step, even at one column.</p>
+    <div class="o-controls">
+      <span>Interface scale</span>
+      <div class="o-segmented" role="group" aria-label="Interface scale" id="scales"></div>
+    </div>
+    <div id="hs"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var p = OrdoKit.presenter(document.getElementById("hs"), {
+      w: 1366, h: 768, scale: 1.75, state: { output: "enabled" }, live: true, preview: 10, program: 10
+    });
+    var box = document.getElementById("scales");
+    [1, 1.25, 1.5, 1.75, 2].forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = Math.round(s * 100) + "%";
+      b.setAttribute("aria-pressed", String(s === 1.75));
+      b.addEventListener("click", function () {
+        box.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+        b.setAttribute("aria-pressed", "true");
+        p.setScale(s);
+      });
+      box.appendChild(b);
+    });
+  });
+</script>
+</body>
+</html>

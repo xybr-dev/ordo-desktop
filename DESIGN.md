@@ -549,7 +549,7 @@ Focused navigation provides ordinary selection feedback; do not echo every
 arrow press through a live region. Use one deduplicated polite status channel
 for expected operational changes such as Freeze, Blackout, taking Preview live,
 and output enablement. Interrupt urgently only for unexpected safety events,
-including display disconnection, unavailable Cue, automatic Freeze, or loss of
+including display disconnection, unavailable Cue (Program goes black), or loss of
 usable Program output, and state both the event and Ordo's protective response.
 
 Operator-only prompts, timing context, warnings, and diagnostics remain

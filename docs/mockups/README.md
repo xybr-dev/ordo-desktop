@@ -16,6 +16,14 @@ They are not production source; screens are rebuilt as native GPUI views.
   tokens and dark the Presenter tokens from `DESIGN.md`.
 - `<slug>.html` is one screen: a fixed shell plus the screen's markup. Screen styles are scoped
   to the screen's root id so they can't touch the chrome.
+- `ordo.css` is the **kit**: `DESIGN.md`'s tokens as CSS variables (`--o-*`) plus the shared
+  components every regenerated screen is built from. Revising a token here restyles every `-v2`
+  page at once. Preparation tokens apply to `.o-app`, graphite ones to `.o-presenter` (always) and
+  to `.o-app` in dark mode.
+- `ordo-kit.js` holds the sample Mass fixture and renderers: `OrdoKit.presenter()` (layout,
+  Cue timeline, Output Dock and the Presenter state machine with its keys) and
+  `OrdoKit.planner()` (the Preparation shell). Frames are canonical 1920×1080 slides drawn in
+  container units, so they scale and never reflow.
 - `canonical-slide-layouts.html` shows the PNG gallery in `design-references/`, which the
   `canonical-slide-lab` capture test writes there.
 
@@ -41,4 +49,6 @@ Two flags sit beside the status: `gate: true` marks an *Acceptance reference* na
    Approving a page never happens in the page alone.
 4. To replace a page, add the new one as `proposed`; when it is approved, mark the old one
    `superseded` with `supersededBy`. A detail replaced by a decision goes into `caveats` instead.
-5. A page that becomes an acceptance reference gets `gate: true` and a line in `DESIGN.md`.
+5. A regenerated page is `<old-slug>-v2.html` on the kit, with `replaces: "<old-slug>"` and an
+   `interpretations` list naming every place it fills a gap the decisions leave open.
+6. A page that becomes an acceptance reference gets `gate: true` and a line in `DESIGN.md`.

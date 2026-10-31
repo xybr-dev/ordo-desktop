@@ -8,11 +8,13 @@ tags: [presenter]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: [169]
+amended_by: [169, 273]
 sources: []
 ---
 
 # Program, Preview, Freeze, and Blackout semantics
+
+> **Amended by Decision [273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md).** `B` now toggles Blackout, and turning off Freeze or Blackout with `F` or `B` does what `Space` does.
 
 > **Superseded in part by Decision [169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md).** Operator-only triggers use a black
 > canonical Preview/Program frame; their private prompt and related response

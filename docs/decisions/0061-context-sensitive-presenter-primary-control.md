@@ -8,11 +8,13 @@ tags: [presenter]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [272]
 sources: []
 ---
 
 # Context-sensitive Presenter primary control
+
+> **Amended by Decision [272](0272-space-resumes-output-after-a-disconnect.md).** While output is Disconnected and the display is back, the primary control reads **Resume Output** and does what `Space` does.
 
 - Presenter Mode does not show a permanent Take button. In Ordo's linked Live state, Cue navigation already updates Preview and Program together, so an always-present Take control would falsely imply a traditional manual transition model.
 - When congregation output is disabled, the primary control is **Enable Output**. Enabling remains explicit and follows the established black-first behavior; it never exposes Preview immediately.

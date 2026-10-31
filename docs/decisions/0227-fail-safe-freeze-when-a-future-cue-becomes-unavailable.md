@@ -8,11 +8,13 @@ tags: [presenter]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [274]
 sources: []
 ---
 
 # Fail-safe Freeze when a future Cue becomes unavailable
+
+> **Amended by Decision [274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md).** While linked Live, an unavailable Cue makes Program black and linked Live continues; there is no automatic Freeze. The rest of this record stands.
 
 - Never send an error surface, partial frame, renderer placeholder, or accidental black frame to congregation output when the selected future Cue cannot produce its complete canonical frame.
 - If Program is Live when the operator navigates to an unavailable Cue, preserve the previous valid Program output and automatically enter Freeze with the explicit state **Frozen · Cue unavailable**.

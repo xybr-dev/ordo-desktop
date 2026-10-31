@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presenter handoff and preflight — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+<style>
+  .pf-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--o-border); border-radius: var(--o-radius-control); }
+  .pf-list li + li { border-top: 1px solid var(--o-border); }
+  .pf-list .o-section-label { padding: var(--o-s2) var(--o-s3) 0; }
+  .pf-find { display: flex; gap: var(--o-s2); align-items: flex-start; padding: var(--o-s2) var(--o-s3) var(--o-s3); font-size: 14px; }
+  .pf-find .o-status { margin-top: 2px; }
+  .pf-sum { display: flex; gap: var(--o-s4); margin: 0 0 var(--o-s3); }
+</style>
+</head>
+<body data-page="incomplete-preflight-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Present with incomplete content</h2>
+    <p><b>Present</b> finished autosave, prepared a candidate from the current revision and ran preflight. Two Offertory Cues can't produce a frame, so one centred, viewport-bounded modal opens over the dimmed planner. <b>Review and fix</b> is recommended and focused; it opens Readiness at the first finding. <b>Present available content</b> is the acknowledgment itself, so there is no checkbox. Cancel, Close or <span class="o-kbd">Esc</span> return to the planner unchanged and create no snapshot.</p>
+    <div id="incomplete"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. After "Present available content"</h2>
+    <p>Presenter opens in the same window with congregation output disabled; clicking Present never creates an output window. Passed checks collapse into one line, and what still needs attention stays above the timeline with its corrective action. The unavailable Cues stay visible and inspectable in the timeline but can never be taken live. With clean or warning-only content there is no modal at all: Presenter opens straight into this state.</p>
+    <div id="after"></div>
+  </section>
+
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, icon = K.icon;
+    var pl = K.planner(document.getElementById("incomplete"), { w: 1366, h: 768, item: 11, cue: 0 });
+    function modal() {
+      var it = K.ITEMS[10];
+      var d = document.createElement("div");
+      d.innerHTML =
+        '<div class="o-scrim"></div>' +
+        '<div class="o-dialog" role="dialog" aria-modal="true" aria-labelledby="pf-title">' +
+          '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="pf-title">Some content can\'t be presented</h2>' +
+            '<div class="o-meta">' + K.esc(K.MASS.title) + ' · ' + K.esc(K.MASS.date) + '</div></div>' +
+            '<button class="o-btn o-btn--quiet o-btn--icon" aria-label="Close" title="Close">' + icon("x") + '</button></div>' +
+          '<div class="o-overlay-body">' +
+            '<div class="pf-sum">' + K.statusLabel("warning", "1 Mass item affected", "diamond") + K.statusLabel("unavailable", "2 Cues unavailable", "square") + '</div>' +
+            '<ul class="pf-list"><li><div class="o-section-label">Liturgy of the Eucharist</div>' +
+              '<div class="pf-find">' + K.statusLabel("unavailable", "", "square") + '<div><b>11. Offertory Song</b> · ' + K.esc(it.song) + '<div class="o-meta">2 of 2 Cues unavailable. ' + K.esc(it.cues[0].why) + '.</div></div></div></li></ul>' +
+            '<p class="o-meta" style="margin:12px 0 0">Unavailable Cues stay visible in Presenter but can never be taken live.</p>' +
+          '</div>' +
+          '<div class="o-overlay-foot"><button class="o-btn">Cancel</button><span class="o-grow"></span>' +
+            '<button class="o-btn o-btn--warning">' + icon("triangle-alert") + 'Present available content</button>' +
+            '<button class="o-btn o-btn--primary o-focus">' + icon("list-checks") + 'Review and fix</button></div>' +
+        '</div>';
+      while (d.firstChild) pl.app.appendChild(d.firstChild);
+      K.icons();
+    }
+    var r = pl.render; pl.render = function () { r(); modal(); }; modal();
+
+    var common = { w: 1366, h: 768, preview: 0, mode: "grid" };
+    K.presenter(document.getElementById("after"), Object.assign({ preflight: [
+      { state: "live", text: "Snapshot, fonts and assets verified" },
+      { state: "unavailable", text: "2 Cues unavailable · Offertory Song", action: "Review unavailable Cues" },
+      { state: "info", text: "Display 2 found · 1920×1080, Output Fit OK", action: "Show calibration pattern" } ] }, common));
+  });
+</script>
+</body>
+</html>

@@ -40,8 +40,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0008](0008-song-identity-and-choir-repertoire.md) | Song identity and choir repertoire | accepted | 2026-08-29 | songs |
 | [0009](0009-song-authoring-and-generated-slides.md) | Song authoring and generated slides | accepted | 2026-08-29 | songs, rendering |
 | [0010](0010-presenter-layout.md) | Presenter layout | accepted, amended by [0203](0203-same-window-native-full-screen-presenter-mode.md) | 2026-08-29 | presenter, ui |
-| [0011](0011-program-preview-freeze-and-blackout-semantics.md) | Program, Preview, Freeze, and Blackout semantics | accepted, amended by [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md) | 2026-08-29 | presenter |
-| [0012](0012-safe-live-operations.md) | Safe live operations | accepted | 2026-08-29 |  |
+| [0011](0011-program-preview-freeze-and-blackout-semantics.md) | Program, Preview, Freeze, and Blackout semantics | accepted, amended by [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md), [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 | presenter |
+| [0012](0012-safe-live-operations.md) | Safe live operations | accepted, amended by [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 |  |
 | [0013](0013-mvp-permissions.md) | MVP permissions | accepted | 2026-08-29 |  |
 | [0014](0014-interrupted-session-recovery.md) | Interrupted-session recovery | accepted | 2026-08-29 | storage |
 | [0015](0015-emergency-powerpoint-export.md) | Emergency PowerPoint export | accepted | 2026-08-29 | transfer |
@@ -78,7 +78,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0046](0046-projector-calibration-and-overscan-compensation.md) | Projector calibration and overscan compensation | accepted, amended by [0255](0255-use-fixed-semantic-congregation-slide-layouts.md) | 2026-08-29 | presenter |
 | [0047](0047-calibration-setting-scope.md) | Calibration-setting scope | accepted | 2026-08-29 | presenter |
 | [0048](0048-presenter-mode-without-a-congregation-display.md) | Presenter Mode without a congregation display | accepted | 2026-08-29 | presenter |
-| [0049](0049-congregation-display-disconnection-and-recovery.md) | Congregation-display disconnection and recovery | accepted | 2026-08-29 | presenter, storage |
+| [0049](0049-congregation-display-disconnection-and-recovery.md) | Congregation-display disconnection and recovery | accepted, amended by [0272](0272-space-resumes-output-after-a-disconnect.md) | 2026-08-29 | presenter, storage |
 | [0050](0050-congregation-display-selection.md) | Congregation-display selection | accepted | 2026-08-29 | presenter |
 | [0051](0051-automatic-presenter-preflight.md) | Automatic Presenter preflight | accepted | 2026-08-29 | presenter |
 | [0052](0052-validated-emergency-powerpoint-export.md) | Validated emergency PowerPoint export | accepted | 2026-08-29 | transfer |
@@ -90,7 +90,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0058](0058-react-ui-foundation-and-ownership.md) | React UI foundation and ownership | superseded by [0252](0252-replace-electron-with-a-clean-slate-rust-and-gpui.md) | 2026-08-29 |  |
 | [0059](0059-context-sensitive-application-appearance.md) | Context-sensitive application appearance | accepted, amended by [0256](0256-refine-operator-appearance-overlays-and-bounded-output.md) | 2026-08-29 |  |
 | [0060](0060-unified-atkinson-operator-typography.md) | Unified Atkinson operator typography | accepted | 2026-08-29 | rendering |
-| [0061](0061-context-sensitive-presenter-primary-control.md) | Context-sensitive Presenter primary control | accepted | 2026-08-29 | presenter |
+| [0061](0061-context-sensitive-presenter-primary-control.md) | Context-sensitive Presenter primary control | accepted, amended by [0272](0272-space-resumes-output-after-a-disconnect.md) | 2026-08-29 | presenter |
 | [0062](0062-explicit-ordo-rail-reveal.md) | Explicit Ordo-rail reveal | accepted | 2026-08-29 | mass-plan, ui |
 | [0063](0063-minimum-visual-slide-grid-thumbnail-size.md) | Minimum Visual Slide Grid thumbnail size | accepted | 2026-08-29 | rendering |
 | [0064](0064-preparation-shell-primary-navigation.md) | Preparation-shell primary navigation | accepted, amended by [0257](0257-make-library-a-multi-view-destination-with-revision-bound.md) | 2026-08-29 | ui, platform |
@@ -256,7 +256,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0224](0224-coherent-degraded-rendering-for-a-missing-theme-background.md) | Coherent degraded rendering for a missing Theme background | accepted | 2026-08-29 | themes, rendering |
 | [0225](0225-advisory-theme-background-aspect-and-resolution.md) | Advisory Theme-background aspect and resolution qualification | accepted | 2026-08-29 | presenter, themes, repo |
 | [0226](0226-self-healing-bundled-font-cache-with-two-tier-trusted.md) | Self-healing bundled-font cache with two-tier trusted recovery | accepted | 2026-08-29 | rendering, storage, platform |
-| [0227](0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable.md) | Fail-safe Freeze when a future Cue becomes unavailable | accepted | 2026-08-29 | presenter |
+| [0227](0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable.md) | Fail-safe Freeze when a future Cue becomes unavailable | accepted, amended by [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | 2026-08-29 | presenter |
 | [0228](0228-non-modal-fail-closed-interrupted-session-presentation.md) | Non-modal fail-closed interrupted-session presentation | accepted | 2026-08-29 |  |
 | [0229](0229-installer-owned-repair-upgrade-and-downgrade-refusal.md) | Installer-owned Repair, Upgrade, and downgrade refusal | accepted | 2026-08-29 | platform |
 | [0230](0230-uninstall-preserves-parish-data-by-default.md) | Uninstall preserves Parish data by default | accepted | 2026-08-29 | platform |
@@ -301,5 +301,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0269](0269-allow-one-audited-unsafe-module-for-process-memory-record.md) | Allow one audited `unsafe` module for process memory; record GPU memory as unavailable | accepted | 2026-10-10 | platform |
 | [0270](0270-record-decisions-one-per-file.md) | Record decisions one per file | accepted | 2026-10-27 | repo, decisions |
 | [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
+| [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
+| [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
+| [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
 
 <!-- adr-index:end -->
