@@ -104,6 +104,18 @@
       ]
     },
     {
+      slug: "presenter-faults", group: "presenter", title: "Presenter faults",
+      summary: "Faults while live at 1366×768, each failing closed. Display 2 disconnects: Program shows DISCONNECTED and the session continues. Another display is refused until chosen in the Select display… slide-over; the same display back offers Resume Output on Space. A later slide fails to render: it becomes Output unavailable and Program goes black if it is reached. After a crash, Ordo reopens in Presenter with output black and a persistent recovery strip, and Space takes Preview live.",
+      status: "approved",
+      decisions: ["0049-congregation-display-disconnection-and-recovery", "0272-space-resumes-output-after-a-disconnect", "0061-context-sensitive-presenter-primary-control", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0228-non-modal-fail-closed-interrupted-session-presentation", "0235-concise-screen-reader-naming-and-safety-prioritized", "0202-installation-specific-displays-settings-page", "0292-select-display-opens-a-display-picker-inside-presenter"],
+      interpretations: [
+        "Faults are shown in one strip under the header: role=alert for disconnects and failed slides, role=status for recovery. Its wording and placement are set here; the decisions name only the recovery text.",
+        "The pre-interruption Program frame sits in the recovery strip as a small private thumbnail, so the Output Dock keeps Freeze, Blackout and the primary control in view at 1366×768.",
+        "Select display… opens the Settings → Displays picker as a slide-over inside Presenter (Decision 292). Output Fit is offered only for a display new to Ordo; the calibration pattern stays in Settings. The 500ms fades aren't animated.",
+        "At 1366×768 the Preview's private note and the dock message are cut to two lines so the controls always fit."
+      ]
+    },
+    {
       slug: "presenter-high-scale", group: "presenter", title: "High-scale Presenter",
       summary: "The constrained Presenter across 100%–200% Interface scale: the main-column Program/Preview band, fixed live-output controls, Grid/List choice and the overlay-only Ordo rail.",
       status: "approved", gate: true,
@@ -461,7 +473,7 @@
       ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
       ["liturgy-import", "replace readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
-      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-edit", "correct a slide live"],
+      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-edit", "correct a slide live"], ["presenter-faults", "when something fails"],
       ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }
   ];
 

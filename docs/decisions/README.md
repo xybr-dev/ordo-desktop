@@ -321,5 +321,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0289](0289-liturgy-import-review-copies-into-a-celebration-s-mass-plans.md) | Liturgy import review copies into a Celebration's Mass plans | accepted | 2026-10-28 | import |
 | [0290](0290-emergency-insert-chooser-and-quick-insert-dialog.md) | Emergency insert chooser and Quick Insert dialog | accepted | 2026-10-28 | presenter |
 | [0291](0291-emergency-edit-opens-the-selected-slide-in-the-insert-panel.md) | Emergency edit opens the selected slide in the Insert panel | accepted | 2026-10-28 | presenter |
+| [0292](0292-select-display-opens-a-display-picker-inside-presenter.md) | Select display opens a display picker inside Presenter | accepted | 2026-10-28 | presenter, displays |
 
 <!-- adr-index:end -->

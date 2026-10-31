@@ -193,7 +193,7 @@
       preview: opts.preview != null ? opts.preview : 1,
       program: opts.program != null ? opts.program : null,
       live: !!opts.live, frozen: !!opts.frozen, blackout: false, frozenReason: "", blackReason: "",
-      collapsed: {}, message: "", preflight: opts.preflight || null
+      collapsed: {}, message: "", preflight: opts.preflight || null, back: null, strip: null, prior: null, cong: { n: "2", name: "Epson EB-X51" }
     };
 
     function layout() {
@@ -233,11 +233,18 @@
       // wait: Program unchanged
     }
     function take() {
+      if (S.output === "disconnected") {
+        if (S.back !== "same") { say(S.back === "other" ? "Space refused: that display isn’t " + dn() + "." : "Space refused: " + dn() + " isn’t back yet."); return; }
+        if (CUES[S.preview].k === "unavailable") { say("Can’t take an unavailable Cue live: " + CUES[S.preview].why + ". Output stays off."); return; }
+        S.output = "enabled"; S.back = null;
+      }
       if (S.output !== "enabled") { say("Congregation output is disabled. Enable Output first; Space takes Preview live once output is on, and also clears Freeze or Blackout."); return; }
       var c = CUES[S.preview];
       if (c.k === "unavailable") { say("Can't take an unavailable Cue live: " + c.why + "."); return; }
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
       S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; S.held = null; say("");
+      if (S.strip && S.strip.kind !== "fail") S.strip = null;
+      S.prior = null;
     }
     // F and B toggle; releasing either does exactly what Space does (Decision 273)
     function freeze() {
@@ -250,14 +257,112 @@
       if (S.blackout) take();
       else { S.blackout = true; S.frozen = false; say(""); }
     }
+    // ── Faults (MVP-PLAN §6.28, §6.29, §8.1; Decisions 49, 228, 272, 274) ─────────────────────
+    // Every fault fails closed: nothing stale or partial is claimed to be on screen, and only an
+    // explicit Space (or the primary control) puts content back on the congregation display.
+    function disconnect() {
+      S.output = "disconnected"; S.back = null; S.live = false; S.frozen = false; S.blackout = false;
+      S.program = null; S.held = null; S.frozenReason = ""; S.blackReason = ""; say("");
+      S.strip = { kind: "out", state: "danger", icon: "monitor-off", b: dn() + " disconnected", t: "Congregation output stopped and won’t move to this screen. Preview and navigation continue; nothing resumes on its own." };
+    }
+    function reconnect(same) {
+      S.back = same ? "same" : "other"; say("");
+      S.strip = same ? { kind: "out", state: "warning", icon: "monitor-check", b: dn() + " is back", t: "Still black. Space (or Resume Output) takes Preview live." } :
+        { kind: "out", state: "danger", icon: "monitor-x", b: "A different display was connected", t: "It isn’t " + dfull() + ", so Ordo won’t use it on its own. Reconnect " + dn() + ", or choose a display in Select display…" };
+    }
+    function failCue(i, why) {
+      var c = CUES[i], onAir = i === S.program && S.output === "enabled" && S.live && !S.frozen && !S.blackout;
+      c.b = cueLabel(c); c.k = "unavailable"; c.why = why;
+      if (onAir) { S.program = null; S.blackReason = "Cue unavailable"; }
+      S.strip = { kind: "fail", state: "danger", icon: "circle-off", b: "Cue " + c.item.n + "." + (c.ci + 1) + " (" + c.item.title + ") can’t be shown: " + why,
+        t: onAir ? "Program is black. The next valid Cue goes live as usual." : "It stays in the timeline. If it’s reached while live, Program goes black instead of showing it.", close: true };
+    }
+    function recover(o) {
+      S.preview = o.preview; S.prior = { cue: o.program, state: o.state || "LIVE" };
+      S.output = o.display === "lost" ? "disconnected" : "enabled"; S.back = null;
+      S.live = false; S.frozen = false; S.blackout = false; S.program = null; S.held = null; S.frozenReason = ""; S.blackReason = ""; S.ins = null; say("");
+      S.strip = { kind: "recovered", state: "info", icon: "history", b: "Presentation recovered · Congregation output is black",
+        t: "Ordo closed unexpectedly at 9:31. Your place and emergency changes are back. " + (o.display === "lost" ? dn() + " wasn’t recognized, so output is disconnected." : "Space takes Preview live.") };
+    }
+    function dn() { return "Display " + S.cong.n; }
+    function dfull() { return dn() + " · " + S.cong.name; }
+
+    // ── Select display (Decisions 49, 50, 202; Decision 292) ─────────────────────────
+    // The Settings → Displays picker, in the Insert panel's place, so the operator never leaves
+    // Presenter. Choosing a display opens its window black; only Space puts Preview on it.
+    var DISPS = { "1": { name: "Built-in display", res: "1366 × 768", pos: "Left", op: true },
+      "2": { name: "Epson EB-X51", res: "1920 × 1080", pos: "Right", known: true },
+      "3": { name: "Samsung TV", res: "1920 × 1080", pos: "Right" },
+      "4": { name: "BenQ MW560", res: "1920 × 1080", pos: "Above" } };
+    function present() {
+      var out = ["1"];
+      if (S.output !== "disconnected" || S.back === "same") out.push(S.cong.n);
+      if (S.back === "other") out.push(S.cong.n === "3" ? "2" : "3");
+      (S.extra || []).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); });
+      return out;
+    }
+    function candidates() { return present().filter(function (n) { return !DISPS[n].op && !(n === S.cong.n && S.output === "disconnected" && S.back !== "same"); }); }
+    function openDisp() { var c = candidates(); S.ins = { kind: "disp", pick: c.length === 1 ? c[0] : null, identify: false, fit: 0 }; say(""); }
+    function dispPanel() {
+      var d = S.ins, here = present(), lost = S.output === "disconnected" && S.back !== "same";
+      var tiles = ["1", "2", "3", "4"].filter(function (n) { return here.indexOf(n) >= 0 || (n === S.cong.n && lost); }).map(function (n) {
+        var x = DISPS[n], un = here.indexOf(n) < 0, on = d.pick === n;
+        var chip = x.op ? '<span class="pl-chip">' + icon("monitor") + "Operator display</span>" : un ? statusLabel("unavailable", "Unavailable · congregation display", "ring") :
+          on ? '<span class="pl-chip sh-chip-def">' + icon("presentation") + "Use for the congregation</span>" : '<span class="o-meta">' + (x.known ? "Recognised" : "New to Ordo") + "</span>";
+        return '<button class="sh-disp' + (x.op ? " is-op" : "") + (un ? " is-un" : "") + (on ? " is-cong" : "") + '" data-act="ins-disp-pick" data-v="' + n + '"' + (x.op || un ? " disabled" : ' aria-pressed="' + on + '"') + ">" +
+          (d.identify ? '<span class="sh-ident">' + n + "</span>" : "") + "<b>" + n + " · " + esc(x.name) + '</b><span class="o-meta">' + x.res + " · 16:9 · " + x.pos + "</span>" + chip + "</button>";
+      }).join("");
+      var p = d.pick && DISPS[d.pick];
+      var many = candidates().length > 1;
+      var note = !p && many ? '<div class="o-notice" data-state="info">' + icon("scan-eye") + "<div><b>" + candidates().length + " displays could show the congregation output.</b> Ordo won’t guess. Press Identify displays, check which number is on the projector screen, then choose that tile.</div></div>" :
+        !p ? '<div class="o-notice" data-state="warning">' + icon("unplug") + "<div><b>" + dn() + " isn’t connected.</b> Check its cable and power. Ordo won’t move output onto this screen or pick another display by itself.</div></div>" :
+        '<div class="o-notice" data-state="info">' + icon("info") + "<div><b>" + (p.known ? "Display " + d.pick + " is recognised." : "Display " + d.pick + " is new to Ordo.") + "</b> Using it opens its congregation window black and saves it for this computer, as in Settings → Displays. Space then takes Preview live.</div></div>" +
+          (p.known ? "" : '<label class="sh-field"><span class="o-label">Output Fit</span><span class="sh-unit"><input type="range" min="0" max="10" step="1" data-qin="fit" value="' + d.fit + '"> ' + d.fit + '%</span><span class="o-meta">Shrinks the whole frame evenly if the edges are cut off. Check the calibration pattern in Settings → Displays outside Mass.</span></label>');
+      var state = S.output === "disconnected" ? (S.back === "same" ? dn() + " is back · Program black" : dn() + " disconnected · Program black") : S.output === "enabled" ? "Output enabled on " + dn() : "Congregation output off";
+      return '<section class="pr-ins-panel pr-disp-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">Select congregation display</h2>' +
+        '<div class="o-meta">' + icon("monitor-cog") + esc(state) + " · the Presentation keeps running</div></div>" +
+        '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-disp-close" aria-label="Close" title="Close (Esc)">' + icon("x") + "</button></div>" +
+        '<div class="pr-ins-main pr-disp-main sh-form"><div class="o-label">This computer’s displays</div><div class="sh-topo">' + tiles + "</div>" +
+        '<div class="sh-inline"><button class="o-btn' + (many && !d.pick ? " o-btn--primary" : "") + '" data-act="ins-disp-identify"' + (d.identify ? ' aria-pressed="true"' : "") + ">" + icon("scan-eye") + "Identify displays</button>" +
+        '<span class="o-meta">Shows each display’s number on it for a few seconds. Mass content is never shown from here.</span></div>' + note + "</div>" +
+        '<div class="pr-ins-foot"><span class="o-meta"><span class="o-kbd">Esc</span> close</span><span class="o-grow"></span>' +
+        '<button class="o-btn o-btn--quiet" data-act="ins-disp-off">' + icon("monitor-x") + "Turn congregation output off</button>" +
+        '<button class="o-btn" data-act="ins-disp-close">Cancel</button>' +
+        '<button class="o-btn o-btn--primary" data-act="ins-disp-use"' + (p ? "" : " disabled") + ">" + icon("monitor-check") + (p ? "Use Display " + d.pick : "Use display") + "</button></div></section>";
+    }
+    function dispAct(a, t) {
+      var d = S.ins;
+      if (a === "ins-disp") openDisp();
+      else if (a === "ins-disp-pick") d.pick = t.dataset.v;
+      else if (a === "ins-disp-identify") d.identify = !d.identify;
+      else if (a === "ins-disp-close") { S.ins = null; }
+      else if (a === "ins-disp-off") { S.ins = null; S.output = "disabled"; S.back = null; S.live = false; S.program = null; S.strip = null; say("Congregation output is off. Enable Output when a display is ready."); }
+      else if (a === "ins-disp-use") {
+        S.cong = { n: d.pick, name: DISPS[d.pick].name }; DISPS[d.pick].known = true;
+        S.ins = null; S.output = "enabled"; S.back = null; S.live = false; S.frozen = false; S.blackout = false; S.program = null; say("");
+        S.strip = { kind: "out", state: "info", icon: "monitor-check", b: dn() + " is the congregation display", t: "Its window is open and black. Space takes Preview live." };
+      }
+      else return false;
+      return true;
+    }
+    function strip() {
+      if (!S.strip) return "";
+      var x = S.strip;
+      return '<div class="pr-strip" role="' + (x.state === "info" ? "status" : "alert") + '" data-state="' + x.state + '">' + icon(x.icon) + "<div><b>" + esc(x.b) + "</b> <span>" + esc(x.t) + "</span></div>" +
+        (x.kind === "recovered" && S.prior ? '<span class="o-grow"></span>' + priorFrame() : "") +
+        (x.close ? '<span class="o-grow"></span><button class="o-btn o-btn--quiet o-btn--icon" data-act="strip-close" aria-label="Dismiss" title="Dismiss">' + icon("x") + "</button>" : "") + "</div>";
+    }
     function enable() { S.output = "enabled"; S.program = null; S.live = false; say("Output enabled. Program is black until you take Preview live."); }
 
     function primary() {
+      if (S.output === "disconnected") return S.back === "same" ? '<button class="o-btn o-btn--primary o-btn--lg" data-act="take">' + icon("monitor-play") + 'Resume Output <span class="o-kbd" style="color:inherit;border-color:currentColor">Space</span></button>' :
+        '<button class="o-btn o-btn--lg' + (S.back === "other" ? " o-btn--primary" : "") + '" data-act="ins-disp">' + icon("monitor-cog") + "Select display…</button>";
       if (S.output !== "enabled") return '<button class="o-btn o-btn--primary o-btn--lg" data-act="enable">' + icon("monitor-up") + "Enable Output</button>";
       if (!S.live || S.frozen || S.blackout) return '<button class="o-btn o-btn--primary o-btn--lg" data-act="take">' + icon("play") + 'Take Preview Live <span class="o-kbd" style="color:inherit;border-color:currentColor">Space</span></button>';
       return '<div class="pr-linked">' + statusLabel("live", "LIVE — navigation updates Program") + "</div>";
     }
     function programState() {
+      if (S.output === "disconnected") return statusLabel("danger", S.back === "same" ? "DISCONNECTED · display back" : "DISCONNECTED", "square");
       if (S.output !== "enabled") return statusLabel("disabled", "Output disabled", "square");
       if (S.blackout) return statusLabel("blackout", "BLACKOUT", "square");
       if (S.frozen) return statusLabel("freeze", S.frozenReason ? "FROZEN · " + S.frozenReason : "FROZEN", "diamond");
@@ -266,8 +371,15 @@
       return statusLabel("blackout", "BLACK · not live", "square");
     }
     function programSlide() {
+      if (S.output === "disconnected") return '<div class="o-slide"><div class="o-slide-state" data-state="danger">' + icon("monitor-off") + "<div>" + dn() + (S.back === "same" ? " is back · black" : " disconnected") + '<br><span style="font-weight:400">' + (S.back === "same" ? "Nothing shows until you resume" : "Ordo can’t tell what the congregation sees") + "</span></div></div></div>";
       if (S.output !== "enabled") return '<div class="o-slide"><div class="o-slide-state"><div>No congregation window<br><span style="font-weight:400">Output is disabled</span></div></div></div>';
       return '<div class="o-slide"><div class="o-canvas-host">' + canvas(S.program == null ? null : S.frozen && S.held ? S.held : CUES[S.program]).replace('class="o-canvas"', 'class="o-canvas"' + (S.blackout ? ' data-dim="true"' : "")) + "</div></div>";
+    }
+    // The pre-interruption Program frame, as private context only (Decision 228)
+    function priorFrame() {
+      if (!S.prior) return "";
+      var c = CUES[S.prior.cue];
+      return '<div class="pr-prior"><span class="pr-mini">' + slide(c) + '</span><div><b>Before the interruption</b><div class="o-meta">' + esc(S.prior.state) + " on " + esc(c.item.title) + " · " + c.item.n + "." + (c.ci + 1) + " · not on screen now</div></div></div>";
     }
     function previewSlide() {
       var c = CUES[S.preview];
@@ -282,8 +394,9 @@
       return '<div class="pr-private o-meta">' + esc(c.item.title) + " · Cue " + (c.ci + 1) + " of " + c.item.cues.length + " · " + KIND_LABEL[c.k] + "</div>";
     }
     function outputStatus() {
-      if (S.output !== "enabled") return '<div class="pr-outstat">' + statusLabel("disabled", "Congregation output disabled", "square") + '<span class="o-meta">Display 2 · Epson EB-X51 · 1920×1080 ready</span></div>';
-      return '<div class="pr-outstat">' + statusLabel("live", "Output enabled") + '<span class="o-meta">Display 2 · Epson EB-X51 · 1920×1080</span></div>';
+      if (S.output === "disconnected") return '<div class="pr-outstat">' + (S.back === "same" ? statusLabel("warning", dn() + " back · output not resumed", "diamond") : statusLabel("danger", S.back === "other" ? "Unrecognized display connected" : "Congregation output disconnected", "square")) + '<span class="o-meta">' + dfull() + ' · ' + (S.back === "same" ? "recognized" : "last seen 9:14") + "</span></div>";
+      if (S.output !== "enabled") return '<div class="pr-outstat">' + statusLabel("disabled", "Congregation output disabled", "square") + '<span class="o-meta">' + dfull() + ' · 1920×1080 ready</span></div>';
+      return '<div class="pr-outstat">' + statusLabel("live", "Output enabled") + '<span class="o-meta">' + dfull() + ' · 1920×1080</span></div>';
     }
 
     function cueTile(c) {
@@ -318,11 +431,11 @@
         '<button class="o-btn" data-act="ins-edit"' + (projectable(CUES[S.preview]) && !CUES[S.preview].img ? "" : ' disabled title="Ctrl+E edits projectable slides"') + ">" + icon("pencil") + 'Edit slide <span class="o-kbd">Ctrl+E</span></button></div>';
       ITEMS.forEach(function (it) {
         var open = !S.collapsed[it.n];
-        var bad = it.cues.some(function (c) { return c.k === "unavailable"; });
+        var bad = it.cues.filter(function (c) { return c.k === "unavailable"; }).length;
         html += '<section class="pr-group" data-item="' + it.n + '"><button class="pr-group-head" data-toggle="' + it.n + '" aria-expanded="' + open + '">' + icon(open ? "chevron-down" : "chevron-right") +
           '<span class="o-n o-meta">' + it.n + "</span><b>" + esc(it.title) + "</b>" + (it.song ? '<span class="o-meta">' + esc(it.song) + "</span>" : "") +
           (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") +
-          (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">' + icon("pencil") + "Edited live · Mass-local</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + "2 unavailable</span>" : "") +
+          (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">' + icon("pencil") + "Edited live · Mass-local</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + bad + " unavailable</span>" : "") +
           '<span class="o-meta">' + it.cues.length + (it.cues.length === 1 ? " Cue" : " Cues") + "</span></button>";
         if (open) {
           html += '<div class="pr-cues" data-mode="' + S.mode + '">';
@@ -456,6 +569,7 @@
     function insertPanel() {
       if (!S.ins) return "";
       if (S.ins.kind === "edit") return editPanel();
+      if (S.ins.kind === "disp") return dispPanel();
       var d = S.ins, a = insAnchor(), cues = chosenCues(), searching = (d.kind === "song" || d.kind === "resp") && !d.create;
       var ok = d.create ? d.create.title.trim() && slidesOf(d.create.text).length : d.kind === "general" ? d.mode === "Image" || d.text.trim() : results().length > 0;
       var label = d.create ? "Insert typed Song" : d.kind === "song" ? "Insert Song" : d.kind === "resp" ? "Insert Response sequence" : "Insert slide";
@@ -479,6 +593,7 @@
     }
     function insAct(a, t) {
       if (a.indexOf("ins-ed") === 0) return edAct(a, t);
+      if (a.indexOf("ins-disp") === 0) return dispAct(a, t);
       if (a === "ins-open") openInsert();
       else if (a === "ins-close") closeInsert();
       else if (a === "ins-kind") { S.ins.kind = t.dataset.v; S.ins.q = ""; S.ins.active = 0; S.ins.create = null; }
@@ -491,6 +606,7 @@
     }
     function insKey(e) {
       if (S.ins.kind === "edit") return edKey(e);
+      if (S.ins.kind === "disp") { if (e.key === "Escape") { e.preventDefault(); S.ins = null; render(); app.focus({ preventScroll: true }); } return; }
       var k = e.key, d = S.ins;
       if (k === "Escape") { e.preventDefault(); if (d.create) d.create = null; else closeInsert(); render(); return; }
       if (e.altKey) { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); d.kind = m; d.q = ""; d.active = 0; d.create = null; render(); } return; }
@@ -599,7 +715,7 @@
       app.dataset.layout = l;
       var header = '<header class="pr-header"><div class="pr-session"><b>' + esc(MASS.title) + '</b><span class="o-meta">' + esc(MASS.date) + "</span></div>" +
         '<span class="o-grow"></span><span class="o-meta pr-clock">9:14</span>' +
-        (S.output === "enabled" ? statusLabel("live", "Display 2 connected") : statusLabel("disabled", "Display 2 ready · not enabled", "square")) +
+        (S.output === "enabled" ? statusLabel("live", dn() + " connected") : S.output === "disconnected" ? (S.back === "same" ? statusLabel("warning", dn() + " back · not resumed", "diamond") : statusLabel("danger", dn() + " disconnected", "square")) : statusLabel("disabled", dn() + " ready · not enabled", "square")) +
         '<div class="o-segmented" role="group" aria-label="Timeline view"><button data-view="grid" aria-pressed="' + (S.mode === "grid") + '">' + icon("layout-grid") + (l === "constrained" ? "" : "Grid") + '</button><button data-view="list" aria-pressed="' + (S.mode === "list") + '">' + icon("list") + (l === "constrained" ? "" : "List") + "</button></div>" +
         '<button class="o-btn o-btn--quiet o-btn--icon" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">' + icon("keyboard") + "</button>" +
         '<button class="o-btn">' + icon("log-out") + "Exit Presenter</button></header>";
@@ -611,7 +727,7 @@
       var overlay = S.railOpen && !pinned ? '<div class="o-scrim" data-act="close-rail"></div>' + rail(true) : "";
       var old = app.querySelector(".pr-timeline"), kept = old ? old.scrollTop : 0;
       var fk = document.activeElement && app.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.qin : null, caret = fk && document.activeElement.selectionStart;
-      app.innerHTML = header + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
+      app.innerHTML = header + strip() + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
       icons();
       if (S.ins) {
         var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
@@ -661,6 +777,7 @@
           else if (a === "blackout") blackout(); else if (a === "open-rail") S.railOpen = true;
           else if (a === "close-rail") S.railOpen = false;
           else if (a === "close-pf") S.preflight = null;
+          else if (a === "strip-close") S.strip = null;
           else if (a === "pin") { S.railPref = railPinned() ? "collapsed" : "pinned"; S.railOpen = false; }
         }
         render(); app.focus({ preventScroll: true });
@@ -697,6 +814,11 @@
     render();
     return {
       setScale: function (s) { S.scale = s; render(); },
+      disconnect: function () { disconnect(); render(); }, reconnect: function (same) { reconnect(same); render(); },
+      failCue: function (i, why) { failCue(i, why); render(); }, recover: function (o) { recover(o); S.follow = true; render(); },
+      go: function (i) { S.follow = true; select(i); render(); }, take: function () { take(); render(); },
+      connect: function (list) { S.extra = list; if (S.output === "disconnected" && !S.back) S.back = "other"; S.strip = { kind: "out", state: "danger", icon: "monitor-x", b: "Other displays were connected", t: "None of them is " + dfull() + ", so Ordo won’t use them on its own. Choose one in Select display…" }; render(); },
+      selectDisplay: function (o) { openDisp(); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
       setMode: function (m) { S.mode = m; render(); },
       insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
       edit: function (cue, o) { S.preview = cue; S.follow = true; openEdit(); o = o || {}; if (S.ins) { if (o.scope) S.ins.scope = o.scope; Object.keys(o.draft || {}).forEach(function (k) { S.ins.draft[k] = o.draft[k]; }); if (o.draft || o.scope) applyEdit(); if (o.done) closeEdit(); } render(); },

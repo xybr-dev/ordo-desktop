@@ -984,3 +984,22 @@ a.o-btn { text-decoration: none; color: inherit; }
 .pr-ed-scope label { display: flex; gap: var(--o-s2); align-items: flex-start; cursor: pointer; }
 .pr-ed-scope label > span { display: flex; flex-direction: column; }
 .pr-ins-foot .o-meta .lucide { width: 14px; height: 14px; vertical-align: -2px; color: var(--o-live); }
+
+/* Presenter faults: safety strip and pre-interruption context */
+.pr-strip { display: flex; align-items: center; gap: var(--o-s2); flex: none; padding: var(--o-s2) var(--o-s4); background: var(--o-surface); border-bottom: 1px solid var(--o-border); border-left: 4px solid currentColor; font-size: calc(14px * var(--o-scale)); }
+.pr-strip[data-state="danger"] { color: var(--o-danger); }
+.pr-strip[data-state="warning"] { color: var(--o-warning); }
+.pr-strip[data-state="info"] { color: var(--o-info); }
+.pr-strip > div { color: var(--o-text); }
+.pr-strip > div span { color: var(--o-muted); }
+.o-slide-state[data-state="danger"] { color: var(--o-danger); }
+.pr-prior { display: flex; align-items: center; gap: var(--o-s2); flex: none; padding: 2px var(--o-s2); border: 1px dashed var(--o-border-strong); border-radius: var(--o-radius-control); font-size: calc(13px * var(--o-scale)); }
+.pr-prior .pr-mini { width: calc(64px * var(--o-scale)); flex: none; }
+.pr-prior .o-meta { color: var(--o-muted); }
+/* Compact dock: private context and messages stay short so Freeze, Blackout and the primary control fit */
+.o-presenter[data-layout="compact"] .pr-dock .pr-private > div, .o-presenter[data-layout="compact"] .pr-dock .pr-msg { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Presenter: Select display slide-over, reusing the Settings → Displays tiles */
+.pr-disp-main { flex: 1; padding: var(--o-s3) var(--o-s4); }
+.pr-disp-main .sh-topo { align-self: stretch; }
+.sh-disp[disabled] { cursor: default; }
