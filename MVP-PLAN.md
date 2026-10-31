@@ -814,7 +814,7 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
 
 ### 8.5 Controlled live changes
 
-- Opening emergency insert with `Insert` automatically Freezes Program and offers General text/image, Response sequence, and Song. The Song path uses a centered, keyboard-first **Quick Insert** chooser: typing filters Songs and arrow keys move the active result. Compose it from the existing Field, selection-list, Dialog, focus, and scrolling behavior rather than introducing a global Command Palette primitive. Saving creates a Mass-local item immediately after the current Mass item in the same section and selects its first projectable Cue in Preview; Program remains frozen until Space.
+- Opening emergency insert with `Insert` automatically Freezes Program and offers General text/image, Response sequence, and Song. The Song path uses a keyboard-first **Quick Insert** tab in the Insert panel over the Cue timeline, leaving the Output Dock visible: typing filters Songs and arrow keys move the active result. Compose it from the existing Field, selection-list, Dialog, focus, and scrolling behavior rather than introducing a global Command Palette primitive. Saving creates a Mass-local item immediately after the current Mass item in the same section and selects its first projectable Cue in Preview; Program remains frozen until Space.
 - Opening emergency edit with `Ctrl+E` automatically Freezes Program and updates Preview only.
 - Emergency changes autosave as Mass-local content for crash recovery and never silently modify the permanent library or imported source text.
 - A missing live Song/Arrangement is created Mass-locally first. Promotion to a reusable Library source is a later reviewed action.

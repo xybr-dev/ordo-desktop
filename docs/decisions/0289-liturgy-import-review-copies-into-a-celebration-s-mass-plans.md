@@ -1,7 +1,7 @@
 ---
 id: 289
 title: Liturgy import review copies into a Celebration's Mass plans
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [import]

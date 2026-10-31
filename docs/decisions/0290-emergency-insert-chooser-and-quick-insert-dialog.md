@@ -1,7 +1,7 @@
 ---
 id: 290
 title: Emergency insert chooser and Quick Insert dialog
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [presenter]
@@ -71,6 +71,6 @@ the moment the operator most needs to see them.
 
 ## Consequences
 
-If accepted, MVP-PLAN §8.5's "centered" Quick Insert wording is updated to this panel. The Library
+MVP-PLAN §8.5 describes this panel. The Library
 search and preview used in preparation are reused live. Post-Mass promotion of a Mass-local Song stays
 a separate reviewed action.

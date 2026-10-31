@@ -364,7 +364,7 @@
       return '<aside class="pr-dock" aria-label="Output controls">' + monitors + controls + "</aside>";
     }
 
-    // ── Emergency insert (MVP-PLAN §8.5, Decisions 12, 258; proposed Decision 290) ─────────────
+    // ── Emergency insert (MVP-PLAN §8.5, Decisions 12, 258; Decision 290) ─────────────
     // Insert Freezes Program and opens one Insert panel over the Cue timeline, leaving Program,
     // Preview, Freeze and Blackout visible. Song, Response sequence and Text or image are tabs of
     // the same panel; Song and Response share the keyboard-first search, list and preview. Saving

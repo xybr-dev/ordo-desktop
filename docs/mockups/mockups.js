@@ -83,14 +83,13 @@
     {
       slug: "presenter-insert", group: "presenter", title: "Emergency insert and Quick Insert",
       summary: "Insert while live at 1366×768: Program freezes and one Insert panel opens over the timeline, leaving the Output Dock visible. Song, Response sequence and Text or image are tabs; Songs and Responses share keyboard-first search with preview. Songs outside the choir's repertoire are listed after it; a Song can be typed for this Mass when none matches; the inserted item lands in Preview with Program still frozen.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0011-program-preview-freeze-and-blackout-semantics", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0290-emergency-insert-chooser-and-quick-insert-dialog"],
       interpretations: [
         "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
         "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
         "The image picker is a placeholder; the image slide is drawn as a gradient.",
-        "Ctrl+E emergency edit is not in this page.",
-        "MVP-PLAN §8.5 describes a centred Quick Insert dialog; this page proposes the side panel instead (Decision 290)."
+        "Ctrl+E emergency edit is not in this page."
       ]
     },
     {
@@ -359,7 +358,7 @@
     {
       slug: "liturgy-import", group: "planning", title: "Liturgy import review",
       summary: "Reviewing a Liturgy Import Document: Celebration match by date, the file's entries, a per-plan outcome for each (new, replaces reused text, unchanged, needs decision), side-by-side comparison of hand-edited text, missing items, Copy into the chosen plans, and the invalid, newer-format and no-plan-in-this-language states.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0027-optional-content-source-extensions", "0193-universal-ordo-exchange-container", "0223-strict-invalid-versus-needs-decision-import-states", "0188-imported-content-is-ordinary-local-content", "0080-independent-language-specific-liturgical-content", "0036-reusing-a-past-mass-plan", "0071-add-mass-item-workflow-and-editor-presets", "0289-liturgy-import-review-copies-into-a-celebration-s-mass-plans"],
       interpretations: [
         "The entry kinds shown (readings, psalm, Gospel Acclamation, Prayer of the Faithful) are a guess at the Liturgy Import Document's contents; its schema isn't written yet.",

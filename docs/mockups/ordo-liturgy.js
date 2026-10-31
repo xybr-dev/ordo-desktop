@@ -45,7 +45,7 @@
     { id: "c8", title: "Christ the King", date: "Sun 22 Nov 2026" }
   ];
 
-  // Outcome of one entry for one plan (Decisions 188, 223; proposed Decision 289).
+  // Outcome of one entry for one plan (Decisions 188, 223; Decision 289).
   function outcome(p, e) {
     var h = p.have[e.id] || { st: "empty" };
     return { empty: "fill", review: "replace", same: "same", edited: "decide", none: "noslot" }[h.st];
