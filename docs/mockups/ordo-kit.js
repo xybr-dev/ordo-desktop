@@ -429,86 +429,13 @@
     function a(n) { return '<a href="#" aria-current="' + (n[0] === active ? "page" : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
     return '<nav class="o-navrail" aria-label="Global navigation">' + NAV.map(a).join("") + '<span class="o-spacer"></span>' + NAV_FOOT.map(a).join("") + "</nav>";
   }
-  function unavailableCount(it) { return it.cues.filter(function (c) { return c.k === "unavailable"; }).length; }
 
-  // opts: w, h, item (selected item number), cue (selected cue index within item), scale
-  function planner(wrapper, opts) {
-    opts = opts || {};
-    var W = opts.w || 1366, H = opts.h || 768;
-    var app = document.createElement("div");
-    app.className = "o-app";
-    wrapper.classList.add("o-fit");
-    wrapper.appendChild(app);
-    var S = { item: opts.item || 2, cue: opts.cue || 0, scale: opts.scale || 1 };
-
-    function render() {
-      app.style.setProperty("--o-scale", S.scale);
-      var it = ITEMS[S.item - 1], c = it.cues[S.cue];
-      var incomplete = ITEMS.filter(unavailableCount).length;
-      var outline = "";
-      MASS.sections.forEach(function (sec) {
-        outline += '<div class="o-section-label pl-sec">' + icon("chevron-down") + esc(sec.title) + "</div>";
-        sec.items.forEach(function (x) {
-          var bad = unavailableCount(x);
-          outline += '<button class="o-row pl-item" data-item="' + x.n + '"' + (x.n === S.item ? ' aria-selected="true"' : "") + '><span class="o-meta">' + x.n + '</span><span class="o-grow o-ellipsis">' + esc(x.title) +
-            (x.song ? ' <span class="o-muted">· ' + esc(x.song) + "</span>" : "") + "</span>" +
-            (bad ? '<span class="o-status" data-state="warning" title="Incomplete" aria-label="Incomplete">' + icon("triangle-alert") + "</span>" : "") + "</button>";
-        });
-      });
-      var cueRows = it.cues.map(function (q, i) {
-        var lead = q.k === "trigger" ? '<span class="pr-who">' + esc(q.who) + "</span>" : q.k === "unavailable" ? icon("circle-off") :
-          q.k === "wait" ? icon("hourglass") : q.k === "hold" ? icon("square") : icon("monitor");
-        return '<button class="o-row pl-cue" data-cue="' + i + '"' + (i === S.cue ? ' aria-selected="true"' : "") + '><span class="o-meta">' + (i + 1) + "</span>" + lead +
-          '<span class="o-grow o-ellipsis">' + esc(cueLabel(q)) + "</span>" +
-          (q.k === "unavailable" ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : '<span class="o-meta">' + KIND_LABEL[q.k] + "</span>") + "</button>";
-      }).join("");
-      var frame = projectable(c) || c.k === "unavailable" ? slide(c) : slide(null);
-      var note = c.k === "unavailable" ? '<div class="pr-private" data-state="unavailable">' + icon("circle-off") + "<div><b>Unavailable</b><div>" + esc(c.why) + "</div></div></div>" :
-        !projectable(c) ? '<div class="pr-private"><div><b>' + esc(KIND_LABEL[c.k]) + "</b> · not projected<div>" + esc(c.b) + "</div></div></div>" : "";
-      var bad = unavailableCount(it);
-      app.innerHTML =
-        '<div class="o-body">' + navrail("Masses") +
-        '<div class="o-grow pl-ws">' +
-          '<header class="pl-head"><div class="o-grow"><div class="o-meta">Masses / ' + esc(MASS.title) + '</div><h1 class="o-title pl-title">' + esc(MASS.title) + "</h1>" +
-          '<div class="o-meta">' + esc(MASS.date) + " · " + esc(MASS.language) + " · " + esc(MASS.choir) + "</div></div>" +
-          '<button class="o-btn pl-ready">' + (incomplete ? statusLabel("warning", incomplete + " incomplete", "diamond") : statusLabel("live", "Ready")) + '<span class="o-meta">0 warnings</span></button>' +
-          '<button class="o-btn">' + icon("palette") + "Theme: Ordo Black</button>" +
-          '<button class="o-btn o-btn--primary">' + icon("presentation") + "Present</button></header>" +
-          '<div class="pl-panes">' +
-            '<section class="o-pane pl-outline" aria-label="Mass outline"><div class="o-pane-head"><b>Mass outline</b><span class="o-grow"></span><button class="o-btn">' + icon("plus") + "Add Mass item</button></div>" +
-              '<div class="o-pane-body o-rows--open">' + outline + "</div></section>" +
-            '<section class="o-pane pl-editor" aria-label="Editor"><div class="o-pane-head"><div class="o-grow"><div class="o-meta">' + esc(MASS.sections[it.section].title) + "</div><b>" + it.n + ". " + esc(it.title) + "</b>" +
-              (it.song ? ' <span class="o-muted">' + esc(it.song) + "</span>" : "") + '</div><span class="o-meta">' + esc(it.type) + "</span></div>" +
-              (bad ? '<div class="o-notice" data-state="warning">' + icon("triangle-alert") + "<div><b>" + bad + " Cues unavailable.</b> " + esc(it.cues[0].why) + '. <a href="#">Choose another Arrangement</a></div></div>' : "") +
-              '<div class="o-pane-body">' + cueRows + "</div></section>" +
-            '<aside class="o-pane pl-inspector" aria-label="Inspector"><div class="o-pane-head"><b>Inspector</b><span class="o-grow"></span><span class="o-meta">Cue ' + (S.cue + 1) + " of " + it.cues.length + "</span>" +
-              '<button class="o-btn o-btn--quiet o-btn--icon" data-step="-1" aria-label="Previous Cue" title="Previous Cue">' + icon("chevron-left") + "</button>" +
-              '<button class="o-btn o-btn--quiet o-btn--icon" data-step="1" aria-label="Next Cue" title="Next Cue">' + icon("chevron-right") + "</button></div>" +
-              '<div class="o-pane-body pl-insp-body">' + frame + note + '<div class="o-meta">' + esc(KIND_LABEL[c.k]) + " · Theme Ordo Black</div></div></aside>" +
-          "</div>" +
-        "</div></div>";
-      icons();
-    }
-    app.addEventListener("click", function (e) {
-      var t = e.target.closest("[data-item],[data-cue],[data-step]"); if (!t) return;
-      e.preventDefault();
-      if (t.dataset.item) { S.item = +t.dataset.item; S.cue = 0; }
-      else if (t.dataset.cue) S.cue = +t.dataset.cue;
-      else {                                              // Inspector navigation stops at item boundaries (Decision 169)
-        var n = ITEMS[S.item - 1].cues.length;
-        S.cue = Math.max(0, Math.min(n - 1, S.cue + +t.dataset.step));
-      }
-      render();
-    });
-    fit(wrapper, app, W, H);
-    render();
-    return { app: app, state: S, render: render };
-  }
+  // The Mass planner itself lives in ordo-planner.js, which adds OrdoKit.planner.
 
   window.OrdoKit = {
     MASS: MASS, ITEMS: ITEMS, CUES: CUES, projectable: projectable, cueLabel: cueLabel, KIND_LABEL: KIND_LABEL,
     esc: esc, icon: icon, canvas: canvas, slide: slide, statusLabel: statusLabel, icons: icons, fit: fit, presenter: presenter,
-    planner: planner, navrail: navrail
+    navrail: navrail
   };
   document.addEventListener("DOMContentLoaded", icons);
 })();

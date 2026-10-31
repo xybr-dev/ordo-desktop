@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mass Planning flows — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-planner.js"></script>
+<script src="mockups.js"></script>
+<style>
+  .fl-steps { margin: 0 0 12px; padding-left: 1.4em; max-width: 920px; font-size: 14px; line-height: 1.5; }
+  .fl-steps li + li { margin-top: 2px; }
+  .fl-reset { margin: 0 0 12px; }
+</style>
+</head>
+<body data-page="mass-planning-flows">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. The whole flow, interactive</h2>
+    <p>One working planner. Everything below is also reachable here, and each change can be undone from its toast. A suggested path:</p>
+    <ol class="fl-steps">
+      <li>With <b>5. Gloria</b> selected, press <b>+</b> in the Mass outline. The menu says where the item goes; change it if you like, then choose <b>Song</b>.</li>
+      <li>The new item is created and selected, and the Song picker opens. Search, open a Song, pick an Arrangement, then press <b>Use … arrangement</b>.</li>
+      <li>Press <b>1 incomplete · 1 warning</b>. The Offertory finding names the problem; its action takes you to the item's <b>Choose another Arrangement</b>.</li>
+      <li>In the picker, the scanned score is marked unavailable; choose the text Arrangement instead. Readiness drops to one warning.</li>
+      <li>Open the Entrance Song, press <b>Customize for this Mass</b>, select a Koro and edit it: both Koro occurrences change, unless you use <b>Edit this occurrence only</b>.</li>
+      <li>Press <b>Theme: Ordo Black</b>, try the Themes on the preview, and review the Kyrie's override before applying.</li>
+    </ol>
+    <div class="fl-reset"><button class="o-btn" id="reset" type="button">Start over</button></div>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Add Mass item</h2>
+    <p>An anchored menu under <b>+</b>. It states the destination, after the selected item in its own section, and lets the operator change it before choosing. Opening or dismissing it changes nothing; choosing a type creates, selects and autosaves the item at once, with Undo in the toast.</p>
+    <div id="add"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Choosing the Song for a new item</h2>
+    <p>Choosing <b>Song</b> creates an incomplete item and opens the staged picker over the planner. Selecting an Arrangement only stages it: the preview and sequence update, and the item changes only when the sticky <b>Use … arrangement</b> is pressed. <b>›</b> or <span class="o-kbd">Esc</span> closes without changing anything.</p>
+    <div id="pick"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Replacing an unavailable Arrangement</h2>
+    <p>From the Offertory's notice, the picker opens on the same Song with its current Arrangement marked: it can't be chosen again because its image asset is missing. The text Arrangement is staged as the replacement.</p>
+    <div id="replace"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Readiness</h2>
+    <p>The header button states the counts in words. Its slide-over sits over the Inspector, leaving the outline and editor usable. Findings group into <b>Incomplete presentation</b> and <b>Review recommended</b> in Mass order; a finding's title selects its item and keeps the panel open, and its action closes the panel and focuses the control that fixes it.</p>
+    <div id="ready"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Mass Theme</h2>
+    <p>A full-window slide-over that previews each Theme on the selected Cue. The choice is staged until <b>Apply</b>. Items that keep their own Theme are named up front and never silently replaced.</p>
+    <div id="theme"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Theme Overrides</h2>
+    <p><b>Review</b> opens a child slide-over; the chooser recedes but stays in view. Each overridden item compares its current override with what it would inherit. <b>Use Mass Theme</b> stages removal, reversible until the parent applies everything as one change.</p>
+    <div id="overrides"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Customize for this Mass</h2>
+    <p>The deliberate step from library content to a Mass-local copy. The banner says the changes belong only to this Mass. The sequence can be reordered and trimmed, and repeated sections stay linked: editing one Koro edits both unless <b>Edit this occurrence only</b> forks it. Here a Bersikulo has been removed and the Koro reworded.</p>
+    <div id="local"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Return to library arrangement</h2>
+    <p>From the banner, one focused confirmation lists the local changes being dropped. Undo brings them back.</p>
+    <div id="return"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. Replacing a customized Song</h2>
+    <p>Committing a different Arrangement for an item with local changes opens a nested review over the picker. Ordo never merges local edits into another Arrangement; <b>Back</b> returns to the unchanged picker selection.</p>
+    <div id="guard"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.planner(document.getElementById(id), Object.assign({}, base, opts)); }
+    function live() { document.getElementById("live").innerHTML = ""; show("live", { item: 5, live: true }); }
+    live();
+    document.getElementById("reset").addEventListener("click", live);
+
+    show("add", { item: 5, setup: function (p) { p.openAdd(); } });
+    show("pick", { item: 5, setup: function (p) { p.add("Song").stage("Halad sa Kasingkasing", "Koro San Roque"); } });
+    show("replace", { item: 11, setup: function (p) { p.openPicker().stage("Ihalad Namo", "Koro San Roque"); } });
+    show("ready", { item: 11, setup: function (p) { p.readiness(); } });
+    show("theme", { item: 2, cue: 1, setup: function (p) { p.theme("parish-light"); } });
+    show("overrides", { item: 2, cue: 1, setup: function (p) { p.theme("parish-light").overrides(); } });
+    show("local", { item: 2, cue: 2, setup: function (p) { p.customize().removeAt(3).cue(2).edit("Daygon, daygon ta\nang balaang ngalan sa Ginoo"); } });
+    show("return", { item: 2, cue: 2, setup: function (p) { p.customize().removeAt(3).cue(2).edit("Daygon, daygon ta\nang balaang ngalan sa Ginoo").openReturn(); } });
+    show("guard", { item: 2, cue: 2, setup: function (p) { p.customize().removeAt(3).openPicker().stage("Daygon Ta", "Youth Choir").commit(); } });
+  });
+</script>
+</body>
+</html>

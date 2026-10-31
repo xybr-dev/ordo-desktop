@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mass item editors — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-planner.js"></script>
+<script src="mockups.js"></script>
+<style>
+  .fl-steps { margin: 0 0 12px; padding-left: 1.4em; max-width: 920px; font-size: 14px; line-height: 1.5; }
+  .fl-steps li + li { margin-top: 2px; }
+  .fl-reset { margin: 0 0 12px; }
+</style>
+</head>
+<body data-page="mass-item-editors">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Every editor, interactive</h2>
+    <p>One working planner, opened on the First Reading. Select any item in the outline to open its editor. Every field regenerates the item's Cues as you type, and the Inspector follows. A suggested path:</p>
+    <ol class="fl-steps">
+      <li>Edit the <b>First Reading</b> text and add a blank line: a new passage Slide appears. Switch <b>Full-reading projection</b> off and the passage Slides go away; the title and closing response stay.</li>
+      <li>Open <b>7. Responsorial Psalm</b>. Edit the refrain once and every occurrence changes. Switch <b>Project the verses</b> on to see the cantor verses become Slides.</li>
+      <li>Open <b>3. Greeting</b>. It's linked, so its words are read-only. Press <b>Customize for this Mass</b>, add an exchange, and set the header to <b>Override</b>.</li>
+      <li>Open <b>1. Pahibalo</b>. Edit the private delivery context while the item is still linked. Then customize it and press <b>Add image Slide</b>.</li>
+      <li>Press <b>+</b> and add a <b>Hold</b>, a <b>Custom sequence</b>, a <b>Response or Prayer</b> (the picker opens) or a <b>Reading</b>.</li>
+    </ol>
+    <div class="fl-reset"><button class="o-btn" id="reset" type="button">Start over</button></div>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Reading with the full passage projected</h2>
+    <p>Readings belong to the Mass, so they have no Library link. The proclamation title and reference make the identification Slide. With projection on, the text paginates into passage Slides, and a blank line always starts a new one. The closing exchange keeps the lector's prompt private and projects the congregation's response.</p>
+    <div id="rd-full"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Reading kept private (the default)</h2>
+    <p>With projection off, the passage is still stored. Presenter shows it to the operator beside the identification frame; the congregation sees only the title. This Second Reading has no closing exchange yet, so its only Cue is the title.</p>
+    <div id="rd-private"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. A new Reading</h2>
+    <p>Added after the Responsorial Psalm. The title field takes focus, and the closing exchange starts from the template's default prompt and response. Readiness counts the item as incomplete until it has a title and text.</p>
+    <div id="rd-new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D2. Responsorial Psalm</h2>
+    <p>Mass-owned, like the Readings. The refrain is one linked text, projected before the first verse and after every verse. By default each cantor verse is a Wait Cue: Program keeps the refrain up while the cantor sings, and the verse text shows privately to the operator. The header follows the plan default <b>SALMO RESPONSORYO</b> unless hidden or overridden.</p>
+    <div id="ps-default"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D3. Responsorial Psalm with projected verses</h2>
+    <p>With <b>Project the verses</b> on, each verse becomes a Reading-passage Slide under its own card, and the refrain still returns after each one.</p>
+    <div id="ps-project"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Response or Prayer, linked to the Library</h2>
+    <p>The Greeting uses <b>Pagtimbaya</b> from Responses &amp; Prayers. Each exchange has an optional operator-only prompt with its role, then the required response, and shows the Cues it produces. While the item is linked, its words are read-only here; <b>Customize for this Mass</b> makes a local copy.</p>
+    <div id="rs-linked"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Choosing a Response for a new item</h2>
+    <p>Adding <b>Response or Prayer</b> opens the same staged picker that Songs use. Selecting an entry previews its first projected Slide and its prompt and response order. <b>Write for this Mass only</b> starts an empty local item instead.</p>
+    <div id="rs-pick"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Customized Response</h2>
+    <p>After <b>Customize for this Mass</b>, the banner names the override. Here the header is overridden for this item, and a third exchange has been added for the choir. Exchanges can be reordered or removed. <b>Return to library source</b> lists what would be dropped.</p>
+    <div id="rs-local"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. General Presentation with private delivery context</h2>
+    <p>The opening Pahibalo is linked to <b>Pahibalo sa Domingo</b>. Its Slides are read-only here, but the private delivery context belongs to this Mass item and stays editable. The context shows beside the frame in the Inspector and in Presenter, never on the projector. Each Slide can override the 8-second auto-play default.</p>
+    <div id="gp-linked"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Customized General Presentation with an image Slide</h2>
+    <p>Customized for this Mass, with an image Slide added at 12 seconds. The image is fitted inside the safe area and never cropped. Its description is for the operator and is not projected.</p>
+    <div id="gp-local"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. Hold</h2>
+    <p>A Hold added after the Gospel and labelled <b>Homily</b>. It has no projected content, only an operator label. The editor explains how a Hold differs from a Blackout item.</p>
+    <div id="hold"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. Custom sequence</h2>
+    <p>For an unusual moment, here a blessing of the children before the Dismissal, a Custom sequence holds Cues of different types in any order. <b>Add Cue</b> offers each type. The selected Cue's fields sit below the list, and the Inspector shows whether that Cue projects.</p>
+    <div id="custom"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.planner(document.getElementById(id), Object.assign({}, base, opts)); }
+    function live() { document.getElementById("live").innerHTML = ""; show("live", { item: 6 }); }
+    live();
+    document.getElementById("reset").addEventListener("click", live);
+
+    show("rd-full", { item: 6, cue: 2 });
+    show("rd-private", { item: 8, setup: function (p) { p.set("rd.prompt", "").set("rd.resp", ""); } });
+    show("rd-new", { item: 7, setup: function (p) { p.add("Reading").quiet(); } });
+    show("ps-default", { item: 7, cue: 1 });
+    show("ps-project", { item: 7, setup: function (p) { p.set("ps.project", true).cue(1); } });
+    show("rs-linked", { item: 3, cue: 1 });
+    show("rs-pick", { item: 13, setup: function (p) { p.add("Response or Prayer").stage("Kordero sa Dios").quiet(); } });
+    show("rs-local", { item: 3, setup: function (p) {
+      p.customize().set("hdr", "override").set("hdrText", "Tanan:")
+        .addExchange({ who: "C", trig: "Mag-awit kita sa Ginoo.", rwho: "Ch", resp: "Kay maayo siya, ang iyang gugma molungtad hangtod sa kahangtoran." }).cue(5); } });
+    show("gp-linked", { item: 1 });
+    show("gp-local", { item: 1, setup: function (p) {
+      p.customize().addSlide({ kind: "image", file: "kampanaryo-2026.jpg", alt: "The bell tower under repair", dur: 12 }); } });
+    show("hold", { item: 10, setup: function (p) { p.add("Hold").set("hold.label", "Homily").quiet(); } });
+    show("custom", { item: 15, setup: function (p) {
+      p.add("Custom sequence").set("title", "Pagbendisyon sa mga Bata").quiet()
+        .addCue({ k: "trigger", who: "P", b: "Ang mga bata, palihug duol dinhi sa altar." })
+        .addCue({ k: "wait", b: "Children come forward" })
+        .addCue({ k: "general", h: "Pagbendisyon sa mga Bata", b: "Ginoo, panalangini kining imong mga anak.", f: "" })
+        .addCue({ k: "response", h: "TUBAG:", b: "Amen." })
+        .addCue({ k: "hold", b: "Children return" })
+        .cue(2).cueMenu(); } });
+  });
+</script>
+</body>
+</html>

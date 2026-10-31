@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mass Planning, 1366 and 1920 — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-planner.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="mass-planning-responsive-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. 1366×768 at 100%</h2>
+    <p>The complete Mass outline, the selected item's editor and the Inspector stay side by side. <b>Add Mass item</b> compacts to its icon, the plan header keeps readiness, Theme and <b>Present</b>, and the Inspector keeps the selected Cue's canonical frame. Click outline items, generated Cues or the Inspector arrows.</p>
+    <div id="compact"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. 1920×1080 at 100%</h2>
+    <p>The same Mass, item, Arrangement and Cue. The extra room goes to fuller labels and metadata, more thumbnails per row, the Mass-local state, and a larger Inspector frame; the panes keep the same jobs and control sizes.</p>
+    <div id="wide"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    OrdoKit.planner(document.getElementById("compact"), { w: 1366, h: 768, item: 2, cue: 1 });
+    OrdoKit.planner(document.getElementById("wide"), { w: 1920, h: 1080, item: 2, cue: 1 });
+  });
+</script>
+</body>
+</html>

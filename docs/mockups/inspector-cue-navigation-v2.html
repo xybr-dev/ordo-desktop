@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspector Cue navigation — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-planner.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="inspector-cue-navigation-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. An operator-only trigger</h2>
+    <p>The Inspector steps through the selected item's Cues in order, counting operator-only triggers: <b>Cue 1 of 4</b>. A priest's line projects nothing, so its congregation frame is black and the line, role and timing stay outside the frame as private context. Selecting a Cue in the editor moves the Inspector, and the arrows move the editor's selection.</p>
+    <div id="trigger"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. The item boundary</h2>
+    <p>At the last Cue, Next is disabled and the Inspector says where to go: navigation never slides into the next Mass item. Changing items stays an outline action.</p>
+    <div id="edge"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    OrdoKit.planner(document.getElementById("trigger"), { w: 1366, h: 768, item: 3, cue: 0 });
+    OrdoKit.planner(document.getElementById("edge"), { w: 1366, h: 768, item: 3, cue: 3 });
+  });
+</script>
+</body>
+</html>
