@@ -505,7 +505,7 @@
         (c ? '<dl class="pl-meta">' + meta.map(function (m) { return "<dt>" + m[0] + "</dt><dd>" + esc(m[1]) + "</dd>"; }).join("") + "</dl>" : '<div class="o-meta">Nothing to inspect yet.</div>') + "</div></aside>";
     }
 
-    // ── the Library's other views (Decisions 87, 221, 257; proposed 278, 279) ─────────────────
+    // ── the Library's other views (Decisions 87, 221, 257, 278, 279) ─────────────────
     // Each is the Songs master-detail: search and filters on the left, the selected entry on the
     // right. Entry content autosaves; a name commits on Enter or blur with Undo.
     var LV = { choirs: ["Choirs", "choir"], responses: ["Responses & Prayers", "Response or Prayer"], general: ["General Presentations", "General Presentation"] };

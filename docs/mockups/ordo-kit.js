@@ -97,7 +97,7 @@
     { t: "Bayan Umawit", a: "Youth Choir", lang: "Tagalog", rep: false, alias: [], first: "Bayan, umawit ng papuri", slides: ["Bayan, umawit ng papuri\nsa Panginoon", "Purihin ang Kanyang ngalan"] },
     { t: "Halad", a: "Koro Sta. Cecilia", lang: "Cebuano", rep: false, alias: ["Offering"], first: "Kining pan ug bino", slides: ["Kining pan ug bino\namong ginahalad", "Dawata, O Ginoo,\nang among kinabuhi"] }
   ];
-  // Other Arrangements of the Songs planned in this Mass (proposed Decision 293).
+  // Other Arrangements of the Songs planned in this Mass (Decision 293).
   var QI_VERSIONS = {
     "Daygon Ta": [
       { t: "Daygon Ta", a: "Youth Choir", lang: "Cebuano", rep: false, note: "Starts on the Koro · 3 verses", secs: [["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 1", "Daygon ta ang Ginoo\nsa tanang kasingkasing"], ["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 2", "Siya ang atong bato\nug atong kalig-on"], ["Koro", "Daygon, daygon ta\nang Ginoo sa kahitas-an"], ["Bersikulo 3", "Ang iyang gugma\nwalay katapusan"]] },

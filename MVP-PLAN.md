@@ -766,6 +766,7 @@ immediately and contrary commands reverse the visible fade from current opacity.
 | Esc | Close current overlay without changing Program |
 | Insert | Freeze and open emergency text/image insertion |
 | Ctrl+E | Freeze and emergency-edit selected projectable Cue |
+| Ctrl+R | Blackout and replace the Mass item holding the Preview Cue |
 | F6 / Shift+F6 | Next / previous visible Presenter region |
 
 Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F`, `B`, and `Space` active. A focused text field, emergency editor, or modal dialog suspends every single-key Presenter command, including navigation, until the surface closes. `Esc` addresses the topmost surface without changing Program, and closing restores focus to the previously active Cue unless the completed action deliberately selected another Cue.

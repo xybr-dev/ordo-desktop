@@ -1,7 +1,7 @@
 ---
 id: 293
 title: Replace swaps a Mass item from the Insert panel
-status: proposed
+status: accepted
 date: 2026-10-31
 recorded: 2026-10-31
 tags: [presenter, mass-planning]
@@ -71,7 +71,7 @@ safety is already defined by Decision [12](0012-safe-live-operations.md).
 
 ## Consequences
 
-- `Ctrl+R` joins the Presenter shortcuts in MVP-PLAN §8.2 if this is accepted.
+- `Ctrl+R` is a Presenter shortcut in MVP-PLAN §8.2.
 - The Mass plan keeps the replaced item's earlier version until the Mass is over, so Put back has
   something to restore.
 - Decision 107 still governs replacement in the planner.
