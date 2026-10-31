@@ -8,11 +8,13 @@ tags: [songs, mass-plan]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [275]
 sources: []
 ---
 
 # Arrangement-section creation and rename surface
+
+> **Amended by Decision [275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md).** A section is renamed in place in the lyric editor header, not through the action button and popover. Section creation stands.
 
 - Give every Arrangement section one required free-form **Section name**. Do not add a separate Section Type field in the MVP; the operator's final label is the section's visible identity.
 - Open **Add first section** and later **+ Add section** in the same compact, anchored creation popover rather than another full-height slideover or dialog.

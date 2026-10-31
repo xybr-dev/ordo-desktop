@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arrangement details — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="arrangement-details-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Details of a shared Arrangement</h2>
+    <p>Opened from <b>Arrangement details</b> in the editor header. Changes are staged until <b>Save details</b>; Cancel discards them. Because two Choirs sing this exact rendition, the scope is stated before saving. <b>Duplicate Arrangement</b> is the safe path when one Choir's version should branch.</p>
+    <div id="edit"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. New Arrangement</h2>
+    <p>The same surface, titled <b>New Arrangement</b>, without Duplicate, and committing with <b>Create Arrangement</b>. Only a language is required; pressing Create without one says so beside the field and saves nothing.</p>
+    <div id="create"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. After Create Arrangement</h2>
+    <p>The new Arrangement opens in its Lyrics task with <b>No sections yet</b> and <b>Add first section</b> focused. Ordo doesn't invent a Verse 1.</p>
+    <div id="landed"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Adding a section</h2>
+    <p>A small anchored popover with one required name and editable suggestions; the next number is proposed (<b>Bersikulo 3</b>). <b>Add section</b> selects the new section and puts the cursor in its lyrics.</p>
+    <div id="addsec"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Renaming a section</h2>
+    <p>The section name above the lyrics is the name field: click it and type. <b>Enter</b> or clicking away renames the section everywhere it appears in the Sequence, with Undo; <b>Esc</b> puts the old name back. The section list has no rename button any more (Decision 275).</p>
+    <div id="rename"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. A choir that isn't in the list yet</h2>
+    <p><b>+ Choir</b> opens a search over the parish's active choirs. When nothing matches what was typed, the first row offers <b>Create “…”</b>, and Enter picks it. Archived choirs aren't suggested (Decision 221).</p>
+    <div id="choir"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. After Create</h2>
+    <p>The choir is saved straight away with only its name and is selected here. Its short label, preferred languages and notes are filled in later in Library → Choirs. The Arrangement itself still waits for <b>Save details</b>.</p>
+    <div id="choirmade"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Adding a language</h2>
+    <p>Languages come from Ordo's built-in list instead of being typed in, so the Library, Mass plans and templates name each language the same way. Search also covers other names: <i>ilong</i> finds Hiligaynon. When nothing matches, the picker says so and offers no Create (Decision 277).</p>
+    <div id="lang"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("edit", { setup: function (l) { l.open("s1", "a1", "lyrics").details(false).form("translator", "Parish adaptation"); } });
+    show("create", { setup: function (l) { l.song("s5").details(true).form("choirs", ["Youth Choir"]).tryCreate(); } });
+    show("landed", { setup: function (l) { l.song("s5").createArr({ langs: ["Cebuano"], choirs: ["Youth Choir"] }); } });
+    show("rename", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d2").secName("Koro (Refrain)"); } });
+    show("choir", { setup: function (l) { l.open("s2", "a3", "lyrics").details(false).pick("choirs", "Koro Bag-ong Kinabuhi"); } });
+    show("choirmade", { setup: function (l) { l.open("s2", "a3", "lyrics").details(false).pick("choirs", "Koro Bag-ong Kinabuhi").createChoir(); } });
+    show("lang", { setup: function (l) { l.song("s5").details(true).pick("langs", "ilong"); } });
+    show("addsec", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d3").addSection(); } });
+  });
+</script>
+</body>
+</html>

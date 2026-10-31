@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History and revisions — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="history-revision-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Arrangement History</h2>
+    <p><b>History</b> in the Arrangement header opens a slide-over over the editor, which stays as it was underneath. Editing sessions are grouped, with when, what and how many revisions; creation, import and restore stand on their own. Expand a session to reach its individual revisions.</p>
+    <div id="list"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Compare a revision</h2>
+    <p>Selecting a revision opens a nested comparison while History recedes. <b>Overview</b>, <b>Lyrics</b>, <b>Sequence</b> and <b>Slides</b> compare the current Arrangement with that revision, marking what differs. Nothing changes until you restore.</p>
+    <div id="compare"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Restore, second stage</h2>
+    <p><b>Restore this revision</b> turns the whole footer into the confirmation: what's affected on one row, <b>Keep current</b> and <b>Restore entire Arrangement</b> on the next. Restoring replaces the whole Arrangement, never single lines.</p>
+    <div id="confirm"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. After restoring</h2>
+    <p>The restore becomes a new revision and every earlier one stays. The toast offers Undo, which is itself another revision.</p>
+    <div id="restored"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Song History</h2>
+    <p>A Song's History covers only its own identity and metadata; each Arrangement keeps a separate History.</p>
+    <div id="song"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("list", { setup: function (l) { l.open("s1", "a1", "lyrics").history("arr"); } });
+    show("compare", { setup: function (l) { l.open("s1", "a1", "lyrics").history("arr").rev(0, 1).cmp("lyrics"); } });
+    show("confirm", { setup: function (l) { l.open("s1", "a1", "lyrics").history("arr").rev(0, 1).cmp("sequence").confirm(); } });
+    show("restored", { setup: function (l) { l.open("s1", "a1", "lyrics").sec("k2").history("arr").rev(0, 1).restore(); } });
+    show("song", { song: "s1", setup: function (l) { l.history("song").rev(0, 1); } });
+  });
+</script>
+</body>
+</html>

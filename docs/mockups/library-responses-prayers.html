@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Responses & Prayers — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="library-responses-prayers">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Responses &amp; Prayers, interactive</h2>
+    <p>The Library's <b>Responses &amp; Prayers</b> view (Decision 257). Each entry is a list of exchanges: an optional prompt that stays on the operator's screen, then the congregation's response, which is projected. Edits save as you type, and the slides underneath update.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Filtered by role</h2>
+    <p>Filter by language and liturgical role. Entries in different languages are separate entries and are never kept in step.</p>
+    <div id="filtered"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Header override</h2>
+    <p>The response header normally comes from the Mass plan (<b>TUBAG:</b> in Cebuano plans). An entry can hide it or override it; each Mass item can still change it again (Decision 84).</p>
+    <div id="override"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Plans on an earlier revision</h2>
+    <p>Every change saves a new revision. Plans that link the entry keep the revision they use and show <b>Update available</b> until someone reviews it; this line says how many already do.</p>
+    <div id="behind"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. New entry</h2>
+    <p><b>New</b> creates an entry in the filtered language and role, puts the cursor on its name, and starts one empty exchange. It shows as Incomplete until the response is written.</p>
+    <div id="new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Archived entry</h2>
+    <p>Archived entries are inspect-only; restoring one makes it editable and linkable again.</p>
+    <div id="archived"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, lview: "responses" };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("filtered", { setup: function (l) { l.lfilter("role", "Greeting").lview("responses", "r2"); } });
+    show("override", { setup: function (l) { l.lview("responses", "r7"); } });
+    show("behind", { setup: function (l) { l.lview("responses", "r6"); } });
+    show("new", { setup: function (l) { l.lfilter("lang", "English").lnew(); } });
+    show("archived", { setup: function (l) { l.lview("responses", "r8").larchived(); } });
+  });
+</script>
+</body>
+</html>

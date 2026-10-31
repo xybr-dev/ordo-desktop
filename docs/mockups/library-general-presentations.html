@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>General Presentations — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="library-general-presentations">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. General Presentations, interactive</h2>
+    <p>The Library's <b>General Presentations</b> view (Decision 257): announcements, thanks and appeals made of text or image Slides. Edits save as you type.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Text and image Slides</h2>
+    <p>An image Slide holds one picture, fitted inside the safe area and never cropped, with a description that isn't projected. A Slide can override the default auto-play time (Decision 258).</p>
+    <div id="mixed"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. New entry</h2>
+    <p><b>New</b> starts one empty text Slide and puts the cursor on the name. It shows as Incomplete until a Slide has text.</p>
+    <div id="new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Archived entry</h2>
+    <p>Archived entries are inspect-only; Mass plans that use one keep it.</p>
+    <div id="archived"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, lview: "general" };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("mixed", { setup: function (l) { l.lview("general", "g3"); } });
+    show("new", { setup: function (l) { l.lnew(); } });
+    show("archived", { setup: function (l) { l.lview("general", "g5").larchived(); } });
+  });
+</script>
+</body>
+</html>

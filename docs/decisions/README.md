@@ -148,7 +148,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0116](0116-keyboard-first-lyric-pagination-and-generated-slide.md) | Keyboard-first lyric pagination and generated-slide navigation | accepted | 2026-08-29 | songs, rendering, ui |
 | [0117](0117-arrangement-metadata-boundary-and-staged-details-surface.md) | Arrangement metadata boundary and staged details surface | accepted | 2026-08-29 | songs |
 | [0118](0118-first-arrangement-creation-transition-and-empty-state.md) | First-Arrangement creation transition and empty state | accepted | 2026-08-29 | songs |
-| [0119](0119-arrangement-section-creation-and-rename-surface.md) | Arrangement-section creation and rename surface | accepted | 2026-08-29 | songs, mass-plan |
+| [0119](0119-arrangement-section-creation-and-rename-surface.md) | Arrangement-section creation and rename surface | accepted, amended by [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | 2026-08-29 | songs, mass-plan |
 | [0120](0120-independent-section-creation-and-sequence-placement.md) | Independent section creation and Sequence placement | accepted | 2026-08-29 | songs, mass-plan |
 | [0121](0121-atomic-recoverable-arrangement-section-removal.md) | Atomic recoverable Arrangement-section removal | accepted | 2026-08-29 | songs, mass-plan, storage |
 | [0122](0122-defer-dedicated-section-duplication.md) | Defer dedicated section duplication | accepted | 2026-08-29 | mass-plan |
@@ -286,7 +286,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0254](0254-use-a-layered-repository-local-agent-development-system.md) | Use a layered, repository-local agent-development system | accepted | 2026-08-29 | repo |
 | [0255](0255-use-fixed-semantic-congregation-slide-layouts.md) | Use fixed semantic congregation-slide layouts | accepted, amended by [0262](0262-render-reading-identification-in-sentence-case-at-the.md), [0263](0263-render-reading-passage-at-a-readingpassage-only-88px.md), [0264](0264-render-response-at-a-response-only-113px-candidate-centered.md), [0265](0265-content-size-psalm-and-response-bodies-and-keep-authored.md) | 2026-08-29 | presenter, rendering, ui |
 | [0256](0256-refine-operator-appearance-overlays-and-bounded-output.md) | Refine operator appearance, overlays, and bounded output motion | accepted | 2026-08-29 | presenter, ui |
-| [0257](0257-make-library-a-multi-view-destination-with-revision-bound.md) | Make Library a multi-view destination with revision-bound reuse | accepted | 2026-08-29 | storage |
+| [0257](0257-make-library-a-multi-view-destination-with-revision-bound.md) | Make Library a multi-view destination with revision-bound reuse | accepted, amended by [0278](0278-manage-choirs-as-a-library-view.md) | 2026-08-29 | storage |
 | [0258](0258-bound-live-insertion-auto-play-windows-and-save-safety.md) | Bound live insertion, auto-play, windows, and save safety | accepted | 2026-08-29 | platform |
 | [0259](0259-keep-celebration-defaults-small-and-make-reuse-review.md) | Keep Celebration defaults small and make reuse review explicit | accepted | 2026-08-29 | mass-plan |
 | [0260](0260-separate-human-song-authoring-from-durable-exchange-and.md) | Separate human Song authoring from durable exchange and defer the ERD | accepted | 2026-08-29 | songs |
@@ -304,5 +304,10 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 | [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
 | [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
+| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | accepted | 2026-10-28 | songs |
+| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | accepted | 2026-10-28 | songs |
+| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | accepted | 2026-10-28 | songs |
+| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | accepted | 2026-10-28 | songs |
+| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | accepted | 2026-10-28 | songs |
 
 <!-- adr-index:end -->

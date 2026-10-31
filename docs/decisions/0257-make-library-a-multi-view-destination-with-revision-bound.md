@@ -8,11 +8,13 @@ tags: [storage]
 supersedes: [112]
 superseded_by: null
 amends: [64, 71, 168, 250]
-amended_by: []
+amended_by: [278]
 sources: []
 ---
 
 # Make Library a multi-view destination with revision-bound reuse
+
+> **Amended by Decision [278](0278-manage-choirs-as-a-library-view.md).** The Library gains a fourth view, **Choirs**, for the Choir management workspace of Decisions 87 and 221. The rest of this record stands.
 
 - This supersedes Decisions [64](0064-preparation-shell-primary-navigation.md)/[250](0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy.md)'s Songs destination label and Decision [112](0112-mass-ownership-of-template-derived-response-sequences.md)'s
   Mass-owned template Response copies, and supersedes Decision [71](0071-add-mass-item-workflow-and-editor-presets.md)'s separate

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sections and Sequence — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="hybrid-ux-v2">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Lyrics: write each section once</h2>
+    <p>Daygon Ta, Koro San Roque. The left pane lists the reusable sections with their slide counts and how often the Sequence sings them. Each section's words are written once, here the Koro, which the Sequence sings twice. Reordering sections in this list changes only the writing order.</p>
+    <div id="lyrics"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Sequence: the sung order</h2>
+    <p>The same three panes. Available sections sit on the left with an explicit <b>Add</b>. The centre lists section occurrences by position (<b>02 Koro</b>, <b>04 Koro</b>), never renamed copies. The selected occurrence offers <b>Repeat</b>, move and remove, and expanding one shows its generated slides in order. Try <b>Repeat</b>, the arrows, <span class="o-kbd">Alt</span>+<span class="o-kbd">↑</span>, or <span class="o-kbd">Delete</span> on a focused row.</p>
+    <div id="sequence"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Removing an occurrence</h2>
+    <p>Removing an occurrence needs no confirmation: the section and its lyrics stay in Lyrics. The next occurrence takes the selection, and Undo puts it back where it was.</p>
+    <div id="removed"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Empty Sequence</h2>
+    <p>Sections exist but nothing is placed yet. The Arrangement is <b>Incomplete</b> and gives a Mass no slides until the first occurrence is added; the Sequence tab carries the marker.</p>
+    <div id="empty"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. A section not yet in the Sequence</h2>
+    <p>Adding a section in Lyrics never places it. A quiet <b>Add to Sequence</b> beside it inserts it after the selected occurrence, as a visible step. Unused sections are allowed without a warning.</p>
+    <div id="unused"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768 };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("lyrics", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d2"); } });
+    show("sequence", { setup: function (l) { l.open("s2", "a3", "sequence").occ(1).expand(1).expand(3); } });
+    show("removed", { setup: function (l) { l.open("s2", "a3", "sequence").occ(1).removeOcc(1); } });
+    show("empty", { setup: function (l) { l.open("s7", "a10", "sequence"); } });
+    show("unused", { setup: function (l) { l.open("s2", "a3", "lyrics").sec("d4"); } });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choirs — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-songs.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="library-choirs">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Choirs, interactive</h2>
+    <p>The Library's <b>Choirs</b> view at 1366 × 768 (Decision 278). Choirs are on the left; the selected choir's short label, preferred languages and private notes fill the right and save as you type. Click the name to rename it: its Arrangements and Mass plans show the new name. <b>Repertoire</b> lists the Songs whose Arrangements name this choir, and <b>Open</b> goes to the Arrangement.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Adding a choir</h2>
+    <p><b>Add choir</b> opens a name field at the top of the list. Only a name is needed (Decision 221); Enter adds the choir and selects it.</p>
+    <div id="add"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A name that already exists</h2>
+    <p>Names are compared ignoring case and spacing. A match stops Add and offers to select the existing choir instead, even when it's archived.</p>
+    <div id="dup"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Preferred languages</h2>
+    <p><b>+ Language</b> opens the same search over Ordo's language list as Arrangement details, so a choir's languages and its Arrangements' languages always match.</p>
+    <div id="langs"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Archived choir</h2>
+    <p>With <b>Show archived</b> on, an archived choir can be inspected and restored. Selectors stop suggesting it, but Arrangements and Mass plans that name it keep it (Decision 87).</p>
+    <div id="archived"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. No choirs yet</h2>
+    <p>The same workspace with nothing in it: <b>Add choir</b> first, and three short points saying choirs are optional (Decision 221).</p>
+    <div id="empty"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, lview: "choirs" };
+    function show(id, opts) { return K.library(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("add", { setup: function (l) { l.newChoir("Koro Bag-ong Kinabuhi"); } });
+    show("dup", { setup: function (l) { l.newChoir("koro  sto. niño"); } });
+    show("langs", { setup: function (l) { l.lview("choirs", "c2").pickFor("war"); } });
+    show("archived", { setup: function (l) { l.lview("choirs", "c4").larchived(); } });
+    show("empty", { setup: function (l) { l.noChoirs(); } });
+  });
+</script>
+</body>
+</html>

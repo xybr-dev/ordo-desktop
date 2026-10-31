@@ -20,10 +20,13 @@ They are not production source; screens are rebuilt as native GPUI views.
   components every regenerated screen is built from. Revising a token here restyles every `-v2`
   page at once. Preparation tokens apply to `.o-app`, graphite ones to `.o-presenter` (always) and
   to `.o-app` in dark mode.
-- `ordo-kit.js` holds the sample Mass fixture and renderers: `OrdoKit.presenter()` (layout,
-  Cue timeline, Output Dock and the Presenter state machine with its keys) and
-  `OrdoKit.planner()` (the Preparation shell). Frames are canonical 1920×1080 slides drawn in
-  container units, so they scale and never reflow.
+- `ordo-kit.js` holds the sample Mass fixture and renderers, including `OrdoKit.presenter()`
+  (layout, Cue timeline, Output Dock and the Presenter state machine with its keys). Frames are
+  canonical 1920×1080 slides drawn in container units, so they scale and never reflow.
+- `ordo-planner.js` adds `OrdoKit.planner()`, the Mass planner with its item editors and flows.
+  `ordo-songs.js` adds `OrdoKit.library()`: the Library's Songs view, the Arrangement editor,
+  Arrangement details, History and Song import review. Each instance keeps its own working copy of
+  its fixture, so a page's states can edit and Undo without affecting one another.
 - `canonical-slide-layouts.html` shows the PNG gallery in `design-references/`, which the
   `canonical-slide-lab` capture test writes there.
 
