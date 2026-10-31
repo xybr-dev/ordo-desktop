@@ -25,13 +25,13 @@
     {
       slug: "semantic-palette", group: "system", title: "Semantic palette",
       summary: "Warm-paper Preparation and graphite Presenter appearances with Live, Freeze, Blackout, warning, unavailable, informational and liturgical colours.",
-      status: "approved", gate: true,
+      status: "superseded", supersededBy: "semantic-palette-v2",
       decisions: ["0208-warm-neutral-and-graphite-semantic-color-language"]
     },
     {
       slug: "semantic-palette-v2", group: "system", title: "Tokens and semantic palette", replaces: "semantic-palette",
       summary: "A live token sheet on the shared kit: Preparation and Presenter colour, operational states with their shape cues, liturgical colours as content only, type, spacing, controls, radius and elevation. Values are read from ordo.css, so revisiting the tokens updates it.",
-      status: "approved",
+      status: "approved", gate: true,
       decisions: ["0208-warm-neutral-and-graphite-semantic-color-language", "0256-refine-operator-appearance-overlays-and-bounded-output"],
       interpretations: [
         "Preparation's Dark appearance reuses the graphite Presenter values; DESIGN.md defines only Preparation (light) and Presenter (graphite) colour sets."
@@ -46,7 +46,7 @@
     {
       slug: "presenter-three-column", group: "presenter", title: "Three-column Presenter",
       summary: "Ordo titles, the grouped Cue timeline, and Preview/Program state.",
-      status: "approved", gate: true,
+      status: "superseded", supersededBy: "presenter-three-column-v2",
       decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode"],
       caveats: [
         "Presenter starts with congregation output disabled, not Live. Enabling the output creates a black Program frame.",
@@ -56,7 +56,7 @@
     {
       slug: "presenter-three-column-v2", group: "presenter", title: "Three-column Presenter", replaces: "presenter-three-column",
       summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, Program black on an unavailable Cue; 1920 and 1366 compositions.",
-      status: "approved", gate: false,
+      status: "approved", gate: true,
       decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
@@ -67,7 +67,7 @@
     {
       slug: "timeline-modes", group: "presenter", title: "Cue timeline modes",
       summary: "List and responsive grid treatments for the Cue timeline.",
-      status: "approved", gate: true,
+      status: "superseded", supersededBy: "timeline-modes-v2",
       decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size"],
       caveats: [
         "Atkinson Hyperlegible Next with Noto Sans fallback is adopted; the Arial Black controls are retired.",
@@ -77,7 +77,7 @@
     {
       slug: "timeline-modes-v2", group: "presenter", title: "Cue timeline modes", replaces: "timeline-modes",
       summary: "Visual Slide Grid and Compact Cue List on the shared kit, with operator-only rows breaking the grid in order, unavailable Cues kept in place, and a narrower window that drops a column but keeps the mode.",
-      status: "approved",
+      status: "approved", gate: true,
       decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing"]
     },
     {
@@ -129,13 +129,13 @@
     {
       slug: "presenter-high-scale", group: "presenter", title: "High-scale Presenter",
       summary: "The constrained Presenter across 100%–200% Interface scale: the main-column Program/Preview band, fixed live-output controls, Grid/List choice and the overlay-only Ordo rail.",
-      status: "approved", gate: true,
+      status: "superseded", supersededBy: "presenter-high-scale-v2",
       decisions: ["0239-approved-constrained-high-scale-presenter-acceptance"]
     },
     {
       slug: "presenter-high-scale-v2", group: "presenter", title: "High-scale Presenter", replaces: "presenter-high-scale",
       summary: "1366×768 across 100%–200% Interface scale, opening at 175%: Ordo overlay-only, a fixed side-by-side Program/Preview band with output controls beneath, and only the timeline scrolling. Frames never reflow.",
-      status: "approved",
+      status: "approved", gate: true,
       decisions: ["0239-approved-constrained-high-scale-presenter-acceptance", "0234-operator-only-interface-scaling-isolated-from-canonical", "0237-safety-first-constrained-presenter-composition"],
       interpretations: [
         "The mockup switches compositions at effective widths of 1500 and 1000 logical px. These are illustrative: production thresholds come from effective dimensions and qualified minimum region sizes (Decisions 234 and 237)."
@@ -144,7 +144,7 @@
     {
       slug: "incomplete-preflight", group: "presenter", title: "Incomplete preflight",
       summary: "Centred, viewport-bounded acknowledgment for incomplete Presenter entry, with a route back to Readiness.",
-      status: "approved",
+      status: "superseded", supersededBy: "incomplete-preflight-v2",
       decisions: ["0051-automatic-presenter-preflight", "0178-automatic-presenter-handoff-with-focused-incomplete-content"]
     },
     {
@@ -159,13 +159,13 @@
     {
       slug: "mass-planning-responsive", group: "planning", title: "Mass Planning, 1366 and 1920",
       summary: "The three-pane hierarchy at 1366x768 and 1920x1080, holding one Song and canonical Cue constant.",
-      status: "approved", gate: true,
+      status: "superseded", supersededBy: "mass-planning-responsive-v2",
       decisions: ["0240-approved-paired-mass-planning-responsive-acceptance"]
     },
     {
       slug: "mass-planning-responsive-v2", group: "planning", title: "Mass Planning, 1366 and 1920", replaces: "mass-planning-responsive",
       summary: "The three-pane hierarchy on the shared kit at 1366×768 and 1920×1080, holding the same Mass, Song item, Arrangement and Cue. Interactive: outline, generated Cues and Inspector stay in sync.",
-      status: "approved",
+      status: "approved", gate: true,
       decisions: ["0240-approved-paired-mass-planning-responsive-acceptance", "0169-inspector-navigation-follows-the-selected-mass-item-s-cue", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0257-make-library-a-multi-view-destination-with-revision-bound"],
       interpretations: [
         "The global rail shows Library rather than Songs (Decision 257).",
@@ -176,7 +176,7 @@
     {
       slug: "inspector-cue-navigation", group: "planning", title: "Inspector Cue navigation",
       summary: "Cue navigation synchronised between the editor and Inspector; black output plus private context for operator-only triggers; item boundaries.",
-      status: "approved",
+      status: "superseded", supersededBy: "inspector-cue-navigation-v2",
       decisions: ["0169-inspector-navigation-follows-the-selected-mass-item-s-cue"]
     },
     {
@@ -221,7 +221,7 @@
     {
       slug: "song-library-master-detail", group: "songs", title: "Song Library",
       summary: "Persistent Song search and results on the left; the selected Song's identity and Arrangements on the right.",
-      status: "approved",
+      status: "superseded", supersededBy: "song-library-master-detail-v2",
       decisions: ["0132-persistent-song-library-master-detail-workspace", "0133-arrangement-level-song-library-filtering", "0134-normalized-song-library-search-scope", "0219-empty-song-library-within-the-permanent-master-detail"]
     },
     {
@@ -273,7 +273,7 @@
     {
       slug: "song-import-review", group: "songs", title: "Song import review",
       summary: "Automatic-first classification, evidence review, read-only comparison, and atomic commit staging.",
-      status: "approved",
+      status: "superseded", supersededBy: "song-import-review-v2",
       decisions: ["0135-automatic-first-song-import-review-and-content-comparison"]
     },
     {
@@ -290,7 +290,7 @@
     {
       slug: "arrangement-details", group: "songs", title: "Arrangement details",
       summary: "The adaptive Arrangement-details slideover for staged creation and shared-record editing.",
-      status: "approved",
+      status: "superseded", supersededBy: "arrangement-details-v2",
       decisions: ["0117-arrangement-metadata-boundary-and-staged-details-surface", "0118-first-arrangement-creation-transition-and-empty-state"],
       caveats: [
         "The Edit existing / Create new switch is an exploration control, not slideover chrome. The mode comes from the entry path and the header has no toggle."
@@ -311,7 +311,7 @@
     {
       slug: "hybrid-ux", group: "songs", title: "Sections, Arrangements and frozen Preview",
       summary: "Reusable Song sections, choir Arrangement authoring, and Preview selection while frozen.",
-      status: "approved",
+      status: "superseded", supersededBy: "hybrid-ux-v2",
       decisions: ["0106-mass-local-arrangement-copy-and-repeated-section-linking", "0115-arrangement-sections-inline-slide-boundaries-and-two-task", "0011-program-preview-freeze-and-blackout-semantics"],
       caveats: [
         "Different Arrangements own independent section text, sequence and pagination; edits do not propagate between choir Arrangements.",
@@ -333,7 +333,7 @@
     {
       slug: "arrangement-pagination", group: "songs", title: "Arrangement pagination",
       summary: "Encode-once Song sections and deterministic slide pagination.",
-      status: "approved",
+      status: "superseded", supersededBy: "arrangement-pagination-v2",
       decisions: ["0018-lyric-pagination", "0116-keyboard-first-lyric-pagination-and-generated-slide", "0168-owner-directed-pagination-correction-instead-of-a-review"],
       caveats: [
         "Different Arrangements own independent section text, sequence and pagination; edits do not propagate between choir Arrangements."
@@ -353,7 +353,7 @@
     {
       slug: "history-revision", group: "songs", title: "History and revisions",
       summary: "Grouped Song/Arrangement History, current-versus-revision comparison, guarded whole-entity restoration, and immediate Undo feedback.",
-      status: "approved",
+      status: "superseded", supersededBy: "history-revision-v2",
       decisions: ["0140-fine-grained-durable-revisions-with-grouped-history", "0141-song-and-arrangement-history-session-boundaries", "0142-entity-owned-song-and-arrangement-history-surface", "0143-song-and-arrangement-revision-comparison-and-restoration"]
     },
     {
@@ -473,20 +473,20 @@
   // Operator journeys from MVP-PLAN.md §4, as chains of pages.
   var FLOWS = [
     { title: "Build the Song library (MVP-PLAN 4.1)", steps: [
-      ["song-library-master-detail", "search or create a Song"], ["song-import-review", "or review an import"],
-      ["arrangement-details", "add an Arrangement"], ["hybrid-ux", "encode sections once"],
-      ["arrangement-pagination", "review pagination"], ["history-revision", "revise or restore"] ] },
+      ["song-library-master-detail-v2", "search or create a Song"], ["song-import-review-v2", "or review an import"],
+      ["arrangement-details-v2", "add an Arrangement"], ["hybrid-ux-v2", "encode sections once"],
+      ["arrangement-pagination-v2", "review pagination"], ["history-revision-v2", "revise or restore"] ] },
     { title: "Prepare a Mass (MVP-PLAN 4.2)", steps: [
-      ["liturgy-import", "import the readings"], ["mass-planning-responsive", "build the plan"], ["inspector-cue-navigation", "inspect each Cue"],
-      ["incomplete-preflight", "resolve readiness"] ] },
+      ["liturgy-import", "import the readings"], ["mass-planning-responsive-v2", "build the plan"], ["inspector-cue-navigation-v2", "inspect each Cue"],
+      ["incomplete-preflight-v2", "resolve readiness"] ] },
     { title: "Carry a Celebration to the church PC (MVP-PLAN 4.3)", steps: [
       ["masses-index", "open the Celebration's menu"], ["transfer-backup", "export, then import and review"] ] },
     { title: "Reuse for another Celebration (Decision 36)", steps: [
       ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
       ["liturgy-import", "replace readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
-      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-replace", "replace a Song live"], ["presenter-edit", "correct a slide live"], ["presenter-faults", "when something fails"],
-      ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }
+      ["incomplete-preflight-v2", "Present: preflight and handoff"], ["presenter-three-column-v2", "Live Control"], ["presenter-insert", "insert a Song live"], ["presenter-replace", "replace a Song live"], ["presenter-edit", "correct a slide live"], ["presenter-faults", "when something fails"],
+      ["timeline-modes-v2", "list or grid timeline"], ["presenter-high-scale-v2", "at high Interface scale"] ] }
   ];
 
   // Caveats that hold for every HTML exploration.
@@ -579,7 +579,7 @@
     }
     if (p.replaces) {
       var old = page(p.replaces);
-      left.appendChild(el("p", {}, [p.status === "proposed" ? "Proposed to replace " : "Replaces ", el("a", { href: old.slug + ".html", text: "the approved " + old.title }), p.status === "proposed" ? " once a decision accepts it." : ", which stays until it is retired."]));
+      left.appendChild(el("p", {}, p.status === "proposed" ? ["Proposed to replace ", el("a", { href: old.slug + ".html", text: "the approved " + old.title }), " once a decision accepts it."] : ["Replaces ", el("a", { href: old.slug + ".html", text: "the earlier " + old.title }), "."]));
     }
     proposals(p).forEach(function (r) {
       left.appendChild(el("p", {}, ["A proposed replacement is waiting: ", el("a", { href: r.slug + ".html", text: r.title + " (proposed)" }), "."]));
@@ -609,12 +609,12 @@
 
     var main = document.querySelector("[data-mk-index]");
     var filter = el("div", { "class": "mk-filter", role: "group", "aria-label": "Filter by status" });
-    var current = "all";
+    var current = "current";
     function setFilter(s) {
       current = s;
       filter.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.s === s)); });
       main.querySelectorAll(".mk-tile").forEach(function (t) {
-        var ok = s === "all" || t.dataset.status === s || (s === "gate" && t.dataset.gate === "true") ||
+        var ok = s === "all" || (s === "current" && t.dataset.status !== "superseded") || t.dataset.status === s || (s === "gate" && t.dataset.gate === "true") ||
           (s === "caveats" && t.dataset.caveats === "true");
         t.hidden = !ok;
       });
@@ -622,10 +622,10 @@
         sec.hidden = !sec.querySelector(".mk-tile:not([hidden])");
       });
     }
-    [["all", "All"], ["approved", "Approved"], ["gate", "Acceptance references"], ["caveats", "Partly superseded"],
-     ["proposed", "Proposed"], ["superseded", "Superseded"], ["research", "Research"]].forEach(function (f) {
+    [["current", "Current"], ["approved", "Approved"], ["gate", "Acceptance references"], ["caveats", "Partly superseded"],
+     ["proposed", "Proposed"], ["superseded", "Superseded"], ["research", "Research"], ["all", "All"]].forEach(function (f) {
       var n = f[0] === "all" ? PAGES.length : PAGES.filter(function (p) {
-        return f[0] === "gate" ? p.gate : f[0] === "caveats" ? (p.caveats || []).length : p.status === f[0];
+        return f[0] === "current" ? p.status !== "superseded" : f[0] === "gate" ? p.gate : f[0] === "caveats" ? (p.caveats || []).length : p.status === f[0];
       }).length;
       var b = el("button", { type: "button", "data-s": f[0], text: f[1] + " (" + n + ")" });
       b.addEventListener("click", function () { setFilter(f[0]); });
@@ -640,7 +640,8 @@
           "class": "mk-tile", href: p.slug + ".html", "data-status": p.status,
           "data-gate": String(!!p.gate), "data-caveats": String(!!(p.caveats || []).length)
         }, [el("h3", { text: p.title }), chips(p), el("p", { text: p.summary }),
-            p.replaces ? el("p", { text: "Would replace the approved page of the same name." }) :
+            p.supersededBy ? el("p", { text: "Replaced by the page of the same name." }) :
+              p.replaces && p.status === "proposed" ? el("p", { text: "Would replace the approved page of the same name." }) :
               proposals(p).length ? el("p", { text: "A regenerated version is proposed." }) : null,
             el("div", { "class": "mk-dec" }, ["Decisions " + p.decisions.map(function (d) { return d.slice(0, 4); }).join(", ")])]));
       });
@@ -660,7 +661,7 @@
 
     main.appendChild(el("section", { "class": "mk-global" }, [el("h2", { text: "Holds for every HTML exploration" }),
       el("ul", {}, GLOBAL_CAVEATS.map(function (c) { return el("li", { text: c }); }))]));
-    setFilter("all");
+    setFilter("current");
   }
 
   applyTheme(readTheme());

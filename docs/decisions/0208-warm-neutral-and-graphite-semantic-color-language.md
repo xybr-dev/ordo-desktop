@@ -8,11 +8,13 @@ tags: [ui]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [294]
 sources: []
 ---
 
 # Warm-neutral and graphite semantic color language
+
+> **Amended by Decision [294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md).** The reference this record names is now its `-v2` page; the v1 page is kept as superseded. The rest of this record stands.
 
 - Use the approved warm-paper preparation appearance and neutral graphite Presenter appearance as two coordinated applications of the same semantic token system.
 - Use restrained forest green for primary actions and selection. Use a brighter but controlled green for **Live**, amber for **Freeze** and warning/incomplete conditions, near-black with a clear light label and border for **Blackout**, muted red for error/destructive conditions, and restrained blue for neutral information.

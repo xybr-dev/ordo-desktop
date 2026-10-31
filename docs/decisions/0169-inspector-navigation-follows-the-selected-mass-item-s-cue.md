@@ -8,11 +8,13 @@ tags: [mass-plan, ui]
 supersedes: []
 superseded_by: null
 amends: [11]
-amended_by: []
+amended_by: [294]
 sources: []
 ---
 
 # Inspector navigation follows the selected Mass item's Cue order
+
+> **Amended by Decision [294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md).** The reference this record names is now its `-v2` page; the v1 page is kept as superseded. The rest of this record stands.
 
 - This narrowly supersedes Decision [11](0011-program-preview-freeze-and-blackout-semantics.md)'s ambiguous operator-only Preview
   wording: the canonical Preview frame is black, while private prompt, role,

@@ -8,11 +8,13 @@ tags: [presenter, ui]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [294]
 sources: []
 ---
 
 # Automatic Presenter handoff with focused incomplete-content acknowledgment
+
+> **Amended by Decision [294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md).** The reference this record names is now its `-v2` page; the v1 page is kept as superseded. The rest of this record stands.
 
 - Make **Present** finish pending autosave and prepare a presentation candidate from the exact current Mass-plan revision. Reuse the latest Presentation snapshot when presentation-relevant content is unchanged; otherwise persist a new immutable snapshot only after the operator actually proceeds into Presenter Mode.
 - Run automatic preflight against that exact candidate. Enter Presenter Mode directly for a clean result or review-only warnings; do not impose an approval dialog or checklist on ordinary entry.

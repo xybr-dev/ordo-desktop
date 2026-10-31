@@ -8,11 +8,13 @@ tags: [mass-plan]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [294]
 sources: []
 ---
 
 # Approved paired Mass Planning responsive acceptance reference
+
+> **Amended by Decision [294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md).** The reference this record names is now its `-v2` page; the v1 page is kept as superseded. The rest of this record stands.
 
 - Approve `design-references/ordo-mass-planning-responsive.html` and its standalone rendering (now [`docs/mockups/mass-planning-responsive.html`](../mockups/mass-planning-responsive.html), Decision [271](0271-mockups-are-one-page-per-screen-with-a-status-each.md)) as the paired Mass Planning visual-acceptance reference for `1366x768` and `1920x1080` at `100%` Interface scale.
 - Use one identical selected Song item, Arrangement, generated Cue, canonical Slide, Mass plan, and application state in both views so the comparison demonstrates responsive composition rather than different content or a separate workspace mode.

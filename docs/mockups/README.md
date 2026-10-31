@@ -56,6 +56,8 @@ Two flags sit beside the status: `gate: true` marks an *Acceptance reference* na
    Approving a page never happens in the page alone.
 4. To replace a page, add the new one as `proposed`; when it is approved, mark the old one
    `superseded` with `supersededBy`. A detail replaced by a decision goes into `caveats` instead.
+   The newest page is canonical: an acceptance reference moves to it, and the index hides
+   superseded pages until the *Superseded* or *All* filter is chosen (Decision 294).
 5. A regenerated page is `<old-slug>-v2.html` on the kit, with `replaces: "<old-slug>"` and an
    `interpretations` list naming every place it fills a gap the decisions leave open.
 6. A page that becomes an acceptance reference gets `gate: true` and a line in `DESIGN.md`.
