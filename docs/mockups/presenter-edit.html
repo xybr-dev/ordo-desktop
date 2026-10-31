@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emergency edit — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-edit">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Live on the Entrance Song chorus, interactive</h2>
+    <p>Click the Presenter, then press <span class="o-kbd">Ctrl+E</span> (or <b>Edit slide</b> above the timeline). Program freezes on the slide as it is; the edit panel opens over the timeline with the text focused. Every keystroke saves to this Mass plan and updates Preview only. <span class="o-kbd">Esc</span> or <span class="o-kbd">Ctrl+Enter</span> closes it; <span class="o-kbd">Space</span> takes the correction live.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Editing a reused Song section</h2>
+    <p>The choir sings a different second line. The chorus appears twice in this Mass, so by default the correction applies to both; the Library Arrangement stays as it was. Preview (in the panel and the Output Dock) shows the correction while Program still shows the old slide.</p>
+    <div id="edit-all"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Only this slide</h2>
+    <p>The operator limits the correction to this occurrence; the other chorus keeps the Library words.</p>
+    <div id="edit-one"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Done: Preview corrected, Program still frozen</h2>
+    <p>Both chorus slides are marked <b>Edited</b>, the item <b>Edited live · Mass-local</b>, and the Ordo rail shows it too. Program still holds the old frame; <span class="o-kbd">Space</span> takes the correction live. After Mass the edit can be offered back to the Library through a review.</p>
+    <div id="done"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. A reading from the imported liturgy</h2>
+    <p>Same panel, with the reading’s text and reference. The imported liturgy isn’t changed; the correction belongs to this Mass.</p>
+    <div id="reading"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Ctrl+E on an operator-only Cue</h2>
+    <p>Nothing opens and Program doesn’t freeze. The message says why; <b>Edit slide</b> is disabled while such a Cue is in Preview.</p>
+    <div id="trigger"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Rehearsal, output disabled</h2>
+    <p>With no congregation output there is nothing to freeze; the edit still saves to this Mass plan.</p>
+    <div id="rehearsal"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var KORO = 4, READING = 16, GREETING = 7;
+    var live = { w: 1366, h: 768, state: { output: "enabled" }, live: true, preview: KORO, program: KORO };
+    function show(id, setup, o) { var p = OrdoKit.presenter(document.getElementById(id), Object.assign({}, live, o || {})); if (setup) setup(p); }
+    var fix = { b: "Daygon, daygon ta\nang balaan nga ngalan" };
+    show("live");
+    show("edit-all", function (p) { p.edit(KORO, { draft: fix }); });
+    show("edit-one", function (p) { p.edit(KORO, { draft: fix, scope: "one" }); });
+    show("done", function (p) { p.edit(KORO, { draft: fix, done: true }); });
+    show("reading", function (p) { p.edit(READING, { draft: { b: "Mao kini ang giingon sa Ginoo: Pag-awit sa kalipay alang kang Jacob, pagsinggit alang sa nag-una sa mga nasud." } }); }, { preview: READING, program: READING });
+    show("trigger", function (p) { p.app.dispatchEvent(new KeyboardEvent("keydown", { key: "e", ctrlKey: true, bubbles: true })); }, { preview: GREETING, program: null });
+    show("rehearsal", function (p) { p.edit(KORO, { draft: fix }); }, { state: { output: "disabled" }, live: false, program: null });
+  });
+</script>
+</body>
+</html>

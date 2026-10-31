@@ -178,7 +178,7 @@
     wrapper.appendChild(app);
 
     // Each Presenter owns a copy of the Mass so live inserts never leak into other mockups.
-    var M = cloneMass(), ITEMS = [], CUES = [];
+    var M = cloneMass(), ITEMS = [], CUES = [], UID = presenter.n = (presenter.n || 0) + 1;   // radio groups stay per Presenter
     function reindex() {
       ITEMS.length = 0; CUES.length = 0;
       M.sections.forEach(function (sec, si) { sec.items.forEach(function (it) {
@@ -237,7 +237,7 @@
       var c = CUES[S.preview];
       if (c.k === "unavailable") { say("Can't take an unavailable Cue live: " + c.why + "."); return; }
       S.program = projectable(c) ? S.preview : (c.k === "wait" ? S.program : null);
-      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; say("");
+      S.live = true; S.frozen = false; S.blackout = false; S.frozenReason = ""; S.blackReason = ""; S.held = null; say("");
     }
     // F and B toggle; releasing either does exactly what Space does (Decision 273)
     function freeze() {
@@ -267,7 +267,7 @@
     }
     function programSlide() {
       if (S.output !== "enabled") return '<div class="o-slide"><div class="o-slide-state"><div>No congregation window<br><span style="font-weight:400">Output is disabled</span></div></div></div>';
-      return '<div class="o-slide"><div class="o-canvas-host">' + canvas(S.program == null ? null : CUES[S.program]).replace('class="o-canvas"', 'class="o-canvas"' + (S.blackout ? ' data-dim="true"' : "")) + "</div></div>";
+      return '<div class="o-slide"><div class="o-canvas-host">' + canvas(S.program == null ? null : S.frozen && S.held ? S.held : CUES[S.program]).replace('class="o-canvas"', 'class="o-canvas"' + (S.blackout ? ' data-dim="true"' : "")) + "</div></div>";
     }
     function previewSlide() {
       var c = CUES[S.preview];
@@ -295,14 +295,14 @@
       var airAttr = air ? ' data-onair="' + air + '"' : "";
       if (S.mode === "grid" && (projectable(c) || c.k === "unavailable")) {
         return '<button class="pr-tile" data-cue="' + c.i + '"' + cur + '><div class="o-slide-wrap"' + cur + airAttr + ">" + slide(c) + "</div>" +
-          '<div class="o-caption"><span class="o-n">' + c.item.n + "." + (c.ci + 1) + '</span><span class="o-t">' + esc(KIND_LABEL[c.k] === "Unavailable" ? "Unavailable · " + c.b : cueLabel(c)) + "</span>" + onAir + "</div></button>";
+          '<div class="o-caption"><span class="o-n">' + c.item.n + "." + (c.ci + 1) + '</span><span class="o-t">' + esc(KIND_LABEL[c.k] === "Unavailable" ? "Unavailable · " + c.b : cueLabel(c)) + "</span>" + (c.edited ? '<span class="pl-chip">' + icon("pencil") + "Edited</span>" : "") + onAir + "</div></button>";
       }
       var lead = c.k === "trigger" ? '<span class="pr-who">' + esc(c.who) + "</span>" :
         c.k === "wait" ? icon("hourglass") : c.k === "hold" ? icon("square") :
         c.k === "unavailable" ? icon("circle-off") : '<span class="pr-mini">' + slide(c) + "</span>";
       var kind = c.k === "unavailable" ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : '<span class="o-meta">' + KIND_LABEL[c.k] + "</span>";
       return '<button class="o-row pr-row" data-cue="' + c.i + '"' + (cur ? ' aria-selected="true"' : "") + airAttr + '><span class="o-n o-meta">' + c.item.n + "." + (c.ci + 1) + "</span>" + lead +
-        '<span class="o-grow o-ellipsis">' + esc(cueLabel(c)) + "</span>" + kind + onAir + "</button>";
+        '<span class="o-grow o-ellipsis">' + esc(cueLabel(c)) + "</span>" + (c.edited ? '<span class="pl-chip">' + icon("pencil") + "Edited</span>" : "") + kind + onAir + "</button>";
     }
     function preflight() {
       if (!S.preflight) return "";
@@ -314,13 +314,15 @@
         }).join("") + "</section>";
     }
     function timeline() {
-      var html = preflight() + '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button></div>';
+      var html = preflight() + '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button>' +
+        '<button class="o-btn" data-act="ins-edit"' + (projectable(CUES[S.preview]) && !CUES[S.preview].img ? "" : ' disabled title="Ctrl+E edits projectable slides"') + ">" + icon("pencil") + 'Edit slide <span class="o-kbd">Ctrl+E</span></button></div>';
       ITEMS.forEach(function (it) {
         var open = !S.collapsed[it.n];
         var bad = it.cues.some(function (c) { return c.k === "unavailable"; });
         html += '<section class="pr-group" data-item="' + it.n + '"><button class="pr-group-head" data-toggle="' + it.n + '" aria-expanded="' + open + '">' + icon(open ? "chevron-down" : "chevron-right") +
           '<span class="o-n o-meta">' + it.n + "</span><b>" + esc(it.title) + "</b>" + (it.song ? '<span class="o-meta">' + esc(it.song) + "</span>" : "") +
-          (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + "2 unavailable</span>" : "") +
+          (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") +
+          (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">' + icon("pencil") + "Edited live · Mass-local</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + "2 unavailable</span>" : "") +
           '<span class="o-meta">' + it.cues.length + (it.cues.length === 1 ? " Cue" : " Cues") + "</span></button>";
         if (open) {
           html += '<div class="pr-cues" data-mode="' + S.mode + '">';
@@ -342,7 +344,7 @@
       M.sections.forEach(function (sec) {
         html += '<div class="o-section-label">' + esc(sec.title) + "</div>";
         sec.items.forEach(function (it) {
-          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span>" + (it.inserted ? '<span class="pl-chip">Inserted</span>' : "") + "</button>";
+          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span>" + (it.inserted ? '<span class="pl-chip">Inserted</span>' : "") + (it.cues.some(function (c) { return c.edited; }) ? '<span class="pl-chip">Edited</span>' : "") + "</button>";
         });
       });
       var head = '<div class="o-pane-head"><b>Ordo</b><span class="o-grow"></span>' +
@@ -453,6 +455,7 @@
     }
     function insertPanel() {
       if (!S.ins) return "";
+      if (S.ins.kind === "edit") return editPanel();
       var d = S.ins, a = insAnchor(), cues = chosenCues(), searching = (d.kind === "song" || d.kind === "resp") && !d.create;
       var ok = d.create ? d.create.title.trim() && slidesOf(d.create.text).length : d.kind === "general" ? d.mode === "Image" || d.text.trim() : results().length > 0;
       var label = d.create ? "Insert typed Song" : d.kind === "song" ? "Insert Song" : d.kind === "resp" ? "Insert Response sequence" : "Insert slide";
@@ -475,6 +478,7 @@
       else insertItem({ title: r.x.t, type: "Response sequence", cues: r.x.cues.map(function (c) { return Object.assign({}, c); }) });
     }
     function insAct(a, t) {
+      if (a.indexOf("ins-ed") === 0) return edAct(a, t);
       if (a === "ins-open") openInsert();
       else if (a === "ins-close") closeInsert();
       else if (a === "ins-kind") { S.ins.kind = t.dataset.v; S.ins.q = ""; S.ins.active = 0; S.ins.create = null; }
@@ -486,6 +490,7 @@
       return true;
     }
     function insKey(e) {
+      if (S.ins.kind === "edit") return edKey(e);
       var k = e.key, d = S.ins;
       if (k === "Escape") { e.preventDefault(); if (d.create) d.create = null; else closeInsert(); render(); return; }
       if (e.altKey) { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); d.kind = m; d.q = ""; d.active = 0; d.create = null; render(); } return; }
@@ -495,6 +500,96 @@
         else if (k === "Enter") { e.preventDefault(); if (n) insSave(); else if (d.kind === "song" && d.q.trim()) insAct("ins-create"); render(); }
       }
       // Other keys belong to the focused field; no single-key Presenter command runs (MVP-PLAN §8.2).
+    }
+
+    // ── Emergency edit (MVP-PLAN §8.5, Decision 12; Decision 291) ────────────────────
+    // Ctrl+E Freezes Program and opens the selected projectable Cue in the same panel as Insert.
+    // Program keeps its frame; each keystroke autosaves a Mass-local override and updates
+    // Preview only. A reused Song section updates every linked occurrence in this Mass unless
+    // the operator limits it to this one. Space takes the corrected Preview live.
+    var ED_FIELDS = {
+      "song-id": [["t", "Title"], ["s", "Credit line"]], celebration: [["t", "Title"], ["s", "Subtitle"]],
+      lyrics: [["h", "Section label"], ["b", "Lyrics"]], psalm: [["h", "Heading"], ["b", "Text"], ["f", "Reference"]],
+      response: [["h", "Heading"], ["b", "Text"]], "reading-id": [["b", "Title"], ["f", "Reference"]],
+      reading: [["b", "Text"], ["f", "Reference"]], general: [["h", "Heading"], ["b", "Text"], ["f", "Footer"]]
+    };
+    function edFields(c) { return c.img ? [] : ED_FIELDS[c.k] || [["b", "Text"]]; }
+    function pick(c, fs) { var o = {}; fs.forEach(function (f) { o[f[0]] = c[f[0]] == null ? "" : c[f[0]]; }); return o; }
+    function edSource(c) {
+      var it = c.item;
+      if (it.local) return ["file-pen", "Song typed for this Mass · already Mass-local"];
+      if (it.inserted && it.type !== "Song") return ["file-pen", "Inserted live · already Mass-local"];
+      if (it.type === "Song") return ["library", "From the Library Arrangement " + it.song + " · the Library isn’t changed"];
+      if (it.type === "Reading" || it.type === "Psalm") return ["book-open", "From the imported liturgy · the imported text isn’t changed"];
+      if (it.type === "Response sequence") return ["messages-square", "From Responses & Prayers · the Library entry isn’t changed"];
+      return ["presentation", "General Presentation in this Mass"];
+    }
+    function openEdit() {
+      var c = CUES[S.preview];
+      if (c.k === "unavailable") { say("Can’t edit an unavailable Cue: " + c.why + ". Use Insert to put something in its place."); return; }
+      if (!projectable(c)) { say("Ctrl+E edits projectable slides; this " + KIND_LABEL[c.k].toLowerCase() + " is never shown."); return; }
+      if (c.img) { say("A picture can’t be edited live. Use Insert to add another one."); return; }
+      if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "editing"; }
+      else if (S.frozen && /ready$/.test(S.frozenReason)) S.frozenReason = "editing";
+      if (S.frozen && S.program != null && !S.held) S.held = Object.assign({}, CUES[S.program]);   // Program keeps its frame
+      var fs = edFields(c);
+      var links = c.item.type === "Song" ? CUES.filter(function (x) { return x.k === c.k && x.item.song === c.item.song && x.h === c.h && x.b === c.b; }).map(function (x) { return x.i; }) : [c.i];
+      var before = {}; links.forEach(function (i) { before[i] = pick(CUES[i], fs); if (!CUES[i].base) CUES[i].base = pick(CUES[i], fs); });
+      S.ins = { kind: "edit", cue: c.i, fs: fs, links: links, before: before, draft: pick(c, fs), scope: "all", saved: false }; say("");
+    }
+    function edTargets(d) { return d.scope === "one" ? [d.cue] : d.links; }
+    function applyEdit() {
+      var d = S.ins, on = edTargets(d);
+      d.links.forEach(function (i) {
+        var c = CUES[i], v = on.indexOf(i) >= 0 ? d.draft : d.before[i];
+        d.fs.forEach(function (f) { c[f[0]] = v[f[0]]; });
+        c.edited = d.fs.some(function (f) { return c[f[0]] !== c.base[f[0]]; });
+      });
+      d.saved = true; d.dirty = true;
+    }
+    function closeEdit() {
+      var d = S.ins, c = CUES[d.cue], n = edTargets(d).length;
+      S.ins = null;
+      if (S.frozenReason === "editing") S.frozenReason = d.dirty ? "Edit ready" : "";
+      if (d.dirty && !c.edited) { say("Back to the original words. Saved to this Mass plan. " + (S.frozen ? "Program is still frozen; Space takes it live." : "")); return; }
+      if (!c.edited) { say(S.frozen ? "No change. Program is still frozen; Space or F takes Preview live." : ""); return; }
+      say("Corrected " + cueLabel(c).split(" · ")[0] + (n > 1 ? " in " + n + " places" : "") + ". Saved to this Mass plan only. " +
+        (S.frozen ? "Program is still frozen; Space takes the correction live." : S.output === "enabled" ? "Space takes it live." : ""));
+    }
+    function editPanel() {
+      var d = S.ins, c = CUES[d.cue], src = edSource(c), base = Object.assign({}, c, c.base), n = d.links.length;
+      var fields = d.fs.map(function (f) {
+        var v = esc(d.draft[f[0]]), big = f[0] === "b" && c.k !== "reading-id";
+        return '<label class="sh-field"><span class="o-label">' + f[1] + "</span>" + (big ? '<textarea class="pl-input" rows="' + (c.k === "reading" ? 7 : 4) + '" data-qin="ed.' + f[0] + '">' + v + "</textarea>" : '<input class="pl-input" data-qin="ed.' + f[0] + '" value="' + v + '">') + "</label>";
+      }).join("");
+      var scope = n > 1 ? '<fieldset class="pr-ed-scope"><legend class="o-label">Apply to</legend>' +
+        '<label class="o-radio"><input type="radio" name="ed-scope-' + UID + '" data-act="ins-ed-scope" data-v="all"' + (d.scope === "all" ? " checked" : "") + "><span><b>All " + n + " “" + esc(c.h || cueLabel(c)) + "” slides in this Mass</b><span class=\"o-meta\">Cues " + d.links.map(function (i) { return CUES[i].item.n + "." + (CUES[i].ci + 1); }).join(", ") + " · the same section sung again</span></span></label>" +
+        '<label class="o-radio"><input type="radio" name="ed-scope-' + UID + '" data-act="ins-ed-scope" data-v="one"' + (d.scope === "one" ? " checked" : "") + "><span><b>Only this slide</b><span class=\"o-meta\">Cue " + c.item.n + "." + (c.ci + 1) + " · the others keep the Library words</span></span></label></fieldset>" : "";
+      var state = S.frozen ? "Program frozen" : S.output === "enabled" ? "Program not live" : "Rehearsal: output disabled";
+      return '<section class="pr-ins-panel pr-ed-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">Edit slide</h2>' +
+        '<div class="o-meta">' + icon("pencil") + "<b>" + esc(c.item.title) + "</b> · Cue " + c.item.n + "." + (c.ci + 1) + " · " + KIND_LABEL[c.k] + " · " + state + "</div>" +
+        '<div class="o-meta">' + icon(src[0]) + esc(src[1]) + "</div></div>" +
+        '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-ed-done" aria-label="Done" title="Done (Esc)">' + icon("x") + "</button></div>" +
+        '<div class="pr-ins-split"><div class="pr-ins-main sh-form">' + fields + scope + "</div>" +
+        '<div class="pr-ins-prev"><div class="o-label">Now in Preview</div>' + slide(c) +
+        '<div class="o-label">' + (c.item.type === "Song" && !c.item.local ? "Library" : "Before") + (c.edited ? "" : " · unchanged") + "</div>" + slide(base) +
+        (S.frozen ? '<span class="o-meta">Program keeps showing the old slide until you take Preview live.</span>' : "") + "</div></div>" +
+        '<div class="pr-ins-foot"><span class="o-meta">' + (d.saved ? icon("check") + "Saved to this Mass plan · Mass-local" : "Changes save as you type, to this Mass plan only") + ' · <span class="o-kbd">Esc</span> done</span>' +
+        '<span class="o-grow"></span><button class="o-btn" data-act="ins-ed-revert"' + (c.edited || d.links.some(function (i) { return CUES[i].edited; }) ? "" : " disabled") + ">" + icon("undo-2") + (c.item.local || c.item.inserted ? "Undo edits" : c.item.type === "Song" ? "Back to Library words" : c.item.type === "Reading" || c.item.type === "Psalm" ? "Back to imported text" : "Back to original") + "</button>" +
+        '<button class="o-btn o-btn--primary" data-act="ins-ed-done">Done <span class="o-kbd" style="color:inherit;border-color:currentColor">Ctrl+Enter</span></button></div></section>';
+    }
+    function edAct(a, t) {
+      var d = S.ins;
+      if (a === "ins-edit") openEdit();
+      else if (a === "ins-ed-scope") { d.scope = t.dataset.v; applyEdit(); }
+      else if (a === "ins-ed-revert") { d.draft = pick(Object.assign({}, CUES[d.cue], CUES[d.cue].base), d.fs); d.links.forEach(function (i) { d.before[i] = pick(Object.assign({}, CUES[i], CUES[i].base), d.fs); }); applyEdit(); }
+      else if (a === "ins-ed-done") closeEdit();
+      else return false;
+      return true;
+    }
+    function edKey(e) {
+      if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); closeEdit(); render(); app.focus({ preventScroll: true }); }
+      // Everything else belongs to the focused field; no single-key Presenter command runs.
     }
 
     function render() {
@@ -521,7 +616,7 @@
       if (S.ins) {
         var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
         if (pn) pn.style.right = (dk ? dk.offsetWidth : 0) + "px";
-        var f = app.querySelector('[data-qin="' + (fk || "") + '"]') || app.querySelector("[data-qin]") || pn;
+        var f = app.querySelector('[data-qin="' + (fk || "") + '"]') || app.querySelector('[data-qin="ed.b"], [data-qin="q"]') || app.querySelector("[data-qin]") || pn;
         if (f) { f.focus({ preventScroll: true }); if (caret != null && f.setSelectionRange) try { f.setSelectionRange(caret, caret); } catch (e) { /* not text */ } }
         var on = app.querySelector('.pr-qi-row[aria-selected="true"]'); if (on) on.scrollIntoView({ block: "nearest" });
       }
@@ -530,7 +625,7 @@
       if (tl) tl.scrollTop = kept;                     // F, B, Space and clicks never move the timeline
       if (cur && S.follow) {
         // Keep Preview in view, and the Program Cue too when both fit (Freeze or Blackout lets them differ).
-        var k = tl.getBoundingClientRect().height / tl.clientHeight || 1, pad = 56;
+        var k = tl.getBoundingClientRect().height / tl.clientHeight || 1, pad = 104;   // clears the pinned Insert row and group head
         function span(el) { var t = (el.getBoundingClientRect().top - tl.getBoundingClientRect().top) / k + tl.scrollTop; return [t, t + el.offsetHeight]; }
         var want = span(cur), prog = S.program != null && S.program !== S.preview && tl.querySelector('[data-cue="' + S.program + '"]');
         if (prog) { var ps = span(prog); if (Math.max(want[1], ps[1]) - Math.min(want[0], ps[0]) + pad <= tl.clientHeight) want = [Math.min(want[0], ps[0]), Math.max(want[1], ps[1])]; }
@@ -572,6 +667,7 @@
       });
       app.addEventListener("input", function (e) {
         var k = e.target.dataset && e.target.dataset.qin; if (!k || !S.ins) return;
+        if (k.indexOf("ed.") === 0) { S.ins.draft[k.slice(3)] = e.target.value; applyEdit(); render(); return; }
         if (k.indexOf("create.") === 0) S.ins.create[k.slice(7)] = e.target.value; else S.ins[k] = e.target.value;
         if (k === "q") S.ins.active = 0; render();
       });
@@ -579,6 +675,7 @@
         if (S.ins) { insKey(e); return; }
         var k = e.key, used = true;
         if (k === "Insert") { openInsert(); render(); e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && (k === "e" || k === "E")) { openEdit(); render(); e.preventDefault(); return; }
         if (k === "ArrowRight" || k === "ArrowDown") step(1);
         else if (k === "ArrowLeft" || k === "ArrowUp") step(-1);
         else if (k === "PageDown") jumpItem(1);
@@ -602,6 +699,7 @@
       setScale: function (s) { S.scale = s; render(); },
       setMode: function (m) { S.mode = m; render(); },
       insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
+      edit: function (cue, o) { S.preview = cue; S.follow = true; openEdit(); o = o || {}; if (S.ins) { if (o.scope) S.ins.scope = o.scope; Object.keys(o.draft || {}).forEach(function (k) { S.ins.draft[k] = o.draft[k]; }); if (o.draft || o.scope) applyEdit(); if (o.done) closeEdit(); } render(); },
       insertSong: function (title) { openInsert(); insertItem(songItem(QI_SONGS.filter(function (x) { return x.t === title; })[0])); render(); },
       state: S, render: render, app: app
     };

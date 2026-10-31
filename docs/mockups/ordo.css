@@ -975,3 +975,12 @@ a.o-btn { text-decoration: none; color: inherit; }
 .pr-ins-back { align-self: flex-start; }
 .pr-ins-img { display: flex; align-items: center; gap: var(--o-s3); padding: var(--o-s3); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); }
 .pr-ins-img .o-btn { margin-left: auto; }
+
+/* Presenter emergency edit (Ctrl+E): same panel as Insert */
+.pr-tl-tools { gap: var(--o-s2); }
+.pr-ed-panel .pr-ins-prev .o-label { margin-top: var(--o-s1, 4px); }
+.pr-ed-scope { display: flex; flex-direction: column; gap: var(--o-s2); margin: 0; padding: var(--o-s3); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); }
+.pr-ed-scope legend { padding: 0 4px; }
+.pr-ed-scope label { display: flex; gap: var(--o-s2); align-items: flex-start; cursor: pointer; }
+.pr-ed-scope label > span { display: flex; flex-direction: column; }
+.pr-ins-foot .o-meta .lucide { width: 14px; height: 14px; vertical-align: -2px; color: var(--o-live); }
