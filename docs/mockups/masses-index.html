@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Masses index — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="masses-index">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Masses → Upcoming, interactive</h2>
+    <p>What Ordo opens on (Decisions 64, 250). Each Celebration is a group with its date, season, liturgical colour, Mass count and a readiness roll-up; its Mass plans sit under it with time, language, choir, presider and readiness (Decision 83). Anticipated Masses sort with the Celebration they belong to (Decision 85). A row opens that plan in the Mass Planner. The amber button at the top right is the backup reminder (Decision 198).</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Filtered</h2>
+    <p>Language, choir and readiness filters narrow the plans; a Celebration with no matching plans says so instead of disappearing.</p>
+    <div id="filtered"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A Celebration's … menu</h2>
+    <p>Group actions: add a sibling Mass, reuse the plans for another Celebration, export the Celebration Package (Decision 191), or archive.</p>
+    <div id="menu"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. New Celebration</h2>
+    <p>Creation is Celebration-first (Decision 84): the Celebration's details, then how its first Mass plan starts. Presider and location come from the parish defaults (Decision 89).</p>
+    <div id="new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. History</h2>
+    <p>Celebrations whose date has passed move here by themselves; that isn't archiving and doesn't claim the Mass was presented (Decision 37). Older groups start collapsed.</p>
+    <div id="history"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Archive</h2>
+    <p>Archived plans are hidden from Upcoming and History. Deleting is only possible here.</p>
+    <div id="archive"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Templates</h2>
+    <p>The slot lists new Mass plans start from (Decision 76).</p>
+    <div id="templates"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. First start: Set up Ordo</h2>
+    <p>A new installation opens here, with no rail and no Skip (Decision 218).</p>
+    <div id="setup"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Starting a new parish</h2>
+    <p>Only the parish name is required. The first regular presider becomes the default for new Mass plans.</p>
+    <div id="setup-new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. A new parish with nothing planned</h2>
+    <p>After setup, Masses offers the three ways to begin (Decision 218).</p>
+    <div id="empty"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "masses" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("filtered", { setup: function (l) { l.filter("ready", "Needs work"); } });
+    show("menu", { setup: function (l) { l.menu("c1"); } });
+    show("new", { setup: function (l) { l.newCel("Christ the King"); } });
+    show("history", { setup: function (l) { l.tab("history"); } });
+    show("archive", { setup: function (l) { l.tab("archive"); } });
+    show("templates", { setup: function (l) { l.tab("templates"); } });
+    show("setup", { setup: function (l) { l.firstRun(); } });
+    show("setup-new", { setup: function (l) { l.firstRun("new", "Parokya ni San Roque"); } });
+    show("empty", { setup: function (l) { l.emptyParish().backedUp(); } });
+  });
+</script>
+</body>
+</html>

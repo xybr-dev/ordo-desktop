@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transfer & Backup — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="transfer-backup">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Transfer &amp; Backup, interactive</h2>
+    <p>The administrative home for moving Celebrations and protecting the parish (Decision 191). <b>Protect this parish</b> comes first (Decision 199), then Celebration Packages with their version history (Decision 185), then every Parish Backup, including automatic safety backups (Decision 201). One backup's drive isn't connected, so it's Unavailable, not damaged (Decision 231).</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Export celebration, choosing the Celebration</h2>
+    <p>From this page the export first asks which Celebration; from Masses it starts with the Celebration already chosen.</p>
+    <div id="pick"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Ready with warnings</h2>
+    <p>Unfinished plans can travel (Decision 192). The plan list is informational: a package is always the whole Celebration (Decision 191).</p>
+    <div id="export"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Cannot export</h2>
+    <p>Only problems that make the file untrustworthy stop it; a Celebration with no Mass plans is one.</p>
+    <div id="blocked"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. No changes since the last version</h2>
+    <p>The existing package version is copied as it is, keeping its identity (Decision 190).</p>
+    <div id="same"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Export complete</h2>
+    <p>Stays open after the file is read back and verified, with the eject reminder (Decision 196).</p>
+    <div id="exported"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Create parish backup</h2>
+    <p>Always the whole parish, with no checkboxes (Decisions 197, 199).</p>
+    <div id="backup"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Backup complete</h2>
+    <p>Verified by reading it back; this clears the reminder (Decision 198).</p>
+    <div id="backed"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Import review</h2>
+    <p>A dedicated workspace with two layers: the exact presentation installs as prepared, while library changes are staged (Decision 181). Import stays unavailable until every decision is made.</p>
+    <div id="import"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. A decision</h2>
+    <p>A possible Song match is decided in a slide-over above the workspace (Decision 183).</p>
+    <div id="decide"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. Ready to import</h2>
+    <p>With nothing left to decide, <b>Import celebration</b> commits everything at once (Decision 184).</p>
+    <div id="ready"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>L. Restore parish backup</h2>
+    <p>Current parish and Backup side by side; restore replaces, never merges. <b>Restore parish</b> stays disabled until the current parish is protected (Decision 200).</p>
+    <div id="restore"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>M. Restore confirmation</h2>
+    <p>After protection, a centred confirmation with <b>Keep current parish</b> focused.</p>
+    <div id="confirm"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>N. A damaged backup and a package's versions</h2>
+    <p>A backup that fails its checks is kept with what failed, and can't be restored (Decision 231). A package expands to its versions.</p>
+    <div id="damaged"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "transfer" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("pick", { setup: function (l) { l.export(null); } });
+    show("export", { setup: function (l) { l.export("c1"); } });
+    show("blocked", { setup: function (l) { l.export("c4"); } });
+    show("same", { setup: function (l) { l.export("c3"); } });
+    show("exported", { setup: function (l) { l.export("c1", { done: true }); } });
+    show("backup", { setup: function (l) { l.makeBackup(); } });
+    show("backed", { setup: function (l) { l.makeBackup(true); } });
+    show("import", { setup: function (l) { l.importView(); } });
+    show("decide", { setup: function (l) { l.importView().decide(); } });
+    show("ready", { setup: function (l) { l.importView({ decided: true }); } });
+    show("restore", { setup: function (l) { l.restoreView(); } });
+    show("confirm", { setup: function (l) { l.restoreView({ protected: true }).dialog("restore"); } });
+    show("damaged", { setup: function (l) { l.damaged().openPackage("p1"); } });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Themes — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="themes">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Theme library, interactive</h2>
+    <p><b>Themes</b> in the rail. The protected Ordo Black has its own section; parish Themes show a canonical preview, how many Mass plans use them, and their status (Decisions 103, 222). Click a preview or <b>Edit</b> to open the editor; change something and Save to see propagation and Undo.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Theme actions</h2>
+    <p>Edit, Rename, Duplicate, Set as parish default and Archive (Decision 103). The parish default can't be archived until another Theme takes over.</p>
+    <div id="menu"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Archived Themes shown</h2>
+    <p>An archived Theme stays with the Mass plans that already use it; it's only hidden from new choices.</p>
+    <div id="archived"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Only the built-in Theme</h2>
+    <p>Never an empty library (Decision 222): Ordo Black is there, Built in and Parish default, and <b>Create parish theme</b> starts a copy of it.</p>
+    <div id="fallback"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Theme Editor with unsaved changes</h2>
+    <p>One authoritative 16:9 frame beside Typography, Appearance and Layout (Decisions 96, 100). The specimen bar only changes the test content. Because 12 plans use Parish Dark, the warning names them before Save (Decision 97).</p>
+    <div id="editor"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Appearance with an image background</h2>
+    <p>Solid colour or one image, with Cover crop, focal point, overlay and a required fallback colour (Decision 100). This image isn't 16:9 and is under 1920 × 1080, so both advisories show (Decision 225). Contrast is computed from the composed result.</p>
+    <div id="image"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Saving a shared Theme</h2>
+    <p>Save asks once when other plans will change, and offers Duplicate instead.</p>
+    <div id="save"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. After Save</h2>
+    <p>Save feedback names the Theme and the plans updated, with Undo (Decision 98). This change made new overflow, so the toast also offers <b>Review affected plans</b> (Decision 99).</p>
+    <div id="saved"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Review affected plans</h2>
+    <p>Only plans with new problems are listed, grouped by plan, each opening at its slide.</p>
+    <div id="review"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. Leaving with unsaved changes</h2>
+    <p>Exactly three outcomes (Decision 101).</p>
+    <div id="dirty"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. Duplicate Theme</h2>
+    <p>The name starts as “… copy”; the copy carries the unsaved changes and the editor switches to it (Decision 102).</p>
+    <div id="dup"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>L. History</h2>
+    <p>Every Save is a revision with its change summary and the plans it updated; restoring makes a new revision (Decision 104).</p>
+    <div id="history"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>M. A missing background image</h2>
+    <p>The Theme renders its fallback colour, is marked Degraded, and keeps the missing reference with Replace or Remove (Decision 224).</p>
+    <div id="degraded"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>N. Ordo Black opened</h2>
+    <p>The built-in Theme can be viewed and duplicated but not edited (Decision 103).</p>
+    <div id="builtin"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "themes" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("menu", { setup: function (l) { l.menu("parish-dark"); } });
+    show("archived", { setup: function (l) { l.themeArchived(); } });
+    show("fallback", { setup: function (l) { l.noParishThemes(); } });
+    show("editor", { setup: function (l) { l.edit("parish-dark").draft({ size: 96 }); } });
+    show("image", { setup: function (l) { l.edit("ordinary-green", { group: "appearance" }); } });
+    show("save", { setup: function (l) { l.edit("parish-dark").draft({ size: 104 }).dialog("save"); } });
+    show("saved", { setup: function (l) { l.edit("parish-dark").draft({ size: 104 }).save(); } });
+    show("review", { setup: function (l) { l.edit("parish-dark").draft({ size: 104 }).save().review(); } });
+    show("dirty", { setup: function (l) { l.edit("parish-dark").draft({ size: 96 }).dialog("dirty", { then: "library" }); } });
+    show("dup", { setup: function (l) { l.edit("parish-dark").draft({ size: 96 }).duplicateDialog("parish-dark"); } });
+    show("history", { setup: function (l) { l.edit("parish-dark").history(1); } });
+    show("degraded", { setup: function (l) { l.missingImage("ordinary-green").edit("ordinary-green", { group: "appearance" }); } });
+    show("builtin", { setup: function (l) { l.edit("ordo-black"); } });
+  });
+</script>
+</body>
+</html>

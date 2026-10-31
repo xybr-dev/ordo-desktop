@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnostics — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="diagnostics">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Diagnostics, interactive</h2>
+    <p>One readable column (Decision 207): the latest completed result, then <b>Issues requiring attention</b>, each linking to the place that fixes it, then the detail rows. <b>Run full diagnostics</b> runs a fresh, read-only check (Decisions 204, 206); try Cancel while it runs.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. A detail row opened</h2>
+    <p>Each row shows its status and finding count closed; opening it shows the facts checked.</p>
+    <div id="open"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Running</h2>
+    <p>A thin progress bar under the header, per-row progress, and Cancel in place of Run. The previous result stays until the new one finishes.</p>
+    <div id="scan"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. After a cancelled run</h2>
+    <p>A cancelled run never replaces the last completed result.</p>
+    <div id="cancelled"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Healthy</h2>
+    <p>Nothing needs attention.</p>
+    <div id="healthy"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "diagnostics" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("open", { setup: function (l) { l.openDiag("data").openDiag("fonts"); } });
+    show("scan", { setup: function (l) { l.scanning(58); } });
+    show("cancelled", { setup: function (l) { l.cancelled(); } });
+    show("healthy", { setup: function (l) { l.healthy(); } });
+  });
+</script>
+</body>
+</html>

@@ -8,11 +8,13 @@ tags: []
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [282]
 sources: []
 ---
 
 # Issue-first single-column Diagnostics hierarchy
+
+> **Amended by Decision [282](0282-diagnostics-opens-from-its-own-rail-entry.md).** This page opens from the rail's own **Diagnostics** entry rather than as a Settings page; Settings keeps a link to it. The rest of this record stands.
 
 - Present **Settings → Diagnostics** as an ordinary full Settings page, not a slide-over and not a dashboard-like mosaic of cards.
 - Keep the page header compact: **Diagnostics**, the latest completed time, and **Run full diagnostics**. While scanning, replace that action with **Cancel** and place one thin overall progress indicator directly beneath the header.

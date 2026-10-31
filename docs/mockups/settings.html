@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="settings">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Settings → Parish, interactive</h2>
+    <p>Settings is a short list of pages (Decision 280). <b>Parish</b> holds the name and the defaults new Mass plans copy: regular presiders, the default presider and the default location (Decision 89). Changes save as you type.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Displays</h2>
+    <p>This computer's displays as Windows or Linux arranges them, the congregation display, <b>Identify displays</b>, and Calibration with Output Fit and a fitted preview (Decisions 46, 50, 202).</p>
+    <div id="displays"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Calibration pattern showing</h2>
+    <p>Only the calibration frame ever reaches the congregation display from Settings; Return to black ends it and records the check.</p>
+    <div id="pattern"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Identify displays</h2>
+    <p>Each display shows its number for a few seconds.</p>
+    <div id="identify"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. The congregation display changed</h2>
+    <p>Changing it asks for a calibration check before relying on the saved Output Fit (Decision 47).</p>
+    <div id="changed"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Congregation display disconnected</h2>
+    <p>It becomes Unavailable; Ordo never reassigns it silently (Decision 202).</p>
+    <div id="unavailable"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. One display</h2>
+    <p>With only the operator display, the congregation display is Not assigned and Presenter opens with output off.</p>
+    <div id="single"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Interface</h2>
+    <p>Interface scale from 100% to 200% for this computer (Decision 234). Slides keep their 1920 × 1080 composition.</p>
+    <div id="interface"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Interface at 150%</h2>
+    <p>Everything Ordo draws grows together; the slide only grows as a picture.</p>
+    <div id="scaled"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "settings" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("displays", { setup: function (l) { l.settings("displays"); } });
+    show("pattern", { setup: function (l) { l.settings("displays").disp({ pattern: true, fit: 4 }); } });
+    show("identify", { setup: function (l) { l.settings("displays").disp({ identify: true }); } });
+    show("changed", { setup: function (l) { l.settings("displays").disp({ changed: true }); } });
+    show("unavailable", { setup: function (l) { l.settings("displays").disp({ unavailable: true }); } });
+    show("single", { setup: function (l) { l.settings("displays").disp({ count: 1 }); } });
+    show("interface", { setup: function (l) { l.settings("interface"); } });
+    show("scaled", { setup: function (l) { l.settings("interface").scale(1.5); } });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-shell.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="help">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Help, interactive</h2>
+    <p><b>Help</b> in the rail: keyboard shortcuts (Decision 232), short guides that ship with Ordo, and About Ordo (Decision 281). Press Ctrl+/ anywhere to toggle the shortcut panel.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. A guide</h2>
+    <p>Guides are a few steps each, bundled and offline.</p>
+    <div id="guide"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. About Ordo</h2>
+    <p>Version, where data lives, and the font licences.</p>
+    <div id="about"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Keyboard shortcuts over Masses</h2>
+    <p>Ctrl+/ opens a floating right panel over the current workspace, with that workspace's shortcuts first (Decision 232). Esc closes it.</p>
+    <div id="keys"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "help" };
+    function show(id, opts) { return K.shell(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("guide", { setup: function (l) { l.help("g-transfer"); } });
+    show("about", { setup: function (l) { l.help("about"); } });
+    show("keys", { setup: function (l) { l.dest("masses").keys(); } });
+  });
+</script>
+</body>
+</html>
