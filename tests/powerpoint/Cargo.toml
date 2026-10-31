@@ -1,0 +1,23 @@
+[package]
+name = "powerpoint-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Acceptance harness for the T0.9 emergency `.pptx` spike (WP3). Every edge is a
+# dev-dependency, so the xtask dependency contract allows this package no
+# internal dependencies in a normal build. Every test writes only under a
+# temporary directory; none reads or mutates Parish data.
+[dev-dependencies]
+powerpoint-spike = { path = "../../tools/powerpoint-spike" }
+sha2 = "=0.10.9"
+tempfile = "=3.27.0"
+xtask = { path = "../../xtask" }
+# Raw archive checks read the ZIP container directly, independent of both the
+# generator and the xtask inspector.
+zip.workspace = true
+
+[lints]
+workspace = true

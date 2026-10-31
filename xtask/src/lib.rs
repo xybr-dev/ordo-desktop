@@ -1,3 +1,4 @@
+pub mod inspect_pptx;
 pub mod measure_presenter;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, semver::VersionReq};
@@ -261,7 +262,9 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         "ordo",
         "ui-lab",
         "artifact-container-spike",
+        "powerpoint-spike",
         "artifact-container-tests",
+        "powerpoint-tests",
         "native-runtime-tests",
         "display-tests",
         "presentation-tests",
@@ -417,7 +420,9 @@ fn validate_dependency_edges(edges: &BTreeMap<&str, BTreeSet<&str>>) -> XtaskRes
         ),
         ("ui-lab", BTreeSet::from(["ui"])),
         ("artifact-container-spike", BTreeSet::new()),
+        ("powerpoint-spike", BTreeSet::new()),
         ("artifact-container-tests", BTreeSet::new()),
+        ("powerpoint-tests", BTreeSet::new()),
         ("native-runtime-tests", BTreeSet::new()),
         ("display-tests", BTreeSet::new()),
         ("presentation-tests", BTreeSet::new()),

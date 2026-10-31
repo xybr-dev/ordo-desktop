@@ -593,13 +593,13 @@ contract and that the church PowerPoint can reopen it.
 
 **AC**
 
-- [ ] `[AUTO]` Generate full-bleed 16:9 image slides without editable text
+- [x] `[AUTO]` Generate full-bleed 16:9 image slides without editable text
       substitution or recomposition.
-- [ ] `[AUTO]` Create actual PowerPoint sections, black lead-in/closing Safety
+- [x] `[AUTO]` Create actual PowerPoint sections, black lead-in/closing Safety
       sections, and speaker notes on operator-only black slides.
-- [ ] `[AUTO]` Reopen the produced archive and verify slide order, section
+- [x] `[AUTO]` Reopen the produced archive and verify slide order, section
       membership, image dimensions/hashes, notes, and safety slides.
-- [ ] `[AUTO]` Failed generation or validation leaves the existing destination
+- [x] `[AUTO]` Failed generation or validation leaves the existing destination
       untouched and no apparently successful file behind.
 - [ ] `[MANUAL]` The generated fixture opens and presents correctly in the exact
       PowerPoint version installed on the Windows 10 church PC.
