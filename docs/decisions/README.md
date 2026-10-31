@@ -324,5 +324,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0292](0292-select-display-opens-a-display-picker-inside-presenter.md) | Select display opens a display picker inside Presenter | accepted | 2026-10-28 | presenter, displays |
 | [0293](0293-replace-swaps-a-mass-item-from-the-insert-panel.md) | Replace swaps a Mass item from the Insert panel | accepted | 2026-10-31 | presenter, mass-planning |
 | [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | The latest mockup page is canonical and superseded pages are hidden | accepted | 2026-10-31 | design, mockups, repo |
+| [0295](0295-close-t0-6-s-hot-path-ac-on-what-exists-later-work-proves.md) | Close T0.6's hot-path AC on what exists; later work proves its own | accepted | 2026-10-11 | performance, presenter, qualification |
+| [0296](0296-the-walking-skeleton-lab-stands-in-for-packaged-checks-the.md) | The walking-skeleton lab stands in for packaged checks; the sign-off is restated to delivered scope | accepted | 2026-10-20 | qualification, platform |
+| [0297](0297-defer-the-ordo-inspector-promotion-keep-t0-10-ac5-on-the.md) | Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule | accepted | 2026-10-20 | qualification, portability |
 
 <!-- adr-index:end -->

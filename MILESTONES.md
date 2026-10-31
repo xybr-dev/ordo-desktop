@@ -482,7 +482,7 @@ baseline before full UI construction.
       autosave, pagination, image decode, blocking worker wait, or full-timeline
       rerender.
       Closed on existing code; absent subsystems prove it where they land
-      (Decision 270, `crates/ordo/tests/hot_path_blocking.rs`).
+      (Decision 295, `crates/ordo/tests/hot_path_blocking.rs`).
 - [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
 - [x] `[AUTO]` Record process RSS/private memory, GPU allocations where the
@@ -659,7 +659,7 @@ platform assumption or an undocumented exception.
       Closed on the enforceable half: `validate_spike_reuse_policy` enforces the
       rule and no production crate depends on a spike. The `.ordo` inspector
       stays in `tools/artifact-container-spike` until its `portability`
-      promotion; the deferral is recorded in Decision 272 and
+      promotion; the deferral is recorded in Decision 297 and
       `docs/qualification/milestone-0/EXCEPTIONS.md`.
 
 **E2E** `[NATIVE-AUTO]` `[MANUAL]` — From one clean commit, build both native
