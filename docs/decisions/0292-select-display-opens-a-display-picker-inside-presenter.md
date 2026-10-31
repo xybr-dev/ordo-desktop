@@ -1,7 +1,7 @@
 ---
 id: 292
 title: Select display opens a display picker inside Presenter
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [presenter, displays]

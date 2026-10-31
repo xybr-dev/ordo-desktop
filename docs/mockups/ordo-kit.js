@@ -287,7 +287,7 @@
     function dn() { return "Display " + S.cong.n; }
     function dfull() { return dn() + " · " + S.cong.name; }
 
-    // ── Select display (Decisions 49, 50, 202; proposed Decision 292) ─────────────────────────
+    // ── Select display (Decisions 49, 50, 202; Decision 292) ─────────────────────────
     // The Settings → Displays picker, in the Insert panel's place, so the operator never leaves
     // Presenter. Choosing a display opens its window black; only Space puts Preview on it.
     var DISPS = { "1": { name: "Built-in display", res: "1366 × 768", pos: "Left", op: true },
