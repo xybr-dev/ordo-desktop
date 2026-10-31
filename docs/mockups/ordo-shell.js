@@ -173,7 +173,7 @@
       var tabs = [["upcoming", "Upcoming"], ["history", "History"], ["archive", "Archive"], ["templates", "Templates"]];
       return '<header class="sh-head"><h1 class="o-title">Masses</h1><div class="o-tabs sh-tabs" role="tablist">' +
         tabs.map(function (t) { return '<button role="tab" data-a="mtab" data-v="' + t[0] + '" aria-selected="' + (S.mtab === t[0]) + '">' + t[1] + "</button>"; }).join("") + "</div>" +
-        '<span class="o-grow"></span>' + reminder() + (S.mtab === "templates" ? '<button class="o-btn o-btn--primary" data-a="toast" data-msg="Opens a new template in the template editor">' + icon("plus") + "New template</button>"
+        '<span class="o-grow"></span>' + reminder() + (S.mtab === "templates" ? '<a class="o-btn o-btn--primary" href="mass-templates.html">' + icon("plus") + "New template</a>"
         : '<button class="o-btn o-btn--primary" data-a="newcel">' + icon("plus") + "New Celebration</button>") + "</header>";
     }
     function matches(x) {
@@ -195,7 +195,7 @@
         '<span class="sh-lang">' + esc(x.lang) + "</span><span class=\"sh-choir" + (x.choir ? "" : " o-muted") + '">' + esc(x.choir || "No choir") + "</span>" +
         '<span class="sh-pres o-muted">' + esc(x.presider) + "</span>" +
         '<span class="sh-rd">' + (past ? '<span class="o-meta">' + esc(x.presented || "Not presented") + "</span>" : readiness(x)) + "</span>" +
-        (past ? '<button class="o-btn o-btn--quiet" data-a="toast" data-msg="Opens Reuse for another Celebration with this plan as the source">Reuse</button>' : "") +
+        (past ? '<button class="o-btn o-btn--quiet" data-a="reuseplan" data-id="' + x.id + '">Reuse</button>' : "") +
         icon("chevron-right", "sh-go") + "</div>";
     }
     function rollup(c) {
@@ -225,7 +225,7 @@
       if (S.mtab === "templates") return '<div class="sh-page">' + mhead() + '<div class="sh-scroll"><div class="sh-col">' +
         '<p class="o-meta">A template sets the slots a new Mass plan starts with. Changing a template never changes plans already made from it (Decision 76).</p><div class="sh-list">' +
         S.templates.map(function (t) { return '<div class="o-row sh-trow">' + icon("layout-template") + '<div class="o-grow"><b>' + esc(t.name) + '</b><span class="o-meta">' + t.slots + " slots · used for " + t.used + " Mass plans</span></div>" +
-          '<button class="o-btn" data-a="toast" data-msg="Opens ' + esc(t.name) + ' in the template editor">Edit</button></div>'; }).join("") + "</div></div></div></div>";
+          '<a class="o-btn" href="mass-templates.html">Edit</a></div>'; }).join("") + "</div></div></div></div>";
       if (S.mtab === "archive") {
         var arch = S.cels.filter(function (c) { return c.archived; });
         return '<div class="sh-page">' + mhead() + '<div class="sh-scroll"><div class="sh-col"><p class="o-meta">Archived plans are hidden from Upcoming and History but stay searchable. Restore brings one back; deleting is permanent and only possible here (Decision 37).</p>' +
@@ -254,11 +254,131 @@
         '<div class="sh-two">' + field("Season or occasion", sel("newCel.season", n.season, ["Ordinary Time", "Advent", "Christmas", "Lent", "Easter", "Solemnity", "Feast", "Special"], "Season")) +
         field("Liturgical colour", sel("newCel.color", n.color, ["Green", "White", "Violet", "Red", "Rose", "Black"], "Colour")) + "</div>" +
         '<div class="o-label">First Mass plan</div><div class="sh-radios">' +
-        [["template", "Create from template", sel("newCel.tpl", n.tpl, S.templates.map(function (t) { return [t.id, t.name]; }), "Template")], ["reuse", "Reuse an earlier Mass plan", '<span class="o-meta">Pick a plan from History next; readings come over marked Needs Review.</span>'], ["later", "Do this later", '<span class="o-meta">The Celebration shows <b>No Mass plans</b> until one is added.</span>']]
-          .map(function (r) { return '<label class="sh-radio"><input type="radio" name="nc-first" data-a="set" data-path="newCel.first" data-v="' + r[0] + '"' + (n.first === r[0] ? " checked" : "") + '><span><b>' + r[1] + "</b>" + (n.first === r[0] ? "<br>" + r[2] : "") + "</span></label>"; }).join("") + "</div>" +
-        '<div class="sh-two">' + field("Time", input("newCel.time", n.time)) + field("Language", sel("newCel.lang", n.lang, ["Cebuano", "English", "Tagalog"], "Language")) + "</div>" +
-        '<p class="o-meta">Presider and location start as the parish defaults: ' + esc(S.parish.presider || "none") + " · " + esc(S.parish.location || "none") + ".</p></div>" +
-        '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="createcel"' + (ok ? "" : " disabled") + ">Create Celebration</button></div></div>";
+        [["template", "Create from template", "Next: its time, language, choir, presider and template."], ["reuse", "Reuse an earlier Mass plan", "Next: pick the plan and its new time."], ["later", "Do this later", "The Celebration shows <b>No Mass plans</b> until one is added."]]
+          .map(function (r) { return '<label class="sh-radio"><input type="radio" name="nc-first" data-a="set" data-path="newCel.first" data-v="' + r[0] + '"' + (n.first === r[0] ? " checked" : "") + '><span><b>' + r[1] + '</b><br><span class="o-meta">' + r[2] + "</span></span></label>"; }).join("") + "</div></div>" +
+        '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="createcel"' + (ok ? "" : " disabled") + ">" + (n.first === "later" ? "Create Celebration" : "Next: add the Mass") + "</button></div></div>";
+    }
+    // ── Add Mass to a Celebration (Decisions 74, 79, 81, 84, 85; Decision 288) ──────────
+    var DAYN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var CHOIRS = ["Koro San Roque", "Koro Sta. Cecilia", "Youth Choir"], VISITING = ["Msgr. Cris Garcia", "Fr. Noel Ybañez"];
+    function short(d) { return DAYN[d.getDay()] + " " + d.getDate() + " " + MON[d.getMonth()]; }
+    function celDay(c, prev) { var d = new Date(c.date.replace(/^\w+ /, "")); if (isNaN(d)) return c.date; if (prev) d.setDate(d.getDate() - 1); return short(d); }
+    function recTemplate(c, lang) {
+      var ts = S.templates.filter(function (t) { return t.lang === lang && !/Funeral/.test(t.name); });
+      var weekday = !/^Sun/.test(c.date) && c.season !== "Solemnity";
+      return ts.filter(function (t) { return weekday ? /Weekday/.test(t.name) : /Sunday/.test(t.name); })[0] || ts[0] || null;
+    }
+    function plansOf(list) { var out = []; list.forEach(function (c) { c.masses.forEach(function (x) { if (!x.archived) out.push({ c: c, x: x }); }); }); return out; }
+    function planById(id) { return plansOf(S.cels).filter(function (p) { return p.x.id === id; })[0] || null; }
+    function presiderField(path, v) {
+      var regular = S.parish.presiders, names = regular.concat(VISITING);
+      return field("Presider", '<input class="pl-input" list="sh-pres" data-in="' + path + '" data-focus-key="' + path + '" value="' + esc(v) + '" placeholder="Type or pick a name"><datalist id="sh-pres">' +
+        names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join("") + "</datalist>",
+        !v.trim() ? "Can stay empty until it’s known." : v === S.parish.presider ? "The parish default." : regular.indexOf(v) >= 0 ? "A regular presider." : "A visiting presider: kept on this Mass only, not added to the regular list.");
+    }
+    function openAddMass(celId, method) {
+      var c = cel(celId), first = c.masses[0];
+      S.am = { cel: celId, method: method || "template", day: "same", ant: false, time: c.masses.length ? "18:00" : "09:00", lang: first ? first.lang : "Cebuano", choir: "",
+        presider: S.parish.presider || "", location: S.parish.location || "", tpl: "", src: null };
+      var r = recTemplate(c, S.am.lang); S.am.tpl = r ? r.id : "";
+      S.overlay = "addmass";
+    }
+    function addMassOver() {
+      var a = S.am, c = cel(a.cel), rec = recTemplate(c, a.lang), src = a.src ? planById(a.src) : null;
+      var methods = [["template", "From a template"], ["reuse", "Reuse an earlier plan"]].concat(c.masses.length ? [["dup", "Duplicate a Mass here"]] : []);
+      var start = '<div class="sh-field"><span class="o-label">Start from</span><div class="o-segmented" role="group" aria-label="Start from">' + methods.map(function (mt) {
+        return '<button data-a="ammethod" data-v="' + mt[0] + '" aria-pressed="' + (a.method === mt[0]) + '">' + mt[1] + "</button>"; }).join("") + "</div></div>";
+      var when = '<div class="sh-field"><span class="o-label">Date</span><div class="o-segmented" role="group" aria-label="Date">' +
+        [["same", celDay(c)], ["prev", celDay(c, true) + ", the evening before"]].map(function (d) { return '<button data-a="set" data-path="am.day" data-v="' + d[0] + '" aria-pressed="' + (a.day === d[0]) + '">' + esc(d[1]) + "</button>"; }).join("") + "</div>" +
+        (a.day === "prev" ? '<label class="sh-check"><input type="checkbox" data-a="amant"' + (a.ant ? " checked" : "") + "> Anticipated Mass of this Celebration</label>" +
+          '<span class="o-meta">' + (a.ant ? "Shows as Anticipated and uses this Celebration’s readings." : "Ordo doesn’t decide this from the time. Tick it to confirm, or the plan is listed without the Anticipated label.") + "</span>" : "") + "</div>";
+      var who = '<div class="sh-two">' + field("Time", input("am.time", a.time, { ph: "e.g. 18:00" }), /^\d{1,2}:\d{2}$/.test(a.time.trim()) ? "" : "Use 24-hour time, like 17:30.") +
+        field("Language", sel("am.lang", a.lang, ["Cebuano", "English", "Tagalog"], "Language")) + "</div>" +
+        '<div class="sh-two">' + field("Choir", sel("am.choir", a.choir, [["", "No choir yet"]].concat(CHOIRS), "Choir"), "Filters Song choices in the plan.") + presiderField("am.presider", a.presider) + "</div>" +
+        field("Location", input("am.location", a.location, { ph: "None" }), a.location && a.location === S.parish.location ? "The parish default." : "");
+      var how = "";
+      if (a.method === "template") {
+        var ts = S.templates.filter(function (t) { return t.lang === a.lang; });
+        how = ts.length ? field("Template", sel("am.tpl", a.tpl, ts.map(function (t) { return [t.id, t.name + (rec && t.id === rec.id ? " · Recommended" : "")]; }).concat([["", "No template: start empty"]]), "Template"),
+            a.tpl ? (rec && a.tpl === rec.id ? "The best fit for " + esc(a.lang) + " on this day. Any template can be chosen." : "Chosen instead of the recommendation.") + " Song and Reading slots start empty." : "An empty plan, with a readiness warning until something is added.")
+          : '<div class="o-notice" data-state="warning">' + icon("info") + "<div><b>No " + esc(a.lang) + " template yet.</b> The plan starts empty with a readiness warning, rather than borrowing another language’s template (Decision 79).</div></div>";
+      } else {
+        var pool = a.method === "dup" ? plansOf([c]) : plansOf(S.cels.filter(function (x) { return x.when === "history" && !x.archived; }));
+        how = '<div class="sh-field"><span class="o-label">' + (a.method === "dup" ? "Mass to duplicate" : "Earlier Mass plan") + '</span><div class="sh-list">' + pool.map(function (p) {
+          return '<label class="o-row sh-trow sh-pick"><input type="radio" name="am-src" data-a="amsrc" data-id="' + p.x.id + '"' + (a.src === p.x.id ? " checked" : "") + '><div class="o-grow"><b>' + esc(p.x.time) + " · " + esc(p.x.lang) + "</b>" +
+            '<span class="o-meta">' + (a.method === "reuse" ? esc(p.c.title) + " · " : "") + esc(p.x.choir || "No choir") + " · " + esc(p.x.presider) + "</span></div></label>";
+        }).join("") + "</div></div>";
+        if (src) {
+          var other = src.x.lang !== a.lang, keep, left;
+          if (a.method === "reuse") { keep = ["Mass items, Songs and Arrangements", "Responses, Cues and Theme choices"]; left = ["Readings, marked Needs review: they belong to " + esc(src.c.date)]; }
+          else if (other) { keep = ["Song slots, matched by role", "Arrangements that have a version in " + esc(a.lang)]; left = ["Responses come from the " + esc(a.lang) + " template, not translated", "Readings and other " + esc(src.x.lang) + " text"]; }
+          else { keep = ["Everything in the plan, as an independent copy"]; left = []; }
+          how += '<div class="sh-summary"><div><b>Kept</b><ul class="pl-changes">' + keep.map(function (k) { return "<li>" + k + "</li>"; }).join("") + "</ul></div>" +
+            (left.length ? '<div><b>Left to finish</b><ul class="pl-changes">' + left.map(function (k) { return "<li>" + k + "</li>"; }).join("") + "</ul></div>" : "") + "</div>";
+        }
+      }
+      var ok = /^\d{1,2}:\d{2}$/.test(a.time.trim()) && (a.method === "template" || src);
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-am">' + closeTab("Cancel") +
+        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-am">' + (c.masses.length ? "Add another Mass" : "Add a Mass") + '</h2><div class="o-meta">' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
+        '<div class="o-overlay-body sh-form">' + start + (a.method === "template" ? when + who + how : how.split('<div class="sh-summary">')[0] + when + who + (src ? '<div class="sh-summary">' + how.split('<div class="sh-summary">')[1] : "")) + "</div>" +
+        '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="createmass"' + (ok ? "" : " disabled") + ">" +
+        (a.method === "dup" ? "Duplicate Mass" : a.method === "reuse" ? "Reuse plan" : "Create Mass plan") + "</button></div></div>";
+    }
+    function sortMasses(c) { c.masses.sort(function (x, y) { return x.time.slice(-5).localeCompare(y.time.slice(-5)) || 0; }); c.masses.sort(function (x, y) { return (y.ant ? 1 : 0) - (x.ant ? 1 : 0); }); }
+    function createMass() {
+      var a = S.am, c = cel(a.cel), src = a.src ? planById(a.src) : null, inc = 0, warn = 0; snapshot();
+      var label = (a.day === "prev" ? celDay(c, true) : celDay(c)) + " · " + a.time.trim();
+      if (a.method === "template") { if (a.tpl) inc = 8; else warn = 1; }
+      else if (a.method === "reuse") warn = 2;
+      else if (src.x.lang !== a.lang) { inc = 4; warn = src.x.warn; } else { inc = src.x.inc; warn = src.x.warn; }
+      c.masses.push(m("n" + Date.now(), label, a.lang, a.choir, inc, warn, { presider: a.presider.trim() || "No presider", ant: a.day === "prev" && a.ant })); sortMasses(c);
+      S.collapsed[a.cel] = false; S.overlay = null;
+      done(label + " · " + a.lang + " added to " + c.title + ". It opens in the Mass Planner.", true);
+    }
+
+    // ── Reuse for another Celebration (Decisions 36, 74; Decision 288) ───────────────
+    function openReuse(celId, planId) {
+      var c = cel(celId), target = S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived && x.id !== celId && !x.masses.length; })[0] ||
+        S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived && x.id !== celId; })[0];
+      S.ru = { src: celId, pick: {}, times: {}, into: target ? "existing" : "new", target: target ? target.id : "", nd: "Sun 22 Nov 2026", nt: "", ns: "Solemnity" };
+      c.masses.forEach(function (x) { if (!x.archived) { S.ru.pick[x.id] = !planId || planId === x.id; S.ru.times[x.id] = x.time.slice(-5); } });
+      S.overlay = "reuse";
+    }
+    function reuseTarget() { var r = S.ru; return r.into === "existing" ? cel(r.target) : { title: r.nt.trim() || "the new Celebration", date: r.nd, season: r.ns }; }
+    function reuseOver() {
+      var r = S.ru, c = cel(r.src), tgt = reuseTarget(), ms = c.masses.filter(function (x) { return !x.archived; }), n = ms.filter(function (x) { return r.pick[x.id]; }).length;
+      var targets = S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived && x.id !== r.src; });
+      var plans = '<div class="sh-field"><span class="o-label">Mass plans to copy</span><div class="sh-list">' + ms.map(function (x) {
+        return '<div class="o-row sh-trow sh-pick"><input type="checkbox" data-a="rupick" data-id="' + x.id + '"' + (r.pick[x.id] ? " checked" : "") + ' aria-label="Copy ' + esc(x.time) + '">' +
+          '<div class="o-grow"><b>' + esc(x.time.slice(-5)) + " · " + esc(x.lang) + '</b><span class="o-meta">' + esc(x.choir || "No choir") + " · " + esc(x.presider) + "</span></div>" +
+          (r.pick[x.id] ? '<label class="sh-rutime"><span class="o-meta">New time</span>' + input("ru.times." + x.id, r.times[x.id], { cls: "sh-time-in" }) + "</label>" : "") + "</div>";
+      }).join("") + "</div></div>";
+      var into = '<div class="sh-field"><span class="o-label">Into</span><div class="o-segmented" role="group" aria-label="Into">' +
+        [["existing", "An upcoming Celebration"], ["new", "A new Celebration"]].map(function (o) { return '<button data-a="set" data-path="ru.into" data-v="' + o[0] + '" aria-pressed="' + (r.into === o[0]) + '">' + o[1] + "</button>"; }).join("") + "</div></div>" +
+        (r.into === "existing" ? field("Celebration", sel("ru.target", r.target, targets.map(function (x) { return [x.id, x.title + " · " + x.date + (x.masses.length ? " · " + x.masses.length + " Mass" + (x.masses.length === 1 ? "" : "es") + " already" : "")]; }), "Celebration"))
+          : field("Date", input("ru.nd", r.nd)) + field("Title", input("ru.nt", r.nt, { ph: "e.g. Christ the King" })) + field("Season or occasion", sel("ru.ns", r.ns, ["Ordinary Time", "Advent", "Christmas", "Lent", "Easter", "Solemnity", "Feast", "Special"], "Season")));
+      var mismatch = tgt.season && tgt.season !== c.season;
+      var summary = '<div class="sh-summary"><div><b>Copied</b><ul class="pl-changes"><li>Mass items in order, Songs and Arrangements</li><li>Responses, Cues, Theme choices and changes made for that Mass</li><li>Language, choir, presider and location</li></ul></div>' +
+        '<div><b>Needs review</b><ul class="pl-changes"><li>Readings: they were for ' + esc(c.date) + ", so each plan gets <b>Needs review</b> until they’re replaced or confirmed</li>" +
+        (mismatch ? "<li>Seasonal items: the source was " + esc(c.season) + ", the target is " + esc(tgt.season) + ". Check the Gloria, Creed and seasonal Songs</li>" : "") + "</ul></div>" +
+        '<div><b>Not copied</b><ul class="pl-changes"><li>The old Celebration and date</li><li>Presentation snapshots, sessions and history</li></ul></div></div>';
+      var ok = n && (r.into === "existing" ? !!r.target : r.nt.trim() && r.nd.trim()) && ms.every(function (x) { return !r.pick[x.id] || /^\d{1,2}:\d{2}$/.test(r.times[x.id].trim()); });
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-ru">' + closeTab("Cancel") +
+        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-ru">Reuse for another Celebration</h2><div class="o-meta">From ' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
+        '<div class="o-overlay-body sh-form">' + plans + into + summary + '<p class="o-meta">The copies are independent: later edits to either plan don’t affect the other. ' + esc(c.title) + " keeps its plans.</p></div>" +
+        '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="doreuse"' + (ok ? "" : " disabled") + ">Reuse " + n + " plan" + (n === 1 ? "" : "s") + "</button></div></div>";
+    }
+    function doReuse() {
+      var r = S.ru, c = cel(r.src), tgt; snapshot();
+      if (r.into === "existing") tgt = cel(r.target);
+      else {
+        tgt = { id: "c" + Date.now(), when: "upcoming", date: r.nd.trim(), title: r.nt.trim(), season: r.ns, color: "White", hex: "#F4F1EA", masses: [] };
+        S.cels.splice(S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived; }).length, 0, tgt);
+      }
+      var k = 0;
+      c.masses.forEach(function (x) { if (!x.archived && r.pick[x.id]) tgt.masses.push(m("r" + Date.now() + k++, celDay(tgt) + " · " + r.times[x.id].trim(), x.lang, x.choir, 0, 2, { presider: x.presider })); });
+      sortMasses(tgt); S.collapsed[tgt.id] = false; S.mtab = "upcoming"; S.overlay = null;
+      done(k + " plan" + (k === 1 ? "" : "s") + " reused into " + tgt.title + ". Readings need review.", true);
     }
     function setupView() {
       var s = S.setup, card = function (mode, ic, t, d) { return '<button class="sh-choice' + (s.mode === mode ? " is-on" : "") + '" data-a="set" data-path="setup.mode" data-v="' + mode + '" aria-pressed="' + (s.mode === mode) + '">' + icon(ic) + "<b>" + t + '</b><span class="o-meta">' + d + "</span></button>"; };
@@ -596,6 +716,8 @@
       else if (S.dest === "help") body = help();
       else body = settings();
       if (S.overlay === "newcel") ov = newCel();
+      else if (S.overlay === "addmass") ov = addMassOver();
+      else if (S.overlay === "reuse") ov = reuseOver();
       else if (S.overlay === "export") ov = expOver();
       else if (S.overlay === "mk") ov = mkOver();
       else if (S.overlay === "decide") ov = decideOver();
@@ -667,7 +789,7 @@
       if (rail) { var d = DESTS[rail.dataset.dest]; if (d) { e.preventDefault(); if (S.ed && tdirty()) { S.dialog = { kind: "dirty", then: d }; render(); return; } go(d); render(); } return; }
       var t = e.target.closest("[data-a]"); if (!t || t.disabled) return;
       var a = t.dataset.a, id = t.dataset.id, keepToast = false;
-      if (t.tagName === "INPUT" && t.type === "radio") { setPath(t.dataset.path, t.dataset.v); render(); return; }
+      if (t.tagName === "INPUT" && t.type === "radio" && t.dataset.path) { setPath(t.dataset.path, t.dataset.v); render(); return; }
       if (a !== "celmenu" && a !== "thmenu") S.menu = null;
       switch (a) {
         case "go": go(t.dataset.dest, t); break;
@@ -687,17 +809,22 @@
         case "clearm": S.q = ""; S.f = { lang: "", choir: "", ready: "" }; break;
         case "open": var mx; S.cels.forEach(function (c) { c.masses.forEach(function (y) { if (y.id === id) mx = y; }); });
           if (opts.navigate) window.location.href = "mass-planning-flows.html"; else { done("Opens " + mx.time + " · " + mx.lang + " in the Mass Planner" + (mx.presented ? ", read-only" : "")); keepToast = true; } break;
-        case "addmass": snapshot(); var c1 = cel(id); c1.masses.push(m("n" + Date.now(), c1.date.replace(/ 2026$/, "") + " · 18:00", "Cebuano", "", 0, 0)); c1.masses[c1.masses.length - 1].inc = 0;
-          S.collapsed[id] = false; S.overlay = S.overlay === "export" ? "export" : null; done("Mass added to " + c1.title + " from the parish defaults", true); keepToast = true; break;
-        case "reuse": done("Opens Reuse for another Celebration: a new Celebration with copies of these plans"); keepToast = true; break;
+        case "addmass": openAddMass(id); break;
+        case "ammethod": S.am.method = t.dataset.v; S.am.src = null; break;
+        case "amsrc": var ps = planById(id).x; S.am.src = id; if (S.am.method === "reuse") { S.am.lang = ps.lang; S.am.choir = ps.choir; } S.am.presider = ps.presider === "No presider" ? "" : ps.presider; break;
+        case "amant": S.am.ant = !S.am.ant; break;
+        case "createmass": createMass(); keepToast = true; break;
+        case "reuse": openReuse(id); break;
+        case "reuseplan": var rp = planById(id); openReuse(rp.c.id, id); break;
+        case "rupick": S.ru.pick[id] = !S.ru.pick[id]; break;
+        case "doreuse": doReuse(); keepToast = true; break;
         case "export": S.overlay = "export"; S.exp = { cel: id, same: id === "c3", done: false }; break;
         case "archivecel": snapshot(); cel(id).archived = true; done(cel(id).title + " archived", true); keepToast = true; break;
         case "restorecel": snapshot(); cel(id).archived = false; done(cel(id).title + " restored", true); keepToast = true; break;
         case "newcel": S.overlay = "newcel"; S.newCel = { date: "Sun 22 Nov 2026", title: "", season: "Solemnity", color: "White", first: "template", tpl: "t1", time: "09:00", lang: "Cebuano" }; break;
         case "createcel": snapshot(); var n = S.newCel, nc = { id: "c" + Date.now(), when: "upcoming", date: n.date, title: n.title, season: n.season, color: n.color, hex: { Green: "#3F7A4E", White: "#F4F1EA", Violet: "#6B4C8A", Red: "#B03A2E", Rose: "#D98BA6", Black: "#222" }[n.color], masses: [] };
-          if (n.first !== "later") nc.masses.push(m("n" + Date.now(), n.date.replace(/ 2026$/, "") + " · " + n.time, n.lang, "", n.first === "reuse" ? 0 : 6, n.first === "reuse" ? 2 : 0));
           var idx = S.cels.filter(function (c) { return c.when === "upcoming" && !c.archived; }).length; S.cels.splice(idx, 0, nc); S.mtab = "upcoming"; S.overlay = null;
-          done(nc.title + " created" + (n.first === "later" ? "" : " with one Mass plan"), true); keepToast = true; break;
+          done(nc.title + " created", true); keepToast = true; if (n.first !== "later") openAddMass(nc.id, n.first); break;
         // first run
         case "addpres": S.setup.pres.push(S.setup.draft.trim()); S.setup.draft = ""; break;
         case "unpres": S.setup.pres.splice(+t.dataset.i, 1); break;
@@ -771,6 +898,7 @@
       var el = e.target, path = el.dataset && el.dataset.in; if (!path) return;
       setPath(path, el.value);
       if (path === "disp.cong") S.disp.changed = true;
+      if (path === "am.lang") { var rt = recTemplate(cel(S.am.cel), S.am.lang); S.am.tpl = rt ? rt.id : ""; }
       if (path === "parish.name" || path === "parish.location") S.toast = null;
       render();
     }
@@ -792,7 +920,9 @@
       dest: function (d, o) { go(d); if (o) Object.keys(o).forEach(function (k) { S[k] = o[k]; }); return api; },
       firstRun: function (mode, name) { S.firstRun = true; S.setup.mode = mode || null; S.setup.name = name || ""; if (name) S.setup.pres = ["Fr. Ramon Abellana"]; return api; },
       emptyParish: function () { S.cels = []; return api; }, tab: function (t) { S.mtab = t; return api; }, filter: function (k, v) { S.f[k] = v; return api; },
-      menu: function (id) { S.menu = id; return api; }, newCel: function (title) { S.overlay = "newcel"; S.newCel = { date: "Sun 22 Nov 2026", title: title || "", season: "Solemnity", color: "White", first: "template", tpl: "t1", time: "09:00", lang: "Cebuano" }; return api; },
+      menu: function (id) { S.menu = id; return api; },
+      addMass: function (celId, o) { o = o || {}; openAddMass(celId, o.method); Object.keys(o).forEach(function (k) { S.am[k] = o[k]; }); if (o.lang && !("tpl" in o)) { var r = recTemplate(cel(celId), o.lang); S.am.tpl = r ? r.id : ""; } return api; },
+      reuse: function (celId, o) { o = o || {}; openReuse(celId, o.plan); Object.keys(o).forEach(function (k) { if (k !== "plan") S.ru[k] = o[k]; }); return api; }, newCel: function (title) { S.overlay = "newcel"; S.newCel = { date: "Sun 22 Nov 2026", title: title || "", season: "Solemnity", color: "White", first: "template", tpl: "t1", time: "09:00", lang: "Cebuano" }; return api; },
       noParishThemes: function () { S.themes = S.themes.filter(function (t) { return t.builtIn; }); S.dflt = "ordo-black"; return api; }, themeArchived: function () { S.tarch = true; return api; },
       edit: function (id, o) { editTheme(id); if (o) Object.keys(o).forEach(function (k) { S.ed[k] = o[k]; }); return api; },
       draft: function (o) { Object.keys(o).forEach(function (k) { S.ed.draft[k] = o[k]; }); return api; },

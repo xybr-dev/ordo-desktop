@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mass templates — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-templates.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="mass-templates">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Masses → Templates, interactive</h2>
+    <p>Templates are preparation content under Masses (Decision 77). Each row shows the language, how many slots it has, how many plans it made, and what it's recommended for; the star marks the language fallback (Decision 79). <b>Edit</b> opens the Template Editor; try changing an item, a rule or a section.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. A template's … menu</h2>
+    <p>Duplicate, make it the language's fallback (one per language), or Archive. Archiving only stops New Celebration offering it.</p>
+    <div id="menu"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. No templates yet</h2>
+    <p>The same list with nothing in it (Decision 220). Plans can still be made without a template.</p>
+    <div id="empty"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. New template</h2>
+    <p>Only a name and a language. The name must be unique.</p>
+    <div id="new"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. A new template</h2>
+    <p>Opens with the six Mass sections and nothing in them.</p>
+    <div id="created"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Template Editor</h2>
+    <p>The planner's three panes (Decision 77): the outline by Mass section, the selected item, and the template's details. This Song slot keeps its place and moment; each plan picks the Song (Decision 76). The banner says existing plans keep their copy (Decision 78).</p>
+    <div id="editor"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. A conditional item</h2>
+    <p>A rule includes or omits the item from Celebration metadata, with the result for sample Celebrations underneath (Decision 75). A Celebration without the season the rule needs stays unresolved.</p>
+    <div id="rule"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. Check against a Celebration</h2>
+    <p>Pick a sample Celebration to see what the rules would omit for it. Nothing is saved.</p>
+    <div id="check"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. A Response sequence</h2>
+    <p>Concrete content: copied into each new plan and edited there for that Mass only (Decision 112).</p>
+    <div id="resp"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. A Reading slot</h2>
+    <p>Holds the role; each plan's readings fill it.</p>
+    <div id="reading"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>K. Section actions</h2>
+    <p>Rename, add above or below, move, remove. A section with items can't be removed, nor can the last one (Decision 177).</p>
+    <div id="secmenu"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>L. Adding an item</h2>
+    <p>Adds to the selected section, after the selected item.</p>
+    <div id="add"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "" };
+    function show(id, opts) { return K.templates(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("menu", { setup: function (l) { l.menu("t3"); } });
+    show("empty", { setup: function (l) { l.empty(); } });
+    show("new", { setup: function (l) { l.newDialog("Sunday Mass · Tagalog"); } });
+    show("created", { setup: function (l) { l.empty().create("Sunday Mass · Tagalog", "Tagalog"); } });
+    show("editor", { setup: function (l) { l.open("t1").sel("Entrance Song"); } });
+    show("rule", { setup: function (l) { l.open("t1").sel("Gloria"); } });
+    show("check", { setup: function (l) { l.open("t1").check("wk"); } });
+    show("resp", { setup: function (l) { l.open("t1").sel("Greeting"); } });
+    show("reading", { setup: function (l) { l.open("t1").sel("Second Reading"); } });
+    show("secmenu", { setup: function (l) { l.open("t1").secMenu("Liturgy of the Word"); } });
+    show("add", { setup: function (l) { l.open("t1").sel("Communion").add(); } });
+  });
+</script>
+</body>
+</html>

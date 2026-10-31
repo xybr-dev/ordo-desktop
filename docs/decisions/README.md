@@ -315,5 +315,8 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0283](0283-transfer-and-backup-lists-protection-packages-and-backups.md) | Transfer and Backup lists protection, packages and backups in that order | accepted | 2026-10-28 | storage |
 | [0284](0284-theme-library-cards-the-layout-group-and-a-shared-save.md) | Theme library cards, the Layout group and a shared-save confirmation | accepted | 2026-10-28 | themes |
 | [0285](0285-masses-index-rows-name-the-presider-and-carry-the-backup.md) | Masses index rows name the presider and carry the backup reminder | accepted | 2026-10-28 | mass-plan |
+| [0286](0286-mass-template-list-language-fallback-and-archiving.md) | Mass template list, language fallback and archiving | accepted | 2026-10-28 | mass-plan |
+| [0287](0287-template-items-carry-their-requirement-and-an-inclusion-rule.md) | Template items carry their requirement and an inclusion rule | accepted | 2026-10-28 | mass-plan |
+| [0288](0288-add-mass-and-reuse-for-another-celebration-slide-overs.md) | Add Mass and Reuse for another Celebration slide-overs | accepted | 2026-10-28 | mass-plan |
 
 <!-- adr-index:end -->
