@@ -1,7 +1,7 @@
 ---
 id: 275
 title: Rename a section in place in the lyric editor header
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [songs]
@@ -43,5 +43,5 @@ the heading above its lyrics, which is where people look when they notice a wron
 
 ## Consequences
 
-When accepted, this amends Decision 119's rename bullet; its creation popover stays authoritative.
+This amends Decision 119's rename bullet; its creation popover stays authoritative.
 Shown in `arrangement-details-v2`, section E.

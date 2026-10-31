@@ -304,10 +304,10 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
 | [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | F and B toggle, and releasing either takes Preview live | accepted | 2026-10-27 | presenter |
 | [0274](0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing.md) | Program goes black on an unavailable Cue instead of freezing | accepted | 2026-10-27 | presenter |
-| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | proposed | 2026-10-28 | songs |
-| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | proposed | 2026-10-28 | songs |
-| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | proposed | 2026-10-28 | songs |
-| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | proposed | 2026-10-28 | songs |
-| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | proposed | 2026-10-28 | songs |
+| [0275](0275-rename-a-section-in-place-in-the-lyric-editor-header.md) | Rename a section in place in the lyric editor header | accepted | 2026-10-28 | songs |
+| [0276](0276-edit-song-identity-in-a-staged-song-details-slide-over.md) | Edit Song identity in a staged Song details slide-over | accepted | 2026-10-28 | songs |
+| [0277](0277-pick-arrangement-languages-from-a-built-in-list.md) | Pick Arrangement languages from a built-in list | accepted | 2026-10-28 | songs |
+| [0278](0278-manage-choirs-as-a-library-view.md) | Manage Choirs as a Library view | accepted | 2026-10-28 | songs |
+| [0279](0279-library-views-beside-songs-share-its-master-detail.md) | Library views beside Songs share its master-detail | accepted | 2026-10-28 | songs |
 
 <!-- adr-index:end -->

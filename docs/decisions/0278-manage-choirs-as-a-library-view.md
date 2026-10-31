@@ -1,7 +1,7 @@
 ---
 id: 278
 title: Manage Choirs as a Library view
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [songs]
@@ -38,5 +38,5 @@ its label and preferred languages "later in Choirs", which pointed nowhere.
 
 ## Consequences
 
-When accepted, this amends Decision 257's list of Library views; Decision 221's **Songs → Choirs**
-reads as **Library → Choirs**. The view's layout and behaviour are in proposed Decision [279](0279-library-views-beside-songs-share-its-master-detail.md) and `library-choirs`.
+This amends Decision 257's list of Library views; Decision 221's **Songs → Choirs**
+reads as **Library → Choirs**. The view's layout and behaviour are in Decision [279](0279-library-views-beside-songs-share-its-master-detail.md) and `library-choirs`.
