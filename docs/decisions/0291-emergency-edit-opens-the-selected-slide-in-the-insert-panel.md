@@ -1,7 +1,7 @@
 ---
 id: 291
 title: Emergency edit opens the selected slide in the Insert panel
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [presenter]
@@ -21,7 +21,7 @@ edits the selected projectable Cue, and updates only Preview. The edit autosaves
 override and never changes the Library or imported text. A reused Song section updates every linked
 occurrence in the Mass unless the operator limits it to the selected one, and Space takes the
 correction live. Decision [258](0258-bound-live-insertion-auto-play-windows-and-save-safety.md)
-makes emergency editors slide-overs. Proposed Decision
+makes emergency editors slide-overs. Decision
 [290](0290-emergency-insert-chooser-and-quick-insert-dialog.md) puts emergency insert in one panel
 over the Cue timeline, leaving the Output Dock in view. Neither record says what the edit surface
 contains or what happens when `Ctrl+E` meets a Cue that can't be edited.
@@ -75,6 +75,6 @@ contains or what happens when `Ctrl+E` meets a Cue that can't be edited.
 
 ## Consequences
 
-If accepted, Decision 258's "emergency editors are slide-overs" is read as this panel, together with
+Decision 258's "emergency editors are slide-overs" is read as this panel, together with
 Decision 290. Post-Mass review offers each override for promotion to the Library or source. Linking
 occurrences needs Arrangement section identity; the mockup approximates it by matching the words.

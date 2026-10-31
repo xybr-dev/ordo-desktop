@@ -502,7 +502,7 @@
       // Other keys belong to the focused field; no single-key Presenter command runs (MVP-PLAN §8.2).
     }
 
-    // ── Emergency edit (MVP-PLAN §8.5, Decision 12; proposed Decision 291) ────────────────────
+    // ── Emergency edit (MVP-PLAN §8.5, Decision 12; Decision 291) ────────────────────
     // Ctrl+E Freezes Program and opens the selected projectable Cue in the same panel as Insert.
     // Program keeps its frame; each keystroke autosaves a Mass-local override and updates
     // Preview only. A reused Song section updates every linked occurrence in this Mass unless

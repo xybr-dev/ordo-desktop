@@ -89,14 +89,13 @@
         "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
         "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
         "The image picker is a placeholder; the image slide is drawn as a gradient.",
-        "Ctrl+E emergency edit is in presenter-edit.",
-        "MVP-PLAN §8.5 describes a centred Quick Insert dialog; this page proposes the side panel instead (Decision 290)."
+        "Ctrl+E emergency edit is in presenter-edit."
       ]
     },
     {
       slug: "presenter-edit", group: "presenter", title: "Emergency edit",
       summary: "Ctrl+E while live at 1366×768: Program freezes on the slide as it is and the selected slide opens in the Insert panel's place. Each keystroke saves a Mass-local correction and updates Preview only; a reused Song section changes everywhere it is sung in this Mass unless limited to this slide. Space takes the correction live; operator-only Cues can't be edited.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0067-presenter-shortcut-suspension-and-focus-restoration", "0290-emergency-insert-chooser-and-quick-insert-dialog", "0291-emergency-edit-opens-the-selected-slide-in-the-insert-panel"],
       interpretations: [
         "Linked occurrences are found by matching Song, section label and words; production links them by Arrangement section identity.",
