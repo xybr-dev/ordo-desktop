@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000300",
+  "celebration": {
+    "id": "00000000-0000-4000-8000-000000000301",
+    "date": "2026-08-23",
+    "title": "21st Sunday in Ordinary Time"
+  },
+  "package_version": {
+    "id": "00000000-0000-4000-8000-000000000302",
+    "fingerprint": "78eebcf18b98e551e0e9d0b89073504329eebc917432e77fa2043c2dde116927"
+  },
+  "snapshots": [
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-4000-8000-000000000310",
+      "mass_plan_id": "00000000-0000-4000-8000-000000000311",
+      "items": [
+        {
+          "id": "00000000-0000-4000-8000-000000000312",
+          "title": "Entrance",
+          "asset_ids": [
+            "00000000-0000-4000-8000-000000000320"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000313",
+          "title": "Psalm",
+          "asset_ids": [
+            "00000000-0000-4000-8000-000000000321"
+          ]
+        }
+      ],
+      "assets": [
+        {
+          "id": "00000000-0000-4000-8000-000000000320",
+          "path": "assets/frames/entrance-01.png",
+          "sha256": "df548edcb95c0f7e2abec57ed626f89ce63006a2cac4cfe9d9bccf811b39b5fe",
+          "size": 2048
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000321",
+          "path": "assets/frames/psalm-01.png",
+          "sha256": "66e9017cae4db2d40651bfe3236da17e7abca77050b4040824cb6263b0621926",
+          "size": 3072
+        }
+      ],
+      "assets_fingerprint": "c78c63377c5729eed106b4e179454dc9bdc31ff7a3ec665d241b14e2c63bd600"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-4000-8000-000000000314",
+      "mass_plan_id": "00000000-0000-4000-8000-000000000315",
+      "items": [
+        {
+          "id": "00000000-0000-4000-8000-000000000316",
+          "title": "Entrance",
+          "asset_ids": [
+            "00000000-0000-4000-8000-000000000320"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000317",
+          "title": "Psalm",
+          "asset_ids": [
+            "00000000-0000-4000-8000-000000000321"
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000318",
+          "title": "Announcements",
+          "asset_ids": []
+        }
+      ],
+      "assets": [
+        {
+          "id": "00000000-0000-4000-8000-000000000320",
+          "path": "assets/frames/entrance-01.png",
+          "sha256": "df548edcb95c0f7e2abec57ed626f89ce63006a2cac4cfe9d9bccf811b39b5fe",
+          "size": 2048
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000321",
+          "path": "assets/frames/psalm-01.png",
+          "sha256": "66e9017cae4db2d40651bfe3236da17e7abca77050b4040824cb6263b0621926",
+          "size": 3072
+        }
+      ],
+      "assets_fingerprint": "c78c63377c5729eed106b4e179454dc9bdc31ff7a3ec665d241b14e2c63bd600"
+    }
+  ],
+  "assets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000320",
+      "path": "assets/frames/entrance-01.png",
+      "sha256": "df548edcb95c0f7e2abec57ed626f89ce63006a2cac4cfe9d9bccf811b39b5fe",
+      "size": 2048
+    }
+  ],
+  "exported_at": "2026-08-23T13:00:00Z"
+}

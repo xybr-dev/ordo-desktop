@@ -1,0 +1,18 @@
+{
+  "schema_version": 3,
+  "id": "00000000-0000-4000-8000-000000000100",
+  "celebration": {
+    "id": "00000000-0000-4000-8000-000000000101",
+    "date": "2026-08-23",
+    "title": "21st Sunday in Ordinary Time"
+  },
+  "readings": [
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "role": "first-reading",
+      "text": "Sample first reading text.",
+      "text_sha256": "73c3843e857e5ec178346a8df4157e1ecce7872f3af1008b73f73d9ad75d8278"
+    }
+  ],
+  "responses": []
+}

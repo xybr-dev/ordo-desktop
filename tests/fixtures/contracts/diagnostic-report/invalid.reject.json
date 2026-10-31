@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000500",
+  "read_only": true,
+  "generated_at": "2026-08-25T08:00:00Z",
+  "app": {
+    "build": "2026.08.1",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "os": "windows-11",
+    "arch": "x86_64"
+  },
+  "checks": [
+    {
+      "id": "00000000-0000-4000-8000-000000000510",
+      "code": "display.topology",
+      "status": "maybe",
+      "detail": "Congregation display not assigned"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000511",
+      "code": "storage.integrity",
+      "status": "pass"
+    }
+  ],
+  "logs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000520",
+      "asset_id": "00000000-0000-4000-8000-000000000521",
+      "code": "ORDO-LOG-014",
+      "timestamp": "2026-08-25T07:58:12Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000521",
+      "path": "assets/logs/recent.log",
+      "sha256": "82dc9edc66aae39af621776c3e59807673f787e1e06c2bad4a8379745f33c597",
+      "size": 1523
+    }
+  ],
+  "assets_fingerprint": "1d4c0201f916d508c7c08a7924379367652b7aece0a04c3a6c23e616e5a22e48"
+}

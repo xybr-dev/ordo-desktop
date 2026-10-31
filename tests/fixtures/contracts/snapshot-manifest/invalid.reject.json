@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000210",
+  "mass_plan_id": "not-a-uuid",
+  "celebration_id": "00000000-0000-4000-8000-000000000230",
+  "captured_at": "2026-08-23T07:30:00Z",
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000212",
+      "title": "Entrance",
+      "asset_ids": [
+        "00000000-0000-4000-8000-000000000220"
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000213",
+      "title": "Gospel Acclamation",
+      "asset_ids": [
+        "00000000-0000-4000-8000-000000000221",
+        "00000000-0000-4000-8000-000000000222"
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000214",
+      "title": "Announcements",
+      "asset_ids": []
+    }
+  ],
+  "assets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000220",
+      "path": "assets/frames/entrance-01.png",
+      "sha256": "df548edcb95c0f7e2abec57ed626f89ce63006a2cac4cfe9d9bccf811b39b5fe",
+      "size": 2048
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000221",
+      "path": "assets/frames/alleluia-01.png",
+      "sha256": "df516eed3089f80d97aa59a03dde6d88cae23b57adb5d2b6004460858e1d9c13",
+      "size": 4096
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000222",
+      "path": "assets/frames/alleluia-02.png",
+      "sha256": "9c0af5bfb72f658b573e17fd724de38f2598a05bd24bc3d004597320d8e2c339",
+      "size": 4100
+    }
+  ],
+  "assets_fingerprint": "a928cb01cdbff65f4972983356374683e610cc07c1bdeba64cef42bf1920cf89"
+}

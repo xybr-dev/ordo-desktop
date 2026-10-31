@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/container/manifest.v1.schema.json",
+  "title": "Ordo container manifest v1",
+  "description": "The required root manifest.json of an .ordo ZIP container. Every archive file must be listed, and each listed file carries its exact size and lowercase hex SHA-256.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_id",
+    "assets",
+    "created_at",
+    "format",
+    "format_version",
+    "kind",
+    "payload",
+    "schema_version"
+  ],
+  "properties": {
+    "format": {
+      "const": "ordo-container",
+      "description": "Container format identifier; always ordo-container."
+    },
+    "format_version": {
+      "const": 1,
+      "description": "Container layout version; 1 in this build."
+    },
+    "kind": {
+      "enum": [
+        "song-import",
+        "liturgy-import",
+        "celebration-package",
+        "parish-backup",
+        "diagnostic-report"
+      ],
+      "description": "Artifact kind; selects the payload contract that validates payload.json."
+    },
+    "schema_version": {
+      "const": 1,
+      "description": "Schema version of the payload contract named by kind; 1 in v1."
+    },
+    "artifact_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 identifying this artifact across copies."
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the artifact was created."
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "path": {
+          "const": "payload.json"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "The single payload.json entry: its path, exact byte size, and SHA-256."
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Archive path under assets/: no backslash, NUL, empty, '.' or '..' segments.",
+            "allOf": [
+              {
+                "pattern": "^assets/[^\\\\\\u0000]+$"
+              },
+              {
+                "not": {
+                  "pattern": "(^|/)\\.{1,2}(/|$)"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "//"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "/$"
+                }
+              }
+            ]
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "description": "Every file under assets/, each listed with exact byte size and SHA-256."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    }
+  }
+}
