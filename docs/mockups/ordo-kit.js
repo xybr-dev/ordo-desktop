@@ -87,6 +87,27 @@
       it.cues.forEach(function (c, ci) { c.item = it; c.i = CUES.length; c.ci = ci; CUES.push(c); });
     });
   });
+  // Library entries Quick Insert can find (Decisions 12, 258).
+  var QI_SONGS = [
+    { t: "Pan sa Kinabuhi", a: "Koro San Roque", lang: "Cebuano", rep: true, alias: ["Bread of Life"], first: "Ikaw ang pan sa kinabuhi", slides: ["Ikaw ang pan sa kinabuhi\nnga gikan sa langit", "Kinsa ang mokaon niini\ndili na gutomon"] },
+    { t: "Panalangin", a: "Koro San Roque", lang: "Cebuano", rep: true, alias: [], first: "Panalangin sa Ginoo", slides: ["Panalangin sa Ginoo\nmaanaa kanatong tanan", "Ug ang iyang kalinaw\nmagpabilin kanato"] },
+    { t: "Salamat, Ginoo", a: "Koro San Roque", lang: "Cebuano", rep: true, alias: ["Pasalamat"], first: "Salamat, Ginoo, sa tanan", slides: ["Salamat, Ginoo, sa tanan\nnimong gihatag kanamo", "Ang among kasingkasing\nnagadayeg kanimo"] },
+    { t: "Kanunay Ka Uban Kanamo", a: "Koro Sta. Cecilia", lang: "Cebuano", rep: false, alias: [], first: "Bisan asa kami moadto", slides: ["Bisan asa kami moadto\nkanunay ka uban kanamo", "Ikaw ang among kahayag\nsa dalan sa kinabuhi"] },
+    { t: "Ave Maria", a: "Gounod · Youth Choir", lang: "Latin", rep: false, alias: ["Hail Mary"], first: "Ave Maria, gratia plena", slides: ["Ave Maria, gratia plena\nDominus tecum", "Benedicta tu in mulieribus"] },
+    { t: "Bayan Umawit", a: "Youth Choir", lang: "Tagalog", rep: false, alias: [], first: "Bayan, umawit ng papuri", slides: ["Bayan, umawit ng papuri\nsa Panginoon", "Purihin ang Kanyang ngalan"] },
+    { t: "Halad", a: "Koro Sta. Cecilia", lang: "Cebuano", rep: false, alias: ["Offering"], first: "Kining pan ug bino", slides: ["Kining pan ug bino\namong ginahalad", "Dawata, O Ginoo,\nang among kinabuhi"] }
+  ];
+  var QI_RESP = [
+    { t: "Pag-ampo alang sa mga Masakiton", lang: "Cebuano", cues: [{ k: "trigger", who: "P", b: "Mag-ampo kita alang sa atong mga masakiton." }, { k: "response", h: "TUBAG:", b: "Ginoo, ayoha sila." }] },
+    { t: "Angelus", lang: "Cebuano", cues: [{ k: "trigger", who: "L", b: "Ang Anghel sa Ginoo nagpahibalo kang Maria." }, { k: "response", h: "TUBAG:", b: "Ug siya nanamkon pinaagi sa Espiritu Santo." }] },
+    { t: "Pag-ampo alang sa mga Namatay", lang: "Cebuano", cues: [{ k: "trigger", who: "P", b: "Ang kahayag nga walay katapusan isidlak kanila, O Ginoo." }, { k: "response", h: "TUBAG:", b: "Ug mopahulay sila sa kalinaw. Amen." }] }
+  ];
+  function cloneMass() {
+    function strip(o, drop) { var x = {}; Object.keys(o).forEach(function (k) { if (drop.indexOf(k) < 0) x[k] = o[k]; }); return x; }
+    return { title: MASS.title, date: MASS.date, choir: MASS.choir, language: MASS.language, sections: MASS.sections.map(function (sec) {
+      return { title: sec.title, items: sec.items.map(function (it) { var x = strip(it, ["cues", "section", "n", "first"]); x.cues = it.cues.map(function (c) { return strip(c, ["item", "i", "ci"]); }); return x; }) };
+    }) };
+  }
   var PROJECTABLE = { lyrics: 1, response: 1, psalm: 1, "reading-id": 1, reading: 1, "song-id": 1, celebration: 1, general: 1 };
   function projectable(c) { return !!PROJECTABLE[c.k]; }
   var KIND_LABEL = { lyrics: "Lyrics", response: "Response", psalm: "Psalm", "reading-id": "Reading title", reading: "Passage",
@@ -108,6 +129,7 @@
     if (!c || !projectable(c)) return '<div class="o-canvas" data-t="black"></div>';
     var h = c.h ? '<div class="h">' + esc(c.h) + "</div>" : "";
     var f = c.f ? '<div class="f">' + esc(c.f) + "</div>" : "";
+    if (c.img) return '<div class="o-canvas" data-t="image"><div class="o-img" title="' + esc(c.img) + '"></div></div>';
     if (c.k === "song-id") return '<div class="o-canvas" data-t="song-id"><div class="b"><div class="t">' + esc(c.t) + '</div><div class="s">' + esc(c.s) + "</div></div></div>";
     if (c.k === "celebration") return '<div class="o-canvas" data-t="celebration"><div class="b"><div class="t">' + esc(c.t) + '</div><div class="s">' + esc(c.s || "") + "</div></div>" + f + "</div>";
     var t = c.k === "reading-id" ? "reading-id" : c.k;
@@ -155,6 +177,16 @@
     wrapper.classList.add("o-fit");
     wrapper.appendChild(app);
 
+    // Each Presenter owns a copy of the Mass so live inserts never leak into other mockups.
+    var M = cloneMass(), ITEMS = [], CUES = [];
+    function reindex() {
+      ITEMS.length = 0; CUES.length = 0;
+      M.sections.forEach(function (sec, si) { sec.items.forEach(function (it) {
+        it.section = si; it.n = ITEMS.length + 1; it.first = CUES.length; ITEMS.push(it);
+        it.cues.forEach(function (c, ci) { c.item = it; c.i = CUES.length; c.ci = ci; CUES.push(c); });
+      }); });
+    }
+    reindex();
     var S = {
       scale: opts.scale || 1, mode: opts.mode || "grid", railPref: opts.rail || "auto", railOpen: false,
       output: (opts.state && opts.state.output) || "disabled",
@@ -282,13 +314,13 @@
         }).join("") + "</section>";
     }
     function timeline() {
-      var html = preflight();
+      var html = preflight() + '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button></div>';
       ITEMS.forEach(function (it) {
         var open = !S.collapsed[it.n];
         var bad = it.cues.some(function (c) { return c.k === "unavailable"; });
         html += '<section class="pr-group" data-item="' + it.n + '"><button class="pr-group-head" data-toggle="' + it.n + '" aria-expanded="' + open + '">' + icon(open ? "chevron-down" : "chevron-right") +
           '<span class="o-n o-meta">' + it.n + "</span><b>" + esc(it.title) + "</b>" + (it.song ? '<span class="o-meta">' + esc(it.song) + "</span>" : "") +
-          '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + "2 unavailable</span>" : "") +
+          (it.inserted ? '<span class="pl-chip">' + icon("zap") + (it.local ? "Inserted live · Mass-local Song" : "Inserted live") + "</span>" : "") + '<span class="o-grow"></span>' + (bad ? '<span class="o-status" data-state="unavailable">' + icon("circle-off") + "2 unavailable</span>" : "") +
           '<span class="o-meta">' + it.cues.length + (it.cues.length === 1 ? " Cue" : " Cues") + "</span></button>";
         if (open) {
           html += '<div class="pr-cues" data-mode="' + S.mode + '">';
@@ -307,10 +339,10 @@
     }
     function rail(overlay) {
       var cur = CUES[S.preview].item.n, html = "";
-      MASS.sections.forEach(function (sec) {
+      M.sections.forEach(function (sec) {
         html += '<div class="o-section-label">' + esc(sec.title) + "</div>";
         sec.items.forEach(function (it) {
-          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span></button>";
+          html += '<button class="o-row pr-rail-row" data-jump="' + it.n + '"' + (it.n === cur ? ' aria-current="true"' : "") + '><span class="o-n o-meta">' + it.n + '</span><span class="o-ellipsis">' + esc(it.title) + "</span>" + (it.inserted ? '<span class="pl-chip">Inserted</span>' : "") + "</button>";
         });
       });
       var head = '<div class="o-pane-head"><b>Ordo</b><span class="o-grow"></span>' +
@@ -332,6 +364,139 @@
       return '<aside class="pr-dock" aria-label="Output controls">' + monitors + controls + "</aside>";
     }
 
+    // ── Emergency insert (MVP-PLAN §8.5, Decisions 12, 258; Decision 290) ─────────────
+    // Insert Freezes Program and opens one Insert panel over the Cue timeline, leaving Program,
+    // Preview, Freeze and Blackout visible. Song, Response sequence and Text or image are tabs of
+    // the same panel; Song and Response share the keyboard-first search, list and preview. Saving
+    // adds a Mass-local item right after the current Mass item and selects its first projectable
+    // Cue in Preview; Program stays frozen until Space.
+    var KINDS = [["song", "music", "Song", "S"], ["resp", "messages-square", "Response sequence", "R"], ["general", "presentation", "Text or image", "T"]];
+    function insAnchor() { return CUES[S.preview].item; }
+    function openInsert(kind) {
+      if (S.output === "enabled" && S.live && !S.frozen && !S.blackout) { S.frozen = true; S.frozenReason = "inserting"; }
+      else if (S.frozen && S.frozenReason === "Insert ready") S.frozenReason = "inserting";
+      S.ins = { kind: kind || "song", q: "", active: 0, create: null, mode: "Text", h: "", text: "" }; say("");
+    }
+    function closeInsert() {
+      S.ins = null;
+      if (S.frozenReason === "inserting") S.frozenReason = "";
+      say(S.frozen ? "Insert cancelled. Program is still frozen; Space or F takes Preview live." : "Insert cancelled.");
+    }
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    // Songs in two groups: the plan's choir's repertoire first, then the rest of the Library.
+    function songResults(q) {
+      q = norm(q).trim();
+      var out = [];
+      QI_SONGS.forEach(function (s) {
+        if (!q) { out.push({ x: s, rank: 0, why: "" }); return; }
+        var t = norm(s.t), al = s.alias.filter(function (a) { return norm(a).indexOf(q) >= 0; })[0], fl = norm(s.first).indexOf(q) >= 0;
+        var rank = t.indexOf(q) === 0 ? 0 : t.indexOf(q) > 0 ? 1 : al ? 2 : fl ? 3 : -1;
+        if (rank >= 0) out.push({ x: s, rank: rank, why: rank === 2 ? "Also called " + al : rank === 3 ? "First line: " + s.first : "" });
+      });
+      out.sort(function (a, b) { return (b.x.rep - a.x.rep) || (a.rank - b.rank); });
+      return out;
+    }
+    function respResults(q) {
+      q = norm(q).trim();
+      return QI_RESP.filter(function (r) { return !q || norm(r.t).indexOf(q) >= 0 || r.cues.some(function (c) { return norm(c.b).indexOf(q) >= 0; }); }).map(function (r) { return { x: r, why: "" }; });
+    }
+    function results() { return S.ins.kind === "song" ? songResults(S.ins.q) : S.ins.kind === "resp" ? respResults(S.ins.q) : []; }
+    // Insert a new Mass-local item after the anchor item; keep Program on its held Cue.
+    function insertItem(it) {
+      var anchor = insAnchor(), sec = M.sections[anchor.section], at = sec.items.indexOf(anchor) + 1, p = anchor.first + anchor.cues.length;
+      it.inserted = true; sec.items.splice(at, 0, it); reindex();
+      if (S.program != null && S.program >= p) S.program += it.cues.length;
+      var first = it.cues.filter(projectable)[0] || it.cues[0];
+      S.preview = first.i; S.follow = true; S.collapsed = {};
+      S.ins = null; S.frozenReason = S.frozen ? "Insert ready" : "";
+      say("Inserted " + it.title + " after " + anchor.title + ". Saved to this Mass plan only. " + (S.frozen ? "Program is still frozen; Space takes it live." : S.output === "enabled" ? "Space takes it live." : ""));
+    }
+    function songItem(s) {
+      return { title: s.t, song: s.local ? "Typed for this Mass" : s.a, type: "Song", local: !!s.local, cues: [{ k: "song-id", t: s.t, s: s.local ? "" : s.a }].concat(s.slides.map(function (b, i) { return { k: "lyrics", h: s.local ? "" : "Bersikulo " + (i + 1), b: b }; })) };
+    }
+    function slidesOf(text) { return String(text).split(/\n\s*\n/).map(function (x) { return x.trim(); }).filter(Boolean); }
+    function chosenCues() {
+      var d = S.ins;
+      if (d.create) return [{ k: "song-id", t: d.create.title || "Untitled", s: "" }].concat(slidesOf(d.create.text).map(function (b) { return { k: "lyrics", h: "", b: b }; }));
+      if (d.kind === "general") return [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h, b: d.text || " ", f: "Parokya ni San Roque" }];
+      var r = results()[Math.min(d.active, results().length - 1)];
+      return r ? (d.kind === "song" ? songItem(r.x).cues : r.x.cues) : [];
+    }
+    function searchList() {
+      var d = S.ins, r = results(), act = Math.min(d.active, Math.max(0, r.length - 1)), html = "", group = null;
+      r.forEach(function (o, i) {
+        if (d.kind === "song") {
+          var g = o.x.rep ? M.choir + "’s repertoire" : "Other Songs in the Library";
+          if (g !== group) { group = g; html += '<div class="o-section-label pr-qi-group">' + esc(g) + "</div>"; }
+        }
+        var meta = d.kind === "song" ? esc(o.x.a) + " · " + esc(o.x.lang) + " · " + o.x.slides.length + " slides" : o.x.cues.length + " Cues · " + esc(o.x.lang);
+        html += '<div class="o-row pr-qi-row" role="option" id="qi-' + i + '" data-qi="' + i + '" aria-selected="' + (i === act) + '"><div class="o-grow"><b>' + esc(o.x.t) + '</b><span class="o-meta">' + meta + (o.why ? " · " + esc(o.why) : "") + "</span></div>" +
+          (d.kind === "song" && !o.x.rep && i === act ? '<span class="o-meta">Not in ' + esc(M.choir) + "’s repertoire</span>" : "") + "</div>";
+      });
+      if (!r.length) html = d.kind === "song" ? '<div class="pr-qi-none"><b>No Song matches “' + esc(d.q) + '”.</b><span class="o-meta">Type it for this Mass; it stays in this plan until someone adds it to the Library after Mass.</span>' +
+        '<button class="o-btn" data-act="ins-create">' + icon("plus") + "Type “" + esc(d.q) + '” for this Mass <span class="o-kbd">Enter</span></button></div>' :
+        '<div class="pr-qi-none"><b>Nothing in Responses &amp; Prayers matches “' + esc(d.q) + '”.</b><span class="o-meta">Use <b>Text or image</b> to type it.</span></div>';
+      var ph = d.kind === "song" ? "Title, other name or first line" : "Title or words of a response";
+      return '<label class="o-field pr-qi-search">' + icon("search") + '<input class="pl-input" data-qin="q" value="' + esc(d.q) + '" placeholder="' + ph + '" role="combobox" aria-expanded="true" aria-controls="qi-list" aria-activedescendant="' + (r.length ? "qi-" + act : "") + '" autocomplete="off"></label>' +
+        '<div class="pr-qi-list" id="qi-list" role="listbox" aria-label="' + (d.kind === "song" ? "Songs" : "Responses and Prayers") + '">' + html + "</div>";
+    }
+    function form() {
+      var d = S.ins;
+      if (d.create) return '<button class="o-btn o-btn--quiet pr-ins-back" data-act="ins-back">' + icon("arrow-left") + "Back to search</button>" +
+        '<label class="sh-field"><span class="o-label">Title</span><input class="pl-input" data-qin="create.title" value="' + esc(d.create.title) + '"></label>' +
+        '<label class="sh-field"><span class="o-label">Lyrics</span><textarea class="pl-input" rows="8" data-qin="create.text" placeholder="Type the lyrics. A blank line starts a new slide.">' + esc(d.create.text) + "</textarea>" +
+        '<span class="o-meta">Saved in this Mass plan only; after Mass it can be added to the Library with a review.</span></label>';
+      return '<div class="o-segmented" role="group" aria-label="Kind">' + ["Text", "Image"].map(function (m) { return '<button data-act="ins-mode" data-v="' + m + '" aria-pressed="' + (d.mode === m) + '">' + m + "</button>"; }).join("") + "</div>" +
+        (d.mode === "Image" ? '<div class="pr-ins-img">' + icon("image") + '<div><b>fiesta-poster.jpg</b><br><span class="o-meta">1920×1080 · fills the slide · from Pictures</span></div><button class="o-btn">Choose another…</button></div>' :
+          '<label class="sh-field"><span class="o-label">Heading</span><input class="pl-input" data-qin="h" value="' + esc(d.h) + '" placeholder="Optional"></label>' +
+          '<label class="sh-field"><span class="o-label">Text</span><textarea class="pl-input" rows="6" data-qin="text" placeholder="What the congregation should read">' + esc(d.text) + "</textarea></label>");
+    }
+    function insertPanel() {
+      if (!S.ins) return "";
+      var d = S.ins, a = insAnchor(), cues = chosenCues(), searching = (d.kind === "song" || d.kind === "resp") && !d.create;
+      var ok = d.create ? d.create.title.trim() && slidesOf(d.create.text).length : d.kind === "general" ? d.mode === "Image" || d.text.trim() : results().length > 0;
+      var label = d.create ? "Insert typed Song" : d.kind === "song" ? "Insert Song" : d.kind === "resp" ? "Insert Response sequence" : "Insert slide";
+      var r = searching ? results()[Math.min(d.active, results().length - 1)] : null;
+      return '<section class="pr-ins-panel" role="dialog" aria-modal="true" aria-labelledby="pr-ins-t"><div class="pr-ins-head"><div class="o-grow"><h2 class="o-title" id="pr-ins-t">Insert</h2>' +
+        '<div class="o-meta">' + icon("corner-down-right") + "After <b>" + esc(a.title) + "</b> · " + esc(M.sections[a.section].title) + " · " + (S.frozen ? "Program frozen" : S.output === "enabled" ? "Program not live" : "Rehearsal: output disabled") + "</div></div>" +
+        '<button class="o-btn o-btn--quiet o-btn--icon" data-act="ins-close" aria-label="Close" title="Close (Esc)">' + icon("x") + "</button></div>" +
+        '<div class="o-tabs pr-ins-tabs" role="tablist">' + KINDS.map(function (k) { return '<button role="tab" data-act="ins-kind" data-v="' + k[0] + '" aria-selected="' + (d.kind === k[0]) + '">' + icon(k[1]) + k[2] + ' <span class="o-kbd">Alt+' + k[3] + "</span></button>"; }).join("") + "</div>" +
+        '<div class="pr-ins-split"><div class="pr-ins-main sh-form">' + (searching ? searchList() : form()) + "</div>" +
+        '<div class="pr-ins-prev"><div class="o-label">' + (r ? esc(r.x.t) : "Preview") + '</div><div class="pr-ins-thumbs">' + cues.slice(0, 4).map(function (c) { return projectable(c) ? slide(c) : '<div class="pr-private"><span class="pr-who">' + esc(c.who || "") + "</span><div><b>" + esc(c.b) + '</b><div class="o-meta">Operator-only · not projected</div></div></div>'; }).join("") + "</div></div></div>" +
+        '<div class="pr-ins-foot"><span class="o-meta">' + (searching ? '<span class="o-kbd">↑</span><span class="o-kbd">↓</span> move · <span class="o-kbd">Enter</span> insert · ' : "") + '<span class="o-kbd">Esc</span> ' + (d.create ? "back" : "close") + " · saves to this Mass plan</span>" +
+        '<span class="o-grow"></span><button class="o-btn" data-act="ins-close">Cancel</button><button class="o-btn o-btn--primary" data-act="ins-save"' + (ok ? "" : " disabled") + ">" + label + "</button></div></section>";
+    }
+    function insSave() {
+      var d = S.ins;
+      if (d.create) { var sl = slidesOf(d.create.text); insertItem(songItem({ t: d.create.title.trim(), slides: sl, local: true })); return; }
+      if (d.kind === "general") { insertItem({ title: d.mode === "Image" ? "Image · fiesta-poster.jpg" : d.h.trim() || "Announcement", type: "General Presentation", cues: [d.mode === "Image" ? { k: "general", img: "fiesta-poster.jpg", b: "" } : { k: "general", h: d.h.trim(), b: d.text.trim(), f: "Parokya ni San Roque" }] }); return; }
+      var r = results()[Math.min(d.active, results().length - 1)]; if (!r) return;
+      if (d.kind === "song") insertItem(songItem(r.x));
+      else insertItem({ title: r.x.t, type: "Response sequence", cues: r.x.cues.map(function (c) { return Object.assign({}, c); }) });
+    }
+    function insAct(a, t) {
+      if (a === "ins-open") openInsert();
+      else if (a === "ins-close") closeInsert();
+      else if (a === "ins-kind") { S.ins.kind = t.dataset.v; S.ins.q = ""; S.ins.active = 0; S.ins.create = null; }
+      else if (a === "ins-mode") S.ins.mode = t.dataset.v;
+      else if (a === "ins-create") S.ins.create = { title: (S.ins.q || "").trim().replace(/^\w/, function (c) { return c.toUpperCase(); }), text: "" };
+      else if (a === "ins-back") S.ins.create = null;
+      else if (a === "ins-save") insSave();
+      else return false;
+      return true;
+    }
+    function insKey(e) {
+      var k = e.key, d = S.ins;
+      if (k === "Escape") { e.preventDefault(); if (d.create) d.create = null; else closeInsert(); render(); return; }
+      if (e.altKey) { var m = { s: "song", r: "resp", t: "general" }[k.toLowerCase()]; if (m) { e.preventDefault(); d.kind = m; d.q = ""; d.active = 0; d.create = null; render(); } return; }
+      if ((d.kind === "song" || d.kind === "resp") && !d.create) {
+        var n = results().length;
+        if (k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); d.active = Math.max(0, Math.min(n - 1, d.active + (k === "ArrowDown" ? 1 : -1))); render(); }
+        else if (k === "Enter") { e.preventDefault(); if (n) insSave(); else if (d.kind === "song" && d.q.trim()) insAct("ins-create"); render(); }
+      }
+      // Other keys belong to the focused field; no single-key Presenter command runs (MVP-PLAN §8.2).
+    }
+
     function render() {
       var l = layout(), pinned = railPinned();
       app.style.setProperty("--o-scale", S.scale);
@@ -350,8 +515,16 @@
       else body = (pinned ? rail(false) : tab) + main + dock();
       var overlay = S.railOpen && !pinned ? '<div class="o-scrim" data-act="close-rail"></div>' + rail(true) : "";
       var old = app.querySelector(".pr-timeline"), kept = old ? old.scrollTop : 0;
-      app.innerHTML = header + '<div class="o-body pr-body">' + body + "</div>" + overlay;
+      var fk = document.activeElement && app.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.qin : null, caret = fk && document.activeElement.selectionStart;
+      app.innerHTML = header + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
       icons();
+      if (S.ins) {
+        var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
+        if (pn) pn.style.right = (dk ? dk.offsetWidth : 0) + "px";
+        var f = app.querySelector('[data-qin="' + (fk || "") + '"]') || app.querySelector("[data-qin]") || pn;
+        if (f) { f.focus({ preventScroll: true }); if (caret != null && f.setSelectionRange) try { f.setSelectionRange(caret, caret); } catch (e) { /* not text */ } }
+        var on = app.querySelector('.pr-qi-row[aria-selected="true"]'); if (on) on.scrollIntoView({ block: "nearest" });
+      }
       // Keep the active Cue in view by scrolling the timeline only, never the page.
       var tl = app.querySelector(".pr-timeline"), cur = tl && tl.querySelector('[data-cue="' + S.preview + '"]');
       if (tl) tl.scrollTop = kept;                     // F, B, Space and clicks never move the timeline
@@ -374,8 +547,11 @@
 
     if (opts.interactive !== false) {
       app.addEventListener("click", function (e) {
-        var t = e.target.closest("[data-cue],[data-act],[data-view],[data-toggle],[data-jump]");
+        var t = e.target.closest("[data-cue],[data-act],[data-view],[data-toggle],[data-jump],[data-qi]");
         if (!t) return;
+        if (t.dataset.qi) { S.ins.active = +t.dataset.qi; render(); return; }
+        if (t.dataset.act && t.dataset.act.indexOf("ins-") === 0) { if (!t.disabled) insAct(t.dataset.act, t); render(); if (!S.ins) app.focus({ preventScroll: true }); return; }
+        if (S.ins && !t.closest(".pr-dock, .pr-band-controls")) return;   // the Output Dock stays usable by mouse
         if (t.dataset.cue) { select(+t.dataset.cue); }
         else if (t.dataset.view) S.mode = t.dataset.view;
         else if (t.dataset.toggle) S.collapsed[t.dataset.toggle] = !S.collapsed[t.dataset.toggle];
@@ -394,8 +570,15 @@
         }
         render(); app.focus({ preventScroll: true });
       });
+      app.addEventListener("input", function (e) {
+        var k = e.target.dataset && e.target.dataset.qin; if (!k || !S.ins) return;
+        if (k.indexOf("create.") === 0) S.ins.create[k.slice(7)] = e.target.value; else S.ins[k] = e.target.value;
+        if (k === "q") S.ins.active = 0; render();
+      });
       app.addEventListener("keydown", function (e) {
+        if (S.ins) { insKey(e); return; }
         var k = e.key, used = true;
+        if (k === "Insert") { openInsert(); render(); e.preventDefault(); return; }
         if (k === "ArrowRight" || k === "ArrowDown") step(1);
         else if (k === "ArrowLeft" || k === "ArrowUp") step(-1);
         else if (k === "PageDown") jumpItem(1);
@@ -418,6 +601,8 @@
     return {
       setScale: function (s) { S.scale = s; render(); },
       setMode: function (m) { S.mode = m; render(); },
+      insert: function (kind, o) { openInsert(kind); Object.keys(o || {}).forEach(function (k) { S.ins[k] = o[k]; }); render(); },
+      insertSong: function (title) { openInsert(); insertItem(songItem(QI_SONGS.filter(function (x) { return x.t === title; })[0])); render(); },
       state: S, render: render, app: app
     };
   }
@@ -436,7 +621,7 @@
   // The Mass planner itself lives in ordo-planner.js, which adds OrdoKit.planner.
 
   window.OrdoKit = {
-    MASS: MASS, ITEMS: ITEMS, CUES: CUES, projectable: projectable, cueLabel: cueLabel, KIND_LABEL: KIND_LABEL,
+    MASS: MASS, ITEMS: ITEMS, CUES: CUES, QI_SONGS: QI_SONGS, projectable: projectable, cueLabel: cueLabel, KIND_LABEL: KIND_LABEL,
     esc: esc, icon: icon, canvas: canvas, slide: slide, statusLabel: statusLabel, icons: icons, fit: fit, presenter: presenter,
     navrail: navrail
   };

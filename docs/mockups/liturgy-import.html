@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liturgy import review — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="ordo-liturgy.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="liturgy-import">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Review a liturgy file, interactive</h2>
+    <p>Opened from a Celebration’s <b>…</b> menu, Transfer &amp; Backup <b>Import</b>, or a Reading item in the Mass Planner. The file is matched to a Celebration by date and compared, entry by entry, with each Mass plan in its language. Select entries on the left; decide the open ones; <b>Copy</b> stays off until nothing is left to decide.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. Text changed by hand in a plan</h2>
+    <p>The 09:00 plan’s Gospel Acclamation was edited. Both versions show side by side with the differences marked; the operator keeps one.</p>
+    <div id="decide"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. A plan with no item for the entry</h2>
+    <p>The 17:00 plan came from the Weekday template and has no Second Reading. Add the item to Liturgy of the Word, or skip it for that Mass.</p>
+    <div id="noslot"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. Reused text marked Needs review</h2>
+    <p>The 06:00 plan was reused from last Sunday. Its readings are replaced by the file’s and lose the Needs review mark; no decision needed.</p>
+    <div id="replace"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. Choosing another Celebration</h2>
+    <p>The date match can be overridden. A Celebration on another date warns that the readings may not suit it.</p>
+    <div id="celmenu"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. Everything decided</h2>
+    <p>Copy is available. The counts show what will happen to each plan.</p>
+    <div id="ready"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Copied</h2>
+    <p>Each plan’s readiness updates. Undo is in each plan’s History, not a single parish-wide undo.</p>
+    <div id="done"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. No plan in the file’s language</h2>
+    <p>A Tagalog file for a Celebration with only Cebuano and English plans. Nothing is kept; add a Tagalog Mass first.</p>
+    <div id="nolang"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. An invalid file</h2>
+    <p>Strict Invalid (Decision 223): the reason, Choose another file and View technical details. Ordo never imports part of a liturgy file.</p>
+    <div id="invalid"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>J. A file from a newer Ordo</h2>
+    <p>A valid file in a newer format is not called corrupt; it says which version can read it.</p>
+    <div id="newer"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var K = OrdoKit, base = { w: 1366, h: 768, dest: "" };
+    function show(id, opts) { return K.liturgy(document.getElementById(id), Object.assign({}, base, opts)); }
+    show("live", {});
+    show("decide", { setup: function (l) { l.sel("e4"); } });
+    show("noslot", { setup: function (l) { l.sel("e3"); } });
+    show("replace", { setup: function (l) { l.sel("e5"); } });
+    show("celmenu", { setup: function (l) { l.cel("c8").celMenu(); } });
+    show("ready", { setup: function (l) { l.resolveAll().sel("e3"); } });
+    show("done", { setup: function (l) { l.done(); } });
+    show("nolang", { setup: function (l) { l.nolang(); } });
+    show("invalid", { setup: function (l) { l.invalid(true); } });
+    show("newer", { setup: function (l) { l.newer(); } });
+  });
+</script>
+</body>
+</html>

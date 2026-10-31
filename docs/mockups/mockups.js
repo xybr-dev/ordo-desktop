@@ -81,6 +81,18 @@
       decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing"]
     },
     {
+      slug: "presenter-insert", group: "presenter", title: "Emergency insert and Quick Insert",
+      summary: "Insert while live at 1366×768: Program freezes and one Insert panel opens over the timeline, leaving the Output Dock visible. Song, Response sequence and Text or image are tabs; Songs and Responses share keyboard-first search with preview. Songs outside the choir's repertoire are listed after it; a Song can be typed for this Mass when none matches; the inserted item lands in Preview with Program still frozen.",
+      status: "approved",
+      decisions: ["0012-safe-live-operations", "0258-bound-live-insertion-auto-play-windows-and-save-safety", "0011-program-preview-freeze-and-blackout-semantics", "0105-song-item-editor-ownership-and-deliberate-mass-local", "0290-emergency-insert-chooser-and-quick-insert-dialog"],
+      interpretations: [
+        "The Song list is a small fixture; production searches the whole parish Library and ranks the plan's choir first.",
+        "An inserted Song uses its default Arrangement; choosing another Arrangement in Quick Insert isn't shown.",
+        "The image picker is a placeholder; the image slide is drawn as a gradient.",
+        "Ctrl+E emergency edit is not in this page."
+      ]
+    },
+    {
       slug: "presenter-high-scale", group: "presenter", title: "High-scale Presenter",
       summary: "The constrained Presenter across 100%–200% Interface scale: the main-column Program/Preview band, fixed live-output controls, Grid/List choice and the overlay-only Ordo rail.",
       status: "approved", gate: true,
@@ -344,6 +356,18 @@
       ]
     },
     {
+      slug: "liturgy-import", group: "planning", title: "Liturgy import review",
+      summary: "Reviewing a Liturgy Import Document: Celebration match by date, the file's entries, a per-plan outcome for each (new, replaces reused text, unchanged, needs decision), side-by-side comparison of hand-edited text, missing items, Copy into the chosen plans, and the invalid, newer-format and no-plan-in-this-language states.",
+      status: "approved",
+      decisions: ["0027-optional-content-source-extensions", "0193-universal-ordo-exchange-container", "0223-strict-invalid-versus-needs-decision-import-states", "0188-imported-content-is-ordinary-local-content", "0080-independent-language-specific-liturgical-content", "0036-reusing-a-past-mass-plan", "0071-add-mass-item-workflow-and-editor-presets", "0289-liturgy-import-review-copies-into-a-celebration-s-mass-plans"],
+      interpretations: [
+        "The entry kinds shown (readings, psalm, Gospel Acclamation, Prayer of the Faithful) are a guess at the Liturgy Import Document's contents; its schema isn't written yet.",
+        "Matching is by date only; a real matcher may also use the title.",
+        "The word-level comparison is illustrative; production may compare by line or sentence.",
+        "Opening from Transfer & Backup or a Reading item isn't wired in the other mockups; the Celebration menu links here."
+      ]
+    },
+    {
       slug: "themes", group: "shell", title: "Themes and the Theme Editor",
       summary: "The Theme library with the protected Ordo Black, the staged Theme Editor with specimens, Typography, Appearance and Layout, shared-save warning and confirmation, save feedback with affected-plan review, dirty-exit, duplicate, History, a degraded background, and Ordo Black opened.",
       status: "approved",
@@ -418,15 +442,15 @@
       ["arrangement-details", "add an Arrangement"], ["hybrid-ux", "encode sections once"],
       ["arrangement-pagination", "review pagination"], ["history-revision", "revise or restore"] ] },
     { title: "Prepare a Mass (MVP-PLAN 4.2)", steps: [
-      ["mass-planning-responsive", "build the plan"], ["inspector-cue-navigation", "inspect each Cue"],
+      ["liturgy-import", "import the readings"], ["mass-planning-responsive", "build the plan"], ["inspector-cue-navigation", "inspect each Cue"],
       ["incomplete-preflight", "resolve readiness"] ] },
     { title: "Carry a Celebration to the church PC (MVP-PLAN 4.3)", steps: [
       ["masses-index", "open the Celebration's menu"], ["transfer-backup", "export, then import and review"] ] },
     { title: "Reuse for another Celebration (Decision 36)", steps: [
       ["masses-index", "History: Reuse on a plan, or the Celebration's menu"], ["masses-index", "choose plans, times and the target Celebration"],
-      ["mass-planning-responsive", "review the readings marked Needs review"] ] },
+      ["liturgy-import", "replace readings marked Needs review"] ] },
     { title: "Present offline (MVP-PLAN 4.3)", steps: [
-      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"],
+      ["incomplete-preflight", "Present: preflight and handoff"], ["presenter-three-column", "Live Control"], ["presenter-insert", "insert a Song live"],
       ["timeline-modes", "list or grid timeline"], ["presenter-high-scale", "at high Interface scale"] ] }
   ];
 

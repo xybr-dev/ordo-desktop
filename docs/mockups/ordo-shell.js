@@ -204,7 +204,7 @@
       return ok === ms.length ? statusLabel("live", "All " + ms.length + " ready") : statusLabel(ms.some(function (x) { return x.inc; }) ? "danger" : "warning", ok + " of " + ms.length + " ready", ms.some(function (x) { return x.inc; }) ? "diamond" : "square");
     }
     function celMenu(c) {
-      var it = [["addmass", "plus", "Add another Mass"], ["reuse", "copy", "Reuse for another Celebration"], ["export", "package", "Export Celebration Package"], ["archivecel", "archive", "Archive Celebration"]];
+      var it = [["addmass", "plus", "Add another Mass"], ["reuse", "copy", "Reuse for another Celebration"], ["liturgy", "file-input", "Import liturgy…"], ["export", "package", "Export Celebration Package"], ["archivecel", "archive", "Archive Celebration"]];
       return '<div class="o-menu sh-menu" role="menu">' + it.map(function (i) { return '<button class="o-row" role="menuitem" data-a="' + i[0] + '" data-id="' + c.id + '">' + icon(i[1]) + i[2] + "</button>"; }).join("") + "</div>";
     }
     function celGroup(c, past) {
@@ -815,6 +815,7 @@
         case "amant": S.am.ant = !S.am.ant; break;
         case "createmass": createMass(); keepToast = true; break;
         case "reuse": openReuse(id); break;
+        case "liturgy": window.location.href = "liturgy-import.html"; break;
         case "reuseplan": var rp = planById(id); openReuse(rp.c.id, id); break;
         case "rupick": S.ru.pick[id] = !S.ru.pick[id]; break;
         case "doreuse": doReuse(); keepToast = true; break;

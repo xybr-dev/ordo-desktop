@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emergency insert and Quick Insert — Ordo mockups</title>
+<link rel="stylesheet" href="mockups.css">
+<link rel="stylesheet" href="ordo.css">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="ordo-kit.js"></script>
+<script src="mockups.js"></script>
+</head>
+<body data-page="presenter-insert">
+<header data-mk-head></header>
+<div data-mk-notes></div>
+<main class="mk-stage">
+
+  <section class="o-variant">
+    <h2>A. Live on the Gloria, interactive</h2>
+    <p>Click the Presenter, then press <span class="o-kbd">Insert</span> (or <b>Insert after …</b> above the timeline). Program freezes on the Gloria and the Insert panel opens on Song. Type <i>pan</i>, use <span class="o-kbd">↓</span> and <span class="o-kbd">Enter</span>. The new Song lands after the Gloria with its first slide in Preview; Program stays frozen until <span class="o-kbd">Space</span>. While the panel is open, no single-key Presenter command runs; <span class="o-kbd">Alt+R</span> and <span class="o-kbd">Alt+T</span> switch to Response sequence or Text or image.</p>
+    <div id="live"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>B. The Insert panel</h2>
+    <p>One panel over the Cue timeline for every kind; Program, Preview, Freeze and Blackout stay in view beside it (Decision 290). It opens on <b>Song</b> with the search focused: the choir’s repertoire first, then <b>Other Songs in the Library</b>, all reachable with <span class="o-kbd">↓</span>.</p>
+    <div id="panel"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>C. Typing filters</h2>
+    <p>Matches titles first, then other names and first lines, ignoring accents. Repertoire matches stay on top; <i>Halad</i> comes from the rest of the Library because its first line matches.</p>
+    <div id="qi-pan"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. A Song outside the choir’s repertoire</h2>
+    <p>Any Song in the Library can be inserted. The row says it isn’t in this choir’s repertoire; inserting doesn’t add it there.</p>
+    <div id="qi-other"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>E. No Song matches</h2>
+    <p>The way out is to type it for this Mass. <span class="o-kbd">Enter</span> opens the form with the title filled in.</p>
+    <div id="qi-none"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>F. A Song typed for this Mass</h2>
+    <p>In the same panel, with <b>Back to search</b>. A blank line starts a new slide. It is Mass-local and offered to the Library only through a review after Mass.</p>
+    <div id="create"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>G. Inserted: Preview on the new Song, Program still frozen</h2>
+    <p>The item is marked <b>Inserted live</b> in the timeline and the Ordo rail. Program still holds the Gloria; <span class="o-kbd">Space</span> takes the Song title live.</p>
+    <div id="inserted"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>H. A Response sequence</h2>
+    <p>The same search, list and preview as Songs, over Responses &amp; Prayers. Copied into this Mass; the Library entry doesn’t change.</p>
+    <div id="resp"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>I. Text or image</h2>
+    <p>A slide typed now, or a picture from this computer, previewed in the canonical frame.</p>
+    <div id="general"></div>
+  </section>
+
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var live = { w: 1366, h: 768, state: { output: "enabled" }, live: true, preview: 13, program: 13 };
+    function show(id, setup) { var p = OrdoKit.presenter(document.getElementById(id), live); if (setup) setup(p); }
+    show("live");
+    show("panel", function (p) { p.insert(); });
+    show("qi-pan", function (p) { p.insert("song", { q: "pan", active: 1 }); });
+    show("qi-other", function (p) { p.insert("song", { q: "ave" }); });
+    show("qi-none", function (p) { p.insert("song", { q: "gugma sa dios" }); });
+    show("create", function (p) { p.insert("song", { q: "gugma sa dios", create: { title: "Gugma sa Dios", text: "Gugma sa Dios walay kataposan\nmao kini ang among awit\n\nBisan unsa ang moabot\nmagpabilin ang iyang gugma" } }); });
+    show("inserted", function (p) { p.insertSong("Pan sa Kinabuhi"); });
+    show("resp", function (p) { p.insert("resp"); });
+    show("general", function (p) { p.insert("general", { h: "Pahibalo", text: "Ang tag-iya sa puting van nga naka-park sa atubangan sa simbahan, palihug ibalhin." }); });
+  });
+</script>
+</body>
+</html>

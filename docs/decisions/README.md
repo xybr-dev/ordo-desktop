@@ -318,5 +318,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0286](0286-mass-template-list-language-fallback-and-archiving.md) | Mass template list, language fallback and archiving | accepted | 2026-10-28 | mass-plan |
 | [0287](0287-template-items-carry-their-requirement-and-an-inclusion-rule.md) | Template items carry their requirement and an inclusion rule | accepted | 2026-10-28 | mass-plan |
 | [0288](0288-add-mass-and-reuse-for-another-celebration-slide-overs.md) | Add Mass and Reuse for another Celebration slide-overs | accepted | 2026-10-28 | mass-plan |
+| [0289](0289-liturgy-import-review-copies-into-a-celebration-s-mass-plans.md) | Liturgy import review copies into a Celebration's Mass plans | accepted | 2026-10-28 | import |
+| [0290](0290-emergency-insert-chooser-and-quick-insert-dialog.md) | Emergency insert chooser and Quick Insert dialog | accepted | 2026-10-28 | presenter |
 
 <!-- adr-index:end -->
