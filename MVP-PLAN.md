@@ -996,4 +996,4 @@ The MVP is done when all of the following are true:
 3. Prepare the sanitized Normal Mass and Recovery Drill fixtures described in T1.1 from synthetic, in-repository examples that exercise the adopted contracts; do not depend on or copy parish-owned external source text.
 4. Establish the minimum-profile performance machine and schedule access to the actual church projector early, not only at final release.
 
-Phase 0 status: the qualification record and bundle procedure are in [`docs/qualification/milestone-0/README.md`](./docs/qualification/milestone-0/README.md); T0.9 remains open, and T0.10's manual sign-off (AC2) and failed-proof requalification (AC3) remain unticked, so Phase 0 is not yet closed. T0.6 closed on the church-PC run, its hot-path leg included (Decision 270).
+Phase 0 status: the qualification record and bundle procedure are in [`docs/qualification/milestone-0/README.md`](./docs/qualification/milestone-0/README.md); T0.9 remains open, and T0.10's manual sign-off (AC2) and failed-proof requalification (AC3) remain unticked, so Phase 0 is not yet closed. T0.6 closed on the church-PC run, its hot-path leg included (Decision 295).

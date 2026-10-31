@@ -119,7 +119,7 @@ boxes in `MILESTONES.md` at the time of writing.
 | T0.4 Canonical rendering and bundled fonts | Deterministic 1920x1080 composition, bundled font hashes, golden frames, packaged invariance | `crates/rendering/tests/` (`golden`, `canonical_shaping`, `fonts`, `raster`, `templates`, `interface`); `tests/native-runtime/tests/canonical_invariance.rs`; job `windows-canonical-invariance` | canonical-invariance | `T0.4-MANUAL-GATE.md` (script A and gallery C; script B retired by T0.4b) | Closed (manual boxes ticked) |
 | T0.4a GPUI migration and `gpui-base` re-qualification | One GPUI revision, pin enforcement, behavior re-qualified, pin gaps re-checked | `cargo xtask offline` (GPUI supply check); `crates/rendering/tests/shaping_probe.rs`; job `windows-shaping-probe`; UI suites in `GPUI-BASE-T0.4a.md` | shaping-probe, verify | Recorded as passed in `GPUI-BASE-T0.4a.md` ("Manual gate (passed)") | Closed (manual box ticked) |
 | T0.5 Display Control and passive congregation window | Display discovery, one passive output window, disconnect handling, topology, native enumeration | `tests/display/tests/display_control.rs`, `tests/display/tests/native_display.rs`; job `windows-display-control` | native-display | No separate gate file in this folder. Pointer and locator boxes are ticked in `MILESTONES.md` | Closed by checkboxes; no gate record found (see below) |
-| T0.6 Presentation Engine and performance | Pure engine, ordered and coalesced commands, caches bounded, measured latency and memory | `tests/presentation/tests/presenter_sequences.rs`, `tests/presentation/tests/caches.rs`, `tests/performance/tests/presenter_bench.rs`; `cargo xtask measure-presenter`; job `windows-presenter-performance` | measure-presenter | None listed. Hardware acceleration box ticked on the church-PC run | Closed (all boxes ticked). Two former opens close on the church-PC run (`docs/plans/T0.6-implementation-plan.md`, Recorded results, church PC); the hot-path leg closes on what exists, with zero violations in that run (Decision 270) |
+| T0.6 Presentation Engine and performance | Pure engine, ordered and coalesced commands, caches bounded, measured latency and memory | `tests/presentation/tests/presenter_sequences.rs`, `tests/presentation/tests/caches.rs`, `tests/performance/tests/presenter_bench.rs`; `cargo xtask measure-presenter`; job `windows-presenter-performance` | measure-presenter | None listed. Hardware acceleration box ticked on the church-PC run | Closed (all boxes ticked). Two former opens close on the church-PC run (`docs/plans/T0.6-implementation-plan.md`, Recorded results, church PC); the hot-path leg closes on what exists, with zero violations in that run (Decision 295) |
 | T0.7 SQLite owner worker and migrations | Single worker owns the connection; ordered, transactional migrations; refusal of newer schema; panic and shutdown handling | `tests/storage/tests/acceptance.rs`; `crates/ordo/tests/storage_supervision.rs` | verify | None | Closed (all boxes ticked) |
 | T0.8 Versioned contracts and `.ordo` container | JSON Schemas for each contract kind; bounded inspection; atomic create and reopen | `tests/artifact-container/tests/e2e.rs`; `contracts/` (eight kinds); `tools/artifact-container-spike`; runs inside the workspace test set | verify | None | Closed (all boxes ticked) |
 | T0.9 Emergency PowerPoint | Image-only 16:9 slides, sections and notes, reopen verification, atomic publication | `tests/powerpoint/tests/e2e.rs`; `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` (`cargo xtask inspect-pptx`) | powerpoint-fixture, verify | `PHYSICAL-QUALIFICATION-TEMPLATE.md` (Emergency PowerPoint fallback) and `WINDOWS-10-SIGNOFF.md` | Open. The `[MANUAL]` box for the exact installed PowerPoint version is unticked |
@@ -148,7 +148,7 @@ Notes on the table:
   note).
 - T0.9 is open, and T0.10's manual sign-off (AC2) and failed-proof
   requalification (AC3) are unticked, so Phase 0 is not yet closed. T0.6 closed
-  on the church-PC run, its hot-path leg included (Decision 270).
+  on the church-PC run, its hot-path leg included (Decision 295).
 
 ## Reuse rule
 
@@ -176,4 +176,4 @@ The `.ordo` container inspector is still spike code in
 `tools/artifact-container-spike`. It is promoted into a `portability` crate at
 its owning milestone, and until then only tests reach it through
 `[dev-dependencies]`. T0.10 AC5 is ticked on the enforceable reuse rule above;
-the promotion is deferred and recorded in Decision 272. See `EXCEPTIONS.md`.
+the promotion is deferred and recorded in Decision 297. See `EXCEPTIONS.md`.
