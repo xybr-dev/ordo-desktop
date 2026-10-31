@@ -322,7 +322,7 @@
     {
       slug: "masses-index", group: "shell", title: "Masses index and first start",
       summary: "The page Ordo opens on: Upcoming grouped by Celebration with readiness roll-ups and filters, a Celebration's menu, New Celebration, History, Archive and Templates, then Set up Ordo for a new installation and the empty parish after it.; Add a Mass (template, reuse or duplicate; date, Anticipated, time, language, choir, presider, location) and Reuse for another Celebration",
-      status: "proposed",
+      status: "approved",
       decisions: ["0083-celebration-grouped-masses-index", "0064-preparation-shell-primary-navigation", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0084-optional-two-stage-celebration-and-first-plan-creation", "0085-celebration-date-scheduled-start-and-anticipated-masses", "0037-mass-plan-retention-and-organization", "0218-minimal-first-run-parish-setup-with-regular-presider", "0089-lightweight-presider-location-and-notes-input", "0198-manual-portable-backup-automatic-safety-backup-and-reminder", "0285-masses-index-rows-name-the-presider-and-carry-the-backup", "0036-reusing-a-past-mass-plan", "0074-celebration-and-scheduled-mass-plan-relationship", "0081-language-aware-duplicate-for-another-mass", "0288-add-mass-and-reuse-for-another-celebration-slide-overs"],
       interpretations: [
         "Clicking a plan row only shows a toast here; the Mass Planner is on its own pages.",
@@ -334,7 +334,7 @@
     {
       slug: "mass-templates", group: "shell", title: "Mass templates and the Template Editor",
       summary: "Masses → Templates with language filter, fallback and archive, the empty list and New template; the three-pane Template Editor with Mass sections, Song and Reading slots, conditional items and their rules, Response sequences, Check against a Celebration, section actions and Add.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0077-template-library-ownership-and-organization", "0076-typed-template-slots-and-multiple-templates-per-language", "0075-conditional-template-items", "0078-template-instantiation-and-revision-boundary", "0079-template-recommendation-and-fallback-selection", "0220-empty-mass-templates-within-the-permanent-list-editor", "0112-mass-ownership-of-template-derived-response-sequences", "0170-mass-sections-group-the-outline-in-plans-and-templates", "0172-editable-and-independently-owned-mass-section-structure", "0177-mass-section-header-controls-and-structural-invariant", "0286-mass-template-list-language-fallback-and-archiving", "0287-template-items-carry-their-requirement-and-an-inclusion-rule"],
       interpretations: [
         "Rules cover days and seasons only; Celebration tags (Decision 75) wait for a tag vocabulary.",

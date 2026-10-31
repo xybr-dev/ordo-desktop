@@ -1,7 +1,7 @@
 ---
 id: 287
 title: Template items carry their requirement and an inclusion rule
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [mass-plan]

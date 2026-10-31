@@ -258,7 +258,7 @@
           .map(function (r) { return '<label class="sh-radio"><input type="radio" name="nc-first" data-a="set" data-path="newCel.first" data-v="' + r[0] + '"' + (n.first === r[0] ? " checked" : "") + '><span><b>' + r[1] + '</b><br><span class="o-meta">' + r[2] + "</span></span></label>"; }).join("") + "</div></div>" +
         '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="createcel"' + (ok ? "" : " disabled") + ">" + (n.first === "later" ? "Create Celebration" : "Next: add the Mass") + "</button></div></div>";
     }
-    // ── Add Mass to a Celebration (Decisions 74, 79, 81, 84, 85; proposed Decision 288) ──────────
+    // ── Add Mass to a Celebration (Decisions 74, 79, 81, 84, 85; Decision 288) ──────────
     var DAYN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var CHOIRS = ["Koro San Roque", "Koro Sta. Cecilia", "Youth Choir"], VISITING = ["Msgr. Cris Garcia", "Fr. Noel Ybañez"];
     function short(d) { return DAYN[d.getDay()] + " " + d.getDate() + " " + MON[d.getMonth()]; }
@@ -336,7 +336,7 @@
       done(label + " · " + a.lang + " added to " + c.title + ". It opens in the Mass Planner.", true);
     }
 
-    // ── Reuse for another Celebration (Decisions 36, 74; proposed Decision 288) ───────────────
+    // ── Reuse for another Celebration (Decisions 36, 74; Decision 288) ───────────────
     function openReuse(celId, planId) {
       var c = cel(celId), target = S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived && x.id !== celId && !x.masses.length; })[0] ||
         S.cels.filter(function (x) { return x.when === "upcoming" && !x.archived && x.id !== celId; })[0];
