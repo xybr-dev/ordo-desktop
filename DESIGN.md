@@ -643,26 +643,30 @@ identical.
 
 ## Approved References
 
-The interactive references in `design-references/` demonstrate approved
-information hierarchy and interaction behavior. They are not production source
-and may contain explicitly documented superseded details.
+The pages in `docs/mockups/` (open `index.html`) demonstrate approved
+information hierarchy and interaction behavior, one page per screen with its
+status, decisions, and any superseded details listed on the page. They are not
+production source. A page marked *Acceptance reference* is one of those named
+below.
 
-- `design-references/ordo-semantic-palette*` is the current semantic-color and
+- `docs/mockups/semantic-palette.html` is the current semantic-color and
   appearance reference.
-- `design-references/ordo-presenter-three-column*` and
-  `design-references/ordo-timeline-modes*` establish Presenter composition.
-- `design-references/ordo-presenter-high-scale*` establishes the approved
+- `docs/mockups/presenter-three-column.html` and
+  `docs/mockups/timeline-modes.html` establish Presenter composition.
+- `docs/mockups/presenter-high-scale.html` establishes the approved
   constrained/high-scale Presenter hierarchy and the isolation of canonical
   frames from operator Interface scaling.
-- `design-references/ordo-mass-planning-responsive*` establishes the approved
+- `docs/mockups/mass-planning-responsive.html` establishes the approved
   three-pane Mass Planning hierarchy and density at `1366x768` and `1920x1080`
   while holding selected content and canonical Slide composition constant.
 - `design-references/ordo-canonical-slide-layouts/` is the approved
   fixture-backed Canonical Slide Layout Gallery: every canonical template,
   label/background variants, and representative overflow warnings at
-  `1920x1080`, with per-fixture provenance in `capture-rows.md`.
+  `1920x1080`, with per-fixture provenance in `capture-rows.md`. The captures
+  stay there because the `canonical-slide-lab` capture test writes them;
+  `docs/mockups/canonical-slide-layouts.html` shows them.
 - Song, Arrangement, import, History, pagination, readiness, and overlay
-  references are indexed in `design-references/README.md`.
+  references are the other pages in `docs/mockups/`.
 
 Authority is by subject: this file owns visible behavior and visual tokens;
 `CONTEXT.md` owns domain terms and invariants; `MVP-PLAN.md` owns product scope

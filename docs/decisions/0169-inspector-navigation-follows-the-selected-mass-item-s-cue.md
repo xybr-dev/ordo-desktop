@@ -22,4 +22,4 @@ sources: []
 - Keep editor and Inspector selection synchronized in both directions. Clicking a generated Cue focuses it in the Inspector, while Inspector Previous/Next selects and reveals the corresponding Cue in the owning editor hierarchy.
 - Stop navigation at the first and last Cue of the selected Mass item and disable the unavailable direction. Do not silently select an adjacent Mass item; changing item scope remains an explicit Mass-outline action.
 - Preserve the full `16:9` authoritative frame while showing warning, source, Theme, and private operator context around it. Use contextual **Fix pagination** only for affected projectable content.
-- Treat `ordo-inspector-cue-navigation*` as the approved interaction and information-hierarchy reference for this behavior.
+- Treat `ordo-inspector-cue-navigation*` (now [`docs/mockups/inspector-cue-navigation.html`](../mockups/inspector-cue-navigation.html), Decision [271](0271-mockups-are-one-page-per-screen-with-a-status-each.md)) as the approved interaction and information-hierarchy reference for this behavior.

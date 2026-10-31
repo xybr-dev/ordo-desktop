@@ -21,4 +21,4 @@ sources: []
 - Provide **Present available content** as an explicit warning-toned secondary action. The action itself is the acknowledgment; do not add an **I understand** checkbox. Unavailable Cues remain visible and inspectable in Presenter Mode but can never be taken live.
 - If the operator cancels or chooses review, do not create an unused Presentation snapshot. If snapshot capture or opening fails after proceeding, remain in the planner and show the fatal Presenter-entry blocker with recovery guidance.
 - Open Presenter Mode with congregation output disabled and without creating an output window merely because **Present** was clicked.
-- Treat `ordo-incomplete-preflight*` as the approved interaction and information-hierarchy reference for the incomplete-content handoff.
+- Treat `ordo-incomplete-preflight*` (now [`docs/mockups/incomplete-preflight.html`](../mockups/incomplete-preflight.html), Decision [271](0271-mockups-are-one-page-per-screen-with-a-status-each.md)) as the approved interaction and information-hierarchy reference for the incomplete-content handoff.
