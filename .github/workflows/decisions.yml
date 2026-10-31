@@ -1,0 +1,23 @@
+name: Decisions
+
+# The Verify workflow ignores Markdown-only changes, so decision records get
+# their own small check (Decision 270).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/decisions/**"
+  pull_request:
+    paths:
+      - "docs/decisions/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check decision records and index
+        run: python docs/decisions/adr.py check

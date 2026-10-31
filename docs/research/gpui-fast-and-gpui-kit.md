@@ -1,7 +1,7 @@
 # Research: adopting gpui-fast and GPUI Kit
 
 Status: research for review. Nothing here changes a pin, a milestone, or
-`decision.md`. Evidence was gathered on 2026-10-07 against
+a decision record. Evidence was gathered on 2026-10-07 against
 `longbridge/gpui-fast@8e1e198`, `longbridge/gpui-kit@dc00da18`, and the
 crates.io registry.
 
@@ -21,7 +21,7 @@ own task, **T0.4a**, which runs after T0.4 and before T0.5. It is recorded in
   behaviors.
   It does **not** use GPUI Kit's styled components (`gpui-component`).
   `deny.toml` bans that crate, and Decision 252 rejects it as a wholesale
-  dependency (`decision.md:2697-2700`). See
+  dependency (decision [0253](../decisions/0253-use-short-internal-crates-and-an-interactive-ui-laboratory.md)). See
   [GPUI Kit's components](#gpui-kits-components).
 - **gpui-fast is a copy of Zed's GPUI, not an alternative to it.** It imports
   Zed's `crates/gpui*` unchanged and adds its own logic in `fast/` modules with
@@ -32,7 +32,7 @@ own task, **T0.4a**, which runs after T0.4 and before T0.5. It is recorded in
 - **Zed's GPUI is not slow-moving; Ordo's pin is old on purpose.** `crates/gpui`
   received 98 commits between Ordo's pin (`8b1497db`, 2026-08-17) and
   2026-10-07. Ordo is seven weeks behind because of its own policy: upgrades are
-  scheduled qualification work (`decision.md:2626-2629`, `MVP-PLAN.md:252`).
+  scheduled qualification work (decision [0252](../decisions/0252-replace-electron-with-a-clean-slate-rust-and-gpui.md), `MVP-PLAN.md:252`).
   Longbridge adds three things on top of Zed: crates.io snapshots
   (`gpui-pre`), behavior and components (GPUI Kit), and a performance fork
   (gpui-fast).
@@ -108,7 +108,7 @@ GPUI Kit has three layers, and Ordo takes the bottom one only.
 | Layer | Crate | Ordo today |
 | --- | --- | --- |
 | Behavior: interaction, focus, keyboard, measurement, state; no visual language | `gpui-base` | **Used, selectively.** Six files in `crates/ui`, behind Ordo wrappers. xtask stops it from leaving `ui`. |
-| Styled components: 60+ shadcn-style controls with theme, sizing, icons, i18n | `gpui-component` | **Not used.** Banned in `deny.toml` (`bans.deny`). Rejected by `decision.md:2697-2700`, by `DESIGN.md:371-375` ("never defines Ordo's visual language"), and by the T0.3 qualification (`GPUI-BASE-T0.3.md:36`). |
+| Styled components: 60+ shadcn-style controls with theme, sizing, icons, i18n | `gpui-component` | **Not used.** Banned in `deny.toml` (`bans.deny`). Rejected by decision [0253](../decisions/0253-use-short-internal-crates-and-an-interactive-ui-laboratory.md), by `DESIGN.md:371-375` ("never defines Ordo's visual language"), and by the T0.3 qualification (`GPUI-BASE-T0.3.md:36`). |
 | Everything else: assets, `gpui-shell` (QuickJS scripting), `gpui-wry` (WebView), FPS overlay | `gpui-kit-assets`, `gpui-shell`, `gpui-wry`, `gpui-fps` | Not used. A WebView or script runtime would contradict Ordo's scope; `wry` is banned too. |
 
 ### What Ordo takes from `gpui-base`
@@ -266,8 +266,8 @@ Ordo's adopted budgets:
 - a 50 ms p95 Presenter command latency;
 - under 5% idle CPU;
 - smooth scrolling of a ~800-Cue timeline;
-- a 512 MiB qualification budget and a 1 GiB ceiling (`decision.md:511-519`,
-  `decision.md:2667-2671`, `MILESTONES.md:2680-2686`).
+- a 512 MiB qualification budget and a 1 GiB ceiling (decisions [0028](../decisions/0028-desktop-shell-supported-hardware-and-performance-budgets.md)
+  and [0252](../decisions/0252-replace-electron-with-a-clean-slate-rust-and-gpui.md), `MILESTONES.md:2680-2686`).
 
 No frame-time number is adopted. T0.6 is the first task that records frame
 times, dropped frames, and memory (`MILESTONES.md:379-381`).
@@ -358,7 +358,7 @@ In this skill's vocabulary:
 
 ## Policy fit
 
-Decision 252 (`decision.md:2626-2638`) and `MVP-PLAN.md:252` already set the
+Decision 252 ([0252](../decisions/0252-replace-electron-with-a-clean-slate-rust-and-gpui.md)) and `MVP-PLAN.md:252` already set the
 bar for third-party GPUI libraries:
 
 - an exact pin;
@@ -429,7 +429,7 @@ The owner has placed the upgrade before T0.5, as T0.4a.
    - and the project has shown a few months of stable upstream syncs and
      releases.
 
-   Record the outcome as a new `decision.md` entry next to Decision 261, so
+   Record the outcome as a new record in `docs/decisions/`, so
    "retained" keeps one meaning in each document.
 
 ## Milestone task
@@ -497,7 +497,7 @@ These habits are harmless on upstream GPUI, help its explicit
   commit count from 2026-08-17 to 2026-10-07; `crates/gpui/src/view.rs` at
   `8b1497db`.
 - Ordo: `Cargo.toml:30-43`, `xtask/src/lib.rs:326-376,557-602`,
-  `decision.md:2606-2700,2927-2966`, `MVP-PLAN.md:250-252`,
+  decisions [0250](../decisions/0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy.md)–[0253](../decisions/0253-use-short-internal-crates-and-an-interactive-ui-laboratory.md), [0260](../decisions/0260-separate-human-song-authoring-from-durable-exchange-and.md)–[0261](../decisions/0261-derive-display-pixels-through-the-compositor-not-a-cpu.md), `MVP-PLAN.md:250-252`,
   `MILESTONES.md:356-413`, `docs/qualification/GPUI-BASE-T0.3.md`,
   `crates/ui/src/{scroll.rs,overlay.rs,accessibility.rs}`,
   `crates/ordo/src/canonical_views.rs`.

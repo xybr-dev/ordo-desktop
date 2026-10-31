@@ -10,6 +10,13 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "pinned GPUI transitive dependency" },
     { id = "RUSTSEC-2026-0206", reason = "pinned GPUI SVG stack" },
     { id = "RUSTSEC-2026-0192", reason = "pinned GPUI font stack" },
+    # zvariant 5 merged into zbus 6; no safe upgrade exists at the pin. Reached
+    # only through gpui-pre-linux's AT-SPI accessibility stack, which a Windows
+    # build never compiles (Decision 268). Unmaintained notices, not
+    # vulnerabilities; revisit on the next gpui-pre upgrade.
+    { id = "RUSTSEC-2026-0370", reason = "pinned gpui-pre-linux accessibility stack (zvariant)" },
+    { id = "RUSTSEC-2026-0371", reason = "pinned gpui-pre-linux accessibility stack (zbus_names)" },
+    { id = "RUSTSEC-2026-0372", reason = "pinned gpui-pre-linux accessibility stack (zvariant_derive)" },
 ]
 
 [licenses]
