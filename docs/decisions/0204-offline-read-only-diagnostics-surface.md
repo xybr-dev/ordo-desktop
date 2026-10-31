@@ -14,7 +14,7 @@ sources: []
 
 # Offline read-only Diagnostics surface
 
-> **Amended by Decision [282](0282-diagnostics-opens-from-its-own-rail-entry.md) (proposed).** If accepted, this page opens from the rail's own **Diagnostics** entry rather than as a Settings page; Settings keeps a link to it. The rest of this record stands.
+> **Amended by Decision [282](0282-diagnostics-opens-from-its-own-rail-entry.md).** This page opens from the rail's own **Diagnostics** entry rather than as a Settings page; Settings keeps a link to it. The rest of this record stands.
 
 - Provide one **Settings → Diagnostics** page that works completely offline and summarizes installation health as **Healthy** or **Needs attention** without requiring telemetry, an account, or internet access.
 - Report the Ordo application version and build; operating system, CPU, memory, GPU, and rendering environment; database and schema version with integrity status; managed-asset availability and corruption findings; bundled Atkinson and Noto font availability; storage location and free space; congregation-display assignment and calibration state; latest verified Parish Backup and Celebration Package activity; and evidence of a recent crash or interrupted Presentation session.

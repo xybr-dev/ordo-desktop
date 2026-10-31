@@ -1,7 +1,7 @@
 ---
 id: 281
 title: "Help holds keyboard shortcuts, offline guides and About Ordo"
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [ui]

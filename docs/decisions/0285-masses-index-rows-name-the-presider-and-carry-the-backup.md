@@ -1,7 +1,7 @@
 ---
 id: 285
 title: Masses index rows name the presider and carry the backup reminder
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [mass-plan]

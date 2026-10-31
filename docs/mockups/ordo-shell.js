@@ -516,7 +516,7 @@
       render();
     }
 
-    // ── Help (Decision 232; proposed Decision 281) ─────────────────────────────────────────────
+    // ── Help (Decision 232; Decision 281) ─────────────────────────────────────────────
     function help() {
       var topics = [["keys", "keyboard", "Keyboard shortcuts"]].concat(GUIDES.map(function (g) { return [g.id, "book-open", g.t]; })).concat([["about", "info", "About Ordo"]]);
       var cur = S.help, body;
@@ -538,7 +538,7 @@
         '<button class="o-btn o-btn--quiet o-btn--icon" data-a="keys" aria-label="Close">' + icon("x") + '</button></div><div class="o-overlay-body">' + keyGroups(ctx) + "</div></div>";
     }
 
-    // ── Settings (Decisions 46, 47, 50, 55, 89, 202, 234; proposed Decision 280) ─────────────
+    // ── Settings (Decisions 46, 47, 50, 55, 89, 202, 234; Decision 280) ─────────────
     function settings() {
       var pages = [["parish", "church", "Parish"], ["displays", "monitor", "Displays"], ["interface", "type", "Interface"]], body;
       if (S.spage === "parish") {

@@ -1,7 +1,7 @@
 ---
 id: 282
 title: Diagnostics opens from its own rail entry
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [ui]
@@ -39,4 +39,4 @@ two places.
 
 ## Consequences
 
-When accepted, this amends where Decisions 204 and 207 place the page; their content is unchanged.
+This amends where Decisions 204 and 207 place the page; their content is unchanged.

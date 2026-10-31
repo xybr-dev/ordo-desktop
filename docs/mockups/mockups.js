@@ -322,7 +322,7 @@
     {
       slug: "masses-index", group: "shell", title: "Masses index and first start",
       summary: "The page Ordo opens on: Upcoming grouped by Celebration with readiness roll-ups and filters, a Celebration's menu, New Celebration, History, Archive and Templates, then Set up Ordo for a new installation and the empty parish after it.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0083-celebration-grouped-masses-index", "0064-preparation-shell-primary-navigation", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0084-optional-two-stage-celebration-and-first-plan-creation", "0085-celebration-date-scheduled-start-and-anticipated-masses", "0037-mass-plan-retention-and-organization", "0218-minimal-first-run-parish-setup-with-regular-presider", "0089-lightweight-presider-location-and-notes-input", "0198-manual-portable-backup-automatic-safety-backup-and-reminder", "0285-masses-index-rows-name-the-presider-and-carry-the-backup"],
       interpretations: [
         "Clicking a plan row only shows a toast here; the Mass Planner is on its own pages.",
@@ -334,7 +334,7 @@
     {
       slug: "themes", group: "shell", title: "Themes and the Theme Editor",
       summary: "The Theme library with the protected Ordo Black, the staged Theme Editor with specimens, Typography, Appearance and Layout, shared-save warning and confirmation, save feedback with affected-plan review, dirty-exit, duplicate, History, a degraded background, and Ordo Black opened.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0103-theme-library-management-archival-and-protected-fallback", "0222-protected-fallback-only-theme-library-state", "0096-theme-editor-navigation-specimens-and-core-property-groups", "0100-theme-appearance-and-mvp-background-model", "0097-staged-shared-theme-editing-and-safe-duplication", "0098-revision-based-theme-save-and-undo", "0099-automatic-theme-propagation-with-exception-based-review", "0101-dirty-theme-session-and-navigation-away-behavior", "0102-contextual-theme-duplication-and-mass-plan-return", "0104-visible-theme-revision-history-and-restoration", "0224-coherent-degraded-rendering-for-a-missing-theme-background", "0225-advisory-theme-background-aspect-and-resolution", "0022-guaranteed-fallback-theme", "0284-theme-library-cards-the-layout-group-and-a-shared-save"],
       interpretations: [
         "Image backgrounds are a gradient stand-in; the mockup ships no photographs.",
@@ -346,7 +346,7 @@
     {
       slug: "transfer-backup", group: "shell", title: "Transfer & Backup",
       summary: "Protect this parish, Celebration Packages with version history, and every Parish Backup; export with its Ready, warnings, blocked, unchanged and complete states; Create parish backup; the two-layer import review with a decision; the restore workspace with its protection gate; unavailable and damaged backups.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0191-contextual-celebration-package-export-slide-over", "0192-export-integrity-blocks-incomplete-preparation-may-travel", "0190-reuse-a-content-equivalent-package-version-on-export", "0196-persistent-verified-export-completion-state", "0185-immutable-versions-under-one-installed-celebration-package", "0181-two-layer-celebration-package-import-review", "0183-nested-read-only-song-comparison-for-possible-package", "0184-verified-staging-and-atomic-managed-installation", "0197-complete-parish-scope-backup-without-installation-cloning", "0198-manual-portable-backup-automatic-safety-backup-and-reminder", "0199-reuse-verified-artifact-publication-ux-for-parish-backup", "0200-replace-only-restore-workspace-with-an-exact-protection-gate", "0201-safety-backups-use-ordinary-manual-retention-in-the-mvp", "0231-later-discovered-package-and-backup-availability-versus", "0283-transfer-and-backup-lists-protection-packages-and-backups"],
       interpretations: [
         "File choosers, progress and read-back verification are skipped: export and backup jump straight to their complete state.",
@@ -358,7 +358,7 @@
     {
       slug: "diagnostics", group: "shell", title: "Diagnostics",
       summary: "The issue-first single column: the latest completed result, issues linking to their owners, collapsible detail rows, a running scan with Cancel, a cancelled run, and Healthy.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0204-offline-read-only-diagnostics-surface", "0205-deliberate-sanitized-diagnostic-report-export", "0206-latest-result-plus-explicit-full-diagnostic-scan-lifecycle", "0207-issue-first-single-column-diagnostics-hierarchy", "0226-self-healing-bundled-font-cache-with-two-tier-trusted", "0282-diagnostics-opens-from-its-own-rail-entry"],
       interpretations: [
         "The scan is a timer; its findings are the same fixture whether it runs or not.",
@@ -368,7 +368,7 @@
     {
       slug: "help", group: "shell", title: "Help",
       summary: "Keyboard shortcuts, short offline guides and About Ordo, plus the Ctrl+/ shortcut panel over Masses.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0232-discoverable-contextual-keyboard-shortcut-reference", "0281-help-holds-keyboard-shortcuts-offline-guides-and-about-ordo", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy"],
       interpretations: [
         "The shortcut bindings are placeholders apart from the Presenter keys and Ctrl+/; the Shortcut Reference Module would supply the real list.",
@@ -378,7 +378,7 @@
     {
       slug: "settings", group: "shell", title: "Settings",
       summary: "Parish with its Mass-plan defaults, Displays with topology, congregation display, Identify displays and calibration, its changed, disconnected and single-display states, and Interface scale.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0280-settings-holds-parish-displays-and-interface-pages", "0202-installation-specific-displays-settings-page", "0046-projector-calibration-and-overscan-compensation", "0047-calibration-setting-scope", "0050-congregation-display-selection", "0055-near-16-9-display-tolerance", "0089-lightweight-presider-location-and-notes-input", "0234-operator-only-interface-scaling-isolated-from-canonical"],
       interpretations: [
         "Display tiles are fixed; the real topology comes from the operating system.",

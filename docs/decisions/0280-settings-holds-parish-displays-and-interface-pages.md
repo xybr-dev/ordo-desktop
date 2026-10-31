@@ -1,7 +1,7 @@
 ---
 id: 280
 title: "Settings holds Parish, Displays and Interface pages"
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [ui]
@@ -35,7 +35,7 @@ Settings. None of them says how Settings is laid out or which pages it has.
 - **Interface** holds Interface scale as a five-step segmented control (100% to 200%), with the
   `Ctrl++`, `Ctrl+-` and `Ctrl+0` keys shown beside it.
 - Under the pages, a separator and a **Diagnostics** link go to the Diagnostics destination
-  (proposed Decision [282](0282-diagnostics-opens-from-its-own-rail-entry.md)).
+  (Decision [282](0282-diagnostics-opens-from-its-own-rail-entry.md)).
 
 ## Alternatives considered
 

@@ -1,7 +1,7 @@
 ---
 id: 283
 title: Transfer and Backup lists protection, packages and backups in that order
-status: proposed
+status: accepted
 date: 2026-10-28
 recorded: 2026-10-28
 tags: [storage]
