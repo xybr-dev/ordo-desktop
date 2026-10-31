@@ -30,7 +30,7 @@
     {
       slug: "semantic-palette-v2", group: "system", title: "Tokens and semantic palette", replaces: "semantic-palette",
       summary: "A live token sheet on the shared kit: Preparation and Presenter colour, operational states with their shape cues, liturgical colours as content only, type, spacing, controls, radius and elevation. Values are read from ordo.css, so revisiting the tokens updates it.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0208-warm-neutral-and-graphite-semantic-color-language", "0256-refine-operator-appearance-overlays-and-bounded-output"],
       interpretations: [
         "Preparation's Dark appearance reuses the graphite Presenter values; DESIGN.md defines only Preparation (light) and Presenter (graphite) colour sets."
@@ -55,7 +55,7 @@
     {
       slug: "presenter-three-column-v2", group: "presenter", title: "Three-column Presenter", replaces: "presenter-three-column",
       summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, Program black on an unavailable Cue; 1920 and 1366 compositions.",
-      status: "proposed", gate: false,
+      status: "approved", gate: false,
       decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
@@ -76,7 +76,7 @@
     {
       slug: "timeline-modes-v2", group: "presenter", title: "Cue timeline modes", replaces: "timeline-modes",
       summary: "Visual Slide Grid and Compact Cue List on the shared kit, with operator-only rows breaking the grid in order, unavailable Cues kept in place, and a narrower window that drops a column but keeps the mode.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0010-presenter-layout", "0063-minimum-visual-slide-grid-thumbnail-size", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing"]
     },
     {
@@ -88,7 +88,7 @@
     {
       slug: "presenter-high-scale-v2", group: "presenter", title: "High-scale Presenter", replaces: "presenter-high-scale",
       summary: "1366×768 across 100%–200% Interface scale, opening at 175%: Ordo overlay-only, a fixed side-by-side Program/Preview band with output controls beneath, and only the timeline scrolling. Frames never reflow.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0239-approved-constrained-high-scale-presenter-acceptance", "0234-operator-only-interface-scaling-isolated-from-canonical", "0237-safety-first-constrained-presenter-composition"],
       interpretations: [
         "The mockup switches compositions at effective widths of 1500 and 1000 logical px. These are illustrative: production thresholds come from effective dimensions and qualified minimum region sizes (Decisions 234 and 237)."
@@ -103,7 +103,7 @@
     {
       slug: "incomplete-preflight-v2", group: "presenter", title: "Presenter handoff and preflight", replaces: "incomplete-preflight",
       summary: "Present with incomplete content: the centred acknowledgment over the dimmed planner, then Presenter opening output-disabled with the collapsed preflight summary and its corrective actions.",
-      status: "proposed",
+      status: "approved",
       decisions: ["0051-automatic-presenter-preflight", "0178-automatic-presenter-handoff-with-focused-incomplete-content"],
       interpretations: [
         "Preflight results sit in a dismissible strip at the top of the Cue timeline, keeping the Output Dock to output state and controls. Decision 51 says passed checks collapse into a compact summary but doesn't name where that summary lives."
@@ -286,7 +286,7 @@
     }
     if (p.replaces) {
       var old = page(p.replaces);
-      left.appendChild(el("p", {}, ["Proposed to replace ", el("a", { href: old.slug + ".html", text: "the approved " + old.title }), " once a decision accepts it."]));
+      left.appendChild(el("p", {}, [p.status === "proposed" ? "Proposed to replace " : "Replaces ", el("a", { href: old.slug + ".html", text: "the approved " + old.title }), p.status === "proposed" ? " once a decision accepts it." : ", which stays until it is retired."]));
     }
     proposals(p).forEach(function (r) {
       left.appendChild(el("p", {}, ["A proposed replacement is waiting: ", el("a", { href: r.slug + ".html", text: r.title + " (proposed)" }), "."]));
