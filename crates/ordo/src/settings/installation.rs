@@ -16,6 +16,9 @@ use ui::{
     tokens,
 };
 
+const SCALE_HELP: &str = "Makes Ordo's own text and controls larger on this computer. Slides are never affected: they're always composed at 1920 × 1080.";
+const SCALE_KEYS: &str = "Ctrl++ larger · Ctrl+- smaller · Ctrl+0 100%";
+
 /// Each preference is a row of choices with the current one marked the way the
 /// rail marks the current destination, so neither depends on color alone.
 ///
@@ -127,6 +130,29 @@ pub fn panel(
         .flex()
         .flex_col()
         .gap(px(scale.apply(tokens::spacing::SECTION)))
+        .child(
+            div()
+                .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                .child("Interface"),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(group("Interface scale", scales))
+                .child(
+                    div()
+                        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                        .text_color(rgb(palette.text_muted))
+                        .child(SCALE_HELP),
+                )
+                .child(
+                    div()
+                        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                        .text_color(rgb(palette.text_muted))
+                        .child(SCALE_KEYS),
+                ),
+        )
         .child(group("Preparation appearance", appearances))
-        .child(group("Interface scale", scales))
 }

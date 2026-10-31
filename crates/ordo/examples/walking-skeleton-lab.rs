@@ -9,8 +9,10 @@
 //! timeline, and its output controls belong to Phase 1, and this program adds
 //! no product behaviour to any crate.
 //!
-//! One lab window shows the title, Preview, Program (what the congregation
-//! output is showing), the Cue position, a status line, and the key help.
+//! One lab window follows the approved Presenter's graphite appearance and
+//! right-hand dock: Program (what the congregation output is showing) above
+//! Preview, with the Cue position, status lines, and key help beside them. The
+//! Cue timeline and output controls stay Phase 1, so the keys drive everything.
 //! Every Cue is composed on the runtime's canonical worker and rasterized on a
 //! background thread at startup, so nothing renders on the GPUI thread. The
 //! fixtures are embedded, so a packaged binary needs no source tree.
@@ -44,7 +46,8 @@ use std::{
 use gpui::{
     App, AppContext as _, Bounds, Context, FocusHandle, Focusable, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, StatefulInteractiveElement as _, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, px, rgb, size,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
+    prelude::FluentBuilder as _, px, rgb, size,
 };
 use gpui_platform::application;
 use ordo::{
@@ -472,7 +475,29 @@ fn cue_composed(cues: &[Option<CueFrames>], cue: usize) -> bool {
 }
 
 fn lab_environment() -> UiEnvironment {
-    UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light)
+    UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Dark)
+}
+
+/// The approved dock's width and the monitors inside it, before Interface scale
+/// (`docs/mockups/ordo.css`, `.pr-dock`).
+const DOCK_WIDTH: f32 = 400.0;
+const MONITOR_WIDTH: f32 = 368.0;
+
+/// The Program monitor's label: the kit's wording, its semantic color, and a
+/// marker shape so the state never rests on color alone.
+fn program_status(mode: &str) -> (&'static str, u32, bool) {
+    match mode {
+        "Live" => ("LIVE", tokens::color::LIVE_PRESENTER, false),
+        "Frozen" => ("FROZEN", tokens::color::FREEZE_PRESENTER, true),
+        "Blackout" => ("BLACKOUT", tokens::color::PRESENTER_TEXT, true),
+        "Output off" => ("Output disabled", tokens::color::PRESENTER_TEXT_MUTED, true),
+        _ => ("BLACK · not live", tokens::color::PRESENTER_TEXT, true),
+    }
+}
+
+/// The name of the Mass item a Preview index belongs to.
+fn item_name(counts: &[usize], preview: usize) -> &'static str {
+    DECK[locate(counts, preview).0].0
 }
 
 /// "item / cue" text for a Preview index, one-based.
@@ -922,13 +947,18 @@ impl SkeletonLab {
             ProgramTarget::Black => None,
         };
         match frames {
-            Some(frames) => canonical_views::program_frame(&frames.finished, self.environment),
+            Some(frames) => ui::canonical_frame::canonical_frame(
+                &frames.finished,
+                self.environment.preferences().scale.apply(MONITOR_WIDTH),
+                self.environment,
+            )
+            .into_any_element(),
             None => {
-                let width = self.environment.preferences().scale.apply(720.0);
+                let width = self.environment.preferences().scale.apply(MONITOR_WIDTH);
                 div()
                     .w(px(width))
                     .h(px(width * 9.0 / 16.0))
-                    .bg(rgb(0x000000))
+                    .bg(rgb(tokens::color::PROJECTION_BACKGROUND))
                     .into_any_element()
             }
         }
@@ -949,10 +979,15 @@ impl Render for SkeletonLab {
         let state = *self.engine.state();
         let (output_line, storage_line) = self.status_text(cx);
         let preview = match self.cues.get(state.preview()).and_then(Option::as_ref) {
-            Some(frames) => canonical_views::preview_frame(&frames.finished, environment),
+            Some(frames) => ui::canonical_frame::canonical_frame(
+                &frames.finished,
+                scale.apply(MONITOR_WIDTH),
+                environment,
+            )
+            .into_any_element(),
             None => div()
-                .w(px(scale.apply(720.0)))
-                .h(px(scale.apply(720.0) * 9.0 / 16.0))
+                .w(px(scale.apply(MONITOR_WIDTH)))
+                .h(px(scale.apply(MONITOR_WIDTH) * 9.0 / 16.0))
                 .bg(rgb(palette.surface))
                 .child("composing…")
                 .into_any_element(),
@@ -963,6 +998,25 @@ impl Render for SkeletonLab {
             self.cues.len(),
             position_label(&self.counts, state.preview())
         );
+
+        let mode = mode_label(&state, self.awaiting_restore, self.is_connected(cx));
+        let (program_label, program_color, square) = program_status(mode);
+        let marker = scale.apply(tokens::spacing::RELATED);
+        let monitor_head = |name: &'static str, detail: gpui::AnyElement| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(div().child(name))
+                .child(detail)
+        };
+        let meta = |text: String| {
+            div()
+                .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                .text_color(rgb(palette.text_muted))
+                .child(text)
+        };
 
         div()
             .id("walking-skeleton-lab")
@@ -1003,42 +1057,86 @@ impl Render for SkeletonLab {
             .child(
                 div()
                     .flex_none()
-                    .p(px(scale.apply(tokens::spacing::GROUP)))
+                    .flex()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                    .min_h(px(scale.apply(48.0)))
+                    .px(px(scale.apply(tokens::spacing::GROUP)))
+                    .bg(rgb(palette.surface))
                     .border_b(px(tokens::border::SEPARATOR))
                     .border_color(rgb(palette.border))
-                    .child(
-                        div()
-                            .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                            .child(
-                                "Ordo walking-skeleton lab (development only, not Presenter Mode)",
-                            ),
-                    )
-                    .child(div().child(progress))
-                    .child(div().child(output_line))
-                    .child(div().child(storage_line))
-                    .child(div().text_color(rgb(palette.text_muted)).child(KEY_HELP)),
+                    .child(div().child("Ordo walking-skeleton lab"))
+                    .child(meta("Development only, not Presenter Mode".to_owned())),
             )
             .child(
                 div()
-                    .id("walking-skeleton-stage")
                     .flex_1()
-                    .overflow_scroll()
-                    .p(px(scale.apply(tokens::spacing::GROUP)))
+                    .min_h_0()
                     .flex()
                     .flex_row()
-                    .flex_wrap()
-                    .gap(px(scale.apply(tokens::spacing::SECTION)))
                     .child(
                         div()
-                            .flex_none()
-                            .child(div().child("Preview"))
-                            .child(preview),
+                            .id("walking-skeleton-status")
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_y_scroll()
+                            .p(px(scale.apply(tokens::spacing::GROUP)))
+                            .flex()
+                            .flex_col()
+                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                            .child(div().child(progress))
+                            .child(div().child(output_line))
+                            .child(div().child(storage_line))
+                            .child(meta(KEY_HELP.to_owned())),
                     )
                     .child(
                         div()
+                            .id("walking-skeleton-dock")
                             .flex_none()
-                            .child(div().child("Program (on the congregation display)"))
-                            .child(self.program_view(cx)),
+                            .w(px(scale.apply(DOCK_WIDTH)))
+                            .overflow_y_scroll()
+                            .p(px(scale.apply(tokens::spacing::GROUP)))
+                            .flex()
+                            .flex_col()
+                            .gap(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                            .bg(rgb(palette.surface))
+                            .border_l(px(tokens::border::SEPARATOR))
+                            .border_color(rgb(palette.border))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                                    .child(monitor_head(
+                                        "Program",
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                                            .text_color(rgb(program_color))
+                                            .child(
+                                                div()
+                                                    .size(px(marker))
+                                                    .bg(rgb(program_color))
+                                                    .when(!square, |dot| dot.rounded_full()),
+                                            )
+                                            .child(program_label)
+                                            .into_any_element(),
+                                    ))
+                                    .child(self.program_view(cx)),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                                    .child(monitor_head(
+                                        "Preview",
+                                        meta(item_name(&self.counts, state.preview()).to_owned())
+                                            .into_any_element(),
+                                    ))
+                                    .child(preview),
+                            ),
                     ),
             )
     }
@@ -1187,6 +1285,16 @@ mod tests {
             after = *engine.apply(command);
         }
         (before, after)
+    }
+
+    #[test]
+    fn the_program_label_names_every_mode_in_the_kit_wording() {
+        let label = |mode| program_status(mode).0;
+        assert_eq!(label("Live"), "LIVE");
+        assert_eq!(label("Frozen"), "FROZEN");
+        assert_eq!(label("Blackout"), "BLACKOUT");
+        assert_eq!(label("Output off"), "Output disabled");
+        assert_eq!(label("Not live"), "BLACK · not live");
     }
 
     #[test]

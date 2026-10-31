@@ -49,8 +49,8 @@ Run the programs straight from the stick. Tick each row on the sign-off
 sheet only for what you actually saw.
 
 Checks 2-6 use `walking-skeleton-lab.exe`. It is a development lab, not
-Presenter Mode: one lab window (title, Preview, Program, Cue position,
-status line, key help) plus the congregation output on the projector. It
+Presenter Mode: one lab window (title, Cue position, status line, key help,
+and a right-hand dock with Program above Preview) plus the congregation output on the projector. It
 loads a small Mass-shaped deck of 7 Cues in 4 items: Entrance Song (3 Cues),
 Penitential Act (1), First Reading (2), Blackout (1). Keys work with the lab
 window focused: Right/Left move Preview by one Cue, Up/Down jump to the
