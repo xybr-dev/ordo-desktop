@@ -549,7 +549,9 @@
   function renderPage(slug) {
     var p = page(slug);
     if (!p) throw new Error("mockups.js: no registry entry for " + slug);
-    var i = PAGES.indexOf(p), prev = PAGES[i - 1], next = PAGES[i + 1];
+    // a current page steps through current pages only; a superseded page keeps the full reading order
+    var walk = p.status === "superseded" ? PAGES : PAGES.filter(function (q) { return q.status !== "superseded"; });
+    var i = walk.indexOf(p), prev = walk[i - 1], next = walk[i + 1];
     var group = GROUPS.find(function (g) { return g.id === p.group; });
     document.title = p.title + " — Ordo mockups";
 
@@ -588,11 +590,9 @@
     if (p.caveats && p.caveats.length) {
       right.append(el("h2", { text: "Superseded details" }),
         el("ul", { "class": "mk-caveats" }, p.caveats.map(function (c) { return el("li", { text: c }); })));
-    } else {
-      right.append(el("h2", { text: "Superseded details" }), el("p", { text: "None." }));
     }
     if (p.interpretations && p.interpretations.length) {
-      right.append(el("h2", { text: "Where the mockup interprets", style: "margin-top:10px" }),
+      right.append(el("h2", { text: "Where the mockup interprets", style: right.firstChild ? "margin-top:10px" : "" }),
         el("ul", {}, p.interpretations.map(function (c) { return el("li", { text: c }); })));
     }
     notes.append(left, right);
@@ -620,6 +620,9 @@
       });
       main.querySelectorAll("section[data-group]").forEach(function (sec) {
         sec.hidden = !sec.querySelector(".mk-tile:not([hidden])");
+      });
+      main.querySelectorAll("[data-mk-history]").forEach(function (n) {
+        n.hidden = s !== "all" && s !== "superseded" && s !== "caveats";
       });
     }
     [["current", "Current"], ["approved", "Approved"], ["gate", "Acceptance references"], ["caveats", "Partly superseded"],

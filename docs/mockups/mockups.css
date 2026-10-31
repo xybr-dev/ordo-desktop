@@ -151,6 +151,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--mk-focus); outl
   display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 8px;
   background: var(--mk-surface); border: 1px solid var(--mk-border); color: inherit; text-decoration: none;
 }
+.mk-tile[hidden] { display: none; }
 .mk-tile:hover { border-color: var(--mk-border-strong); }
 .mk-tile h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .mk-tile p { margin: 0; font-size: 13px; color: var(--mk-muted); }
