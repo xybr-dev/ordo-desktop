@@ -694,6 +694,30 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     for relative in ["crates", "tools", "xtask"] {
         scan_unsafe_opt_outs(root, &root.join(relative))?;
     }
+    validate_gpui_patch(
+        &fs::read_to_string(root.join("Cargo.lock"))?,
+        &fs::read_to_string(root.join("vendor/gpui-pre-windows/src/events.rs"))?,
+    )
+}
+
+/// The one GPUI crate taken from `vendor/` instead of crates.io (Decision 299).
+const VENDORED_GPUI_PACKAGE: &str = "gpui-pre-windows";
+
+/// Cargo only warns about an unused `[patch]`, so a GPUI upgrade could
+/// restore the registry crate and silently lose display-change reporting
+/// (Decision 299). A patched crate has no `source` in the lockfile.
+fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
+    let packages = parse_lock_packages(lock);
+    let package = packages
+        .iter()
+        .find(|package| package.name == VENDORED_GPUI_PACKAGE)
+        .ok_or("Cargo.lock has no gpui-pre-windows package")?;
+    if package.source.is_some() {
+        return Err("gpui-pre-windows resolves to the registry, not vendor/ (Decision 299)".into());
+    }
+    if !events.contains("ORDO PATCH") {
+        return Err("vendor/gpui-pre-windows lost its ORDO PATCH (Decision 299)".into());
+    }
     Ok(())
 }
 
@@ -995,7 +1019,8 @@ fn parse_lock_packages(lock: &str) -> Vec<LockPackage> {
 /// from crates.io. This is an allow-list: any other GPUI-family name (Zed's
 /// `gpui`, gpui-fast, a GPUI Kit layer, an unknown fork) fails. A lock entry,
 /// unlike a manifest requirement, also reflects `[patch]` and `[replace]`, so a
-/// path or git override of the snapshot fails here. Any non-GPUI git source
+/// path or git override of the snapshot fails here, apart from the one vendored
+/// crate, which must still match the snapshot version. Any non-GPUI git source
 /// must name a full immutable revision.
 fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
     let packages = parse_lock_packages(lock);
@@ -1033,7 +1058,8 @@ fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
             }
             continue;
         };
-        if package.source.as_deref() != Some(CRATES_IO) {
+        let vendored = package.name == VENDORED_GPUI_PACKAGE && package.source.is_none();
+        if !vendored && package.source.as_deref() != Some(CRATES_IO) {
             return Err(format!(
                 "Cargo.lock takes {} from {}, not crates.io",
                 package.name,
@@ -1164,6 +1190,30 @@ pub fn bless_golden_frames(root: &Path) -> XtaskResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_vendored_gpui_crate_may_come_from_a_path() {
+        let path_entry = |name: &str, version: &str| {
+            format!("[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n\n")
+        };
+        let vendored = pinned_lock() + &path_entry("gpui-pre-windows", "0.3.8");
+        assert!(validate_gpui_lock(&vendored, &supply()).is_ok());
+        let stale = pinned_lock() + &path_entry("gpui-pre-windows", "0.3.7");
+        assert!(validate_gpui_lock(&stale, &supply()).is_err());
+        let other = pinned_lock() + &path_entry("gpui-pre-util", "0.3.8");
+        assert!(validate_gpui_lock(&other, &supply()).is_err());
+    }
+
+    #[test]
+    fn the_gpui_patch_must_stay_applied() {
+        let vendored = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.8\"\n";
+        let registry = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.9\"\n\
+                        source = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+        assert!(validate_gpui_patch(vendored, "// ORDO PATCH").is_ok());
+        assert!(validate_gpui_patch(registry, "// ORDO PATCH").is_err());
+        assert!(validate_gpui_patch(vendored, "unpatched").is_err());
+        assert!(validate_gpui_patch("", "// ORDO PATCH").is_err());
+    }
 
     #[test]
     fn only_the_audited_module_may_opt_out_of_unsafe_code() {

@@ -21,7 +21,7 @@ use gpui::{
 };
 use ordo::{
     NativeRuntime, open_native_runtime_with,
-    output::{DISPLAY_WATCH_INTERVAL, DisplaySource, OutputError, locate_cursor},
+    output::{DisplaySource, OutputError, locate_cursor},
     shell::OpenSongs,
 };
 use platform::{
@@ -958,9 +958,9 @@ fn click_on_congregation_output_returns_focus_to_the_operator(cx: &mut TestAppCo
     harness.close(cx);
 }
 
-/// Windows relocates a window whose display is removed and reports the move
-/// as a bounds change. The controller refreshes on that change without a
-/// caller.
+/// A display change reaches the congregation window as a bounds change, from
+/// Windows moving it or from the vendored GPUI patch (Decision 299). The
+/// controller refreshes on that change without a caller.
 #[gpui::test]
 fn moving_the_congregation_window_refreshes_topology(cx: &mut TestAppContext) {
     let harness = Harness::two_displays(cx, "bounds");
@@ -976,53 +976,6 @@ fn moving_the_congregation_window_refreshes_topology(cx: &mut TestAppContext) {
     assert!(harness.congregation_window(cx).is_none(), "window closed");
     assert_eq!(harness.status(cx), (OutputStatus::Disconnected, true));
     assert_eq!(harness.window_count(cx), 1);
-    harness.close(cx);
-}
-
-/// A lost display does not always move the window, so enabled output notices
-/// the loss on its own, with no caller and no bounds change.
-#[gpui::test]
-fn enabled_output_fails_to_black_without_a_refresh(cx: &mut TestAppContext) {
-    let harness = Harness::two_displays(cx, "watch-loss");
-    harness
-        .output(cx, |output, cx| output.assign(PROJECTOR, cx))
-        .unwrap();
-    harness.enable(cx);
-    harness
-        .output(cx, |output, cx| output.take_live(canonical_frame(), cx))
-        .unwrap();
-    assert_eq!(harness.status(cx), (OutputStatus::Connected, false));
-
-    harness.displays.borrow_mut().disconnect(PROJECTOR);
-    cx.executor().advance_clock(DISPLAY_WATCH_INTERVAL);
-    cx.run_until_parked();
-
-    assert!(harness.congregation_window(cx).is_none(), "window closed");
-    assert_eq!(harness.status(cx), (OutputStatus::Disconnected, true));
-    assert_eq!(harness.window_count(cx), 1, "nothing retargeted");
-    harness.close(cx);
-}
-
-/// The watch must not redraw a static Program: an unchanged topology wakes no
-/// observer, however many intervals pass.
-#[gpui::test]
-fn an_unchanged_topology_wakes_no_observer(cx: &mut TestAppContext) {
-    let harness = Harness::two_displays(cx, "watch-static");
-    harness
-        .output(cx, |output, cx| output.assign(PROJECTOR, cx))
-        .unwrap();
-    harness.enable(cx);
-
-    let wakes = Rc::new(Cell::new(0));
-    let output = harness.runtime.output();
-    let _observer = cx.update(|cx| {
-        let wakes = wakes.clone();
-        cx.observe(&output, move |_, _| wakes.set(wakes.get() + 1))
-    });
-    cx.executor().advance_clock(DISPLAY_WATCH_INTERVAL * 4);
-    cx.run_until_parked();
-
-    assert_eq!(wakes.get(), 0);
     harness.close(cx);
 }
 

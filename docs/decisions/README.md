@@ -327,6 +327,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0295](0295-close-t0-6-s-hot-path-ac-on-what-exists-later-work-proves.md) | Close T0.6's hot-path AC on what exists; later work proves its own | accepted | 2026-10-11 | performance, presenter, qualification |
 | [0296](0296-the-walking-skeleton-lab-stands-in-for-packaged-checks-the.md) | The walking-skeleton lab stands in for packaged checks; the sign-off is restated to delivered scope | accepted | 2026-10-20 | qualification, platform |
 | [0297](0297-defer-the-ordo-inspector-promotion-keep-t0-10-ac5-on-the.md) | Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule | accepted | 2026-10-20 | qualification, portability |
-| [0298](0298-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | accepted | 2026-11-01 | display, qualification |
+| [0298](0298-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | superseded by [0299](0299-vendor-gpui-pre-windows-to-report-display-changes.md) | 2026-11-01 | display, qualification |
+| [0299](0299-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
 
 <!-- adr-index:end -->
