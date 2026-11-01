@@ -136,8 +136,7 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
 /// process. Every result is kept, including failures, so one failed run does
 /// not hide the others.
 fn measure_native(root: &Path) -> XtaskResult<Value> {
-    build_lab(root)?;
-    let executable = lab_executable(root);
+    let executable = build_example(root, LAB_EXAMPLE)?;
     let scratch =
         std::env::temp_dir().join(format!("ordo-measure-presenter-{}", std::process::id()));
     fs::create_dir_all(&scratch)?;
@@ -185,44 +184,43 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
     }))
 }
 
-/// Builds the lab example in release, with the same `--locked` pin as the
-/// rest of the workspace.
-fn build_lab(root: &Path) -> XtaskResult<()> {
-    let status = Command::new("cargo")
+/// Builds an `ordo` example in release, with the same `--locked` pin as the
+/// rest of the workspace, and returns the executable cargo reports. Asking
+/// cargo honours every source of the target directory: `CARGO_TARGET_DIR`,
+/// the repository's `.cargo/config.toml`, and the user's cargo config.
+pub(crate) fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> {
+    let output = Command::new("cargo")
         .args([
             "build",
             "--release",
             "-p",
             "ordo",
             "--example",
-            LAB_EXAMPLE,
+            example,
             "--locked",
+            "--message-format=json-render-diagnostics",
         ])
         .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()?;
-    if !status.success() {
+        .stderr(std::process::Stdio::inherit())
+        .output()?;
+    if !output.status.success() {
         return Err(format!(
-            "command failed: cargo build --release -p ordo --example {LAB_EXAMPLE} --locked"
+            "command failed: cargo build --release -p ordo --example {example} --locked"
         )
         .into());
     }
-    Ok(())
+    example_executable(&String::from_utf8_lossy(&output.stdout), example)
+        .ok_or_else(|| format!("cargo build did not report the {example} executable").into())
 }
 
-/// Where cargo put the release example. Honours `CARGO_TARGET_DIR`, which
-/// cargo resolves against the directory it runs in, the repository root.
-fn lab_executable(root: &Path) -> PathBuf {
-    let target = match std::env::var_os("CARGO_TARGET_DIR") {
-        Some(dir) => root.join(dir),
-        None => root.join("target"),
-    };
-    target
-        .join("release")
-        .join("examples")
-        .join(format!("{LAB_EXAMPLE}{}", std::env::consts::EXE_SUFFIX))
+/// The named example's executable in cargo's JSON build messages, if any.
+fn example_executable(messages: &str, example: &str) -> Option<PathBuf> {
+    messages
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|message| message["reason"] == "compiler-artifact")
+        .filter(|message| message["target"]["name"] == example)
+        .find_map(|message| message["executable"].as_str().map(PathBuf::from))
 }
 
 /// Runs one lab process and returns its document. A process still running
@@ -825,6 +823,28 @@ mod tests {
     fn merging_into_a_non_object_is_an_error() {
         let mut document = json!([1, 2]);
         assert!(merge_native(&mut document, json!({})).is_err());
+    }
+
+    #[test]
+    fn the_lab_executable_comes_from_cargo_build_messages() {
+        let messages = concat!(
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"name\":\"ordo\"},\"executable\":null}\n",
+            "not json\n",
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"name\":\"presenter-lab\"},",
+            "\"executable\":\"X:/cargo-target/release/examples/presenter-lab.exe\"}\n",
+            "{\"reason\":\"build-finished\",\"success\":true}\n",
+        );
+        assert_eq!(
+            example_executable(messages, "presenter-lab"),
+            Some(PathBuf::from(
+                "X:/cargo-target/release/examples/presenter-lab.exe"
+            ))
+        );
+        assert_eq!(example_executable(messages, "walking-skeleton-lab"), None);
+        assert_eq!(
+            example_executable("{\"reason\":\"build-finished\"}", "presenter-lab"),
+            None
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 pub mod inspect_pptx;
 pub mod measure_presenter;
+pub mod qualify;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, semver::VersionReq};
 use serde::Deserialize;
@@ -13,6 +14,21 @@ use std::{
 };
 
 pub type XtaskResult<T> = Result<T, Box<dyn Error>>;
+
+/// Builds an example in release and copies its executable into `out_dir`
+/// under the name cargo gave it, so `qualify` can hash and record the exact
+/// binary a person will carry to another machine.
+pub fn stage_example(root: &Path, example: &str, out_dir: &Path) -> XtaskResult<()> {
+    let executable = measure_presenter::build_example(root, example)?;
+    let name = executable
+        .file_name()
+        .ok_or_else(|| format!("cargo reported a path without a file name: {executable:?}"))?;
+    fs::create_dir_all(out_dir)?;
+    let destination = out_dir.join(name);
+    fs::copy(&executable, &destination)?;
+    println!("staged {}", destination.display());
+    Ok(())
+}
 
 /// Non-GPUI crates `domain` and `presentation` may not use. Every GPUI crate is
 /// forbidden there too, by `is_gpui_crate` rather than by listing, so a renamed
@@ -69,14 +85,14 @@ const LUCIDE_ICONS: &[&str] = &[
     "chevron-right.svg",
     "circle-alert.svg",
     "circle-question-mark.svg",
-    "database-backup.svg",
     "ellipsis.svg",
     "grip-vertical.svg",
+    "hard-drive-download.svg",
     "info.svg",
     "library.svg",
+    "palette.svg",
     "plus.svg",
     "settings.svg",
-    "swatch-book.svg",
     "triangle-alert.svg",
     "x.svg",
 ];
@@ -194,6 +210,20 @@ pub fn verify() -> XtaskResult<()> {
             "ordo",
             "--example",
             "canonical-slide-lab",
+            "--locked",
+        ],
+    )?;
+    // The walking-skeleton lab is the church-PC kit's executable; its pure
+    // deck and frame mapping tests run here for the same reason.
+    run(
+        &root,
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "ordo",
+            "--example",
+            "walking-skeleton-lab",
             "--locked",
         ],
     )?;
@@ -325,7 +355,113 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &workspace_names,
     )?;
     validate_sqlite_ownership(&direct_dependencies(false))?;
+    validate_spike_reuse_policy(metadata)?;
     validate_fault_injection_policy(metadata)
+}
+
+/// Name suffix that marks a disposable prototype package (T0.10 AC5).
+const SPIKE_SUFFIX: &str = "-spike";
+
+/// A package is a spike when its name ends in `-spike`, or when its manifest
+/// lies under `tools/` in a directory whose name ends in `-spike`. The path
+/// clause catches a spike that was renamed to hide it from the name rule.
+fn is_spike_package(name: &str, directory: &str) -> bool {
+    if name.ends_with(SPIKE_SUFFIX) {
+        return true;
+    }
+    let normalized = directory.replace('\\', "/");
+    let mut parts = normalized.split('/').filter(|part| !part.is_empty());
+    parts.next() == Some("tools")
+        && parts
+            .next_back()
+            .is_some_and(|last| last.ends_with(SPIKE_SUFFIX))
+}
+
+/// No package outside `tests/` may depend on a spike package, at any
+/// dependency kind. Test packages may reach a spike only as a dev-dependency.
+fn validate_spike_reuse_policy(metadata: &Metadata) -> XtaskResult<()> {
+    let directory_of = |package: &Package| {
+        package
+            .manifest_path
+            .parent()
+            .and_then(|dir| dir.strip_prefix(&metadata.workspace_root).ok())
+            .map_or_else(String::new, |dir| dir.as_str().to_owned())
+    };
+    let owned: Vec<(String, String, String, DependencyKind)> = workspace_packages(metadata)
+        .into_iter()
+        .flat_map(|package| {
+            let directory = directory_of(package);
+            package
+                .dependencies
+                .iter()
+                .filter_map(|dependency| {
+                    // Resolve the dependency's package so the path clause can
+                    // see where it lives. `no_deps` lists only workspace
+                    // packages, which are the only ones that can be spikes.
+                    let resolved = metadata
+                        .packages
+                        .iter()
+                        .find(|candidate| {
+                            candidate.name.as_str() == dependency.name && candidate.source.is_none()
+                        })
+                        .map(directory_of);
+                    is_spike_package(&dependency.name, resolved.as_deref().unwrap_or("")).then(
+                        || {
+                            (
+                                package.name.to_string(),
+                                directory.clone(),
+                                dependency.name.clone(),
+                                dependency.kind,
+                            )
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let edges: Vec<_> = owned
+        .iter()
+        .map(|(package, directory, dependency, kind)| {
+            (
+                package.as_str(),
+                directory.as_str(),
+                dependency.as_str(),
+                *kind,
+            )
+        })
+        .collect();
+    validate_spike_reuse(&edges)
+}
+
+/// Pure form of the spike reuse rule. Each edge is
+/// `(package, manifest_dir_relative_to_workspace, dependency_name, kind)`; the
+/// caller has already selected only edges whose dependency is a spike.
+fn validate_spike_reuse(edges: &[(&str, &str, &str, DependencyKind)]) -> XtaskResult<()> {
+    let offending: Vec<String> = edges
+        .iter()
+        .filter_map(|(package, directory, dependency, kind)| {
+            let normalized = directory.replace('\\', "/");
+            let is_test_package = normalized.starts_with("tests/");
+            let allowed = is_test_package && *kind == DependencyKind::Development;
+            (!allowed).then(|| {
+                let kind = match kind {
+                    DependencyKind::Normal => "normal",
+                    DependencyKind::Development => "dev",
+                    DependencyKind::Build => "build",
+                    _ => "unknown",
+                };
+                format!(
+                    "{package} must not depend on spike package {dependency} ({kind}); \
+                     spikes are disposable prototypes (T0.10 AC5)"
+                )
+            })
+        })
+        .collect();
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(offending.join("\n").into())
+    }
 }
 
 /// SQLite driver crates that only the Storage Module may link (T0.7 AC1).
@@ -557,6 +693,30 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     }
     for relative in ["crates", "tools", "xtask"] {
         scan_unsafe_opt_outs(root, &root.join(relative))?;
+    }
+    validate_gpui_patch(
+        &fs::read_to_string(root.join("Cargo.lock"))?,
+        &fs::read_to_string(root.join("vendor/gpui-pre-windows/src/events.rs"))?,
+    )
+}
+
+/// The one GPUI crate taken from `vendor/` instead of crates.io (Decision 299).
+const VENDORED_GPUI_PACKAGE: &str = "gpui-pre-windows";
+
+/// Cargo only warns about an unused `[patch]`, so a GPUI upgrade could
+/// restore the registry crate and silently lose display-change reporting
+/// (Decision 299). A patched crate has no `source` in the lockfile.
+fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
+    let packages = parse_lock_packages(lock);
+    let package = packages
+        .iter()
+        .find(|package| package.name == VENDORED_GPUI_PACKAGE)
+        .ok_or("Cargo.lock has no gpui-pre-windows package")?;
+    if package.source.is_some() {
+        return Err("gpui-pre-windows resolves to the registry, not vendor/ (Decision 299)".into());
+    }
+    if !events.contains("ORDO PATCH") {
+        return Err("vendor/gpui-pre-windows lost its ORDO PATCH (Decision 299)".into());
     }
     Ok(())
 }
@@ -859,7 +1019,8 @@ fn parse_lock_packages(lock: &str) -> Vec<LockPackage> {
 /// from crates.io. This is an allow-list: any other GPUI-family name (Zed's
 /// `gpui`, gpui-fast, a GPUI Kit layer, an unknown fork) fails. A lock entry,
 /// unlike a manifest requirement, also reflects `[patch]` and `[replace]`, so a
-/// path or git override of the snapshot fails here. Any non-GPUI git source
+/// path or git override of the snapshot fails here, apart from the one vendored
+/// crate, which must still match the snapshot version. Any non-GPUI git source
 /// must name a full immutable revision.
 fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
     let packages = parse_lock_packages(lock);
@@ -897,7 +1058,8 @@ fn validate_gpui_lock(lock: &str, supply: &GpuiSupply) -> XtaskResult<()> {
             }
             continue;
         };
-        if package.source.as_deref() != Some(CRATES_IO) {
+        let vendored = package.name == VENDORED_GPUI_PACKAGE && package.source.is_none();
+        if !vendored && package.source.as_deref() != Some(CRATES_IO) {
             return Err(format!(
                 "Cargo.lock takes {} from {}, not crates.io",
                 package.name,
@@ -1030,6 +1192,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_the_vendored_gpui_crate_may_come_from_a_path() {
+        let path_entry = |name: &str, version: &str| {
+            format!("[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n\n")
+        };
+        let vendored = pinned_lock() + &path_entry("gpui-pre-windows", "0.3.8");
+        assert!(validate_gpui_lock(&vendored, &supply()).is_ok());
+        let stale = pinned_lock() + &path_entry("gpui-pre-windows", "0.3.7");
+        assert!(validate_gpui_lock(&stale, &supply()).is_err());
+        let other = pinned_lock() + &path_entry("gpui-pre-util", "0.3.8");
+        assert!(validate_gpui_lock(&other, &supply()).is_err());
+    }
+
+    #[test]
+    fn the_gpui_patch_must_stay_applied() {
+        let vendored = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.8\"\n";
+        let registry = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.9\"\n\
+                        source = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+        assert!(validate_gpui_patch(vendored, "// ORDO PATCH").is_ok());
+        assert!(validate_gpui_patch(registry, "// ORDO PATCH").is_err());
+        assert!(validate_gpui_patch(vendored, "unpatched").is_err());
+        assert!(validate_gpui_patch("", "// ORDO PATCH").is_err());
+    }
+
+    #[test]
     fn only_the_audited_module_may_opt_out_of_unsafe_code() {
         let opt_out = concat!("#[allow(unsafe", "_code)]\nmod imp {}");
         let expect = concat!("#![expect(unsafe", "_code)]");
@@ -1079,6 +1265,64 @@ mod tests {
             ("ordo", BTreeSet::from(["rusqlite"])),
         ]);
         assert!(validate_sqlite_ownership(&leaked).is_err());
+    }
+
+    #[test]
+    fn spike_reuse_follows_the_t0_10_rule() {
+        use DependencyKind::{Build, Development, Normal};
+
+        // The real graph: test packages reach spikes only as dev-dependencies.
+        let real = [
+            (
+                "artifact-container-tests",
+                "tests/artifact-container",
+                "artifact-container-spike",
+                Development,
+            ),
+            (
+                "powerpoint-tests",
+                "tests/powerpoint",
+                "powerpoint-spike",
+                Development,
+            ),
+        ];
+        assert!(validate_spike_reuse(&real).is_ok());
+
+        let ordo_normal = [("ordo", "crates/ordo", "powerpoint-spike", Normal)];
+        assert!(validate_spike_reuse(&ordo_normal).is_err());
+
+        let ui_lab_dev = [(
+            "ui-lab",
+            "tools/ui-lab",
+            "artifact-container-spike",
+            Development,
+        )];
+        assert!(validate_spike_reuse(&ui_lab_dev).is_err());
+
+        let xtask_build = [("xtask", "xtask", "x-spike", Build)];
+        assert!(validate_spike_reuse(&xtask_build).is_err());
+
+        let test_normal = [("foo", "tests/foo", "x-spike", Normal)];
+        assert!(validate_spike_reuse(&test_normal).is_err());
+
+        // Windows-style separators are normalized before the test-directory check.
+        let windows_dev = [("foo", "tests\\foo", "x-spike", Development)];
+        assert!(validate_spike_reuse(&windows_dev).is_ok());
+    }
+
+    #[test]
+    fn spike_detection_covers_renamed_path_spikes() {
+        // Name suffix and path both make a spike.
+        assert!(is_spike_package(
+            "powerpoint-spike",
+            "tools/powerpoint-spike"
+        ));
+        assert!(is_spike_package("renamed-engine", "tools/renamed-spike"));
+        assert!(is_spike_package("renamed-engine", "tools\\renamed-spike"));
+        // Outside tools/, or without the suffix on the directory, it is not.
+        assert!(!is_spike_package("renamed-engine", "crates/renamed-spike"));
+        assert!(!is_spike_package("renamed-engine", "tools/renamed"));
+        assert!(!is_spike_package("storage", "crates/storage"));
     }
 
     #[test]

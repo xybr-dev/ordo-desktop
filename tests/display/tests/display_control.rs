@@ -958,9 +958,9 @@ fn click_on_congregation_output_returns_focus_to_the_operator(cx: &mut TestAppCo
     harness.close(cx);
 }
 
-/// Windows relocates a window whose display is removed and reports the move
-/// as a bounds change. The controller refreshes on that change without a
-/// caller.
+/// A display change reaches the congregation window as a bounds change, from
+/// Windows moving it or from the vendored GPUI patch (Decision 299). The
+/// controller refreshes on that change without a caller.
 #[gpui::test]
 fn moving_the_congregation_window_refreshes_topology(cx: &mut TestAppContext) {
     let harness = Harness::two_displays(cx, "bounds");

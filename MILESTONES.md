@@ -449,6 +449,17 @@ black-first Program, take a fixture frame live, disconnect the assigned display,
 assert protective Disconnected state, reconnect it under a new OS ID with
 matching evidence, and assert Program remains black until explicitly restored.
 
+Hot-plug note (found and fixed during T0.10): the E2E reconnects a display
+present at launch, but a projector connected after launch could not get output.
+With the pinned GPUI, `Window::display` goes stale after a hot-plug because
+Windows reissues `HMONITOR` ids, so the operator display could not be read and
+output could not be enabled. Fixed on the T0.10 branch: the operator display is
+resolved from the operator window's live bounds against a fresh display list,
+and an ambiguous mixed-DPI overlap keeps the last known display instead of
+guessing. Recorded as row 27 in
+`docs/qualification/milestone-0/EXCEPTIONS.md`; the attempt-2 hot-plug check in
+`WINDOWS-10-SIGNOFF.md` is its requalification.
+
 ### T0.6 — Presentation Engine and performance instrumentation spike
 
 **Goal:** Establish the deterministic hot path and prove native GPUI can meet
@@ -467,9 +478,11 @@ baseline before full UI construction.
       state without importing GPUI, SQLite, filesystem, or platform modules.
 - [x] `[AUTO]` Instrument keydown→Preview paint and keydown→Program paint at
       p50, p95, and p99 for navigation, Freeze, Blackout, and Space.
-- [ ] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
+- [x] `[AUTO]` The measured hot path contains no SQLite/filesystem access,
       autosave, pagination, image decode, blocking worker wait, or full-timeline
       rerender.
+      Closed on existing code; absent subsystems prove it where they land
+      (Decision 295, `crates/ordo/tests/hot_path_blocking.rs`).
 - [x] `[AUTO]` Rapid command sequences are ordered, coalesced only where
       semantically safe, and never lose the final valid operator intent.
 - [x] `[AUTO]` Record process RSS/private memory, GPU allocations where the
@@ -493,17 +506,20 @@ baseline before full UI construction.
       both packaged targets (Linux retired, Decision 268). Shaped glyph IDs
       are face-intrinsic, so a silent substitution would mispaint without
       failing.
-- [ ] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
+- [x] `[NATIVE-AUTO]` On minimum-profile Windows test hardware, p95
       Presenter commands are below 50ms and total memory never exceeds the
       1 GiB absolute release ceiling. The Linux half is retired to T6.2
       (Decision 268).
-- [ ] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
+- [x] `[NATIVE-AUTO]` Record empty-shell, large-library Preparation, and
       representative 500-Cue Presenter memory baselines across three runs.
       Every run stays within the 512 MiB qualification budget and the 1 GiB
       absolute ceiling; exceeding either blocks Phase 1 pending an explicit
       budget and native-memory rationale revision.
 - [x] `[MANUAL]` Hardware acceleration is active by default; any software-
       rendering fallback is diagnosed and recorded rather than silently chosen.
+
+**Native evidence:** church-PC run recorded in
+`docs/plans/T0.6-implementation-plan.md` (Recorded results, church PC).
 
 **E2E** `[NATIVE-AUTO]` — Run a packaged 500-Cue fixture through 2,000 mixed
 navigation/state commands, collect latency and process-memory reports, assert
@@ -621,7 +637,7 @@ platform assumption or an undocumented exception.
 
 **AC**
 
-- [ ] `[AUTO]` All Phase 0 automated and native reports identify the exact
+- [x] `[AUTO]` All Phase 0 automated and native reports identify the exact
       commit, Rust toolchain, GPUI/platform/dependency revisions, OS, GPU, and
       fixture hashes.
 - [ ] `[MANUAL]` Windows 10 22H2 packaged checks are signed off with failures
@@ -630,14 +646,21 @@ platform assumption or an undocumented exception.
 - [ ] `[AUTO]` Any failed proof is resolved inside the responsible GPUI/native
       Adapter or Module Implementation and requalified; domain Interfaces
       remain independent of the workaround.
-- [ ] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
+- [x] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
       release is blocked or the supported hardware profile is explicitly
       revised; failures are not hidden by adding a second production shell.
-- [ ] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
+      Not triggered: every hard gate was met on the minimum-profile church PC
+      (`docs/plans/T0.6-implementation-plan.md`, Recorded results, church PC).
+- [x] `[AUTO]` Phase 0 fixture and instrumentation code remains reusable in later
       regression tests rather than becoming an abandoned spike directory;
       reusable fixtures, contract cases, inspectors, and instrumentation remain
       outside `tools/*-spike`, while disposable generator prototypes are never
       imported by production crates.
+      Closed on the enforceable half: `validate_spike_reuse_policy` enforces the
+      rule and no production crate depends on a spike. The `.ordo` inspector
+      stays in `tools/artifact-container-spike` until its `portability`
+      promotion; the deferral is recorded in Decision 297 and
+      `docs/qualification/milestone-0/EXCEPTIONS.md`.
 
 **E2E** `[NATIVE-AUTO]` `[MANUAL]` — From one clean commit, build both native
 packages, launch the operator and congregation walking skeleton, exercise task

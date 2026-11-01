@@ -9,11 +9,11 @@
 //! Program, and opens exactly one window through
 //! [`congregation_window_options`](platform::congregation_window::congregation_window_options).
 //!
-//! **Topology refresh is explicit or window-driven, never polled.** The pinned
-//! GPUI snapshot has no display-change event, so a refresh happens in three
-//! places: [`CongregationOutput::enable_output`] refreshes before it places
-//! output; a bounds observer on the open congregation window refreshes when
-//! Windows moves that window, as it does when its display is removed; and
+//! **Topology refresh is explicit or window-driven, never polled.** A refresh
+//! happens in three places: [`CongregationOutput::enable_output`] refreshes
+//! before it places output; a bounds observer on the open congregation window
+//! refreshes when Windows moves that window and, through the vendored GPUI
+//! patch, on every display change (Decision 299); and
 //! [`CongregationOutput::refresh_displays`] is available to callers that want
 //! one now. No periodic task is started. The bounds observer is owned by this
 //! controller in `window_bounds`, which is dropped in `close_window` and
@@ -43,7 +43,8 @@ use platform::{
     congregation_window::congregation_window_options,
     display::{
         AssignError, DisplayAdapter, DisplayControl, DisplayEvent, DisplayId, EnableError,
-        OutputLifecycle, RelativeDirection, Topology, gpui_adapter::GpuiDisplayAdapter,
+        OutputLifecycle, RelativeDirection, Topology,
+        gpui_adapter::{DisplayResolution, GpuiDisplayAdapter, display_containing_window},
     },
 };
 use presentation::{
@@ -85,7 +86,7 @@ impl DisplaySource for GpuiDisplaySource {
     }
 
     fn reported_display(&self, window: &Window, _: DisplayId, cx: &App) -> Option<DisplayId> {
-        window.display(cx).map(|display| display.id().into())
+        window_display(window, &cx.displays(), cx).map(DisplayId::from)
     }
 }
 
@@ -324,8 +325,8 @@ impl CongregationOutput {
         }
 
         // The observer refreshes topology whenever the window moves or
-        // resizes. Windows moves a window off a removed display, so this is
-        // how an unplugged projector is noticed without a caller.
+        // resizes, and on every display change (Decision 299). This is how an
+        // unplugged projector is noticed without a caller.
         let Ok(bounds) = window.update(cx, |_, placed, cx| {
             cx.observe_window_bounds(placed, move |_, _, cx| {
                 // Deferred: the observer runs inside the congregation window's
@@ -510,13 +511,51 @@ impl CongregationOutput {
 
 /// The display carrying the operator window, when it can be read now. A
 /// window mid-update cannot be read, and the caller then uses its last value.
+///
+/// On Windows display ids are `HMONITOR` values reissued on display change,
+/// and `Window::display` matches a core id refreshed only on bounds change, so
+/// after a hot-plug it can read `None` or name the wrong monitor. The live
+/// window bounds are therefore resolved against freshly read displays first,
+/// and `Window::display` is only the fallback.
 fn read_operator_display(window: Option<AnyWindowHandle>, cx: &mut App) -> Option<gpui::DisplayId> {
+    let displays = cx.displays();
     window?
-        .update(cx, |_, window, cx| {
-            window.display(cx).map(|display| display.id())
-        })
+        .update(cx, |_, window, cx| window_display(window, &displays, cx))
         .ok()
         .flatten()
+}
+
+/// The display `window` is on: its live bounds resolved against `displays`,
+/// with the platform's own report as the tie-break for mixed-DPI overlap and
+/// as the fallback when the bounds match nothing.
+fn window_display(
+    window: &Window,
+    displays: &[Rc<dyn gpui::PlatformDisplay>],
+    cx: &App,
+) -> Option<gpui::DisplayId> {
+    let reported = window.display(cx).map(|display| display.id());
+    resolved_display(
+        display_containing_window(displays, window.bounds(), reported),
+        reported,
+    )
+}
+
+/// The operator display from a bounds lookup and the platform's report.
+///
+/// `NoMatch` falls back to the report: the window may be between monitors, and
+/// the cached id is the only other evidence. `Ambiguous` does not: several
+/// displays contain the centre and none is the reported one, so the bounds
+/// have already ruled the report out, and a guess could land on another
+/// display. `None` tells the caller to keep its last known value.
+fn resolved_display(
+    resolution: DisplayResolution,
+    reported: Option<gpui::DisplayId>,
+) -> Option<gpui::DisplayId> {
+    match resolution {
+        DisplayResolution::Matched(display) => Some(display),
+        DisplayResolution::NoMatch => reported,
+        DisplayResolution::Ambiguous => None,
+    }
 }
 
 #[cfg(test)]
@@ -555,5 +594,29 @@ mod tests {
         assert_eq!(locate_cursor(&topology, DisplayId::new(2)), None);
         let topology = Topology::new(vec![display(1, 0, 0)], Some(DisplayId::new(1)));
         assert_eq!(locate_cursor(&topology, DisplayId::new(9)), None);
+    }
+
+    #[test]
+    fn ambiguous_bounds_keep_the_last_display_instead_of_guessing() {
+        let reported = Some(gpui::DisplayId::new(1));
+        assert_eq!(
+            resolved_display(
+                DisplayResolution::Matched(gpui::DisplayId::new(2)),
+                reported
+            ),
+            Some(gpui::DisplayId::new(2)),
+            "the containing display wins over the platform report"
+        );
+        assert_eq!(
+            resolved_display(DisplayResolution::NoMatch, reported),
+            Some(gpui::DisplayId::new(1)),
+            "no containing display falls back to the platform report"
+        );
+        assert_eq!(resolved_display(DisplayResolution::NoMatch, None), None);
+        assert_eq!(
+            resolved_display(DisplayResolution::Ambiguous, reported),
+            None,
+            "ambiguous bounds must not fall back to a display the bounds ruled out"
+        );
     }
 }

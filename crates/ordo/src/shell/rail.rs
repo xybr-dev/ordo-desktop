@@ -37,7 +37,7 @@ impl Destination {
         Self::Themes,
         Self::TransferAndBackup,
     ];
-    pub const ANCHORED: [Self; 3] = [Self::Settings, Self::Help, Self::Diagnostics];
+    pub const ANCHORED: [Self; 3] = [Self::Diagnostics, Self::Help, Self::Settings];
 
     pub const fn label(self) -> &'static str {
         match self {
@@ -55,8 +55,8 @@ impl Destination {
         match self {
             Self::Masses => icon::CALENDAR_DAYS,
             Self::Library => icon::LIBRARY,
-            Self::Themes => icon::SWATCH_BOOK,
-            Self::TransferAndBackup => icon::DATABASE_BACKUP,
+            Self::Themes => icon::PALETTE,
+            Self::TransferAndBackup => icon::HARD_DRIVE_DOWNLOAD,
             Self::Settings => icon::SETTINGS,
             Self::Help => icon::CIRCLE_QUESTION_MARK,
             Self::Diagnostics => icon::ACTIVITY,
@@ -64,11 +64,16 @@ impl Destination {
     }
 
     /// The horizontal local views inside this destination, empty where it has
-    /// none. `MVP-PLAN.md` names both sets.
+    /// none. `MVP-PLAN.md` names both sets; Decision 278 adds Choirs.
     pub fn local_views(self) -> &'static [&'static str] {
         match self {
             Self::Masses => &["Upcoming", "History", "Archive", "Templates"],
-            Self::Library => &["Songs", "Responses & Prayers", "General Presentations"],
+            Self::Library => &[
+                "Songs",
+                "Responses & Prayers",
+                "General Presentations",
+                "Choirs",
+            ],
             _ => &[],
         }
     }
