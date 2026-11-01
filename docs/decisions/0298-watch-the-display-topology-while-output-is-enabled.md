@@ -1,12 +1,12 @@
 ---
 id: 298
 title: Watch the display topology while output is enabled
-status: accepted
+status: superseded
 date: 2026-11-01
 recorded: 2026-11-01
 tags: [display, qualification]
 supersedes: []
-superseded_by: null
+superseded_by: 299
 amends: []
 amended_by: []
 sources: [crates/ordo/src/output.rs, tests/display/tests/display_control.rs, docs/qualification/milestone-0/USB-KIT-README.md]
@@ -34,7 +34,7 @@ because it can notice a loss sooner.
 ## Alternatives considered
 
 - **Hook `WM_DISPLAYCHANGE` directly.** It would need its own Windows message handling around GPUI's
-  window, and the workspace forbids `unsafe`.
+  window, and `unsafe` is denied outside the one module Decision 269 audits.
 - **Keep `F8` and document it.** That makes fail-to-black depend on the operator noticing.
 
 ## Consequences

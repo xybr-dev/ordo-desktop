@@ -20,7 +20,12 @@ members = [
     "xtask",
 ]
 default-members = ["crates/ordo"]
+exclude = ["vendor"]
 resolver = "3"
+
+# One patched GPUI crate; see vendor/README.md and Decision 299.
+[patch.crates-io]
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 
 [workspace.package]
 version = "0.1.0"

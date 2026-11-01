@@ -9,18 +9,15 @@
 //! Program, and opens exactly one window through
 //! [`congregation_window_options`](platform::congregation_window::congregation_window_options).
 //!
-//! **Topology is watched only while output is enabled.** The pinned GPUI
-//! snapshot has no display-change event, so a refresh happens in four places:
-//! [`CongregationOutput::enable_output`] refreshes before it places output; a
-//! bounds observer on the open congregation window refreshes when Windows
-//! moves that window; a watch task compares a fresh snapshot every
-//! [`DISPLAY_WATCH_INTERVAL`], because the church PC lost its display without
-//! that move (Decision 298); and [`CongregationOutput::refresh_displays`] is
-//! available to callers that want one now. The watch applies only a changed
-//! topology, so a static Program is not redrawn. The observer and the watch
-//! are owned by this controller in `window_bounds` and `display_watch`, which
-//! are dropped in `close_window` and `window_closed`, so neither outlives the
-//! window it watches.
+//! **Topology refresh is explicit or window-driven, never polled.** A refresh
+//! happens in three places: [`CongregationOutput::enable_output`] refreshes
+//! before it places output; a bounds observer on the open congregation window
+//! refreshes when Windows moves that window and, through the vendored GPUI
+//! patch, on every display change (Decision 299); and
+//! [`CongregationOutput::refresh_displays`] is available to callers that want
+//! one now. No periodic task is started. The bounds observer is owned by this
+//! controller in `window_bounds`, which is dropped in `close_window` and
+//! `window_closed`, so it never outlives the window it watches.
 //!
 //! **Clicks do not steal keyboard focus.** The Windows backend activates the
 //! passive window on a click (`WM_MOUSEACTIVATE` answers `MA_ACTIVATE`). The
@@ -37,10 +34,10 @@
 //! direction comes from the actual [`Topology`]. Physical hiding stays under
 //! T0.5's `[MANUAL]` criterion.
 
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc};
 
 use gpui::{
-    AnyWindowHandle, App, AppContext, Context, Subscription, Task, Window, WindowHandle, WindowId,
+    AnyWindowHandle, App, AppContext, Context, Subscription, Window, WindowHandle, WindowId,
 };
 use platform::{
     congregation_window::congregation_window_options,
@@ -56,9 +53,6 @@ use presentation::{
 };
 
 use crate::CongregationView;
-
-/// How often enabled output compares a fresh topology with the last one.
-pub const DISPLAY_WATCH_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Where display topology snapshots come from. Production reads GPUI through
 /// [`GpuiDisplaySource`]; tests inject an in-memory adapter shared through
@@ -179,10 +173,9 @@ pub enum OutputError {
 /// Runtime-owned congregation-output controller.
 ///
 /// Owner and shutdown: the runtime owns this entity for the process lifetime.
-/// It owns the single congregation window handle, that window's bounds
-/// observer, and the display watch. All are released by `close_window`;
-/// `window_closed` releases them when the platform closed the window first;
-/// `shutdown` closes it.
+/// It owns the single congregation window handle and that window's bounds
+/// observer. Both are released by `close_window`; `window_closed` releases
+/// them when the platform closed the window first; `shutdown` closes it.
 pub struct CongregationOutput {
     source: Box<dyn DisplaySource>,
     control: DisplayControl,
@@ -190,8 +183,6 @@ pub struct CongregationOutput {
     window: Option<WindowHandle<CongregationView>>,
     /// Keeps the bounds observer on `window` alive. Dropping it unsubscribes.
     window_bounds: Option<Subscription>,
-    /// Keeps the display watch running. Dropping it cancels the task.
-    display_watch: Option<Task<()>>,
     /// Lets production refreshes name the display carrying the operator
     /// window instead of assuming GPUI's primary display.
     operator_window: Option<AnyWindowHandle>,
@@ -217,7 +208,6 @@ impl CongregationOutput {
             engine: PresentationEngine::disabled(),
             window: None,
             window_bounds: None,
-            display_watch: None,
             operator_window,
             last_operator_display,
             pointer_over_output: false,
@@ -335,8 +325,8 @@ impl CongregationOutput {
         }
 
         // The observer refreshes topology whenever the window moves or
-        // resizes. Windows moves a window off a removed display, so this is
-        // how an unplugged projector is noticed without a caller.
+        // resizes, and on every display change (Decision 299). This is how an
+        // unplugged projector is noticed without a caller.
         let Ok(bounds) = window.update(cx, |_, placed, cx| {
             cx.observe_window_bounds(placed, move |_, _, cx| {
                 // Deferred: the observer runs inside the congregation window's
@@ -357,15 +347,6 @@ impl CongregationOutput {
 
         self.window = Some(window);
         self.window_bounds = Some(bounds);
-        self.display_watch = Some(cx.spawn(async move |output, cx| {
-            loop {
-                cx.background_executor().timer(DISPLAY_WATCH_INTERVAL).await;
-                let watched = output.update(cx, |output, cx| output.watch_displays(cx));
-                if watched.is_err() {
-                    break;
-                }
-            }
-        }));
         cx.notify();
         Ok(window)
     }
@@ -382,16 +363,6 @@ impl CongregationOutput {
         let operator = self.operator_display(cx);
         let topology = self.source.snapshot(cx, operator);
         self.refresh_with(topology, cx)
-    }
-
-    /// Applies a fresh snapshot only when it differs from the last, so an
-    /// unchanged topology wakes no observer.
-    fn watch_displays(&mut self, cx: &mut Context<Self>) {
-        let operator = self.operator_display(cx);
-        let topology = self.source.snapshot(cx, operator);
-        if topology != *self.control.topology() {
-            self.refresh_with(topology, cx);
-        }
     }
 
     /// Applies a topology snapshot. Losing the enabled display marks
@@ -468,7 +439,6 @@ impl CongregationOutput {
         }
         self.window = None;
         self.window_bounds = None;
-        self.display_watch = None;
         self.pointer_over_output = false;
         self.control.disable_output();
         self.engine.apply(PresentationCommand::DisableOutput);
@@ -528,7 +498,6 @@ impl CongregationOutput {
         self.pointer_over_output = false;
         // Dropping the observer first unsubscribes it before its window closes.
         self.window_bounds = None;
-        self.display_watch = None;
         if let Some(window) = self.window.take() {
             // Taking the handle first makes the runtime's deferred
             // `window_closed` a no-op for this planned close.

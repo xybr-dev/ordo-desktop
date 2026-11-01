@@ -951,13 +951,24 @@ impl WindowsWindowInner {
 
     fn handle_display_change_msg(&self, handle: HWND) -> Option<isize> {
         let new_monitor = unsafe { MonitorFromWindow(handle, MONITOR_DEFAULTTONULL) };
-        if new_monitor.is_invalid() {
+        let result = if new_monitor.is_invalid() {
             log::error!("No monitor detected!");
-            return None;
+            None
+        } else if let Some(new_display) =
+            WindowsDisplay::new(WindowsDisplay::display_id_for_monitor(new_monitor))
+        {
+            self.state.display.set(new_display);
+            Some(0)
+        } else {
+            None
+        };
+        // ORDO PATCH: report every display change, including one that leaves
+        // this window on no monitor. See vendor/README.md.
+        if let Some(mut callback) = self.state.callbacks.moved.take() {
+            callback();
+            self.state.callbacks.moved.set(Some(callback));
         }
-        let new_display = WindowsDisplay::new(WindowsDisplay::display_id_for_monitor(new_monitor))?;
-        self.state.display.set(new_display);
-        Some(0)
+        result
     }
 
     fn handle_hit_test_msg(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
