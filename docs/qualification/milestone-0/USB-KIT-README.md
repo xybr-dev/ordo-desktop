@@ -80,10 +80,10 @@ writes a note to storage.
 5. **Display loss:** with content live, unplug or disable the projector.
    Program goes black and the lab's status line (operator only) shows the
    output is disconnected, with the message "Output lost — reconnect the
-   projector, then F8, F6, Space." Nothing appears on another display. If
-   the status does not change within a second or two, press `F8` (it says
-   the output was lost). Reconnect, then press `F8` and `F6`: output
-   returns black, and content returns only after Space.
+   projector, then F8, F6, Space." This happens within a second or two with
+   no key pressed; needing `F8` for it is a failure. Nothing appears on
+   another display. Reconnect, then press `F8` and `F6`: output returns
+   black, and content returns only after Space.
    **Hot-plug:** launch the lab with the projector disconnected, then
    connect it. Press `F8`: the message shows the display count and the
    suggested congregation display. Press `F6` to enable output (black;
