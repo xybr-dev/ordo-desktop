@@ -25,6 +25,8 @@ up to four thumbnails per row at that size.
 - At `1920x1080` the Output Dock is `520px` wide.
 - The Cue frame floor drops from `300px` to `270px`, which keeps four frames per row.
 - `1366x768` keeps its `360px` dock and three frames.
+- When the window is too short for both monitors and the commands, the monitors shrink. Freeze, Blackout
+  and the primary action never leave the window.
 
 ## Alternatives considered
 

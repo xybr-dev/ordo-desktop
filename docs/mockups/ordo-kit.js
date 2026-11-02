@@ -792,6 +792,13 @@
       var fk = document.activeElement && app.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.qin : null, caret = fk && document.activeElement.selectionStart;
       app.innerHTML = header + strip() + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
       icons();
+      // On a short window the monitors give up height, so Freeze, Blackout and the primary action stay on screen.
+      var dockEl = app.querySelector(".pr-dock");
+      if (dockEl) {
+        dockEl.style.removeProperty("--pr-mon-w");
+        var monitors = dockEl.querySelectorAll(".o-slide"), over = dockEl.scrollHeight - dockEl.clientHeight;
+        if (over > 0 && monitors.length) dockEl.style.setProperty("--pr-mon-w", Math.floor((monitors[0].offsetHeight - over / monitors.length) * 16 / 9) + "px");
+      }
       if (S.ins) {
         var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
         if (pn) pn.style.right = (dk ? dk.offsetWidth : 0) + "px";
@@ -929,7 +936,7 @@
       items.forEach(function (e) { e.tabIndex = e === on ? 0 : -1; });
     });
     // A scrolling panel with no control inside still has to be reachable to scroll by keyboard.
-    app.querySelectorAll(".pr-ins-prev, .pr-ins-main, .o-overlay-body").forEach(function (e) {
+    app.querySelectorAll(".pr-ins-prev, .pr-ins-main, .o-overlay-body, .pl-insp-body").forEach(function (e) {
       if (e.scrollHeight > e.clientHeight && !e.querySelector("a[href], button, input, select, textarea")) e.tabIndex = 0;
       else e.removeAttribute("tabindex");
     });

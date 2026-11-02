@@ -234,7 +234,9 @@ Presenter Mode has a slim global header, an optional Ordo rail, a grouped Cue
 timeline, and a stable right-hand Output Dock. Program, Preview, output state,
 Freeze, Blackout, and the context-sensitive primary output action must remain
 visible and spatially stable. At `1920x1080` the dock is `520px` wide, which keeps
-four Cue frames per row at a `270px` floor.
+four Cue frames per row at a `270px` floor. When the window is too short for both
+monitors and the commands, the monitors shrink; Freeze, Blackout, and the primary
+action never leave the window.
 
 On the timeline, the Cue on Program carries a `2px` ring in the Live color, or
 the Freeze color while held. The Cue on Preview carries a `3px` bar in the
