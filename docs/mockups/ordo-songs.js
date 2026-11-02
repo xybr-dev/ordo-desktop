@@ -293,6 +293,7 @@
       return a.sections.length ? word + " " + (n + 1) : "";
     }
     function commitPopover() {
+      app.__side = null;
       var p = S.popover, a = arrangement(), snap = snapshot(), name = p.name.trim(); if (!name) return;
       var id = "n" + Date.now() % 100000; a.sections.push(sec(id, name, "", { approved: false })); S.sec = id; S.slide = 0; S.focus = "lyrics"; done("Added section " + name + ".", snap);
       S.popover = null;
@@ -409,11 +410,14 @@
     // ── Arrangement editor (Decisions 115–131, 138, 145) ─────────────────────────────────────
     function edHead(a, s) {
       var r = readiness(a), ro = a.archived || s.archived;
+      var narrow = K.paneTier(W / S.scale, true) === "editor";   // only the main pane stays: the header gives its words to the title
+      function headBtn(act, ic, label) {
+        return narrow ? '<button class="o-btn o-btn--icon" data-act="' + act + '" aria-label="' + label + '" title="' + label + '">' + icon(ic) + "</button>" : '<button class="o-btn" data-act="' + act + '">' + icon(ic) + label + "</button>";
+      }
       return '<header class="sg-edhead"><button class="o-btn o-btn--quiet o-btn--icon" data-act="back" aria-label="Back to Songs" title="Back to Songs">' + icon("arrow-left") + "</button>" +
         '<div class="o-grow"><div class="o-meta">Library / Songs / ' + esc(s.title) + '</div><h1 class="o-title pl-title">' + esc(arrLabel(a)) + "</h1></div>" +
         status(r) + saved() +
-        '<button class="o-btn" data-act="details">' + icon("sliders-horizontal") + "Arrangement details</button>" +
-        '<button class="o-btn" data-act="arr-history">' + icon("history") + "History</button>" +
+        headBtn("details", "sliders-horizontal", "Arrangement details") + headBtn("arr-history", "history", "History") +
         '<button class="o-btn o-btn--icon" aria-label="More Arrangement actions" title="More">' + icon("ellipsis") + "</button></header>" +
         (ro ? '<div class="o-notice sg-banner" data-state="info">' + icon("archive") + "<div><b>Archived.</b> Inspect only until restored.</div></div>" : "") +
         (S.from ? '<div class="o-notice sg-banner" data-state="info">' + icon("corner-down-right") + "<div><b>Opened from " + esc(S.from) + '.</b> Fix the section here; Readiness updates when it’s resolved. <button class="pl-link">Back to the Mass</button></div></div>' : "") +
@@ -913,7 +917,7 @@
       else if (S.overlay === "history") ov = history();
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.undo ? '<button class="o-btn" data-act="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = '<div class="o-body">' + K.navrail("Library") + '<div class="o-grow sg-ws">' + body + "</div></div>" + popoverHtml() + ov + toast;
-      K.panes(app, W / S.scale);
+      K.panes(app, W / S.scale, { open: S.popover && S.popover.kind === "add" ? "left" : null });   // Add section belongs to the list
       K.icons();
       Object.keys(keep).forEach(function (q) { var el = app.querySelector(q); if (el) el.scrollTop = keep[q]; });
       var pop = app.querySelector(".sg-pop, .sg-overflow");

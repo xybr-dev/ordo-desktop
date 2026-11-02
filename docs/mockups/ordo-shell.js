@@ -644,9 +644,9 @@
       else if (cur === "about") body = '<h2 class="o-title">About Ordo</h2><dl class="pl-meta"><dt>Version</dt><dd>0.9.2 (build 2026.10.18)</dd><dt>Parish</dt><dd>' + esc(S.parish.name) + "</dd><dt>Data</dt><dd>Stored on this computer only. Ordo works without internet and sends nothing.</dd><dt>Fonts</dt><dd>Atkinson Hyperlegible Next and Noto Sans, SIL Open Font License 1.1</dd></dl>" +
         '<div class="sh-inline"><button class="o-btn" data-a="toast" data-msg="Shows the open-source licence texts bundled with Ordo">Open-source licences</button><button class="o-btn" data-a="go" data-dest="diagnostics">' + icon("activity") + "Diagnostics</button></div>";
       else { var g = GUIDES.filter(function (x) { return x.id === cur; })[0]; body = '<h2 class="o-title">' + esc(g.t) + '</h2><ol class="sh-steps">' + g.b.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + '</ol><p class="o-meta">Guides are part of Ordo and work offline.</p>'; }
-      return '<div class="sh-page"><header class="sh-head"><h1 class="o-title">Help</h1></header><div class="sg-panes"><div class="o-pane sh-nav"><div class="o-pane-body">' +
+      return '<div class="sh-page"><header class="sh-head"><h1 class="o-title">Help</h1></header><div class="sg-panes"><nav class="o-pane sh-nav" aria-label="Help topics"><div class="o-pane-body">' +
         topics.map(function (t) { return '<button class="o-row sh-navrow" data-a="set" data-path="help" data-v="' + t[0] + '" aria-current="' + (cur === t[0]) + '">' + icon(t[1]) + t[2] + "</button>"; }).join("") +
-        '</div></div><div class="o-pane sg-detail"><div class="o-pane-body sh-doc">' + body + "</div></div></div></div>";
+        '</div></nav><div class="o-pane sg-detail"><div class="o-pane-body sh-doc">' + body + "</div></div></div></div>";
     }
     function keyGroups(ctx) {
       var order = [ctx, "Global", "Editing", "Presenter"];
@@ -672,10 +672,10 @@
       else body = '<h2 class="o-title">Interface</h2>' + field("Interface scale", seg("scaleset", Math.round(S.scale * 100) + "%", ["100%", "125%", "150%", "175%", "200%"], "Interface scale"), "Makes Ordo's own text and controls larger on this computer. Slides are never affected: they're always composed at 1920 × 1080.") +
         '<div class="sh-inline o-meta">' + kbd("Ctrl++") + " larger · " + kbd("Ctrl+-") + " smaller · " + kbd("Ctrl+0") + " 100%</div>" +
         '<div class="sh-scaleprev"><div class="o-label">Slides at this scale</div><div class="sh-mini">' + K.slide({ k: "lyrics", h: "Koro", b: "Daygon, daygon ta\nang ngalan sa Ginoo" }) + "</div></div>";
-      return '<div class="sh-page"><header class="sh-head"><h1 class="o-title">Settings</h1></header><div class="sg-panes"><div class="o-pane sh-nav"><div class="o-pane-body">' +
+      return '<div class="sh-page"><header class="sh-head"><h1 class="o-title">Settings</h1></header><div class="sg-panes"><nav class="o-pane sh-nav" aria-label="Settings pages"><div class="o-pane-body">' +
         pages.map(function (t) { return '<button class="o-row sh-navrow" data-a="set" data-path="spage" data-v="' + t[0] + '" aria-current="' + (S.spage === t[0]) + '">' + icon(t[1]) + t[2] + "</button>"; }).join("") +
         '<div class="pl-menu-sep"></div><button class="o-row sh-navrow" data-a="go" data-dest="diagnostics">' + icon("activity") + "Diagnostics" + icon("arrow-up-right", "sh-ext") + "</button>" +
-        '</div></div><div class="o-pane sg-detail"><div class="o-pane-body sh-doc">' + body + "</div></div></div></div>";
+        '</div></nav><div class="o-pane sg-detail"><div class="o-pane-body sh-doc">' + body + "</div></div></div></div>";
     }
     function displays() {
       var d = S.disp, two = d.count > 1, cong = two && !d.unavailable ? d.cong : two && d.unavailable ? d.cong : "";
@@ -728,6 +728,7 @@
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.review && S.toastReview ? '<button class="o-btn" data-a="review">Review affected plans</button>' : "") + (S.undo ? '<button class="o-btn" data-a="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = S.firstRun ? body + ov + toast : '<div class="o-body">' + K.navrail(RAIL[S.dest]) + '<div class="o-grow sh-ws">' + body + "</div></div>" + ov + toast;
       K.icons();
+      K.panes(app, W / S.scale);
       Object.keys(keep).forEach(function (q) { var el = app.querySelector(q); if (el) el.scrollTop = keep[q]; });
       var f = fk && app.querySelector('[data-focus-key="' + fk + '"]');
       if (S.dialog && S.dialog.kind === "restore") f = app.querySelector('[data-focus-key="keepcur"]');

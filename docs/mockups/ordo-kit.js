@@ -187,7 +187,7 @@
     app.removeAttribute("data-tier"); app.removeAttribute("data-side");
     app.querySelectorAll(".o-sidebar, .o-side-scrim, .o-side-close").forEach(function (e) { e.remove(); });
     app.querySelectorAll(".o-side-l.is-open, .o-side-r.is-open").forEach(function (e) { e.classList.remove("is-open"); });
-    var host = app.querySelector(".o-body .pl-panes, .o-body .sg-panes:not(.sg-imp-panes), .o-body .sh-edpanes");
+    var host = app.querySelector(".o-body .pl-panes, .o-body .sg-panes, .o-body .sh-edpanes");
     var list = host ? [].filter.call(host.children, function (c) { return c.classList.contains("o-pane"); }) : [];
     if (list.length < 2) { app.__side = null; return "full"; }
     var left = list[0], right = list.length > 2 ? list[list.length - 1] : null, scale = parseFloat(app.style.getPropertyValue("--o-scale")) || 1;
