@@ -7,9 +7,9 @@ colors:
   preparation-surface: "#FFFDF8"
   preparation-surface-muted: "#EBE5DB"
   preparation-text: "#27231F"
-  preparation-text-muted: "#716B62"
+  preparation-text-muted: "#6B655C"
   preparation-border: "#D7CFC2"
-  preparation-border-strong: "#8E8476"
+  preparation-border-strong: "#8A8072"
   presenter-background: "#151816"
   presenter-surface: "#222722"
   presenter-surface-raised: "#303630"
@@ -18,16 +18,17 @@ colors:
   presenter-border: "#414842"
   presenter-border-strong: "#7A857B"
   primary: "#355D4B"
+  primary-foreground-presenter: "#8FBFA3"
   on-primary: "#FFFFFF"
   selection-preparation: "#DFE9E2"
   selection-presenter: "#26362C"
   live-preparation: "#2F6B4F"
   live-presenter: "#55D69C"
-  freeze-preparation: "#9A5B10"
+  freeze-preparation: "#945710"
   freeze-presenter: "#F0B35E"
   blackout: "#050606"
   on-blackout: "#FFFFFF"
-  warning-preparation: "#9A5B10"
+  warning-preparation: "#945710"
   warning-presenter: "#F0B35E"
   danger-preparation: "#9D3E31"
   danger-presenter: "#EF8E82"
@@ -65,6 +66,7 @@ spacing:
   section: 24px
 density:
   compact-control: 32px
+  compact-row: 32px
   default-control: 36px
   presenter-control: 40px
   workspace-gutter-compact: 16px
@@ -83,6 +85,11 @@ typography:
     fontSize: 24px
     fontWeight: 600
     lineHeight: 1.2
+  operator-heading:
+    fontFamily: Atkinson Hyperlegible Next
+    fontSize: 18px
+    fontWeight: 600
+    lineHeight: 1.25
   operator-body:
     fontFamily: Atkinson Hyperlegible Next
     fontSize: 16px
@@ -92,6 +99,16 @@ typography:
     fontFamily: Atkinson Hyperlegible Next
     fontSize: 14px
     fontWeight: 500
+    lineHeight: 1.3
+  operator-meta:
+    fontFamily: Atkinson Hyperlegible Next
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.35
+  operator-caption:
+    fontFamily: Atkinson Hyperlegible Next
+    fontSize: 12px
+    fontWeight: 600
     lineHeight: 1.3
   projected-response:
     fontFamily: Atkinson Hyperlegible Next
@@ -131,7 +148,10 @@ Preparation uses warm paper neutrals for prolonged editing. Presenter Mode uses
 neutral graphite rather than a tinted branded dark mode. Both appearances share
 one semantic state language:
 
-- **Primary and selection:** restrained forest green.
+- **Primary and selection:** restrained forest green. `primary` is a fill and
+  carries `on-primary` text. On graphite it is too dark to read as a foreground,
+  so links, active-tab underlines, icons, and selected control edges there use
+  `primary-foreground-presenter`, which is never a fill and never means Live.
 - **Live:** green, with the brighter value reserved for the graphite Presenter
   appearance.
 - **Freeze and warning/incomplete:** amber.
@@ -167,6 +187,10 @@ congregation responses.
 
 Bundle `Noto Sans` as the missing-glyph fallback. Never depend on fonts installed
 on the host operating system, and never fetch fonts at runtime.
+
+Operator text uses six levels: title `24px`, heading `18px`, body `16px`, label
+`14px`, meta `13px`, and caption `12px`. Do not add sizes between them. Meta and
+caption carry secondary information only, never a high-stakes state or action.
 
 Atkinson is comparatively wide. Preserve readable sizes and adapt the layout,
 truncate deliberately, or disclose secondary information rather than shrinking
@@ -209,7 +233,14 @@ their `16:9` aspect ratio and composition regardless of available pane width.
 Presenter Mode has a slim global header, an optional Ordo rail, a grouped Cue
 timeline, and a stable right-hand Output Dock. Program, Preview, output state,
 Freeze, Blackout, and the context-sensitive primary output action must remain
-visible and spatially stable.
+visible and spatially stable. At `1920x1080` the dock is `520px` wide, which keeps
+four Cue frames per row at a `270px` floor.
+
+On the timeline, the Cue on Program carries a `2px` ring in the Live color, or
+the Freeze color while held. The Cue on Preview carries a `3px` bar in the
+neutral text color below its frame, outside the canonical composition. A Cue on
+both shows both. Each also has its word in the caption. Neither may look like
+the blue keyboard-focus ring.
 
 Dialogs and slide-overs are bounded to the visible application viewport,
 including the application header. Preserve exterior gutters. If content exceeds
@@ -242,7 +273,9 @@ previews, more slide columns, and useful context.
 
 Default controls and ordinary list rows are `36px` high. Compact icon controls
 may be `32px` square, while high-stakes Presenter controls are at least `40px`
-high. Do not proportionally enlarge the whole interface as resolution rises,
+high. Dense navigational lists that must show a whole Mass, namely the Mass
+outline and the Presenter Ordo rail, may use `compact-row` at `32px`. Do not
+proportionally enlarge the whole interface as resolution rises,
 and do not add an MVP Compact/Comfortable preference. Increased interface text
 scaling may expand rows and reflow secondary content; labels and controls must
 not clip or overlap to preserve a fixed density.
@@ -343,7 +376,8 @@ Use the strong border tokens only where the edge itself must remain clearly
 perceptible: input or control boundaries that lack another affordance, canonical
 frame boundaries, active drop targets, and temporary overlay edges. Do not use
 strong borders as decoration or to box every group. Selection uses its adopted
-forest-green tinted fill rather than introducing a competing green border;
+forest-green tinted fill plus a `3px` leading bar in the neutral text color and
+SemiBold primary text, rather than introducing a competing green border;
 keyboard focus remains the independent two-layer blue outline.
 
 Reserve visible elevation for temporary ownership changes: menus, dialogs,
@@ -481,15 +515,17 @@ immediate surface, followed by a `2px` outer ring using `focus-preparation` or
 primary, semantic-state, destructive, and informational controls.
 
 Focus and selection are independent and may coexist. Selection remains a
-forest-green tinted fill; focus remains the blue outer outline around the
+forest-green tinted fill with its neutral leading bar; focus remains the blue outer outline around the
 currently keyboard-active control or row. Put the focus treatment on the outer
 wrapper of canonical slide thumbnails and frames so it never changes or covers
 the inner `16:9` composition. Do not reuse Live, Freeze, Blackout, warning,
 danger, selection, or liturgical colors as focus indicators.
 
 Never suppress operating-system focus indication unless the complete Ordo focus
-treatment replaces it. In Windows High Contrast or equivalent platform modes,
-allow the operating system's highlight colors and outlines to take precedence.
+treatment replaces it. Ordo draws its own window, so the operating system cannot
+repaint it: under Windows High Contrast, Ordo keeps its palette and complete focus
+treatment for the MVP, and focus, selection, and every operational state must
+stay distinct. Following the system's colors is deferred (Decision 298).
 Focus must remain visible when interface text is enlarged and when it appears
 inside menus, dialogs, nested slide-overs, the Mass Outline, Cue timeline,
 Preview/Program controls, and dense editor lists.
@@ -551,6 +587,21 @@ for expected operational changes such as Freeze, Blackout, taking Preview live,
 and output enablement. Interrupt urgently only for unexpected safety events,
 including display disconnection, unavailable Cue (Program goes black), or loss of
 usable Program output, and state both the event and Ordo's protective response.
+
+Every shared component exposes one AccessKit role and one focus model:
+
+| Component | Role | Focus |
+| --- | --- | --- |
+| Button, icon button | Button, named even when icon-only | Tab stop |
+| Mass outline, Ordo rail, result lists | List; the current row is marked current, not selected | One Tab stop, arrows inside |
+| Cue timeline | Named region; Cues are buttons with their concise name | One Tab stop; arrows move Preview |
+| Select and Combobox popups | Listbox of options, with the chosen option selected | Arrows inside the popup |
+| Tabs | Tab list of tabs | One Tab stop, arrows inside |
+| Dialog, slideover | Modal dialog named by its title | Owns focus until closed |
+| Scanning, import, export | Progress indicator with a name | Not focusable |
+
+Every field and popup list has an accessible name even when a visible label is
+absent.
 
 Operator-only prompts, timing context, warnings, and diagnostics remain
 assistive content only in the operator workspace. Never mirror those semantics

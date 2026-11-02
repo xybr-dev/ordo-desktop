@@ -240,7 +240,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0208](0208-warm-neutral-and-graphite-semantic-color-language.md) | Warm-neutral and graphite semantic color language | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | ui |
 | [0209](0209-google-labs-compatible-design-md-as-the-visual-source-of.md) | Google Labs-compatible DESIGN.md as the visual source of truth | accepted | 2026-08-29 |  |
 | [0210](0210-distinct-disabled-unavailable-read-only-and-not-assigned.md) | Distinct disabled, unavailable, read-only, and not-assigned semantics | accepted | 2026-08-29 |  |
-| [0211](0211-dedicated-two-layer-visible-keyboard-focus.md) | Dedicated two-layer visible keyboard focus | accepted | 2026-08-29 | ui |
+| [0211](0211-dedicated-two-layer-visible-keyboard-focus.md) | Dedicated two-layer visible keyboard focus | accepted, amended by [0298](0298-high-contrast-keeps-ordo-s-palette-for-the-mvp-following.md) | 2026-08-29 | ui |
 | [0212](0212-open-separator-and-border-hierarchy.md) | Open separator and border hierarchy | accepted | 2026-08-29 |  |
 | [0213](0213-restrained-radius-system-with-rounded-operator-slide.md) | Restrained radius system with rounded operator slide viewports | accepted | 2026-08-29 | rendering |
 | [0214](0214-two-level-elevation-for-temporary-ownership.md) | Two-level elevation for temporary ownership | accepted | 2026-08-29 |  |
@@ -324,5 +324,9 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0292](0292-select-display-opens-a-display-picker-inside-presenter.md) | Select display opens a display picker inside Presenter | accepted | 2026-10-28 | presenter, displays |
 | [0293](0293-replace-swaps-a-mass-item-from-the-insert-panel.md) | Replace swaps a Mass item from the Insert panel | accepted | 2026-10-31 | presenter, mass-planning |
 | [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | The latest mockup page is canonical and superseded pages are hidden | accepted | 2026-10-31 | design, mockups, repo |
+| [0295](0295-selection-and-preview-carry-neutral-shape-cues.md) | Selection and Preview carry neutral shape cues | accepted | 2026-11-02 | design, presenter |
+| [0296](0296-the-output-dock-grows-to-520px-at-1920.md) | The Output Dock grows to 520px at 1920 | accepted | 2026-11-02 | design, presenter |
+| [0297](0297-operator-tokens-gain-a-graphite-foreground-text-levels-and.md) | Operator tokens gain a graphite foreground, text levels and a compact row | accepted | 2026-11-02 | design |
+| [0298](0298-high-contrast-keeps-ordo-s-palette-for-the-mvp-following.md) | High Contrast keeps Ordo's palette for the MVP; following system colours is deferred | accepted | 2026-11-02 | design, accessibility, platform |
 
 <!-- adr-index:end -->

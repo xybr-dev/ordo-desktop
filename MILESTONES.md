@@ -2672,8 +2672,8 @@ failure states are present.
 - [ ] `[MANUAL]` Windows screen-reader testing verifies concise Cue naming,
       deduplicated polite updates, urgent fail-closed announcements, and absence
       of operator-only congregation content.
-- [ ] `[MANUAL]` Forced colors and reduced motion preserve meaning, focus,
-      content cuts, bounded blank fades, and equivalent nested-overlay navigation.
+- [ ] `[MANUAL]` Windows High Contrast and reduced motion preserve meaning, focus,
+      selection, every operational state, content cuts, bounded blank fades, and equivalent nested-overlay navigation.
 - [ ] `[MANUAL]` Visual comparison against approved references confirms
       hierarchy/ownership, not pixel-copying of mockup artifacts.
 

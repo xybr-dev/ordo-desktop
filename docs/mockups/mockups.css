@@ -1,7 +1,8 @@
 /* Mockup chrome only: page header, index, status chips and notes. Each screen's own
    styles live inside its fragment, scoped to the fragment's root id. Colours follow
    DESIGN.md: Preparation tokens in light, Presenter tokens in dark. */
-@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;600&display=swap");
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext%5Bwght%5D.ttf") format("truetype"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "Noto Sans"; src: url("../../assets/fonts/noto-sans/NotoSans%5Bwdth,wght%5D.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
 
 :root {
   color-scheme: light;
@@ -9,7 +10,7 @@
   --mk-surface: #FFFDF8;
   --mk-surface-muted: #EBE5DB;
   --mk-text: #27231F;
-  --mk-muted: #716B62;
+  --mk-muted: #6B655C;
   --mk-border: #D7CFC2;
   --mk-border-strong: #8E8476;
   --mk-primary: #355D4B;

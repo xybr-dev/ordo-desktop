@@ -33,6 +33,9 @@ They are not production source; screens are rebuilt as native GPUI views.
   `ordo-liturgy.js` adds `OrdoKit.liturgy()`: the Liturgy import review.
 - `canonical-slide-layouts.html` shows the PNG gallery in `design-references/`, which the
   `canonical-slide-lab` capture test writes there.
+- `vendor/` holds Lucide 0.469.0 with its license. Fonts load from `assets/fonts/`, so no page needs
+  the internet. The kit's keyboard behaviour (arrow keys inside lists, `F6` between regions) sits at
+  the end of `ordo-kit.js`.
 
 ## Statuses
 

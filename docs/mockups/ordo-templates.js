@@ -143,7 +143,7 @@
           '<span class="sh-rel"><button class="o-btn o-btn--quiet o-btn--icon tp-mini" data-a="secmenu" data-id="' + s.id + '" aria-label="Section actions">' + icon("ellipsis") + "</button>" + (open ? secMenu(s, si) : "") + "</span></div>";
         s.items.forEach(function (x) {
           var d = c ? decide(x, c) : null;
-          html += '<button class="o-row pl-item tp-item' + (d && d.st === "omit" ? " is-omitted" : "") + '" data-a="sel" data-id="' + x.id + '"' + (x.id === S.sel ? ' aria-selected="true"' : "") + ">" +
+          html += '<button class="o-row pl-item tp-item' + (d && d.st === "omit" ? " is-omitted" : "") + '" data-a="sel" data-id="' + x.id + '"' + (x.id === S.sel ? ' aria-current="true"' : "") + ">" +
             icon(TYPES[x.type][0], "tp-ic") + '<span class="o-grow o-ellipsis">' + esc(x.title) + "</span>" +
             (d ? (d.st === "omit" ? '<span class="o-meta">Omitted</span>' : d.st === "unresolved" ? statusLabel("warning", "", "square") : "") : x.need === "Conditional" ? '<span class="o-meta" title="' + esc(ruleText(x.rule)) + '">' + icon("split") + "</span>" : x.need === "Optional" ? '<span class="o-meta">Optional</span>' : "") + "</button>";
         });
@@ -200,7 +200,7 @@
       if (x.type === "reading") body += field("Reading role", sel("it.role", x.role, ROLES, "Reading role"), "Each plan's readings fill this role. A plan can add more Reading slots for an unusual Celebration.") +
         '<div class="tp-slot">' + icon("book-open") + "<div><b>Text chosen in each plan</b><br><span class=\"o-meta\">Readings change with every Celebration.</span></div></div>";
       if (x.type === "resp") body += '<div class="o-label">Exchanges</div><div class="sh-list">' + x.ex.map(function (e, i) {
-        return '<div class="o-row tp-ex"><span class="pl-chip">' + (e[0] ? esc(e[0]) + " · prompt" : "Response") + '</span><input class="pl-input" data-in="ex.' + i + '" data-focus-key="ex.' + i + '" value="' + esc(e[1]) + '"></div>';
+        return '<div class="o-row tp-ex"><span class="pl-chip">' + (e[0] ? esc(e[0]) + " · prompt" : "Response") + '</span><input class="pl-input" aria-label="Exchange line ' + (i + 1) + '" data-in="ex.' + i + '" data-focus-key="ex.' + i + '" value="' + esc(e[1]) + '"></div>';
       }).join("") + '</div><div class="sh-inline"><button class="o-btn" data-a="addex">' + icon("plus") + 'Add exchange</button></div><p class="o-meta">Copied into each new plan, where it can be edited for that Mass only (Decision 112).</p>' +
         '<div class="pl-thumbs">' + x.ex.filter(function (e) { return !e[0]; }).map(function (e) { return K.slide({ k: "response", h: t.lang === "Cebuano" ? "TUBAG:" : "ALL:", b: e[1] }); }).join("") + "</div>";
       if (x.type === "general") body += '<div class="o-label">Slides</div>' + (x.slides || []).map(function (s, i) { return field("Slide " + (i + 1), '<textarea class="pl-input" rows="2" data-in="slide.' + i + '" data-focus-key="slide.' + i + '">' + esc(s) + "</textarea>"); }).join("") +
@@ -252,7 +252,7 @@
       var f = fk ? app.querySelector('[data-focus-key="' + fk + '"]') : null;
       if (!f && S.renaming) f = app.querySelector('[data-focus-key="secname"]');
       if (!f && S.dialog) f = app.querySelector('[data-focus-key="dialog.name"]');
-      if (S.reveal) { var r = app.querySelector('.tp-item[aria-selected="true"]'); if (r) r.scrollIntoView({ block: "nearest" }); S.reveal = false; }
+      if (S.reveal) { var r = app.querySelector('.tp-item[aria-current="true"]'); if (r) r.scrollIntoView({ block: "nearest" }); S.reveal = false; }
       if (f) { f.focus(); if (caret != null && f.setSelectionRange) try { f.setSelectionRange(caret, caret); } catch (e) { /* not text */ } }
     }
     function nameClash(name, except) { var n = norm(name); var c = S.list.filter(function (t) { return t.id !== except && norm(t.name) === n; })[0]; return c ? c.name : null; }

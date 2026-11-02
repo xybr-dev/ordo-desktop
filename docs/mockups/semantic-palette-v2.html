@@ -6,7 +6,7 @@
 <title>Tokens and semantic palette — Ordo mockups</title>
 <link rel="stylesheet" href="mockups.css">
 <link rel="stylesheet" href="ordo.css">
-<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="vendor/lucide.min.js"></script>
 <script src="ordo-kit.js"></script>
 <script src="mockups.js"></script>
 <style>
@@ -17,12 +17,12 @@
   .tk-sw div { border: 1px solid var(--o-border); border-radius: 4px; overflow: hidden; font-size: 12px; background: var(--o-surface); }
   .tk-sw i { display: block; height: 36px; border-bottom: 1px solid var(--o-border); }
   .tk-sw span { display: block; padding: 4px 6px; }
-  .tk-sw code { color: var(--o-muted); font-size: 11px; }
+  .tk-sw code { color: var(--o-muted); font-size: 12px; }
   .tk-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
   .tk-type > div { display: flex; align-items: baseline; gap: 16px; padding: 6px 0; border-bottom: 1px solid var(--o-border); }
   .tk-type code { width: 210px; flex: none; font-size: 12px; color: var(--o-muted); }
   .tk-space { display: flex; align-items: flex-end; gap: 16px; }
-  .tk-space div { background: var(--o-selection); border: 1px solid var(--o-primary); }
+  .tk-space div { background: var(--o-selection); border: 1px solid var(--o-primary-fg); }
   .tk-elev { display: flex; gap: 24px; padding: 12px 0; }
   .tk-elev div { width: 180px; height: 72px; background: var(--o-surface); border: 1px solid var(--o-border-strong); display: grid; place-items: center; font-size: 13px; }
   @media (max-width: 1000px) { .tk-pair { grid-template-columns: 1fr; } }
@@ -44,7 +44,7 @@
 
   <section class="o-variant">
     <h2>B. Operational states: colour, icon or shape, and words together</h2>
-    <p>No state is colour alone. Live, Freeze, Blackout, warning, unavailable and information each pair a word with a stable marker shape. Selection is a tinted fill; keyboard focus is the separate two-layer blue outline; they can coexist.</p>
+    <p>No state is colour alone. Live, Freeze, Blackout, warning, unavailable and information each pair a word with a stable marker shape. Selection is a tinted fill with a neutral leading bar and SemiBold text; keyboard focus is the separate two-layer blue outline; they can coexist.</p>
     <div class="tk-pair" id="states"></div>
   </section>
 
@@ -59,9 +59,11 @@
     <div class="o-app" style="padding:16px">
       <div class="tk-type">
         <div><code>operator-title 24/600</code><span class="o-title">Ika-30 nga Domingo</span></div>
+        <div><code>operator-heading 18/600</code><span class="o-h2">Sequence</span></div>
         <div><code>operator-body 16/400</code><span>Daygon ta ang Ginoo sa tanang kasingkasing</span></div>
         <div><code>operator-label 14/500</code><span class="o-label">Arrangement · Koro San Roque</span></div>
-        <div><code>meta 13/400</code><span class="o-meta">Cue 2 of 5 · Lyrics</span></div>
+        <div><code>operator-meta 13/400</code><span class="o-meta">Cue 2 of 5 · Lyrics</span></div>
+        <div><code>operator-caption 12/600</code><span class="o-section-label" style="padding:0">Introductory Rites</span></div>
       </div>
       <h3 style="margin:16px 0 8px;font-size:14px">Spacing on the 4px unit</h3>
       <div class="tk-space">
@@ -87,7 +89,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     var K = OrdoKit;
     var COLORS = [["bg", "background"], ["surface", "surface"], ["surface-muted", "surface-muted"], ["text", "text"], ["muted", "text-muted"],
-      ["border", "border"], ["border-strong", "border-strong"], ["primary", "primary"], ["selection", "selection"], ["live", "live"],
+      ["border", "border"], ["border-strong", "border-strong"], ["primary", "primary"], ["primary-fg", "primary as foreground"], ["selection", "selection"], ["live", "live"],
       ["freeze", "freeze"], ["warning", "warning"], ["danger", "danger"], ["info", "information"], ["focus", "focus"], ["blackout", "blackout"]];
     function hex(v) { return v.trim().toUpperCase(); }
     document.querySelectorAll("[data-panel]").forEach(function (panel) {
@@ -102,7 +104,7 @@
     var states = '<div class="tk-row">' + K.statusLabel("live", "LIVE") + K.statusLabel("freeze", "FROZEN", "diamond") + K.statusLabel("blackout", "BLACKOUT", "square") +
       K.statusLabel("warning", "2 incomplete", "diamond") + K.statusLabel("unavailable", "Unavailable", "square") + K.statusLabel("info", "Display 2 found") + K.statusLabel("disabled", "Output disabled", "square") + "</div>" +
       '<div class="tk-row"><button class="o-btn o-btn--primary">Present</button><button class="o-btn">Secondary</button><button class="o-btn o-btn--quiet">Quiet</button><button class="o-btn o-btn--warning">Present available content</button><button class="o-btn o-btn--danger">Delete permanently</button><button class="o-btn" disabled>Disabled</button></div>' +
-      '<div class="o-rows--open" style="border:1px solid var(--o-border);border-radius:4px;margin-top:8px"><div class="o-row">Ordinary row</div><div class="o-row" aria-selected="true">Selected row</div><div class="o-row o-focus" aria-selected="true">Selected and keyboard-focused</div><div class="o-row o-focus">Focused only</div></div>' +
+      '<div class="o-rows--open" style="border:1px solid var(--o-border);border-radius:4px;margin-top:8px"><div class="o-row">Ordinary row</div><div class="o-row" aria-current="true">Selected row</div><div class="o-row o-focus" aria-current="true">Selected and keyboard-focused</div><div class="o-row o-focus">Focused only</div></div>' +
       '<div class="o-notice" data-state="warning" style="margin-top:8px"><i data-lucide="triangle-alert"></i><div><b>2 Cues unavailable.</b> Arrangement image asset is missing.</div></div>';
     document.getElementById("states").innerHTML = '<div class="o-app" style="padding:16px">' + states + '</div><div class="o-app o-presenter" style="padding:16px">' + states + "</div>";
     var lit = document.getElementById("lit");

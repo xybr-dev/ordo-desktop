@@ -360,7 +360,7 @@
         '<button class="o-btn" data-act="clear">Clear search and filters</button></div>';
       else list = rs.map(function (r) {
         var s = r.s, n = s.arrs.filter(function (a) { return !a.archived; }).length;
-        return '<button class="o-row sg-result" data-song="' + s.id + '"' + (s.id === S.song ? ' aria-selected="true"' : "") + '><span class="o-grow"><b class="o-ellipsis">' + esc(s.title) + "</b>" +
+        return '<button class="o-row sg-result" data-song="' + s.id + '"' + (s.id === S.song ? ' aria-current="true"' : "") + '><span class="o-grow"><b class="o-ellipsis">' + esc(s.title) + "</b>" +
           '<span class="o-meta o-ellipsis">' + esc(r.reason || s.by) + "</span></span>" +
           '<span class="o-meta sg-count">' + (filtersOn() ? r.matching.length + " matching · " + n + " total" : n + (n === 1 ? " Arrangement" : " Arrangements")) + "</span>" +
           (s.archived ? '<span class="pl-chip">Archived</span>' : "") + "</button>";
@@ -431,7 +431,7 @@
       var s = section(), ro = a.archived;
       var list = a.sections.map(function (x, i) {
         var n = slides(x).length, u = uses(a, x.id);
-        return '<div class="o-row sg-sec"' + (s && x.id === s.id ? ' aria-selected="true"' : "") + ">" + icon("grip-vertical") +
+        return '<div class="o-row sg-sec"' + (s && x.id === s.id ? ' aria-current="true"' : "") + ">" + icon("grip-vertical") +
           '<button class="sg-sec-name" data-sec="' + x.id + '" data-focus-key="sec-' + x.id + '"><b>' + esc(x.name) + '</b><span class="o-meta">' + n + (n === 1 ? " slide" : " slides") + " · " + (u ? "used " + u + "×" : "not in Sequence") + "</span>" + secStatus(x) + "</button>" +
           (s && x.id === s.id && !ro ? '<span class="pl-acts"><button class="o-btn o-btn--quiet o-btn--icon" data-secmv="' + i + ':-1" aria-label="Move up" title="Move up (Alt+Up)"' + (i ? "" : " disabled") + ">" + icon("arrow-up") + "</button>" +
             '<button class="o-btn o-btn--quiet o-btn--icon" data-secmv="' + i + ':1" aria-label="Move down" title="Move down (Alt+Down)"' + (i < a.sections.length - 1 ? "" : " disabled") + ">" + icon("arrow-down") + "</button></span>" : "") + "</div>";
@@ -477,7 +477,7 @@
       var allOpen = a.seq.length && a.seq.every(function (x, i) { return S.open[i]; });
       var rows = a.seq.map(function (id, i) {
         var x = secOf(a, id), sl = slides(x), sel = i === S.occ, open = !!S.open[i];
-        return '<div class="sg-occ' + (sel ? " is-selected" : "") + '"><div class="o-row sg-occ-row"' + (sel ? ' aria-selected="true"' : "") + ">" + icon("grip-vertical") +
+        return '<div class="sg-occ' + (sel ? " is-selected" : "") + '"><div class="o-row sg-occ-row"' + (sel ? ' aria-current="true"' : "") + ">" + icon("grip-vertical") +
           '<button class="sg-expander" data-expand="' + i + '" aria-expanded="' + open + '" aria-label="' + (open ? "Collapse" : "Expand") + '">' + icon(open ? "chevron-down" : "chevron-right") + "</button>" +
           '<button class="sg-occ-name" data-occ="' + i + '" data-focus-key="occ-' + i + '"><span class="sg-pos">' + pos(i) + "</span><b>" + esc(x.name) + '</b><span class="o-meta">' + sl.length + (sl.length === 1 ? " slide" : " slides") + "</span></button>" +
           (uses(a, id) > 1 ? '<span class="pl-chip">' + icon("link") + "Same section</span>" : "") + '<span class="o-grow"></span>' +
@@ -608,7 +608,7 @@
       else list = rows.map(function (e) {
         var inc = incomplete(v, e), meta = v === "choirs" ? [e.label, e.langs.join(", ")].filter(Boolean).join(" · ") || "No details yet" : v === "responses" ? e.role + " · " + e.lang : e.note || "—";
         var count = v === "choirs" ? (function () { var n = repertoire(e.name).length; return n + (n === 1 ? " song" : " songs"); })() : e.plans ? e.plans + (e.plans === 1 ? " Mass" : " Masses") : "Unused";
-        return '<button class="o-row sg-result" data-lv="sel" data-id="' + e.id + '"' + (e.id === S.lsel[v] ? ' aria-selected="true"' : "") + '><span class="o-grow"><b class="o-ellipsis">' + esc(e.name || "Untitled") + "</b>" +
+        return '<button class="o-row sg-result" data-lv="sel" data-id="' + e.id + '"' + (e.id === S.lsel[v] ? ' aria-current="true"' : "") + '><span class="o-grow"><b class="o-ellipsis">' + esc(e.name || "Untitled") + "</b>" +
           '<span class="o-meta o-ellipsis">' + esc(meta) + "</span></span>" + (inc ? statusLabel("warning", "Incomplete", "diamond") : "") + '<span class="o-meta sg-count">' + count + "</span>" +
           (e.archived ? '<span class="pl-chip">Archived</span>' : "") + "</button>";
       }).join("");
@@ -745,7 +745,7 @@
     function pickerHtml(key) {
       var rows = pickRows(), choir = key === "choirs";
       return '<div class="sg-pick"><div class="o-field">' + icon("search") + '<input data-input="pick" data-focus-key="pick" value="' + esc(S.pick.q) + '" placeholder="' + (choir ? "Find or create a choir" : "Find a language") + '" aria-label="' + (choir ? "Choir" : "Language") + '"></div>' +
-        '<div class="sg-pick-list" role="listbox">' + (rows.length ? rows.map(function (r, i) {
+        '<div class="sg-pick-list" role="listbox" aria-label="Results">' + (rows.length ? rows.map(function (r, i) {
           return r.create ? '<button class="o-row" role="option" data-act="create-choir"' + (i ? "" : ' aria-selected="true"') + ">" + icon("plus") + '<span class="o-grow">Create “' + esc(r.create) + '”</span><span class="o-meta">New choir · name only</span></button>' :
             '<button class="o-row" role="option" data-pickval="' + esc(r.val) + '"' + (i ? "" : ' aria-selected="true"') + '><span class="o-grow">' + esc(r.label) + "</span>" + (r.also ? '<span class="o-meta">also called ' + esc(r.also) + "</span>" : "") + "</button>";
         }).join("") : '<div class="o-meta sg-pick-none">' + (choir ? "Every choir is already chosen." : "No language in Ordo’s list matches “" + esc(S.pick.q) + "”.") + "</div>") + "</div>" +
@@ -784,7 +784,7 @@
           '<span class="o-grow"><b>' + esc(g.what) + '</b><span class="o-meta">' + esc(g.when) + " · " + esc(g.how) + "</span></span><span class=\"o-meta\">" + g.revs.length + (g.revs.length === 1 ? " revision" : " revisions") + "</span></button>" +
           (open ? '<div class="sg-revs">' + g.revs.map(function (r, ri) {
             var sel = S.rev && S.rev.si === si && S.rev.ri === ri;
-            return '<button class="o-row sg-rev" data-rev="' + si + ":" + ri + '"' + (sel ? ' aria-selected="true"' : "") + (r.current ? " disabled" : "") + '><span class="o-meta">' + esc(r.at) + '</span><span class="o-grow">' + esc(r.what) + "</span>" +
+            return '<button class="o-row sg-rev" data-rev="' + si + ":" + ri + '"' + (sel ? ' aria-current="true"' : "") + (r.current ? " disabled" : "") + '><span class="o-meta">' + esc(r.at) + '</span><span class="o-grow">' + esc(r.what) + "</span>" +
               (r.current ? '<span class="pl-chip">Current</span>' : icon("chevron-right")) + "</button>";
           }).join("") + "</div>" : "") + "</div>";
       }).join("");
@@ -831,7 +831,7 @@
       S.docs.forEach(function (d, di) { if (d.invalid) { tally.invalid++; return; } d.arrs.forEach(function (x, ai) { var c = choice(di, ai); if (!c) tally.open++; else tally[c]++; }); });
       var list = S.docs.map(function (d, di) {
         var k = d.invalid ? ["danger", "Invalid"] : (function () { var c = choice(di, 0), base = d.arrs[0].kind; return !c ? KIND.decide : c === base ? KIND[base] : c === "skip" ? KIND.skip : c === "update" ? ["warning", "Update existing"] : c === "add" ? ["info", "Add as new Arrangement"] : KIND[c] || KIND[base]; })();
-        return '<button class="o-row sg-doc" data-doc="' + di + '"' + (di === S.doc ? ' aria-selected="true"' : "") + '><span class="o-grow"><b>' + esc(d.title) + '</b><span class="o-meta">' + esc(d.file) + "</span></span>" +
+        return '<button class="o-row sg-doc" data-doc="' + di + '"' + (di === S.doc ? ' aria-current="true"' : "") + '><span class="o-grow"><b>' + esc(d.title) + '</b><span class="o-meta">' + esc(d.file) + "</span></span>" +
           '<span class="sg-kind" data-state="' + k[0] + '">' + esc(k[1]) + "</span></button>";
       }).join("");
       var d = S.docs[S.doc], m = d.match ? song(d.match) : null, body;
@@ -848,7 +848,7 @@
               return '<label class="sg-outcome"><input type="radio" name="o' + S.doc + ai + '" data-stage="' + S.doc + ":" + ai + '" value="' + o[0] + '"' + (c === o[0] ? " checked" : "") + "><span><b>" + o[1] + "</b>" + (o[0] === "add" ? ' <span class="pl-chip">Recommended</span>' : "") +
                 '<span class="o-meta">' + (o[0] === "add" ? "Keeps both renditions side by side." : o[0] === "update" ? "Replaces the existing Arrangement as a new revision. Koro San Roque and 1 editable Mass plan will see the new words; Mass-local copies don’t change." : "Leaves the Library as it is.") + "</span></span></label>";
             }).join("") + "</div>" :
-              '<div class="sg-row"><span class="o-label">Staged action</span><select class="pl-input pl-input--sel" data-stage="' + S.doc + ":" + ai + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (c === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>") +
+              '<div class="sg-row"><span class="o-label">Staged action</span><select class="pl-input pl-input--sel" aria-label="Staged action" data-stage="' + S.doc + ":" + ai + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (c === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>") +
             '<div class="sg-row"><button class="o-btn" data-act="compare-doc">' + icon("columns-2") + (m ? "Compare contents" : "Preview document") + "</button></div></div>";
         }).join("");
       var parts = [];

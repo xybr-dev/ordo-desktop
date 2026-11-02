@@ -32,7 +32,7 @@
       slug: "semantic-palette-v2", group: "system", title: "Tokens and semantic palette", replaces: "semantic-palette",
       summary: "A live token sheet on the shared kit: Preparation and Presenter colour, operational states with their shape cues, liturgical colours as content only, type, spacing, controls, radius and elevation. Values are read from ordo.css, so revisiting the tokens updates it.",
       status: "approved", gate: true,
-      decisions: ["0208-warm-neutral-and-graphite-semantic-color-language", "0256-refine-operator-appearance-overlays-and-bounded-output"],
+      decisions: ["0295-selection-and-preview-carry-neutral-shape-cues", "0297-operator-tokens-gain-a-graphite-foreground-text-levels-and", "0208-warm-neutral-and-graphite-semantic-color-language", "0256-refine-operator-appearance-overlays-and-bounded-output"],
       interpretations: [
         "Preparation's Dark appearance reuses the graphite Presenter values; DESIGN.md defines only Preparation (light) and Presenter (graphite) colour sets."
       ]
@@ -57,11 +57,11 @@
       slug: "presenter-three-column-v2", group: "presenter", title: "Three-column Presenter", replaces: "presenter-three-column",
       summary: "Regenerated on the shared kit and DESIGN.md tokens. Interactive: output starts disabled, Enable Output, linked Live, Freeze, Blackout, Program black on an unavailable Cue; 1920 and 1366 compositions.",
       status: "approved", gate: true,
-      decisions: ["0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
+      decisions: ["0295-selection-and-preview-carry-neutral-shape-cues", "0296-the-output-dock-grows-to-520px-at-1920", "0010-presenter-layout", "0011-program-preview-freeze-and-blackout-semantics", "0203-same-window-native-full-screen-presenter-mode", "0227-fail-safe-freeze-when-a-future-cue-becomes-unavailable", "0274-program-goes-black-on-an-unavailable-cue-instead-of-freezing", "0273-f-and-b-toggle-and-releasing-either-takes-preview-live"],
       interpretations: [
         "Program's Blackout fade is shown as a cut; re-rendering the mockup drops the 500ms opacity fade.",
-        "Timeline Cues carry a ring for Program (green, amber while held) and for Preview (blue, borrowing the focus colour), each with its word in the caption; when both differ the timeline scrolls to keep both in view if they fit. DESIGN.md names no on-air treatment for timeline Cues.",
-        "Four 300px frames per row at 1920 fit only with a 200px pinned Ordo rail and a 400px Output Dock, so the mockup uses those widths; at 1366 the dock is 360px and three frames fit."
+        "Timeline Cues carry a ring for Program (green, amber while held) and a neutral bar under the frame for Preview (Decision 295), each with its word in the caption; when both differ the timeline scrolls to keep both in view if they fit.",
+        "Four frames per row at 1920 fit a 270px floor beside a 200px pinned Ordo rail and a 520px Output Dock (Decision 296); at 1366 the dock is 360px and three frames fit."
       ]
     },
     {
