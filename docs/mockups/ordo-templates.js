@@ -247,6 +247,7 @@
       var body = S.view === "editor" && tpl() ? editorView() : listView();
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.undo ? '<button class="o-btn" data-a="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = '<div class="o-body">' + K.navrail("Masses") + '<div class="o-grow sh-ws">' + body + "</div></div>" + (S.dialog ? dialog() : "") + toast;
+      K.panes(app, W);
       K.icons();
       Object.keys(keep).forEach(function (q) { var el = app.querySelector(q); if (el) el.scrollTop = keep[q]; });
       var f = fk ? app.querySelector('[data-focus-key="' + fk + '"]') : null;
