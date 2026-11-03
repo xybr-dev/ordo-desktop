@@ -725,13 +725,13 @@ Interface used by UI and tests.
 
 **AC**
 
-- [ ] `[AUTO]` Implement output disabled, enabled-black, Live, Frozen, Blackout,
+- [x] `[AUTO]` Implement output disabled, enabled-black, Live, Frozen, Blackout,
       and Disconnected states exactly as the MVP state table defines.
-- [ ] `[AUTO]` Left/Right and Up/Down traverse Cues; Page Up/Down traverse Mass
+- [x] `[AUTO]` Left/Right and Up/Down traverse Cues; Page Up/Down traverse Mass
       items; Home/End go to first/last Cue.
-- [ ] `[AUTO]` Live navigation links Preview and Program; Frozen and Blackout
+- [x] `[AUTO]` Live navigation links Preview and Program; Frozen and Blackout
       navigation changes Preview only; Space takes valid Preview live.
-- [ ] `[AUTO]` `F` toggles Freeze, `B` toggles Blackout, releasing either does
+- [x] `[AUTO]` `F` toggles Freeze, `B` toggles Blackout, releasing either does
       what Space does (Decision 273), and unchanged/repeated commands are
       deterministic.
 - [ ] `[AUTO]` Content-to-content changes cut; content-to/from Blackout or Hold
@@ -741,9 +741,9 @@ Interface used by UI and tests.
       Presentation Cues from inherited eight-second/per-Slide durations, wraps
       inside scope, resets each newly shown Cue's timer, and stops on outside
       navigation, Freeze, Blackout, exit, or recovery.
-- [ ] `[AUTO]` Selecting an operator-only Cue while Live sends black, not private
+- [x] `[AUTO]` Selecting an operator-only Cue while Live sends black, not private
       content, to Program.
-- [ ] `[AUTO]` An unavailable future Cue remains navigable and cannot be taken
+- [x] `[AUTO]` An unavailable future Cue remains navigable and cannot be taken
       live; while linked Live lands on one, Program goes black and linked Live
       continues, and Freeze and Blackout stay active (Decision 274).
 - [ ] `[AUTO]` Property tests generate long valid command sequences and assert
