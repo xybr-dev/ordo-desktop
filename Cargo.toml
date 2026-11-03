@@ -8,10 +8,12 @@ members = [
     "crates/platform",
     "crates/ordo",
     "tools/ui-lab",
+    "tools/artifact-container-spike",
     "tests/native-runtime",
     "tests/display",
     "tests/presentation",
     "tests/storage",
+    "tests/artifact-container",
     "tests/performance",
     "xtask",
 ]
@@ -34,6 +36,7 @@ ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # GPUI comes from Longbridge's exactly pinned `gpui-pre` crates.io snapshot of

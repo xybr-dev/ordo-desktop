@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/recovery-journal/v1.schema.json",
+  "title": "Presentation recovery journal v1",
+  "description": "Local crash-recovery record of one Presentation session. entries_fingerprint is the SHA-256 of one line per entry in order: seq, TAB, kind, TAB, cue_index, LF. cue_position.last_entry_seq must equal the last entry seq (0 when there are none).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cue_position",
+    "entries",
+    "entries_fingerprint",
+    "id",
+    "schema_version",
+    "session_id",
+    "snapshot_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
+    },
+    "id": {
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this recovery journal."
+    },
+    "session_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Presentation session the journal records."
+    },
+    "snapshot_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Presentation snapshot the journal replays from."
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the journal was last written."
+    },
+    "cue_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cue_index",
+        "last_entry_seq"
+      ],
+      "properties": {
+        "cue_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_entry_seq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Last confirmed Cue position within the Presentation."
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "description": "Ordered journal entries recording Presentation actions since the snapshot."
+    },
+    "entries_fingerprint": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 fingerprint over the ordered entries."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "cue_index",
+        "kind",
+        "seq"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "kind": {
+          "enum": [
+            "cue",
+            "freeze",
+            "unfreeze",
+            "blackout",
+            "clear-blackout",
+            "session-end"
+          ]
+        },
+        "cue_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

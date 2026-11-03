@@ -1,0 +1,25 @@
+[package]
+name = "artifact-container-spike"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Development-only spike (T0.8 WP1, MVP-PLAN section 6.4). No production crate
+# may depend on it; xtask enforces an empty internal dependency set.
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+# `preserve_order` keeps authored field order when payloads are rewritten, so
+# created containers stay readable and match fixtures in every build graph.
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+sha2 = "=0.10.9"
+uuid = { version = "=1.25.0", features = ["v4"] }
+zip.workspace = true
+
+[dev-dependencies]
+jsonschema = { version = "=0.58.6", default-features = false }
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

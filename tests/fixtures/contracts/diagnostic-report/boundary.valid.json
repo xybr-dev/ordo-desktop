@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-4000-8000-000000000500",
+  "read_only": true,
+  "generated_at": "2026-08-25T08:00:00Z",
+  "app": {
+    "build": "2026.08.1",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "os": "windows-11",
+    "arch": "x86_64"
+  },
+  "checks": [
+    {
+      "id": "00000000-0000-4000-8000-000000000530",
+      "code": "check.0",
+      "status": "pass"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000531",
+      "code": "check.1",
+      "status": "warn",
+      "detail": "Mga display: 2 nakita — ñ"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000532",
+      "code": "check.2",
+      "status": "fail",
+      "detail": "Mga display: 2 nakita — ñ"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000533",
+      "code": "check.3",
+      "status": "pass",
+      "detail": "Mga display: 2 nakita — ñ"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000534",
+      "code": "check.4",
+      "status": "warn",
+      "detail": "Mga display: 2 nakita — ñ"
+    }
+  ],
+  "logs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000540",
+      "asset_id": "00000000-0000-4000-8000-000000000541",
+      "timestamp": "2026-08-25T08:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000541",
+      "path": "assets/logs/a-very-long-file-name-for-the-sanitized-log-that-keeps-going.log",
+      "sha256": "2415a101ead015eb148cc1f56881b27a5e71f608e3d28f60338a1af1abc40163",
+      "size": 0
+    }
+  ],
+  "assets_fingerprint": "6a1dbda33ac1c6b386c5472b46d6c3c3aded766fbdf85b6f4bbb208a527f17d9"
+}

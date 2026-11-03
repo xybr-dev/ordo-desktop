@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/liturgy-import/v1.schema.json",
+  "title": "Liturgy import document v1",
+  "description": "Externally prepared readings and responses for one Celebration, carried as the liturgy-import kind of an .ordo file. text_sha256 is the SHA-256 of the exact UTF-8 text. A response follows must name a reading.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "celebration",
+    "id",
+    "readings",
+    "responses",
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Payload contract version; 1 in v1."
+    },
+    "id": {
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this liturgy import document."
+    },
+    "source": {
+      "$ref": "#/$defs/text",
+      "description": "Where the liturgical text came from, as named by the importer."
+    },
+    "celebration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "description": "The Celebration the readings and responses belong to."
+    },
+    "readings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/reading"
+      },
+      "description": "Reading entries for the Celebration; at least one."
+    },
+    "responses": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/response"
+      },
+      "description": "Reusable response entries for the Celebration."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "Calendar date YYYY-MM-DD."
+    },
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "text",
+        "text_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "role": {
+          "$ref": "#/$defs/text"
+        },
+        "language": {
+          "$ref": "#/$defs/text"
+        },
+        "citation": {
+          "$ref": "#/$defs/text"
+        },
+        "text": {
+          "$ref": "#/$defs/text"
+        },
+        "text_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "text",
+        "text_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "role": {
+          "$ref": "#/$defs/text"
+        },
+        "language": {
+          "$ref": "#/$defs/text"
+        },
+        "follows": {
+          "$ref": "#/$defs/uuid"
+        },
+        "text": {
+          "$ref": "#/$defs/text"
+        },
+        "text_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}
