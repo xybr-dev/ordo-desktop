@@ -183,6 +183,7 @@
       var keep = {}; [".pl-ed-body", ".li-outline .o-pane-body"].forEach(function (q) { var el = app.querySelector(q); if (el) keep[q] = el.scrollTop; });
       var body = S.view === "done" ? done() : S.view === "invalid" || S.view === "newer" ? invalid(S.view) : S.view === "nolang" ? nolang() : review();
       app.innerHTML = '<div class="o-body">' + K.navrail("Masses") + '<div class="o-grow sh-ws">' + body + "</div></div>" + (S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + "</div>" : "");
+      K.panes(app, W);
       K.icons();
       Object.keys(keep).forEach(function (q) { var el = app.querySelector(q); if (el) el.scrollTop = keep[q]; });
     }

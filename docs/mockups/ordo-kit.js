@@ -173,6 +173,64 @@
     window.addEventListener("resize", apply);
   }
 
+  // ── Constrained Preparation layouts (Decision 236) ─────────────────────────
+  // Every Preparation workspace is a list, a main pane and sometimes an Inspector. When they stop fitting,
+  // the main pane stays fixed and the others become opposing slideovers, one at a time. `width` is the
+  // logical window width after Interface scale, so a resized window and a high scale behave alike.
+  var RAIL_W = 77, MIN_LIST = 240, MIN_MAIN = 520, MIN_INSPECTOR = 300;
+  function paneTier(width, hasInspector, listW) {
+    var room = width - RAIL_W;
+    if (hasInspector) return room >= MIN_LIST + MIN_MAIN + MIN_INSPECTOR ? "full" : room >= MIN_LIST + MIN_MAIN ? "inspector" : "editor";
+    return room >= Math.max(MIN_LIST, listW || 0) + MIN_MAIN ? "full" : "editor";
+  }
+  function panes(app, width, opts) {
+    app.removeAttribute("data-tier"); app.removeAttribute("data-side");
+    app.querySelectorAll(".o-sidebar, .o-side-scrim, .o-side-close").forEach(function (e) { e.remove(); });
+    app.querySelectorAll(".o-side-l.is-open, .o-side-r.is-open").forEach(function (e) { e.classList.remove("is-open"); });
+    var host = app.querySelector(".o-body .pl-panes, .o-body .sg-panes:not(.sg-imp-panes), .o-body .sh-edpanes");
+    var list = host ? [].filter.call(host.children, function (c) { return c.classList.contains("o-pane"); }) : [];
+    if (list.length < 2) { app.__side = null; return "full"; }
+    var left = list[0], right = list.length > 2 ? list[list.length - 1] : null, scale = parseFloat(app.style.getPropertyValue("--o-scale")) || 1;
+    host.classList.add("o-side-host"); list[1].classList.add("o-side-main");
+    left.classList.add("o-side-l"); if (right) right.classList.add("o-side-r");
+    var tier = paneTier(width, !!right, left.offsetWidth / scale);
+    app.dataset.tier = tier; app.__paneW = width;
+    if (opts && opts.open && tier === "editor") app.__side = opts.open;
+    if (tier === "full" || (tier === "inspector" && app.__side === "left") || (app.__side === "right" && !right)) app.__side = null;
+    if (tier === "full") return tier;
+    function name(p) { var h = p.querySelector("h2, .o-pane-head b"); return p.getAttribute("aria-label") || (h && h.textContent) || "List"; }
+    function toggle(id, p, ic) {
+      return '<button class="o-btn o-btn--quiet" data-side-toggle="' + id + '" aria-expanded="' + (app.__side === id) + '">' + icon(ic) + esc(name(p)) + "</button>";
+    }
+    host.insertAdjacentHTML("beforebegin", '<div class="o-sidebar">' + (tier === "editor" ? toggle("left", left, "list-tree") : "") + '<span class="o-grow"></span>' + (right ? toggle("right", right, "panel-right") : "") + "</div>");
+    var open = app.__side === "left" ? left : app.__side === "right" ? right : null;
+    if (open) {
+      app.dataset.side = app.__side; open.classList.add("is-open");
+      var label = "Close " + name(open);
+      open.insertAdjacentHTML("afterbegin", '<button class="pl-close-tab o-side-close" data-side-close aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(app.__side === "left" ? "chevron-left" : "chevron-right") + "</button>");
+      host.insertAdjacentHTML("afterbegin", '<div class="o-scrim pl-scrim--light o-side-scrim" data-side-close></div>');
+    }
+    icons();
+    if (!app.__sideBound) {
+      app.__sideBound = true;
+      var setSide = function (id, focusOn) {
+        app.__side = id; panes(app, app.__paneW);
+        var f = app.querySelector(focusOn); if (f) f.focus({ preventScroll: true });
+      };
+      app.addEventListener("click", function (e) {
+        var t = e.target.closest && e.target.closest("[data-side-toggle], [data-side-close]");
+        if (t && t.dataset.sideToggle) { var id = t.dataset.sideToggle; if (app.__side === id) setSide(null, '[data-side-toggle="' + id + '"]'); else setSide(id, ".o-side-close"); }
+        else if (t) { var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]'); }
+        else if (app.__side === "left" && e.target.closest && e.target.closest(".o-side-l .o-row")) setSide(null, '[data-side-toggle="left"]');
+      });
+      app.addEventListener("keydown", function (e) {
+        if (e.key !== "Escape" || !app.__side || e.defaultPrevented) return;
+        e.preventDefault(); var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]');
+      });
+    }
+    return tier;
+  }
+
   // ── Presenter ─────────────────────────────────────────────────────────────────────────────
   // opts: w, h (logical window), scale (1..2), mode ("grid"|"list"), rail ("pinned"|"collapsed"|"auto"),
   //       state: {output: "disabled"|"enabled"}, preview: cue index, program: cue index, live: bool,
@@ -914,6 +972,7 @@
   // The Mass planner itself lives in ordo-planner.js, which adds OrdoKit.planner.
 
   window.OrdoKit = {
+    panes: panes, paneTier: paneTier,
     MASS: MASS, ITEMS: ITEMS, CUES: CUES, QI_SONGS: QI_SONGS, projectable: projectable, cueLabel: cueLabel, KIND_LABEL: KIND_LABEL,
     esc: esc, icon: icon, canvas: canvas, slide: slide, statusLabel: statusLabel, icons: icons, fit: fit, presenter: presenter,
     navrail: navrail
@@ -936,7 +995,7 @@
       items.forEach(function (e) { e.tabIndex = e === on ? 0 : -1; });
     });
     // A scrolling panel with no control inside still has to be reachable to scroll by keyboard.
-    app.querySelectorAll(".pr-ins-prev, .pr-ins-main, .o-overlay-body, .pl-insp-body").forEach(function (e) {
+    app.querySelectorAll(".pr-ins-prev, .pr-ins-main, .o-overlay-body, .pl-insp-body, .pl-ed-body, .sg-detail-body").forEach(function (e) {
       if (e.scrollHeight > e.clientHeight && !e.querySelector("a[href], button, input, select, textarea")) e.tabIndex = 0;
       else e.removeAttribute("tabindex");
     });

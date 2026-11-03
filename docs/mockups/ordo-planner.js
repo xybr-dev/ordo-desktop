@@ -384,23 +384,8 @@
 
     // ── views ───────────────────────────────────────────────────────────────────────────────
     function th(it) { return it.theme || S.theme; }
-    // Pane minima: 240 outline, 520 editor, 300 Inspector, from the room left after the global rail (Decision 236).
-    function tier() {
-      var room = W / S.scale - 77;
-      return room >= 1060 ? "full" : room >= 760 ? "inspector" : "editor";
-    }
-    function sideTab(label, ic) {
-      return '<button class="pl-close-tab" data-act="close-side" data-focus-key="side.close" aria-label="' + label + '" title="' + label + '">' + icon(ic) + "</button>";
-    }
-    function sideBar(t) {
-      if (t === "full") return "";
-      function toggle(id, label, ic) {
-        return '<button class="o-btn o-btn--quiet" data-act="side" data-side="' + id + '" data-focus-key="side.' + id + '" aria-expanded="' + (S.side === id) + '">' + icon(ic) + label + "</button>";
-      }
-      return '<div class="pl-sidebar">' + (t === "editor" ? toggle("outline", "Mass outline", "list-tree") : "") + '<span class="o-grow"></span>' + toggle("inspector", "Inspector", "panel-right") + "</div>";
-    }
     function header(wide, f) {
-      var full = tier() === "full";
+      var full = K.paneTier(W / S.scale, true) === "full";
       return '<header class="pl-head"><div class="o-grow"><div class="o-meta">Masses / ' + esc(K.MASS.title) + '</div><h1 class="o-title pl-title">' + esc(K.MASS.title) + "</h1>" +
         '<div class="o-meta">' + esc(K.MASS.date) + " · " + esc(K.MASS.language) + " · " + esc(CHOIR) + (wide ? " · Parokya ni San Roque · Fr. Mateo Reyes" : "") + "</div></div>" +
         '<span class="o-meta pl-saved"' + (full ? "" : ' role="img" title="Saved" aria-label="Saved"') + ">" + icon("check") + (full ? (wide ? "Saved just now" : "Saved") : "") + "</span>" +
@@ -811,18 +796,10 @@
         '<div class="o-overlay-foot"><button class="o-btn o-btn--primary" data-act="back">Done</button></div></div>';
     }
 
-    function tabbed(html, id, label, ic) {
-      return S.side === id ? html.replace(/(<(?:aside|section) class="o-pane [^>]*>)/, "$1" + sideTab(label, ic)) : html;
-    }
     function render() {
       app.style.setProperty("--o-scale", S.scale);
       var wide = W / S.scale >= 1700;
       app.dataset.layout = wide ? "wide" : "compact";
-      var t = tier();
-      app.dataset.tier = t;
-      if (t === "full" || (t === "inspector" && S.side === "outline")) S.side = null;   // fixed panes return with their state
-      if (S.overlay === "add" && t === "editor") S.side = "outline";                    // the Add menu belongs to the outline
-      app.dataset.side = S.side || "";
       items();
       var it = S.sel, f = findings();
       // keep scroll and focus across redraws (outline always; editor and Inspector within one item)
@@ -838,8 +815,8 @@
       else if (S.overlay === "theme") ov = themeChooser() + (S.child === "overrides" ? overridesPanel() : "");
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.undo ? '<button class="o-btn" data-act="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = '<div class="o-body">' + K.navrail("Masses") + '<div class="o-grow pl-ws">' + header(wide, f) +
-        sideBar(t) + '<div class="pl-panes">' + (S.side ? '<div class="o-scrim pl-scrim--light" data-act="close-side"></div>' : "") +
-        tabbed(outline(wide, f), "outline", "Close Mass outline", "chevron-left") + editor(it, wide) + tabbed(inspector(it, wide), "inspector", "Close Inspector", "chevron-right") + "</div></div></div>" + ov + toast;
+        '<div class="pl-panes">' + outline(wide, f) + editor(it, wide) + inspector(it, wide) + "</div></div></div>" + ov + toast;
+      K.panes(app, W / S.scale, { open: S.overlay === "add" ? "left" : null });   // the Add menu belongs to the outline
       K.icons();
       Object.keys(keep).forEach(function (q) {
         var el = app.querySelector(q + " .o-pane-body, " + q + " .o-overlay-body");
@@ -880,8 +857,6 @@
       else if (a === "use") commitPick();
       else if (a === "confirm-replace") applyPick(staged());
       else if (a === "back") S.child = null;
-      else if (a === "side") { var was = S.side; S.side = was === d.side ? null : d.side; S.focus = S.side ? "side.close" : "side." + was; }
-      else if (a === "close-side") { S.focus = "side." + S.side; S.side = null; }
       else if (a === "close") { if (S.child) S.child = null; else S.overlay = null; }
       else if (a === "customize") customize();
       else if (a === "return") S.overlay = "return";
@@ -905,7 +880,7 @@
       else if (a === "ovr-all") overridden().forEach(function (it) { S.keepOverride[it.n] = false; });
       else if (a === "apply-theme") applyTheme();
       else if (a === "undo") undo();
-      else if (d.item) { select(+d.item); if (S.overlay === "add") S.overlay = null; if (S.side === "outline") { S.focus = "side.outline"; S.side = null; } }
+      else if (d.item) { select(+d.item); if (S.overlay === "add") S.overlay = null; }
       else if (d.cue != null) S.cue = +d.cue;
       else if (d.step) { var n = S.sel.cues.length; S.cue = Math.max(0, Math.min(n - 1, S.cue + +d.step)); }   // stops at item boundaries (Decision 169)
       render();
@@ -924,9 +899,8 @@
       if (e.target.hasAttribute("data-dest")) { var p = e.target.value.split(":"); S.dest = { sec: +p[0], at: +p[1] }; render(); }
     });
     app.addEventListener("keydown", function (e) {
-      if (e.key !== "Escape" || !(S.overlay || S.cueMenu || S.side)) return;
-      if (S.cueMenu) S.cueMenu = false; else if (S.child) S.child = null; else if (S.overlay) S.overlay = null;
-      else { S.focus = "side." + S.side; S.side = null; }
+      if (e.key !== "Escape" || !(S.overlay || S.cueMenu)) return;
+      if (S.cueMenu) S.cueMenu = false; else if (S.child) S.child = null; else S.overlay = null;
       e.preventDefault(); render();
     });
 

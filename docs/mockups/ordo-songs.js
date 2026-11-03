@@ -913,6 +913,7 @@
       else if (S.overlay === "history") ov = history();
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.undo ? '<button class="o-btn" data-act="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = '<div class="o-body">' + K.navrail("Library") + '<div class="o-grow sg-ws">' + body + "</div></div>" + popoverHtml() + ov + toast;
+      K.panes(app, W / S.scale);
       K.icons();
       Object.keys(keep).forEach(function (q) { var el = app.querySelector(q); if (el) el.scrollTop = keep[q]; });
       var pop = app.querySelector(".sg-pop, .sg-overflow");
