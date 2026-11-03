@@ -23,7 +23,8 @@
 //! projector holds while Preview moves; `F` again returns to Live and Program
 //! jumps to Preview); `B` toggles Blackout;
 //! `F6` assigns the only other display and enables output (black until
-//! `Space`); `F8` re-reads the display topology; `F9` disables output; `N`
+//! `Space`; it re-reads the displays first, so recovery never needs `F8`);
+//! `F8` re-reads the display topology and reports it; `F9` disables output; `N`
 //! writes a note through the Storage Module while navigation continues.
 //!
 //! Live means Program has been taken, output is not awaiting restore, and
@@ -450,7 +451,7 @@ fn displays_message(
     match phase {
         OutputPhase::Enabled(id) => return format!("{head}. Output enabled on {id}."),
         OutputPhase::Disconnected => {
-            return format!("{head}. Output lost; reconnect the projector, then F8 and F6.");
+            return format!("{head}. Output lost; reconnect the projector, then F6 and Space.");
         }
         OutputPhase::Idle => {}
     }
@@ -667,8 +668,7 @@ impl SkeletonLab {
                 // Only an explicit F6 then Space may put content back.
                 this.awaiting_restore = true;
                 this.on_air = ProgramTarget::Black;
-                this.message =
-                    "Output lost — reconnect the projector, then F8, F6, Space.".to_owned();
+                this.message = "Output lost — reconnect the projector, then F6, Space.".to_owned();
             }
             this.last_status = status;
             cx.notify();
@@ -729,8 +729,7 @@ impl SkeletonLab {
                 }
             } else {
                 self.message =
-                    "Output is not connected; Program unchanged. F8, then F6, then Space."
-                        .to_owned();
+                    "Output is not connected; Program unchanged. F6, then Space.".to_owned();
             }
         }
         if let Some(cue) = outcome.uncomposed {
@@ -1723,7 +1722,7 @@ mod tests {
         assert!(enabled.ends_with("Output enabled on DisplayId(2)."));
         assert!(!enabled.contains("Press F6"));
         let lost = displays_message(1, true, None, &OutputPhase::Disconnected);
-        assert!(lost.ends_with("Output lost; reconnect the projector, then F8 and F6."));
+        assert!(lost.ends_with("Output lost; reconnect the projector, then F6 and Space."));
         assert!(!lost.contains("Windows+P"));
     }
 
