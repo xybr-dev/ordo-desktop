@@ -1,9 +1,9 @@
 ordo-fixture/1
 kind:Response
-header:BALAAN
+header:AWIT SA KAHAYAG
 body-lines:3
-Balaan, balaan, balaan ang Ginoong Dios
-nga makagagahom sa tanang butang
-napuno ang langit ug ang yuta sa imong himaya
+Hayag ang bituon sa kabuntagon
+mituybo ang kalipay sa among balay
+awita ang ngalan sa kahayag
 footer-absent
 image-absent

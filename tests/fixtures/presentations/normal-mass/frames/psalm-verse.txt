@@ -1,9 +1,9 @@
 ordo-fixture/1
 kind:Psalm
-header:SALMO RESPONSORYO:
+header:TUGON SA AWIT:
 body-lines:2
-Siya nagpahulay kanako sa lunhaw nga sabsabanan
-ug gitultolan ako sa tul-id nga dalan
+Ang tubig nagadan-ag sa buntag
+ug ang balud mipauli sa baybayon
 footer-lines:1
-Salmo 23:2-3
+Pananglitan 2:2-3
 image-absent

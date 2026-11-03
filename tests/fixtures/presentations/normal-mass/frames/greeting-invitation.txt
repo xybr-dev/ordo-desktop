@@ -2,6 +2,6 @@ ordo-fixture/1
 kind:Response
 header:Pag-abiabi
 body-lines:1
-Ang Ginoo maanaa kaninyo.
+Maayong adlaw kaninyo, mga higala.
 footer-absent
 image-absent

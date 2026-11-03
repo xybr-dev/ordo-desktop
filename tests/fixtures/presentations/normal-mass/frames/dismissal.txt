@@ -1,9 +1,9 @@
 ordo-fixture/1
 kind:GeneralText
-header:Padayon sa kalinaw
+header:Padayon sa dalan
 body-lines:2
-Lakaw uban sa kalinaw sa Ginoo.
-Hinaot ang imong semana puno sa grasya ug kaluoy.
+Pauli na kita nga puno sa kalipay.
+Hinaot nga malipayon ang imong semana.
 footer-lines:1
 Salamat sa pag-apil sa among pag-ampo.
 image-absent

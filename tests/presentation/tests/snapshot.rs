@@ -13,6 +13,7 @@ use domain::presentation::{ContentHash, CueBehavior, CueId, FrameId, ProgramEffe
 use presentation::snapshot_reader::{
     Dependency, DependencyId, DirectorySource, LoadedSnapshot, SnapshotLoadError, read_snapshot,
 };
+use rendering::{TargetDensity, Theme, render_template};
 
 const SECTIONS: [&str; 6] = [
     "Before Mass",
@@ -24,9 +25,17 @@ const SECTIONS: [&str; 6] = [
 ];
 
 const NORMAL_MASS_FINGERPRINT: &str =
-    "7b4b3e9451035090c67c6f252e1e14601480d8adc3f66ebef14fbc6b8df3dc10";
+    "349081bb45f7adf2c66ad22cf3071fe3afcf598e67d99cf422cf4bcc14c1c233";
 const RECOVERY_DRILL_FINGERPRINT: &str =
-    "19da442644ef1cf7eebaf2ede5d5293946427a607e7b4acad161719403d418ea";
+    "0a8b2474c81b7b466a321916c7af0058b0244ad7907ba5ee2fb82aa780b39cc4";
+
+// The fingerprint covers frame and asset bytes only. The manifest hash is the
+// SHA-256 of the exact `snapshot.txt` bytes, so these pin every identity, title,
+// Cue behavior, and the order of sections, items, and Cues as well.
+const NORMAL_MASS_MANIFEST_HASH: &str =
+    "ca423010dd11422b1e6004d60aebf90eb85853a8c4bfc16f79c364ab0529801a";
+const RECOVERY_DRILL_MANIFEST_HASH: &str =
+    "9485fc11711203807013980b1e574887258e2a042656ea853609e96b70861718";
 
 fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -322,6 +331,7 @@ fn recovery_drill_covers_every_cue_behavior_and_its_adversarial_controls() {
 fn recovery_drill_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("recovery-drill");
     assert_eq!(loaded.fingerprint(), hash(RECOVERY_DRILL_FINGERPRINT));
+    assert_eq!(loaded.manifest_hash(), hash(RECOVERY_DRILL_MANIFEST_HASH));
     assert_eq!(
         loaded.frame_hash(frame_id("b5000000-0000-4000-8000-000000000001")),
         Some(hash(
@@ -389,10 +399,11 @@ fn normal_mass_has_the_sunday_structure() {
 fn normal_mass_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("normal-mass");
     assert_eq!(loaded.fingerprint(), hash(NORMAL_MASS_FINGERPRINT));
+    assert_eq!(loaded.manifest_hash(), hash(NORMAL_MASS_MANIFEST_HASH));
     assert_eq!(
         loaded.frame_hash(frame_id("a5000000-0000-4000-8000-000000000001")),
         Some(hash(
-            "a0893855d69773c07e63bea5facfa752bf8714b4ea62d2cf321758f66b11a78e"
+            "2c86d94edde06f4c7bca782611c82e5c8d91f4ab6bdcfc07e3a0bb393d311ef5"
         ))
     );
     assert_eq!(
@@ -422,9 +433,15 @@ fn the_recovery_drill_command_script_uses_only_known_commands() {
     ];
     let script = fs::read_to_string(fixture_dir("recovery-drill").join("commands.txt")).unwrap();
     assert!(!script.is_empty());
+    assert!(script.ends_with('\n') && !script.contains('\r'));
+    // `#` lines are comments; every other line is one command.
+    let commands: Vec<&str> = script
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
     for (index, line) in script.lines().enumerate() {
         assert!(
-            KNOWN.contains(&line),
+            line.starts_with('#') || KNOWN.contains(&line),
             "commands.txt line {} is not a known command: {line:?}",
             index + 1
         );
@@ -439,8 +456,112 @@ fn the_recovery_drill_command_script_uses_only_known_commands() {
         "last",
         "first",
     ] {
-        assert!(script.lines().any(|line| line == required), "{required}");
+        assert!(commands.contains(&required), "{required}");
     }
+}
+
+/// Every long frame must compose to more rendered lines than it has source
+/// lines (it wraps) and must do so without a ceiling warning, so the wrapping
+/// controls really exercise the wrapping path.
+fn assert_wraps_without_warnings(loaded: &LoadedSnapshot, frame: &str, name: &str) {
+    let content = loaded.frame(frame_id(frame)).expect(name);
+    let (composed, diagnostics) =
+        render_template(content, &Theme::default(), TargetDensity::SCALE_100)
+            .unwrap_or_else(|error| panic!("{name} must compose: {error}"));
+    let source_lines = content.body.lines().count();
+    assert!(
+        composed.body_lines().len() > source_lines,
+        "{name}: {} rendered lines from {source_lines} source lines",
+        composed.body_lines().len()
+    );
+    assert!(
+        diagnostics.warnings.is_empty(),
+        "{name}: {:?}",
+        diagnostics.warnings
+    );
+}
+
+#[test]
+fn the_long_frames_wrap_without_warnings() {
+    let drill = load("recovery-drill");
+    assert_wraps_without_warnings(
+        &drill,
+        "b5000000-0000-4000-8000-000000000006",
+        "recovery-drill long lyric",
+    );
+    let mass = load("normal-mass");
+    assert_wraps_without_warnings(
+        &mass,
+        "a5000000-0000-4000-8000-00000000000b",
+        "normal-mass reading passage",
+    );
+    assert_wraps_without_warnings(
+        &mass,
+        "a5000000-0000-4000-8000-000000000011",
+        "normal-mass communion verse",
+    );
+}
+
+#[test]
+fn operator_only_cues_carry_their_private_context() {
+    let loaded = load("recovery-drill");
+    let snapshot = loaded.snapshot();
+    // Flat 4 and 6 are triggers and 7 is the Hold: all Black on the Program
+    // output, and each must give the operator something to read.
+    for flat in [4, 6, 7] {
+        let cue = snapshot.cue(flat).unwrap();
+        assert_eq!(cue.program_effect(), ProgramEffect::Black, "Cue {flat}");
+        assert!(cue.private_context().is_some(), "Cue {flat}");
+    }
+    // The Wait leaves the Program output unchanged and also explains itself.
+    assert!(snapshot.cue(9).unwrap().private_context().is_some());
+}
+
+#[test]
+fn no_fixture_text_has_carriage_returns_or_a_missing_final_lf() {
+    for name in ["normal-mass", "recovery-drill"] {
+        let dir = fixture_dir(name);
+        let mut files = vec![dir.join("snapshot.txt")];
+        for entry in fs::read_dir(dir.join("frames")).unwrap() {
+            files.push(entry.unwrap().path());
+        }
+        for file in files {
+            let bytes = fs::read(&file).unwrap();
+            assert!(!bytes.contains(&b'\r'), "{}", file.display());
+            assert!(bytes.ends_with(b"\n"), "{}", file.display());
+        }
+    }
+}
+
+#[test]
+fn a_symbolic_link_is_refused_not_followed() {
+    let copy = copy_fixture("recovery-drill");
+    let frame = copy.path().join("frames/title.txt");
+    let moved = copy.path().join("frames/title-real.txt");
+    fs::rename(&frame, &moved).unwrap();
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(&moved, &frame);
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_file(&moved, &frame);
+    if linked.is_err() {
+        // Creating a symbolic link needs a privilege some Windows accounts lack.
+        eprintln!("skipped: cannot create a symbolic link here");
+        return;
+    }
+    let error = load_from(copy.path()).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            SnapshotLoadError::RefusedDependency {
+                dependency: Dependency {
+                    id: DependencyId::Frame(_),
+                    ..
+                },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
 }
 
 /// A scratch copy of one fixture, so a test can damage it freely.

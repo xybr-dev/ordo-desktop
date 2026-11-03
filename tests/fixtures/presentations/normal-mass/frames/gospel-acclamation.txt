@@ -1,7 +1,7 @@
 ordo-fixture/1
 kind:Response
-header:ALELUYA
+header:PAGDAYEG
 body-lines:1
-Aleluya, aleluya!
+Dayega, dayega ang bag-ong adlaw!
 footer-absent
 image-absent

@@ -1,7 +1,7 @@
 ordo-presentation-snapshot/1
 snapshot b0000000-0000-4000-8000-000000000000
 title Recovery Drill (sanitized)
-fingerprint 19da442644ef1cf7eebaf2ede5d5293946427a607e7b4acad161719403d418ea
+fingerprint 0a8b2474c81b7b466a321916c7af0058b0244ad7907ba5ee2fb82aa780b39cc4
 theme b1000000-0000-4000-8000-000000000001
 theme-name Parish Paschal
 theme-kind Custom
@@ -26,7 +26,7 @@ frame-path frames/psalm.txt
 frame-sha256 16dd92e08d1abd69c7ff3e31c4d1a0470986ae0117fa589d266841c5522a9182
 frame b5000000-0000-4000-8000-000000000006
 frame-path frames/long-lyric.txt
-frame-sha256 1a2c8689715cee9ade1a7b5236f0d061c50c255ba0d3d87b0a6f9c39f919cc90
+frame-sha256 de460268781781137b48918f6145e0cd73cdb731844f1b2800e13becea55b3eb
 frame b5000000-0000-4000-8000-000000000007
 frame-path frames/black.txt
 frame-sha256 d9aff73f30a99e49d2cc69ca8c161691627b7c48cf80905ae2a81aae31d303c2
@@ -70,7 +70,7 @@ item-title Drill responses
 item-kind ResponseSequence
 cue b4000000-0000-4000-8000-000000000005
 cue-label Operator trigger
-cue-private-context Presider: Ang Ginoo maanaa kaninyo.
+cue-private-context Presider: Maayong adlaw kaninyo, mga higala.
 cue-behavior OperatorTrigger
 cue b4000000-0000-4000-8000-000000000006
 cue-label Response
@@ -81,7 +81,7 @@ item-title Drill operator-only
 item-kind Rite
 cue b4000000-0000-4000-8000-000000000007
 cue-label Second trigger
-cue-private-context Presider: Mag-ampo kita.
+cue-private-context Presider: Magpahulay kita sa hilom.
 cue-behavior OperatorTrigger
 cue b4000000-0000-4000-8000-000000000008
 cue-label Hold for silence

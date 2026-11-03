@@ -1,3 +1,5 @@
+# Recovery Drill command script. One command per line; lines starting with `#` are
+# comments. T1.2 replays this script against the Presenter Engine (T1.1 only reads it).
 enable-output
 take
 next

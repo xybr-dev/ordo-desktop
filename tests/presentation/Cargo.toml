@@ -12,6 +12,7 @@ publish.workspace = true
 [dev-dependencies]
 domain.workspace = true
 presentation.workspace = true
+rendering.workspace = true
 tempfile = "=3.27.0"
 
 [lints]

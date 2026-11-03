@@ -26,7 +26,11 @@ fn main() -> ExitCode {
 
     let snapshot = loaded.snapshot();
     println!("title: {}", snapshot.title());
-    println!("fingerprint: {}", loaded.fingerprint());
+    println!(
+        "fingerprint: {} (frame and asset digests only)",
+        loaded.fingerprint()
+    );
+    println!("manifest-hash: {}", loaded.manifest_hash());
     for position in snapshot.positions() {
         let section = &snapshot.sections()[position.section];
         let item = &section.items()[position.item];
