@@ -1,13 +1,18 @@
 //! Deterministic Presenter state and command handling.
 //!
 //! The Presentation Engine begins in T0.2. It depends on domain values and
-//! completed canonical rendering values, never on GPUI views.
+//! completed canonical rendering values, never on GPUI views. The
+//! snapshot-driven state machine is in `engine` (state in `state`, inputs in
+//! `commands`).
 
 use std::sync::Arc;
 
 pub mod cache;
+pub mod commands;
+pub mod engine;
 pub mod presenter;
 pub mod snapshot_reader;
+pub mod state;
 
 /// A complete immutable RGBA Program frame ready for every presentation view.
 ///
