@@ -6,13 +6,17 @@
 //! platform runs the work on its own task worker.
 //!
 //! Each of the Program and Preview slots wants at most one key at a time. A
-//! new request supersedes the slot's previous one, and a job whose request was
-//! superseded completes as [`Completion::Ignored`]: its result is dropped and
-//! can never replace what a newer request produced. The preload set is
-//! replaced wholesale. A slot only ever exposes a complete frame or a
-//! structured [`UnavailableReason`] (no partial frame). Pinning the Program
-//! and Preview keys is the cache owner's job ([`FrameCache::pin`]); the
-//! scheduler only reads the cache.
+//! new request supersedes the slot's previous one. Wanted-ness is a property of
+//! the *key*: a key is wanted while Program, Preview or the preload set names
+//! it, and there is at most one job in flight per key (a second slot asking for
+//! a key already being composed shares that job). A finished job whose key is
+//! no longer wanted completes as [`Completion::Ignored`]: its frame is dropped
+//! and can never replace what a newer request produced (Preview always reads
+//! the cache entry of its current key). A failure is a fact about the frame
+//! identity, so it is stored even when nobody wants the key any more. The
+//! preload set is replaced wholesale. Pinning the Program and Preview keys is
+//! the cache owner's job ([`FrameCache::pin`]); the scheduler only reads the
+//! cache.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -22,7 +26,8 @@ use std::sync::Arc;
 use crate::frame_cache::FrameCache;
 use crate::{Frame, RenderError, TargetDensity, TemplateContent, Theme, render_template};
 
-/// Cues preloaded on each side of Preview.
+/// Cues preloaded on each side of Preview. The caller chooses which keys those
+/// are; the scheduler only bounds the set to `2 * PRELOAD_RADIUS` keys.
 pub const PRELOAD_RADIUS: usize = 2;
 
 /// Which consumer a request serves.
@@ -42,9 +47,10 @@ pub enum FrameSlot {
 pub enum UnavailableReason {
     /// Composition failed.
     Render(RenderError),
-    /// A required asset (for example the foreground image) is missing.
-    MissingAsset,
-    /// An asset exists but could not be decoded. Reserved for image decode.
+    /// An asset exists but could not be decoded. Reserved for the image
+    /// decoder (the T1.4 lab); nothing produces it yet. A missing foreground
+    /// image is already reported by [`compose`] as
+    /// `Render(RenderError::MissingForegroundImage)`.
     DecodeFailed,
 }
 
@@ -58,7 +64,6 @@ impl fmt::Display for UnavailableReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Render(error) => write!(f, "frame could not be composed: {error}"),
-            Self::MissingAsset => f.write_str("a required asset is missing"),
             Self::DecodeFailed => f.write_str("an asset could not be decoded"),
         }
     }
@@ -104,9 +109,11 @@ impl<K: Copy> Ticket<K> {
 /// What [`FrameScheduler::complete`] did with a finished job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Completion {
-    /// The request was still wanted; the result is in the cache.
+    /// The result is in the cache: the key was still wanted, or the job failed
+    /// (a failure is stored whether or not the key is still wanted).
     Accepted,
-    /// The request was superseded (or unknown); the result was dropped.
+    /// The key is no longer wanted (or the ticket is unknown or was
+    /// abandoned); the frame was dropped.
     Ignored,
 }
 
@@ -153,36 +160,26 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
     /// Ask for `key` in `slot` (Program or Preview; a Preload slot is ignored
     /// and returns `None`; use [`FrameScheduler::request_preload`]).
     ///
-    /// Returns a ticket when the executor must compose it, and `None` when the
-    /// frame is already in the cache (ready or Unavailable) or the slot's
-    /// current request for the same key is still in flight. A request for a
-    /// different key, or one answered by the cache, supersedes the slot's
-    /// previous request (generation += 1), which makes that request's job
-    /// obsolete. Repeating the identical in-flight request does not bump the
-    /// generation: that would orphan the only job that can answer it.
+    /// The request always supersedes the slot's previous one. Returns a ticket
+    /// when the executor must compose the key, and `None` when the frame is
+    /// already in the cache (ready or Unavailable) or a job for the same key
+    /// is already in flight, whichever slot issued it: there is one job per
+    /// key, and that job answers this request too.
     pub fn request(&mut self, slot: FrameSlot, key: K, cache: &FrameCache<K>) -> Option<Ticket<K>> {
         let want = match slot {
             FrameSlot::Program => &mut self.program,
             FrameSlot::Preview => &mut self.preview,
             FrameSlot::Preload => return None,
         };
-        if want.key == Some(key)
-            && self.in_flight.contains(&Ticket {
-                slot,
-                generation: want.generation,
-                key,
-            })
-        {
-            return None;
-        }
         want.generation += 1;
         want.key = Some(key);
-        if cache.peek(&key).is_some() {
+        let generation = want.generation;
+        if cache.peek(&key).is_some() || self.has_job(&key) {
             return None;
         }
         let ticket = Ticket {
             slot,
-            generation: want.generation,
+            generation,
             key,
         };
         self.in_flight.insert(ticket);
@@ -190,9 +187,9 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
     }
 
     /// Replaces the whole preload set and returns tickets for the keys not yet
-    /// composed or already in flight as preload. At most
+    /// composed and without a job in flight (from any slot). At most
     /// `2 * PRELOAD_RADIUS` distinct keys are taken, in order; the rest are
-    /// ignored. Jobs for keys that left the set become obsolete.
+    /// ignored. Jobs for keys that left every slot become obsolete.
     pub fn request_preload(
         &mut self,
         keys: impl IntoIterator<Item = K>,
@@ -210,70 +207,77 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
         self.preload_generation += 1;
         self.preload = set;
         let mut tickets = Vec::new();
-        for &key in &self.preload {
-            if cache.peek(&key).is_some() {
+        for index in 0..self.preload.len() {
+            let key = self.preload[index];
+            if cache.peek(&key).is_some() || self.has_job(&key) {
                 continue;
             }
-            let pending = self
-                .in_flight
-                .iter()
-                .any(|ticket| ticket.slot == FrameSlot::Preload && ticket.key == key);
-            if pending {
-                continue;
-            }
-            tickets.push(Ticket {
+            let ticket = Ticket {
                 slot: FrameSlot::Preload,
                 generation: self.preload_generation,
                 key,
-            });
+            };
+            self.in_flight.insert(ticket);
+            tickets.push(ticket);
         }
-        self.in_flight.extend(tickets.iter().copied());
         tickets
     }
 
-    fn wanted(&self, ticket: &Ticket<K>) -> bool {
-        match ticket.slot {
-            FrameSlot::Program => {
-                self.program.key == Some(ticket.key) && self.program.generation == ticket.generation
-            }
-            FrameSlot::Preview => {
-                self.preview.key == Some(ticket.key) && self.preview.generation == ticket.generation
-            }
-            // The preload set is replaced wholesale; a job survives while its
-            // key is still in the set, whatever generation issued it.
-            FrameSlot::Preload => self.preload.contains(&ticket.key),
-        }
+    fn has_job(&self, key: &K) -> bool {
+        self.in_flight.iter().any(|ticket| ticket.key == *key)
     }
 
-    /// Tickets the executor may abandon: in flight but no longer wanted by any
-    /// slot.
+    /// A key is wanted while Program, Preview or the preload set names it. A
+    /// ticket's slot and generation are only its identity.
+    fn wanted(&self, key: &K) -> bool {
+        self.program.key.as_ref() == Some(key)
+            || self.preview.key.as_ref() == Some(key)
+            || self.preload.contains(key)
+    }
+
+    /// Tickets the executor may abandon: in flight but whose key no slot wants
+    /// any more.
+    ///
+    /// Executor contract: run `obsolete()` and [`FrameScheduler::abandon`]
+    /// after every request pass, which keeps [`FrameScheduler::in_flight`]
+    /// within `2 + 2 * PRELOAD_RADIUS` jobs.
     pub fn obsolete(&self) -> Vec<Ticket<K>> {
         self.in_flight
             .iter()
-            .filter(|ticket| !self.wanted(ticket))
+            .filter(|ticket| !self.wanted(&ticket.key))
             .copied()
             .collect()
     }
 
-    /// Forgets `ticket` because the executor dropped the job. A later
-    /// completion of it is [`Completion::Ignored`].
-    pub fn abandon(&mut self, ticket: &Ticket<K>) {
-        self.in_flight.remove(ticket);
+    /// Forgets `ticket` because the executor dropped the job. Returns `false`
+    /// and keeps the ticket when its key is wanted again (the job still
+    /// answers that request) or the ticket is not in flight. Abandon only
+    /// tickets listed by [`FrameScheduler::obsolete`] that are still obsolete.
+    /// A later completion of an abandoned ticket is [`Completion::Ignored`].
+    pub fn abandon(&mut self, ticket: &Ticket<K>) -> bool {
+        if self.wanted(&ticket.key) {
+            return false;
+        }
+        self.in_flight.remove(ticket)
     }
 
     /// Reports a finished job.
     ///
-    /// Accepted when the ticket is still wanted: a frame is stored as ready, a
-    /// failure as Unavailable (so the failing Cue is not recomposed in a
-    /// loop). Ignored when the ticket is obsolete, was abandoned, or is
-    /// unknown: the result is dropped and never replaces a newer Preview.
+    /// A frame is stored as ready when its key is still wanted
+    /// ([`Completion::Accepted`]) and dropped otherwise. A failure is stored as
+    /// Unavailable whether or not the key is still wanted, so the failing
+    /// frame is not recomposed in a loop. An abandoned or unknown ticket is
+    /// [`Completion::Ignored`].
     pub fn complete(
         &mut self,
         ticket: Ticket<K>,
         result: Result<Frame, UnavailableReason>,
         cache: &mut FrameCache<K>,
     ) -> Completion {
-        if !self.in_flight.remove(&ticket) || !self.wanted(&ticket) {
+        if !self.in_flight.remove(&ticket) {
+            return Completion::Ignored;
+        }
+        if result.is_ok() && !self.wanted(&ticket.key) {
             return Completion::Ignored;
         }
         cache.insert(ticket.key, result.map(Arc::new));
@@ -378,12 +382,12 @@ mod tests {
         let mut scheduler = FrameScheduler::new();
         let ticket = scheduler.request(FrameSlot::Program, 3u32, &cache).unwrap();
         assert_eq!(
-            scheduler.complete(ticket, Err(UnavailableReason::MissingAsset), &mut cache),
+            scheduler.complete(ticket, Err(UnavailableReason::DecodeFailed), &mut cache),
             Completion::Accepted
         );
         assert_eq!(
             cache.peek(&3),
-            Some(FrameEntry::Unavailable(&UnavailableReason::MissingAsset))
+            Some(FrameEntry::Unavailable(&UnavailableReason::DecodeFailed))
         );
         // The failure is remembered: no job is issued again.
         assert!(scheduler.request(FrameSlot::Program, 3, &cache).is_none());
@@ -472,7 +476,7 @@ mod tests {
     #[test]
     fn reasons_have_readable_messages() {
         assert!(
-            UnavailableReason::MissingAsset
+            UnavailableReason::DecodeFailed
                 .to_string()
                 .contains("asset")
         );
@@ -486,5 +490,198 @@ mod tests {
                 .to_string()
                 .contains("font")
         );
+    }
+
+    #[test]
+    fn linked_program_and_preview_on_one_key_share_one_job() {
+        let mut cache = FrameCache::new(FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        let program = scheduler.request(FrameSlot::Program, 5u32, &cache).unwrap();
+        assert!(scheduler.request(FrameSlot::Preview, 5, &cache).is_none());
+        assert_eq!(scheduler.in_flight(), 1);
+        assert_eq!(
+            scheduler.complete(program, Ok(frame("shared")), &mut cache),
+            Completion::Accepted
+        );
+        assert!(matches!(cache.peek(&5), Some(FrameEntry::Ready(_))));
+    }
+
+    #[test]
+    fn navigating_onto_a_preloading_key_keeps_that_job() {
+        let mut cache = FrameCache::new(FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        let tickets = scheduler.request_preload([1u32, 2], &cache);
+        let preloading = tickets[0];
+        // Preview lands on the key being preloaded: no duplicate job.
+        assert!(scheduler.request(FrameSlot::Preview, 1, &cache).is_none());
+        assert_eq!(scheduler.in_flight(), 2);
+        // The preload set moves on, but Preview still wants key 1.
+        scheduler.request_preload([3u32], &cache);
+        assert!(!scheduler.obsolete().iter().any(|t| t.key() == 1));
+        assert_eq!(
+            scheduler.complete(preloading, Ok(frame("one")), &mut cache),
+            Completion::Accepted
+        );
+        assert!(matches!(cache.peek(&1), Some(FrameEntry::Ready(_))));
+    }
+
+    #[test]
+    fn returning_to_a_key_keeps_its_first_job_wanted() {
+        let mut cache = FrameCache::new(FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        let a = scheduler.request(FrameSlot::Preview, 1u32, &cache).unwrap();
+        let b = scheduler.request(FrameSlot::Preview, 2u32, &cache).unwrap();
+        assert!(scheduler.request(FrameSlot::Preview, 1, &cache).is_none());
+        assert_eq!(scheduler.obsolete(), vec![b]);
+        assert_eq!(
+            scheduler.complete(a, Ok(frame("alpha")), &mut cache),
+            Completion::Accepted
+        );
+    }
+
+    #[test]
+    fn abandon_refuses_a_ticket_that_is_wanted_again() {
+        let mut cache = FrameCache::new(FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        let a = scheduler.request(FrameSlot::Preview, 1u32, &cache).unwrap();
+        scheduler.request(FrameSlot::Preview, 2u32, &cache).unwrap();
+        assert_eq!(scheduler.obsolete(), vec![a]);
+        // Preview comes back before the executor drops the job.
+        assert!(scheduler.request(FrameSlot::Preview, 1, &cache).is_none());
+        assert!(!scheduler.abandon(&a));
+        assert_eq!(scheduler.in_flight(), 2);
+        assert_eq!(
+            scheduler.complete(a, Ok(frame("alpha")), &mut cache),
+            Completion::Accepted
+        );
+    }
+
+    #[test]
+    fn a_failure_is_stored_even_when_the_key_is_no_longer_wanted() {
+        let mut cache = FrameCache::new(FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        let a = scheduler.request(FrameSlot::Preview, 1u32, &cache).unwrap();
+        scheduler.request(FrameSlot::Preview, 2u32, &cache).unwrap();
+        assert_eq!(
+            scheduler.complete(a, Err(UnavailableReason::DecodeFailed), &mut cache),
+            Completion::Accepted
+        );
+        assert_eq!(
+            cache.peek(&1),
+            Some(FrameEntry::Unavailable(&UnavailableReason::DecodeFailed))
+        );
+    }
+
+    struct XorShift(u64);
+
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn below(&mut self, bound: u64) -> u64 {
+            self.next() % bound
+        }
+    }
+
+    #[test]
+    fn random_interleavings_keep_the_scheduler_consistent() {
+        const KEYS: u64 = 12;
+        let bound = 2 + 2 * PRELOAD_RADIUS;
+        let proto = frame("proto");
+        for seed in 1..=40u64 {
+            let mut rng = XorShift(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            // Large enough that eviction never hides a wanted key.
+            let mut cache = FrameCache::new(FRAME_CAPACITY);
+            let mut scheduler = FrameScheduler::<u32>::new();
+            let mut pending: Vec<Ticket<u32>> = Vec::new();
+            let mut program = None;
+            let mut preview = None;
+            let mut preload: Vec<u32> = Vec::new();
+            for _ in 0..400 {
+                let key = u32::try_from(rng.below(KEYS)).unwrap();
+                match rng.below(6) {
+                    0 | 1 => {
+                        let slot = if rng.below(2) == 0 {
+                            program = Some(key);
+                            FrameSlot::Program
+                        } else {
+                            preview = Some(key);
+                            FrameSlot::Preview
+                        };
+                        pending.extend(scheduler.request(slot, key, &cache));
+                    }
+                    2 => {
+                        let count = usize::try_from(rng.below(7)).unwrap();
+                        let keys: Vec<u32> = (0..count)
+                            .map(|_| u32::try_from(rng.below(KEYS)).unwrap())
+                            .collect();
+                        preload.clear();
+                        for k in &keys {
+                            if preload.len() < 2 * PRELOAD_RADIUS && !preload.contains(k) {
+                                preload.push(*k);
+                            }
+                        }
+                        pending.extend(scheduler.request_preload(keys, &cache));
+                    }
+                    3 if !pending.is_empty() => {
+                        let at = usize::try_from(rng.below(pending.len() as u64)).unwrap();
+                        let ticket = pending.swap_remove(at);
+                        let wanted = program == Some(ticket.key())
+                            || preview == Some(ticket.key())
+                            || preload.contains(&ticket.key());
+                        let (result, is_err) = if rng.below(4) == 0 {
+                            (Err(UnavailableReason::DecodeFailed), true)
+                        } else {
+                            (Ok(proto.clone()), false)
+                        };
+                        let outcome = scheduler.complete(ticket, result, &mut cache);
+                        let expected = if wanted || is_err {
+                            Completion::Accepted
+                        } else {
+                            Completion::Ignored
+                        };
+                        assert_eq!(outcome, expected);
+                    }
+                    4 => {
+                        for ticket in scheduler.obsolete() {
+                            if rng.below(2) == 0 && scheduler.abandon(&ticket) {
+                                pending.retain(|t| *t != ticket);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                // The executor contract: after a full pass nothing obsolete
+                // remains in flight.
+                if rng.below(3) == 0 {
+                    for ticket in scheduler.obsolete() {
+                        assert!(scheduler.abandon(&ticket));
+                        pending.retain(|t| *t != ticket);
+                    }
+                    assert!(scheduler.in_flight() <= bound);
+                    assert!(scheduler.obsolete().is_empty());
+                }
+                // One job per key; every wanted uncached key has its job.
+                let mut seen = BTreeSet::new();
+                for ticket in &pending {
+                    assert!(seen.insert(ticket.key()), "two jobs for one key");
+                }
+                assert_eq!(pending.len(), scheduler.in_flight());
+                let wanted_keys: BTreeSet<u32> = program
+                    .into_iter()
+                    .chain(preview)
+                    .chain(preload.iter().copied())
+                    .collect();
+                for key in wanted_keys {
+                    if cache.peek(&key).is_none() {
+                        assert!(seen.contains(&key), "wanted key {key} has no job");
+                    }
+                }
+            }
+        }
     }
 }

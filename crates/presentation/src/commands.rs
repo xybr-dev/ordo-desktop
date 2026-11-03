@@ -54,8 +54,10 @@ pub enum Command {
     Recover,
     /// A frame failed at runtime (render, asset, or decode failure reported by
     /// the frame scheduler). Every Cue projecting it becomes unavailable.
-    /// Idempotent: the first reason for a frame is kept. A frame already on
-    /// Program stays there.
+    /// Idempotent: the first reason for a frame is kept; a frame no Project
+    /// Cue uses changes nothing. Nothing from a failed render reaches Program
+    /// (Decision 274): a frame already on Program was never drawn, so linked
+    /// Live goes black with the unavailable flag and Frozen goes black.
     FrameUnavailable {
         /// The failed frame.
         frame: FrameId,

@@ -11,7 +11,7 @@ pub mod raster;
 pub mod shaping;
 pub mod templates;
 
-pub use frame_cache::{FRAME_CAPACITY, FrameCache, FrameEntry};
+pub use frame_cache::{FRAME_CAPACITY, FrameCache, FrameEntry, MIN_CAPACITY};
 pub use frame_scheduler::{
     Completion, FrameScheduler, FrameSlot, PRELOAD_RADIUS, Ticket, UnavailableReason, compose,
 };

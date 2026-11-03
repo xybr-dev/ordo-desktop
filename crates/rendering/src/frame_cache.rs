@@ -9,18 +9,33 @@
 //! The Program and Preview keys are pinned. A pinned key is never evicted, so
 //! the frame the congregation sees cannot be dropped by preloading pressure.
 //! The store is a plain single-owner value: no threads, no clock. Recency is a
-//! counter, so behavior is deterministic.
+//! counter, so behavior is deterministic. Keep one cache per Engine/snapshot:
+//! keys are frame identities of that snapshot, so a new snapshot gets a new
+//! cache (or [`FrameCache::clear`]).
+//!
+//! A slot only ever exposes a complete [`Frame`] or a structured
+//! [`UnavailableReason`]; there is no partial frame.
+//!
+//! T1.4 consumer rule: while Program's key is still in flight (not yet in the
+//! store) the Program monitor keeps drawing the last frame it drew, which is
+//! complete, and the output window does likewise. Black reaches the output
+//! only through Engine state (`ProgramContent::Black`), never because a frame
+//! has not arrived yet.
 
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::Frame;
-use crate::frame_scheduler::{FrameSlot, UnavailableReason};
+use crate::frame_scheduler::{FrameSlot, PRELOAD_RADIUS, UnavailableReason};
 
 /// Composed logical frames kept by default (count bound, not bytes;
 /// Decision 310).
 pub const FRAME_CAPACITY: usize = 32;
+
+/// The smallest capacity [`FrameCache::new`] accepts: Program and Preview plus
+/// a full preload set.
+pub const MIN_CAPACITY: usize = 2 + 2 * PRELOAD_RADIUS;
 
 /// What the store holds for one key.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,8 +68,9 @@ impl Stored {
 /// Unavailable results count against the capacity like frames, so a failing
 /// Cue is remembered (and not recomposed in a loop) without growing the store
 /// unboundedly. The store holds at most `capacity` entries (pinned ones
-/// included), except that pinned entries are never evicted, so a capacity
-/// below the number of pinned keys (two) is exceeded by the pins alone.
+/// included). The capacity is clamped to at least [`MIN_CAPACITY`] (the two
+/// pins plus the preload set), so a pinned frame can never be crowded out by
+/// preloading.
 #[derive(Debug)]
 pub struct FrameCache<K> {
     capacity: usize,
@@ -65,11 +81,11 @@ pub struct FrameCache<K> {
 }
 
 impl<K: Clone + Eq + Hash> FrameCache<K> {
-    /// An empty store keeping at most `capacity` entries (see the type docs
-    /// for the pinned exception).
+    /// An empty store keeping at most `capacity` entries, clamped up to
+    /// [`MIN_CAPACITY`].
     pub fn new(capacity: usize) -> Self {
         Self {
-            capacity,
+            capacity: capacity.max(MIN_CAPACITY),
             entries: HashMap::new(),
             clock: 0,
             program: None,
@@ -125,6 +141,14 @@ impl<K: Clone + Eq + Hash> FrameCache<K> {
         self.entries.len()
     }
 
+    /// Drops every entry and both pins (for example when the snapshot the keys
+    /// belong to is replaced). Recency restarts from the same counter.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.program = None;
+        self.preview = None;
+    }
+
     /// True when nothing is held.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -158,7 +182,7 @@ mod tests {
     use super::*;
 
     fn unavailable() -> Result<Arc<Frame>, UnavailableReason> {
-        Err(UnavailableReason::MissingAsset)
+        Err(UnavailableReason::DecodeFailed)
     }
 
     struct XorShift(u64);
@@ -172,67 +196,84 @@ mod tests {
         }
     }
 
+    const CAP: usize = MIN_CAPACITY;
+
     #[test]
     fn evicts_least_recently_used_first() {
-        let mut cache = FrameCache::new(3);
-        for key in 0..3u32 {
+        let mut cache = FrameCache::new(CAP);
+        for key in 0..CAP as u32 {
             cache.insert(key, unavailable());
         }
         // Touch 0 so 1 becomes the oldest.
         assert!(cache.get(&0).is_some());
-        cache.insert(3, unavailable());
-        assert_eq!(cache.len(), 3);
+        cache.insert(100, unavailable());
+        assert_eq!(cache.len(), CAP);
         assert!(cache.peek(&1).is_none());
         assert!(cache.peek(&0).is_some());
         assert!(cache.peek(&2).is_some());
-        assert!(cache.peek(&3).is_some());
+        assert!(cache.peek(&100).is_some());
     }
 
     #[test]
     fn peek_does_not_touch_recency() {
-        let mut cache = FrameCache::new(2);
-        cache.insert(0u32, unavailable());
-        cache.insert(1, unavailable());
+        let mut cache = FrameCache::new(CAP);
+        for key in 0..CAP as u32 {
+            cache.insert(key, unavailable());
+        }
         assert!(cache.peek(&0).is_some());
-        cache.insert(2, unavailable());
+        cache.insert(100, unavailable());
         assert!(cache.peek(&0).is_none());
         assert!(cache.peek(&1).is_some());
     }
 
     #[test]
-    fn pinned_keys_survive_and_repinning_releases_the_old_key() {
-        let mut cache = FrameCache::new(2);
-        cache.insert(0u32, unavailable());
-        cache.pin(FrameSlot::Program, Some(0));
-        cache.insert(1, unavailable());
-        cache.insert(2, unavailable());
-        cache.insert(3, unavailable());
-        assert_eq!(cache.len(), 2);
-        assert!(cache.peek(&0).is_some());
-        assert!(cache.peek(&3).is_some());
-        // Re-pinning releases 0, which is now the oldest.
-        cache.pin(FrameSlot::Program, Some(3));
-        cache.insert(4, unavailable());
-        assert!(cache.peek(&0).is_none());
-        assert!(cache.peek(&3).is_some());
-        // Clearing a pin and pinning Preload both leave nothing protected.
-        cache.pin(FrameSlot::Program, None);
-        cache.pin(FrameSlot::Preload, Some(3));
-        cache.insert(5, unavailable());
-        cache.insert(6, unavailable());
-        assert!(cache.peek(&3).is_none());
+    fn capacity_is_clamped_to_pins_plus_preload() {
+        let mut cache = FrameCache::new(1);
+        for key in 0..50u32 {
+            cache.insert(key, unavailable());
+        }
+        assert_eq!(cache.len(), MIN_CAPACITY);
     }
 
     #[test]
-    fn pins_alone_may_exceed_a_tiny_capacity() {
-        let mut cache = FrameCache::new(1);
-        cache.pin(FrameSlot::Program, Some(0u32));
-        cache.pin(FrameSlot::Preview, Some(1));
+    fn pinned_keys_survive_and_repinning_releases_the_old_key() {
+        let mut cache = FrameCache::new(CAP);
+        cache.insert(0u32, unavailable());
+        cache.pin(FrameSlot::Program, Some(0));
+        for key in 1..=20 {
+            cache.insert(key, unavailable());
+        }
+        assert_eq!(cache.len(), CAP);
+        assert!(cache.peek(&0).is_some());
+        // Re-pinning releases 0, which is now the oldest.
+        cache.pin(FrameSlot::Program, Some(20));
+        cache.insert(21, unavailable());
+        assert!(cache.peek(&0).is_none());
+        assert!(cache.peek(&20).is_some());
+        // Clearing a pin and pinning Preload both leave nothing protected.
+        cache.pin(FrameSlot::Program, None);
+        cache.pin(FrameSlot::Preload, Some(20));
+        for key in 30..40 {
+            cache.insert(key, unavailable());
+        }
+        assert!(cache.peek(&20).is_none());
+    }
+
+    #[test]
+    fn clear_drops_entries_and_pins() {
+        let mut cache = FrameCache::new(CAP);
+        cache.insert(0u32, unavailable());
+        cache.pin(FrameSlot::Program, Some(0));
+        cache.clear();
+        assert!(cache.is_empty());
+        for key in 1..=20 {
+            cache.insert(key, unavailable());
+        }
         cache.insert(0, unavailable());
-        cache.insert(1, unavailable());
-        cache.insert(2, unavailable());
-        assert_eq!(cache.len(), 2);
-        assert!(cache.peek(&0).is_some() && cache.peek(&1).is_some());
+        for key in 30..40 {
+            cache.insert(key, unavailable());
+        }
+        assert!(cache.peek(&0).is_none(), "the old pin is gone");
     }
 
     #[test]
@@ -246,23 +287,106 @@ mod tests {
         for _ in 0..10_000 {
             let key = u32::try_from(rng.next() % 500).unwrap();
             cache.insert(key, unavailable());
-            assert!(cache.len() <= FRAME_CAPACITY + 2);
+            assert!(cache.len() <= FRAME_CAPACITY);
             assert!(cache.peek(&1_000_000).is_some());
             assert!(cache.peek(&1_000_001).is_some());
         }
     }
 
+    /// A Vec-based LRU (oldest first) with the same pin rules.
+    struct Model {
+        order: Vec<u32>,
+        program: Option<u32>,
+        preview: Option<u32>,
+    }
+
+    impl Model {
+        fn evict(&mut self) {
+            while self.order.len() > CAP {
+                let pos = self
+                    .order
+                    .iter()
+                    .position(|k| Some(*k) != self.program && Some(*k) != self.preview);
+                match pos {
+                    Some(at) => {
+                        self.order.remove(at);
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        fn touch(&mut self, key: u32) {
+            if let Some(at) = self.order.iter().position(|k| *k == key) {
+                self.order.remove(at);
+                self.order.push(key);
+            }
+        }
+    }
+
+    #[test]
+    fn random_operations_match_a_simple_lru_model() {
+        for seed in 1..=20u64 {
+            let mut rng = XorShift(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) | 1);
+            let mut cache = FrameCache::new(CAP);
+            let mut model = Model {
+                order: Vec::new(),
+                program: None,
+                preview: None,
+            };
+            for _ in 0..2_000 {
+                let key = u32::try_from(rng.next() % 20).unwrap();
+                match rng.next() % 6 {
+                    0..=2 => {
+                        cache.insert(key, unavailable());
+                        model.touch(key);
+                        if !model.order.contains(&key) {
+                            model.order.push(key);
+                        }
+                        model.evict();
+                    }
+                    3 => {
+                        assert_eq!(cache.get(&key).is_some(), model.order.contains(&key));
+                        model.touch(key);
+                    }
+                    4 => {
+                        let pin = (!rng.next().is_multiple_of(4)).then_some(key);
+                        if rng.next().is_multiple_of(2) {
+                            cache.pin(FrameSlot::Program, pin);
+                            model.program = pin;
+                        } else {
+                            cache.pin(FrameSlot::Preview, pin);
+                            model.preview = pin;
+                        }
+                        model.evict();
+                    }
+                    _ => {
+                        assert_eq!(cache.peek(&key).is_some(), model.order.contains(&key));
+                    }
+                }
+                assert_eq!(cache.len(), model.order.len());
+                for k in 0..20u32 {
+                    assert_eq!(
+                        cache.peek(&k).is_some(),
+                        model.order.contains(&k),
+                        "key {k}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn unavailable_entries_count_toward_capacity() {
-        let mut cache = FrameCache::new(2);
-        for key in 0..10u32 {
+        let mut cache = FrameCache::new(CAP);
+        for key in 0..20u32 {
             cache.insert(key, unavailable());
         }
-        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.len(), CAP);
         assert!(!cache.is_empty());
         assert_eq!(
-            cache.peek(&9),
-            Some(FrameEntry::Unavailable(&UnavailableReason::MissingAsset))
+            cache.peek(&19),
+            Some(FrameEntry::Unavailable(&UnavailableReason::DecodeFailed))
         );
     }
 }

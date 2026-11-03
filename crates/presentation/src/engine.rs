@@ -19,7 +19,7 @@
 //! (Freeze and Blackout toggle off exactly as Space does), 274 (an unavailable
 //! Cue makes linked Program black instead of freezing).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -152,11 +152,21 @@ pub struct Engine {
     /// built. Part of the Engine (not of `EngineState`) so `check` sees it and
     /// every command classifies Cues against it. The first reason is kept.
     unavailable: BTreeMap<FrameId, UnavailableReason>,
+    /// Every frame some Project Cue of the snapshot uses, computed once. A
+    /// failure report for any other frame is not about this snapshot.
+    projected: BTreeSet<FrameId>,
 }
 
 impl Engine {
     /// A new Engine: output disabled, Preview on the first Cue, Program black.
     pub fn new(snapshot: Arc<PresentationSnapshot>) -> Self {
+        let projected = (0..snapshot.cue_count())
+            .filter_map(|flat| snapshot.cue(flat))
+            .filter_map(|cue| match cue.behavior() {
+                CueBehavior::Project { frame, .. } => Some(*frame),
+                _ => None,
+            })
+            .collect();
         Self {
             snapshot,
             state: EngineState {
@@ -171,6 +181,7 @@ impl Engine {
             program_fade: FadeTimeline::default(),
             preview_fade: FadeTimeline::default(),
             unavailable: BTreeMap::new(),
+            projected,
         }
     }
 
@@ -200,12 +211,12 @@ impl Engine {
     }
 
     /// Whether the Cue at flat index `flat` can be taken live, combining the
-    /// snapshot's own Unavailable Cues with the runtime overlay. An index past
-    /// the last Cue is clamped to it. This, not [`Cue::program_effect`] alone,
+    /// snapshot's own Unavailable Cues with the runtime overlay. `None` when
+    /// `flat` is past the last Cue. This, not [`Cue::program_effect`] alone,
     /// is what presentability, Space, linked-Live black, and auto-play follow.
-    pub fn cue_availability(&self, flat: usize) -> Availability<'_> {
-        let cue = self.cue_at(flat.min(self.last_index()));
-        match cue.behavior() {
+    pub fn cue_availability(&self, flat: usize) -> Option<Availability<'_>> {
+        let cue = self.snapshot.cue(flat)?;
+        Some(match cue.behavior() {
             CueBehavior::Unavailable { reason } => {
                 Availability::Unavailable(UnavailableSource::Snapshot { reason })
             }
@@ -214,16 +225,33 @@ impl Engine {
                 None => Availability::Presentable,
             },
             _ => Availability::Presentable,
-        }
+        })
+    }
+
+    /// The availability of the Preview Cue: what the UI reads to decide
+    /// whether to overlay the operator-only "Output unavailable" placeholder
+    /// on the black Preview monitor.
+    pub fn preview_availability(&self) -> Availability<'_> {
+        self.cue_availability(self.state.preview)
+            .expect("Preview is always inside the snapshot")
     }
 
     /// Records that `frame` failed at runtime: shorthand for applying
     /// [`Command::FrameUnavailable`]. Every Cue projecting it then behaves
     /// exactly like an Unavailable Cue (not presentable, Space refused, linked
-    /// Live goes black with `unavailable_black`, auto-play skips it). A frame
-    /// already on Program stays there: it is complete and pinned, and the next
-    /// navigation follows the new availability. Marking a new frame is a real
-    /// change (the revision moves once); marking it again is `Unchanged`.
+    /// Live goes black with `unavailable_black`, auto-play skips it).
+    ///
+    /// Program never keeps a frame whose render failed (Decision 274: a stale
+    /// slide reads as wrong words). Program's frame is set synchronously while
+    /// composition runs later, so a failure for the frame on Program means it
+    /// was never drawn: linked Live goes black with `unavailable_black` (the
+    /// ordinary fade), Frozen goes black with the Freeze kept and the flag
+    /// false. A running auto-play whose current Cue is marked moves on to the
+    /// next advancing Cue of its scope at once, or stops when none remains.
+    ///
+    /// Marking a frame no Project Cue uses is `Unchanged`. Marking a new
+    /// frame is a real change (the revision moves once); marking it again is
+    /// `Unchanged`.
     pub fn mark_frame_unavailable(
         &mut self,
         frame: FrameId,
@@ -271,7 +299,7 @@ impl Engine {
         // settling and the fade classification see the new availability. The
         // command has no refusal path, so this never needs undoing.
         let newly_unavailable = match command {
-            Command::FrameUnavailable { frame, reason } => {
+            Command::FrameUnavailable { frame, reason } if self.projected.contains(&frame) => {
                 // Keep the first reason: a repeat report is not a change.
                 let before = self.unavailable.len();
                 self.unavailable.entry(frame).or_insert(reason);
@@ -288,11 +316,13 @@ impl Engine {
     /// changing state, revision, fades, or `last_now`.
     pub fn check(&self, command: Command, now: Millis) -> Result<Outcome, Refusal> {
         if let Command::FrameUnavailable { frame, .. } = command {
-            return Ok(if self.unavailable.contains_key(&frame) {
-                Outcome::Unchanged
-            } else {
-                Outcome::Changed
-            });
+            return Ok(
+                if self.unavailable.contains_key(&frame) || !self.projected.contains(&frame) {
+                    Outcome::Unchanged
+                } else {
+                    Outcome::Changed
+                },
+            );
         }
         let (_, changed) = self.evaluate(command, now.max(self.last_now))?;
         Ok(if changed {
@@ -370,7 +400,9 @@ impl Engine {
     /// `shown: None` means "no congregation frame", not "nothing to show the
     /// operator": when [`Engine::preview_cue`]'s `program_effect()` is
     /// `NotPresentable` the UI overlays the operator-only "Output unavailable"
-    /// placeholder on the black Preview (Decision 274).
+    /// placeholder on the black Preview (Decision 274). The UI reads that from
+    /// [`Engine::preview_availability`], which includes runtime failures that
+    /// `program_effect()` alone does not see.
     pub fn preview_view(&self, now: Millis) -> ProgramView {
         self.preview_fade.view(
             self.preview_frame(self.state.preview),
@@ -478,10 +510,19 @@ impl Engine {
             run.duration_ms = self.cue_duration_ms(next.preview);
             next.auto_play = Some(run);
         } else if run.duration_ms.is_some() && self.cue_duration_ms(next.preview).is_none() {
-            // The current Cue became unavailable under a running clock: keep
-            // the run, drop the deadline.
-            run.duration_ms = None;
-            next.auto_play = Some(run);
+            // The current Cue became unavailable under a running clock: move
+            // on to the next advancing Cue of the scope now, or stop when
+            // none remains. Parking with no deadline would leave a run that
+            // looks alive but can never advance.
+            match self.next_in_scope(run.scope, next.preview) {
+                Some(target) => {
+                    self.navigate(next, target);
+                    run.cue_started = now;
+                    run.duration_ms = self.cue_duration_ms(target);
+                    next.auto_play = Some(run);
+                }
+                None => next.auto_play = None,
+            }
         }
     }
 
@@ -730,9 +771,19 @@ impl Engine {
                 }
             }
             Command::StopAutoPlay | Command::Recover => next.auto_play = None,
-            // Already recorded in the overlay by `apply`; the state only
-            // changes through the availability the other transitions read.
-            Command::FrameUnavailable { .. } => {}
+            // Already recorded in the overlay by `apply`. Program's frame is
+            // set synchronously while composition runs later, so a failure
+            // for the frame on Program means it was never drawn: nothing from
+            // a failed render reaches Program (Decision 274).
+            Command::FrameUnavailable { frame, .. } => {
+                if let ProgramContent::Frame { frame: shown, .. } = next.program
+                    && shown == frame
+                    && self.unavailable.contains_key(&frame)
+                {
+                    next.program = ProgramContent::Black;
+                    next.unavailable_black = next.live == LiveState::Live;
+                }
+            }
             Command::Take => self.take(next)?,
             Command::ToggleFreeze => match next.live {
                 LiveState::Live => {
@@ -2652,10 +2703,11 @@ mod availability_tests {
     }
 
     fn cue(n: u16, behavior: CueBehavior) -> Cue {
+        let context = matches!(behavior, CueBehavior::Wait).then(|| "Priest speaks".to_owned());
         Cue::new(
             uuid(0x300 + n).parse().unwrap(),
             format!("Cue {n}"),
-            None,
+            context,
             behavior,
         )
         .unwrap()
@@ -2710,6 +2762,7 @@ mod availability_tests {
                         duration_seconds: None,
                     },
                 ),
+                cue(7, CueBehavior::Wait),
             ],
         )
         .unwrap();
@@ -2773,7 +2826,7 @@ mod availability_tests {
         // The frame is shared with Cue 6, which is unavailable too.
         assert!(matches!(
             e.cue_availability(6),
-            Availability::Unavailable(UnavailableSource::Runtime(_))
+            Some(Availability::Unavailable(UnavailableSource::Runtime(_)))
         ));
         // Moving to a good Cue recovers.
         e.apply(Command::Next, Millis(3)).unwrap();
@@ -2782,21 +2835,77 @@ mod availability_tests {
     }
 
     #[test]
-    fn a_frame_already_on_program_stays_until_navigation() {
+    fn a_frame_on_live_program_goes_black_with_the_flag() {
+        // Program shows a frame whose composition runs later: a failure for it
+        // means it was never drawn, and nothing from a failed render reaches
+        // Program (Decision 274).
         let mut e = live_at(1);
-        let before = e.state().clone();
+        e.tick(Millis(5_000));
+        let before = e.state().revision();
         assert_eq!(
-            e.mark_frame_unavailable(frame(1), FAILED, Millis(1)),
+            e.mark_frame_unavailable(frame(1), FAILED, Millis(6_000)),
             Outcome::Changed
         );
-        assert_eq!(e.state().program(), before.program());
-        assert!(!e.state().unavailable_black());
-        assert_eq!(e.state().revision(), before.revision() + 1);
-        // Leaving and coming back follows the new availability.
-        e.apply(Command::Next, Millis(2)).unwrap();
-        e.apply(Command::Previous, Millis(3)).unwrap();
         assert_eq!(e.state().program(), ProgramContent::Black);
         assert!(e.state().unavailable_black());
+        assert_eq!(e.state().live(), LiveState::Live);
+        assert_eq!(e.state().revision(), before + 1);
+        // The ordinary fade to black.
+        assert!(e.program_view(Millis(6_100)).fading);
+        assert_eq!(e.program_view(Millis(6_600)).shown, None);
+        // Leaving for a good Cue recovers.
+        e.apply(Command::Next, Millis(7_000)).unwrap();
+        assert!(matches!(e.state().program(), ProgramContent::Frame { .. }));
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn a_frame_on_frozen_program_goes_black_and_the_freeze_stays() {
+        let mut e = live_at(1);
+        e.apply(Command::ToggleFreeze, Millis(1)).unwrap();
+        e.mark_frame_unavailable(frame(1), FAILED, Millis(2));
+        assert_eq!(e.state().live(), LiveState::Frozen);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn a_marked_frame_off_program_leaves_a_wait_kept_program_alone() {
+        // Linked Live: Preview sits on the Wait Cue 7, so Program keeps Cue
+        // 5's frame. Marking another frame (Cue 6's, shared with Cue 1)
+        // changes nothing on Program.
+        let mut e = live_at(5);
+        e.apply(Command::GoTo(7), Millis(1)).unwrap();
+        let program = e.state().program();
+        assert!(matches!(program, ProgramContent::Frame { .. }));
+        e.mark_frame_unavailable(frame(1), FAILED, Millis(2));
+        assert_eq!(e.state().program(), program);
+        assert!(!e.state().unavailable_black());
+        // Marking the kept frame itself blanks it (it was never drawn).
+        e.mark_frame_unavailable(frame(5), FAILED, Millis(3));
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(e.state().unavailable_black());
+    }
+
+    #[test]
+    fn marking_a_frame_no_cue_uses_is_unchanged() {
+        let mut e = live_at(0);
+        let before = e.state().clone();
+        assert_eq!(
+            e.mark_frame_unavailable(frame(99), FAILED, Millis(1)),
+            Outcome::Unchanged
+        );
+        assert_eq!(
+            e.check(
+                Command::FrameUnavailable {
+                    frame: frame(99),
+                    reason: FAILED
+                },
+                Millis(2)
+            ),
+            Ok(Outcome::Unchanged)
+        );
+        assert_eq!(e.state(), &before);
     }
 
     #[test]
@@ -2824,42 +2933,53 @@ mod availability_tests {
             e.check(
                 Command::FrameUnavailable {
                     frame: frame(3),
-                    reason: UnavailableReason::MissingAsset
+                    reason: UnavailableReason::DecodeFailed
                 },
                 Millis(2)
             ),
             Ok(Outcome::Unchanged)
         );
         assert_eq!(
-            e.mark_frame_unavailable(frame(3), UnavailableReason::MissingAsset, Millis(2)),
+            e.mark_frame_unavailable(frame(3), UnavailableReason::DecodeFailed, Millis(2)),
             Outcome::Unchanged
         );
         assert_eq!(e.state().revision(), revision);
         assert_eq!(
             e.cue_availability(3),
-            Availability::Unavailable(UnavailableSource::Runtime(&FAILED))
+            Some(Availability::Unavailable(UnavailableSource::Runtime(
+                &FAILED
+            )))
         );
     }
 
     #[test]
     fn cue_availability_reports_both_sources() {
         let mut e = engine();
-        assert_eq!(e.cue_availability(0), Availability::Presentable);
+        assert_eq!(e.cue_availability(0), Some(Availability::Presentable));
         assert_eq!(
             e.cue_availability(4),
-            Availability::Unavailable(UnavailableSource::Snapshot { reason: "no font" })
+            Some(Availability::Unavailable(UnavailableSource::Snapshot {
+                reason: "no font"
+            }))
         );
         e.mark_frame_unavailable(frame(0), UnavailableReason::DecodeFailed, Millis(0));
         assert_eq!(
             e.cue_availability(0),
-            Availability::Unavailable(UnavailableSource::Runtime(&UnavailableReason::DecodeFailed))
+            Some(Availability::Unavailable(UnavailableSource::Runtime(
+                &UnavailableReason::DecodeFailed
+            )))
         );
-        // Out-of-range indices clamp to the last Cue.
-        assert_eq!(e.cue_availability(999), e.cue_availability(6));
+        assert_eq!(e.cue_availability(8), None);
+        assert_eq!(e.cue_availability(999), None);
+        // Preview is on Cue 0 here.
+        assert!(matches!(
+            e.preview_availability(),
+            Availability::Unavailable(UnavailableSource::Runtime(_))
+        ));
     }
 
     #[test]
-    fn auto_play_skips_a_marked_frame_and_parks_without_a_deadline() {
+    fn auto_play_skips_a_marked_frame_and_advances_when_the_current_cue_fails() {
         let mut e = engine();
         e.mark_frame_unavailable(frame(1), FAILED, Millis(0));
         e.apply(Command::ToggleAutoPlay, Millis(0)).unwrap();
@@ -2867,27 +2987,52 @@ mod availability_tests {
         assert_eq!(e.tick(Millis(4_000)), Outcome::Changed);
         assert_eq!(e.state().preview(), 2, "the marked Cue 1 is skipped");
 
-        // A running run whose current Cue becomes unavailable keeps the run
-        // with no deadline.
+        // The current Cue fails under a running clock: the run moves on at
+        // once with a fresh deadline instead of parking.
         e.mark_frame_unavailable(frame(2), FAILED, Millis(4_001));
+        assert_eq!(e.state().preview(), 3);
         let run = e.state().auto_play().expect("the run survives");
-        assert_eq!(run.duration_ms, None);
-        assert_eq!(e.tick(Millis(60_000)), Outcome::Unchanged);
-        // Navigating onto a projectable Cue restores the deadline.
-        e.apply(Command::GoTo(3), Millis(61_000)).unwrap();
-        assert_eq!(e.state().auto_play().unwrap().duration_ms, Some(4_000));
+        assert_eq!(run.duration_ms, Some(4_000));
+        assert_eq!(run.cue_started, Millis(4_001));
+        assert_eq!(e.next_deadline(), Some(Millis(8_001)));
     }
 
     #[test]
-    fn marking_fades_the_preview_monitor_to_black_but_never_program() {
+    fn auto_play_stops_when_the_failing_cue_was_the_last_advancing_one() {
+        let mut e = engine();
+        for n in [0, 1, 3] {
+            e.mark_frame_unavailable(frame(n), FAILED, Millis(0));
+        }
+        e.apply(Command::ToggleAutoPlay, Millis(0)).unwrap();
+        assert_eq!(e.state().preview(), 2);
+        e.mark_frame_unavailable(frame(2), FAILED, Millis(1));
+        assert!(e.state().auto_play().is_none());
+    }
+
+    #[test]
+    fn auto_play_failure_on_live_program_lands_on_the_next_cue() {
+        let mut e = engine();
+        e.apply(Command::EnableOutput, Millis(0)).unwrap();
+        e.apply(Command::ToggleAutoPlay, Millis(0)).unwrap();
+        e.apply(Command::Take, Millis(0)).unwrap();
+        e.mark_frame_unavailable(frame(0), FAILED, Millis(1));
+        assert_eq!(e.state().preview(), 1);
+        assert!(matches!(
+            e.state().program(),
+            ProgramContent::Frame { cue: 1, .. }
+        ));
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn marking_fades_both_monitors_to_black_together() {
         let mut e = live_at(1);
         e.tick(Millis(5_000));
         e.mark_frame_unavailable(frame(1), FAILED, Millis(6_000));
-        let program = e.program_view(Millis(6_000));
-        assert_eq!(program.shown, Some(frame(1)));
-        assert!(!program.fading);
+        let program = e.program_view(Millis(6_100));
         let preview = e.preview_view(Millis(6_100));
-        assert!(preview.fading);
+        assert!(program.fading && preview.fading);
+        assert_eq!(e.program_view(Millis(6_600)).shown, None);
         assert_eq!(e.preview_view(Millis(6_600)).shown, None);
     }
 
