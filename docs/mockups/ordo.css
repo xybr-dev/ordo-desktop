@@ -364,7 +364,9 @@
 .pr-clock { font-variant-numeric: tabular-nums; font-size: calc(16px * var(--o-scale)); color: var(--o-text); }
 .pr-body { position: relative; }
 .pr-rail { width: calc(200px * var(--o-scale)); flex: none; border-right: 1px solid var(--o-border); }
-.pr-rail + .pr-timeline { border-left: 0; }
+.pr-rail + .pr-timeline, .pr-rail + .pr-tlwrap { border-left: 0; }
+.pr-tlwrap { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pr-tlwrap > .pr-timeline { flex: 1; min-height: 0; }
 .pr-rail--overlay {
   position: absolute; z-index: 21; top: calc(48px * var(--o-scale)); bottom: 0; left: 0;
   box-shadow: var(--o-shadow-overlay); border-right: 1px solid var(--o-border-strong);
@@ -436,7 +438,7 @@
 }
 .pr-band-controls .pr-outstat { border: 0; padding: 0; min-width: 0; }
 .pr-band-controls .pr-msg { grid-column: 1 / -1; }
-.pr-col .pr-timeline { flex: 1; }
+.pr-col .pr-timeline, .pr-col .pr-tlwrap { flex: 1; }
 
 /* ── Preparation: Mass Planning shell ───────────────────────────────────── */
 .o-app .lucide { width: calc(16px * var(--o-scale)); height: calc(16px * var(--o-scale)); flex: none; }
@@ -1055,9 +1057,8 @@ a.o-btn:not(.o-btn--primary) { color: inherit; }
 .li-tech { padding: var(--o-s3); background: var(--o-bg); border: 1px solid var(--o-border); border-radius: var(--o-radius-control); font-size: calc(13px * var(--o-scale)); white-space: pre-wrap; }
 
 /* ── Presenter emergency insert: one Insert panel over the timeline ── */
-.pr-tl-tools { display: flex; justify-content: flex-end; align-items: center; height: calc(44px * var(--o-scale)); position: sticky; top: calc(-1 * var(--o-s2)); z-index: 2; background: var(--o-bg); }
-/* item headers stick below the Insert row */
-.pr-timeline .pr-group-head { top: calc(44px * var(--o-scale) - var(--o-s2)); }
+/* The tools row is outside the timeline's scroller, so it stays put; item headers stick to the scroller's top. */
+.pr-tl-tools { flex: none; display: flex; justify-content: flex-end; align-items: center; height: calc(44px * var(--o-scale)); padding: 0 var(--o-s4); background: var(--o-bg); }
 .o-canvas[data-t="image"] .o-img { position: absolute; inset: 0; background: linear-gradient(135deg, #7a3b2e 0%, #c9893a 45%, #f1d27a 70%, #2f5d7a 100%); }
 .pr-ins-panel { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; display: flex; flex-direction: column; background: var(--o-surface); border-right: 1px solid var(--o-border-strong); box-shadow: var(--o-shadow-overlay); }
 .pr-ins-head { display: flex; align-items: flex-start; gap: var(--o-s2); padding: var(--o-s3) var(--o-s4) var(--o-s2); }
