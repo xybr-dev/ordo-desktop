@@ -811,20 +811,20 @@ at every qualified effective size.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Wide layout shows pinned Ordo rail, grouped Cue timeline, and
+- [x] `[UI-AUTO]` Wide layout shows pinned Ordo rail, grouped Cue timeline, and
       Output Dock with Program and Preview.
-- [ ] `[UI-AUTO]` Compact layout starts with collapsed Ordo rail and retains
+- [x] `[UI-AUTO]` Compact layout starts with collapsed Ordo rail and retains
       timeline plus stacked Program/Preview; high-scale layout keeps both
       monitors simultaneously visible above the timeline when required.
-- [ ] `[UI-AUTO]` Visual Slide Grid and Compact Cue List preferences persist
+- [x] `[UI-AUTO]` Visual Slide Grid and Compact Cue List preferences persist
       locally and never change Presentation Engine state.
-- [ ] `[UI-AUTO]` Grid thumbnails stay at least 270px where the preferred layout
+- [x] `[UI-AUTO]` Grid thumbnails stay at least 270px where the preferred layout
       can remove a column; sparse rows never stretch frames.
-- [ ] `[UI-AUTO]` Ordo groups display Mass-item titles only and scroll the full
+- [x] `[UI-AUTO]` Ordo groups display Mass-item titles only and scroll the full
       timeline to a group rather than filtering it.
-- [ ] `[UI-AUTO]` Output Dock keeps Program, Preview, output status, Freeze,
+- [x] `[UI-AUTO]` Output Dock keeps Program, Preview, output status, Freeze,
       Blackout, and contextual primary action visible outside timeline scroll.
-- [ ] `[UI-AUTO]` Canonical thumbnails and monitors remain identical completed
+- [x] `[UI-AUTO]` Canonical thumbnails and monitors remain identical completed
       frame viewports through resize and Interface-scale changes.
 - [ ] `[MANUAL]` The packaged UI matches the approved Presenter references in
       hierarchy, state clarity, focus visibility, and dim-room usability.
