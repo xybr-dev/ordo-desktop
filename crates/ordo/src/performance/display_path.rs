@@ -172,10 +172,32 @@ pub fn glyph_count(frame: &Frame) -> usize {
 /// A canvas element that paints one frame into its bounds. Glyph origins are
 /// the canonical logical baselines scaled to the bounds, so a 1920x1080
 /// canvas paints at the logical positions and a smaller one scales with it.
-pub fn retained_frame(frame: Rc<Frame>, tally: Rc<PaintTally>) -> impl IntoElement {
+///
+/// Takes any owner of a frame (`Rc<Frame>` here, `Arc<Frame>` for the live
+/// viewport), so the retained frame is shared, never copied.
+pub fn retained_frame(
+    frame: impl AsRef<Frame> + 'static,
+    tally: Rc<PaintTally>,
+) -> impl IntoElement {
     canvas(
         |_, _, _| (),
-        move |bounds, (), window, cx| paint_frame(&frame, bounds, &tally, window, cx),
+        move |bounds, (), window, cx| paint_frame(frame.as_ref(), bounds, &tally, true, window, cx),
+    )
+    .size_full()
+}
+
+/// Like [`retained_frame`] but without the opaque black quad, so whatever the
+/// parent painted underneath (the black box, a foreground image) stays
+/// visible beneath the glyphs.
+pub fn retained_glyphs(
+    frame: impl AsRef<Frame> + 'static,
+    tally: Rc<PaintTally>,
+) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, (), window, cx| {
+            paint_frame(frame.as_ref(), bounds, &tally, false, window, cx)
+        },
     )
     .size_full()
 }
@@ -184,12 +206,15 @@ fn paint_frame(
     frame: &Frame,
     bounds: Bounds<Pixels>,
     tally: &PaintTally,
+    background: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
     tally.begin_draw();
-    window.paint_quad(fill(bounds, black()));
-    tally.quads.set(tally.quads.get() + 1);
+    if background {
+        window.paint_quad(fill(bounds, black()));
+        tally.quads.set(tally.quads.get() + 1);
+    }
 
     let (logical_width, logical_height) = frame.logical_size();
     let scale_x = f32::from(bounds.size.width) / logical_width as f32;
