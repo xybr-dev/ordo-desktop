@@ -244,7 +244,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0212](0212-open-separator-and-border-hierarchy.md) | Open separator and border hierarchy | accepted | 2026-08-29 |  |
 | [0213](0213-restrained-radius-system-with-rounded-operator-slide.md) | Restrained radius system with rounded operator slide viewports | accepted | 2026-08-29 | rendering |
 | [0214](0214-two-level-elevation-for-temporary-ownership.md) | Two-level elevation for temporary ownership | accepted | 2026-08-29 |  |
-| [0215](0215-lucide-as-the-single-bundled-operator-icon-family.md) | Lucide as the single bundled operator icon family | accepted | 2026-08-29 |  |
+| [0215](0215-lucide-as-the-single-bundled-operator-icon-family.md) | Lucide as the single bundled operator icon family | accepted, amended by [0300](0300-current-navigation-destination-fills-its-icon.md) | 2026-08-29 |  |
 | [0216](0216-four-pixel-spacing-scale-with-resolution-aware-density.md) | Four-pixel spacing scale with resolution-aware density | accepted | 2026-08-29 | ui |
 | [0217](0217-restrained-functional-motion-with-immediate-presentation.md) | Restrained functional motion with immediate presentation output | accepted, amended by [0256](0256-refine-operator-appearance-overlays-and-bounded-output.md) | 2026-08-29 | presenter, ui |
 | [0218](0218-minimal-first-run-parish-setup-with-regular-presider.md) | Minimal first-run Parish setup with regular-Presider defaults | accepted | 2026-08-29 |  |
@@ -329,5 +329,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0297](0297-operator-tokens-gain-a-graphite-foreground-text-levels-and.md) | Operator tokens gain a graphite foreground, text levels and a compact row | accepted | 2026-11-02 | design |
 | [0298](0298-high-contrast-keeps-ordo-s-palette-for-the-mvp-following.md) | High Contrast keeps Ordo's palette for the MVP; following system colours is deferred | accepted | 2026-11-02 | design, accessibility, platform |
 | [0299](0299-slideover-close-leads-its-header.md) | A slideover's close button leads its header | accepted | 2026-11-03 | design, interaction, accessibility |
+| [0300](0300-current-navigation-destination-fills-its-icon.md) | The current navigation destination fills its icon and marks it with a short pill | accepted | 2026-11-03 | design, navigation, icons |
 
 <!-- adr-index:end -->

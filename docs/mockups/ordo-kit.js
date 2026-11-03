@@ -159,7 +159,12 @@
     var m = marker === "square" ? "o-marker o-marker--square" : marker === "diamond" ? "o-marker o-marker--diamond" : marker === "ring" ? "o-marker o-marker--ring" : "o-marker";
     return '<span class="o-status" data-state="' + state + '"><span class="' + m + '"></span>' + esc(text) + "</span>";
   }
-  function icons() { if (window.lucide) window.lucide.createIcons({ attrs: { "stroke-width": 2 } }); }
+  function icons() {
+    if (!window.lucide) return;
+    window.lucide.createIcons({ attrs: { "stroke-width": 2 } });
+    // Palette draws its paint dots before the palette; move them last so the filled (current) nav icon can cut them out.
+    document.querySelectorAll("svg.lucide-palette").forEach(function (s) { s.querySelectorAll("circle").forEach(function (c) { s.appendChild(c); }); });
+  }
 
   // Shrink a fixed logical window (w x h) to the width of its wrapper, as a screenshot would.
   function fit(wrapper, app, w, h) {
