@@ -270,8 +270,11 @@ struct Harness<'a> {
     step: u64,
     clock: u64,
     jobs: Vec<Job>,
-    /// Last key requested per slot (what `Accepted` must match).
+    /// Last key requested per slot; with `preload_wanted` it is what the
+    /// scheduler wants (a key is wanted by any slot).
     requested: HashMap<FrameSlot, FrameId>,
+    /// The preload set last handed to the scheduler (at most 4 distinct keys).
+    preload_wanted: Vec<FrameId>,
     failed: BTreeSet<FrameId>,
     /// Per frame: whether its jobs fail (decided at its first job).
     planned_failures: HashMap<FrameId, bool>,
@@ -294,6 +297,7 @@ impl<'a> Harness<'a> {
             clock: 0,
             jobs: Vec::new(),
             requested: HashMap::new(),
+            preload_wanted: Vec::new(),
             failed: BTreeSet::new(),
             planned_failures: HashMap::new(),
             program_shown: None,
@@ -322,7 +326,7 @@ impl<'a> Harness<'a> {
     /// Cue is not presentable (then the monitor is black).
     fn preview_key(&self) -> Option<FrameId> {
         let preview = self.engine.state().preview();
-        match self.engine.cue_availability(preview) {
+        match self.engine.preview_availability() {
             Availability::Presentable => self.fx.frame_of[preview],
             Availability::Unavailable(_) => None,
         }
@@ -335,7 +339,7 @@ impl<'a> Harness<'a> {
         for distance in 1..=PRELOAD_RADIUS {
             for cue in [preview + distance, preview.wrapping_sub(distance)] {
                 if cue < CUES
-                    && self.engine.cue_availability(cue) == Availability::Presentable
+                    && self.engine.cue_availability(cue) == Some(Availability::Presentable)
                     && let Some(frame) = self.fx.frame_of[cue]
                 {
                     keys.push(frame);
@@ -389,17 +393,36 @@ impl<'a> Harness<'a> {
             }
         }
         let keys = self.preload_keys();
+        self.preload_wanted.clear();
+        for key in &keys {
+            if self.preload_wanted.len() < 2 * PRELOAD_RADIUS && !self.preload_wanted.contains(key)
+            {
+                self.preload_wanted.push(*key);
+            }
+        }
         for ticket in self.scheduler.request_preload(keys, &self.cache) {
             self.enqueue(ticket);
         }
         self.abandon_obsolete();
     }
 
-    /// Obsolete jobs are either completed right away (late: must be ignored)
-    /// or abandoned; half of the abandoned ones still finish later as ghosts.
+    /// Whether any slot still wants `key`.
+    fn wanted(&self, key: &FrameId) -> bool {
+        self.requested.values().any(|wanted| wanted == key) || self.preload_wanted.contains(key)
+    }
+
+    /// Obsolete jobs are abandoned (a refusal means the key is wanted again
+    /// and the job stays); half of the abandoned ones still finish later as
+    /// ghosts, which must be ignored.
     fn abandon_obsolete(&mut self) {
         for ticket in self.scheduler.obsolete() {
-            self.scheduler.abandon(&ticket);
+            if !self.scheduler.abandon(&ticket) {
+                assert!(
+                    self.wanted(&ticket.key()),
+                    "abandon refused an obsolete job"
+                );
+                continue;
+            }
             if let Some(index) = self.jobs.iter().position(|job| job.ticket == ticket) {
                 if self.rng.below(2) == 0 {
                     self.jobs.swap_remove(index);
@@ -431,29 +454,50 @@ impl<'a> Harness<'a> {
                 Ok(self.fx.composed[&key].clone())
             };
             let before = self.cache.peek(&key).is_some();
+            let wanted = self.wanted(&key);
             let completion = self.scheduler.complete(job.ticket, result, &mut self.cache);
+            // One job per key: an Ok result is accepted exactly while its key
+            // is still wanted by some slot; a failure is a fact about the
+            // frame and is always accepted. An abandoned job is unknown.
+            let expected = if job.zombie || (!job.fail && !wanted) {
+                Completion::Ignored
+            } else {
+                Completion::Accepted
+            };
+            assert_eq!(completion, expected, "{:?} for {key:?}", job.ticket);
             match completion {
                 Completion::Accepted => {
                     assert!(!job.zombie, "an abandoned job was accepted");
-                    // Latest wins: an accepted Program or Preview job is the
-                    // newest request of its slot.
-                    if matches!(job.ticket.slot(), FrameSlot::Program | FrameSlot::Preview) {
-                        assert_eq!(
-                            self.requested.get(&job.ticket.slot()),
-                            Some(&key),
-                            "a superseded {:?} job was accepted",
-                            job.ticket.slot()
-                        );
-                    }
                     self.counters.accepted += 1;
                     if job.fail {
                         self.failed.insert(key);
                         self.counters.failures_marked += 1;
+                        let program_before = self.engine.state().program();
+                        let live_before = self.live();
+                        let preview_before = self.preview();
                         self.engine.mark_frame_unavailable(
                             key,
                             UnavailableReason::DecodeFailed,
                             Millis(self.clock),
                         );
+                        // Nothing from a failed render reaches Program: a
+                        // failure for Program's frame blacks it out (flagged
+                        // while linked Live, Freeze kept while Frozen).
+                        if matches!(program_before, ProgramContent::Frame { frame, .. } if frame == key)
+                        {
+                            assert_ne!(
+                                self.program_key(),
+                                Some(key),
+                                "failed frame stayed on Program"
+                            );
+                            assert_eq!(self.live(), live_before);
+                            if self.preview() == preview_before {
+                                assert_eq!(
+                                    self.engine.state().unavailable_black(),
+                                    live_before == LiveState::Live
+                                );
+                            }
+                        }
                         marked = true;
                     }
                 }
@@ -505,7 +549,7 @@ impl<'a> Harness<'a> {
         // Bounded resources.
         let len = self.cache.len();
         assert!(
-            len <= FRAME_CAPACITY + 2,
+            len <= FRAME_CAPACITY,
             "{context}: cache holds {len} entries"
         );
         let in_flight = self.scheduler.in_flight();
@@ -599,9 +643,9 @@ impl<'a> Harness<'a> {
                 assert!(
                     matches!(
                         self.engine.cue_availability(cue),
-                        Availability::Unavailable(UnavailableSource::Runtime(
+                        Some(Availability::Unavailable(UnavailableSource::Runtime(
                             UnavailableReason::DecodeFailed
-                        ))
+                        )))
                     ),
                     "{context}: Cue {cue} of failed frame is {:?}",
                     self.engine.cue_availability(cue)
@@ -726,7 +770,7 @@ fn five_hundred_cue_navigation_stays_bounded_under_slow_and_failed_jobs() {
         let failed = h.fx.frame_of[cue].is_some_and(|frame| h.failed.contains(&frame));
         let runtime = matches!(
             h.engine.cue_availability(cue),
-            Availability::Unavailable(UnavailableSource::Runtime(_))
+            Some(Availability::Unavailable(UnavailableSource::Runtime(_)))
         );
         assert_eq!(failed, runtime, "Cue {cue}");
     }
@@ -735,7 +779,7 @@ fn five_hundred_cue_navigation_stays_bounded_under_slow_and_failed_jobs() {
         "no late completion was exercised"
     );
     assert!(h.counters.preview_stale_held > 0, "Preview never waited");
-    assert!(h.maxima.ready_in_cache <= FRAME_CAPACITY + 2);
+    assert!(h.maxima.ready_in_cache <= FRAME_CAPACITY);
     let _ = h.live();
 
     println!(

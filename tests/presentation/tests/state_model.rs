@@ -14,7 +14,7 @@ use presentation::snapshot_reader::{
     DirectorySource, LoadedSnapshot, SnapshotLoadError, read_snapshot,
 };
 use presentation::state::{EngineState, LiveState, Millis, ProgramContent};
-use rendering::UnavailableReason;
+use rendering::{RenderError, UnavailableReason};
 
 fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -78,7 +78,7 @@ fn generate(rng: &mut XorShift, length: usize, cue_count: usize, frames: &[Frame
                 let reason = if rng.below(2) == 0 {
                     UnavailableReason::DecodeFailed
                 } else {
-                    UnavailableReason::MissingAsset
+                    UnavailableReason::Render(RenderError::FontUnavailable)
                 };
                 return Step::Command(Command::FrameUnavailable { frame, reason }, now);
             }
@@ -131,23 +131,16 @@ fn is_loaded_project_frame(loaded: &LoadedSnapshot, cue: usize, frame: Option<Fr
 fn runtime_unavailable(engine: &Engine, cue: usize) -> bool {
     matches!(
         engine.cue_availability(cue),
-        Availability::Unavailable(UnavailableSource::Runtime(_))
+        Some(Availability::Unavailable(UnavailableSource::Runtime(_)))
     )
 }
 
 /// Every invariant that must hold after every step.
 ///
-/// `grandfathered` is the one frame allowed to stay on Program although its
-/// Cues failed at runtime: the frame that was already on Program when it was
-/// marked (it is complete and pinned; the next navigation follows the new
-/// availability).
-fn assert_invariants(
-    loaded: &LoadedSnapshot,
-    engine: &Engine,
-    clock: Millis,
-    grandfathered: Option<FrameId>,
-    context: &str,
-) {
+/// Nothing from a failed render ever reaches Program (Decision 274), so there
+/// is no exception for a frame that was on Program when it was marked: it was
+/// never drawn, and Program goes black.
+fn assert_invariants(loaded: &LoadedSnapshot, engine: &Engine, clock: Millis, context: &str) {
     let snapshot = loaded.snapshot();
     let state = engine.state();
     let live = state.live();
@@ -162,10 +155,9 @@ fn assert_invariants(
                 is_loaded_project_frame(loaded, cue, Some(frame)),
                 "{context}: Program frame {frame:?} is not the loaded frame of Project Cue {cue}"
             );
-            // Program never shows a frame whose Cue failed at runtime, except
-            // the frame that was already on Program when it was marked.
+            // Program never shows a frame whose Cue failed at runtime.
             assert!(
-                !runtime_unavailable(engine, cue) || grandfathered == Some(frame),
+                !runtime_unavailable(engine, cue),
                 "{context}: Program shows runtime-unavailable frame {frame:?} of Cue {cue}"
             );
         }
@@ -187,19 +179,9 @@ fn assert_invariants(
     if live == LiveState::Live {
         let preview = state.preview();
         match snapshot.cue(preview).unwrap().behavior() {
-            CueBehavior::Project { frame, .. } if runtime_unavailable(engine, preview) => {
-                if grandfathered == Some(*frame)
-                    && state.program()
-                        == (ProgramContent::Frame {
-                            frame: *frame,
-                            cue: preview,
-                        })
-                {
-                    // The marked frame stays where it already was.
-                } else {
-                    assert_eq!(state.program(), ProgramContent::Black, "{context}");
-                    assert!(state.unavailable_black(), "{context}");
-                }
+            CueBehavior::Project { .. } if runtime_unavailable(engine, preview) => {
+                assert_eq!(state.program(), ProgramContent::Black, "{context}");
+                assert!(state.unavailable_black(), "{context}");
             }
             CueBehavior::Project { frame, .. } => assert_eq!(
                 state.program(),
@@ -288,7 +270,6 @@ fn assert_invariants(
 fn run(loaded: &LoadedSnapshot, steps: &[Step], check: bool, label: &str) -> Trace {
     let mut engine = Engine::new(Arc::new(loaded.snapshot().clone()));
     let mut trace = Vec::with_capacity(steps.len());
-    let mut grandfathered: Option<FrameId> = None;
     for (index, step) in steps.iter().enumerate() {
         let context = format!("{label} step {index} {step:?}");
         let before = engine.state().clone();
@@ -345,17 +326,26 @@ fn run(loaded: &LoadedSnapshot, steps: &[Step], check: bool, label: &str) -> Tra
                 engine.last_now() >= before_now,
                 "{context}: the clock ran backwards"
             );
-            // A frame marked while on Program stays there; the exception ends
-            // as soon as Program shows anything else.
+            // A frame marked while on Program was never drawn: Program goes
+            // black (flagged while linked Live, Freeze kept while Frozen).
             if let Step::Command(Command::FrameUnavailable { frame, .. }, _) = *step
                 && matches!(before.program(), ProgramContent::Frame { frame: shown, .. } if shown == frame)
             {
-                grandfathered = Some(frame);
+                assert!(
+                    !matches!(after_program(&engine), ProgramContent::Frame { frame: shown, .. } if shown == frame),
+                    "{context}: the failed frame stayed on Program"
+                );
+                assert_eq!(after.live(), before.live(), "{context}");
+                // Unless a running auto-play moved Preview on at once.
+                if after.preview() == before.preview() {
+                    assert_eq!(
+                        after.unavailable_black(),
+                        before.live() == LiveState::Live,
+                        "{context}"
+                    );
+                }
             }
-            grandfathered = grandfathered.filter(|frame| {
-                matches!(after_program(&engine), ProgramContent::Frame { frame: shown, .. } if shown == *frame)
-            });
-            assert_invariants(loaded, &engine, step.time(), grandfathered, &context);
+            assert_invariants(loaded, &engine, step.time(), &context);
         }
         trace.push((outcome, engine.state().clone()));
     }
