@@ -1332,17 +1332,18 @@
     if (!first && st.pinned != null && st.pinned !== pinned && wrap) {
       var wasOver = !!st.open["panel:rail"];
       if (now["panel:rail"]) st.open["panel:rail"] = now["panel:rail"]; else delete st.open["panel:rail"];
-      if (!still()) {
-        play(wrap, [{ transform: "translateX(" + (st.x - x) + "px)" }, { transform: "none" }], pinned ? OPEN : CLOSE, EASE);
-        if (pinned && !wasOver) play(rail, [{ transform: "translateX(" + -rail.offsetWidth + "px)" }, { transform: "none" }], OPEN, EASE);
-        if (!pinned && !now["panel:rail"] && st.rail) {
-          var host = resolve(app, st.rail.path);
-          if (host && host.className === st.rail.pc) {
-            var g = ghost(st.rail.el, host), b = st.rail.box;
-            g.style.cssText += ";position:absolute;z-index:5;left:" + b.l + "px;top:" + b.t + "px;width:" + b.w + "px;height:" + b.h + "px";
-            var a = play(g, [{ transform: "none" }, { transform: "translateX(" + -(b.w + 16) + "px)" }], CLOSE, EXIT);
-            if (a) a.onfinish = function () { g.remove(); }; else g.remove();
-          }
+      // The rail's space opens or closes; the timeline resizes into it, so its tools (right-aligned) stay
+      // put and its slides reflow rather than travel. The rail itself floats above while that happens.
+      if (!still() && rail) spaceFor(rail, wrap, x - st.x, wasOver);
+      if (!still() && !pinned && st.rail) {
+        var host = resolve(app, st.rail.path);
+        if (host && host.className === st.rail.pc) {
+          var b = st.rail.box, g = ghost(st.rail.el, host);
+          g.style.cssText += ";position:absolute;z-index:5;left:" + b.l + "px;top:" + b.t + "px;width:" + b.w + "px;height:" + b.h + "px";
+          var sp = spacer(host, wrap), a = play(sp, [{ width: (st.x - x) + "px" }, { width: "0px" }], CLOSE, EASE);
+          if (!now["panel:rail"]) play(g, [{ transform: "none" }, { transform: "translateX(" + -(b.w + 16) + "px)" }], CLOSE, EXIT);
+          var end = function () { g.remove(); sp.remove(); };
+          if (a) a.onfinish = end; else end();
         }
       }
     }
@@ -1373,6 +1374,19 @@
       m.el = el;
       if (!blank) m.src = el.cloneNode(true);
     });
+  }
+  function spacer(host, before) {
+    var sp = document.createElement("div"); sp.className = "o-ghost o-spacer"; sp.setAttribute("aria-hidden", "true");
+    sp.style.cssText = "flex:none;align-self:stretch;width:0"; host.insertBefore(sp, before); return sp;
+  }
+  // Pinning: the rail floats where it will sit while a spacer grows from the tab's width to the rail's.
+  function spaceFor(rail, wrap, grow, wasOver) {
+    var w = rail.offsetWidth, l = rail.offsetLeft, t = rail.offsetTop, h = rail.offsetHeight;
+    rail.style.cssText += ";position:absolute;z-index:5;left:" + l + "px;top:" + t + "px;width:" + w + "px;height:" + h + "px";
+    var sp = spacer(rail.parentNode, wrap), a = play(sp, [{ width: (w - grow) + "px" }, { width: w + "px" }], OPEN, EASE);
+    if (!wasOver) play(rail, [{ transform: "translateX(" + -(w + 16) + "px)" }, { transform: "none" }], OPEN, EASE);
+    var end = function () { ["position", "z-index", "left", "top", "width", "height"].forEach(function (p) { rail.style.removeProperty(p); }); sp.remove(); };
+    if (a) a.onfinish = end; else end();
   }
   function vis(m, t) { return m.ms <= 0 ? m.to : m.from + (m.to - m.from) * Math.max(0, Math.min(1, (t - m.t0) / m.ms)); }
   function path(app, el) { var p = []; for (var n = el; n && n !== app; n = n.parentElement) p.unshift([].indexOf.call(n.parentElement.children, n)); return p; }

@@ -712,9 +712,10 @@ strip stay still; only the content beneath them moves. The change itself takes
 effect immediately, and Presenter never uses page motion: no page, tab or
 travelling-marker motion, so nothing on the operator surface can look like a
 slide change. Its Insert and Edit panels and the overlay Ordo rail slide in from
-the left with the slideover timing. Pinning or unpinning Ordo slides the Cue
-timeline to its new place with the same timing, while the rail stays where the
-overlay was or slides in or out beside it. Its dialogs, menus and toasts move as
+the left with the slideover timing. Pinning or unpinning Ordo opens or closes
+the rail's space with the same timing: the Cue timeline resizes into it, so its
+slides reflow and its tools stay put, while the rail stays where the overlay was
+or slides in or out. Its dialogs, menus and toasts move as
 elsewhere, and each monitor fades to and from black as below. A full-workspace view
 (Review Song import, a Theme opened for editing) rises from the bottom over the
 workspace it covers with the slideover timing, and sinks back when it closes.
