@@ -110,7 +110,11 @@
   font-size: calc(12px * var(--o-scale)); font-weight: 500;
 }
 .o-navrail a { position: relative; }
-.o-navrail a[aria-current="page"] { background: var(--o-selection); color: var(--o-text); font-weight: 600; }
+.o-navrail a[aria-current="page"] { background: var(--o-selection); color: var(--o-text); }
+/* Every entry is at least one label tall and centres its content, so the current one, which shows its
+   icon alone (as the Microsoft Store rail does), keeps its height and its icon sits in the middle. */
+.o-navrail a { justify-content: center; min-height: calc(54px * var(--o-scale)); }
+.o-navrail a[aria-current="page"] span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .o-navrail .o-spacer { flex: 1; }
 .o-navrail a span { text-align: center; line-height: 1.25; }   /* a two-line label ("Transfer & Backup") stays centred under its icon */
 /* The current destination's icon is filled. Lucide has no filled set, so the outer shape fills and its
@@ -211,8 +215,6 @@
 .o-navrail a[aria-current="page"]::before, .sh-navrow[aria-current="true"]::before {
   top: 50%; bottom: auto; height: calc(16px * var(--o-scale)); transform: translateY(-50%); border-radius: 2px;
 }
-/* In the rail the pill centres on the icon, not the entry, so a long label below never meets it. */
-.o-navrail a[aria-current="page"]::before { top: calc(var(--o-s2) + 2px * var(--o-scale)); transform: none; }
 .o-row .o-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .o-row:focus-visible .o-ellipsis { white-space: normal; }
 .o-row + .o-row { border-top: 1px solid var(--o-border); }

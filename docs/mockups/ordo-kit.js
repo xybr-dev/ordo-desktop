@@ -1004,7 +1004,7 @@
   var PAGE_OF = { Masses: "masses-index.html", Library: "song-library-master-detail-v2.html", Themes: "themes.html", "Transfer & Backup": "transfer-backup.html",
     Diagnostics: "diagnostics.html", Help: "help.html", Settings: "settings.html" };
   function navrail(active) {
-    function a(n) { return '<a href="' + (PAGE_OF[n[0]] || "#") + '" data-dest="' + esc(n[0]) + '" aria-current="' + (n[0] === active ? "page" : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
+    function a(n) { return '<a href="' + (PAGE_OF[n[0]] || "#") + '" data-dest="' + esc(n[0]) + '" aria-current="' + (n[0] === active ? "page\" title=\"" + esc(n[0]) : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
     return '<nav class="o-navrail" aria-label="Global navigation">' + NAV.map(a).join("") + '<span class="o-spacer"></span>' + NAV_FOOT.map(a).join("") + "</nav>";
   }
 

@@ -219,9 +219,11 @@ rather than to a popup, so it keeps the leading edge beside the indent.
 Ordinary icons remain outlined. Filled shapes are reserved for status markers
 whose shape is part of the non-color state cue, plus one exception: the current
 destination in the global navigation rail shows a filled form of its icon,
-derived from the Lucide outline (Decision 300). That entry also carries a short
-3×16px rounded pill beside its icon instead of a full-height bar; rounded
-navigation rows centre the pill, and square list rows keep the full-height bar. A custom SVG is permitted only
+derived from the Lucide outline (Decision 300). That entry shows its icon
+alone, centred, and keeps its label as its accessible name and tooltip. A
+short 3×16px rounded pill, centred on the entry, marks it instead of a
+full-height bar; rounded navigation rows centre the same pill, and square list
+rows keep the full-height bar. A custom SVG is permitted only
 when an Ordo-specific concept cannot be expressed clearly with Lucide; it must
 use the same visual grid, stroke language, sizing, and accessibility rules.
 Never mix Lucide with Material, Font Awesome, emoji, or another general icon
