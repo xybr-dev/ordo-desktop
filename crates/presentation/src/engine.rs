@@ -9,6 +9,11 @@
 //! describe what each monitor draws while the 500 ms fade runs, and
 //! [`Engine::tick`] is how the owner of the clock lets auto-play advance.
 //! Leaving Presenter drops the Engine, which ends auto-play with it.
+//! [`Engine::next_deadline`] tells the owner of the clock when to call back.
+//!
+//! Runtime availability changes (T1.3) must enter as an Engine input through
+//! the same `evaluate`/commit path as a command, so auto-play settling and
+//! fade classification run; never swap the snapshot underneath a live Engine.
 //!
 //! Decisions applied: 272 (one-step resume on the recognized display), 273
 //! (Freeze and Blackout toggle off exactly as Space does), 274 (an unavailable
@@ -62,8 +67,8 @@ pub enum Refusal {
         /// Why the scope is ineligible.
         reason: AutoPlayRefusal,
     },
-    /// Auto-play cannot start while Program is Frozen or in Blackout: both
-    /// stop it.
+    /// Auto-play cannot start while Program is Frozen, in Blackout, or the
+    /// display is Disconnected: each of them stops a run.
     AutoPlayBlocked,
 }
 
@@ -99,7 +104,7 @@ impl fmt::Display for Refusal {
                 write!(f, "auto-play is not available here: {reason:?}")
             }
             Self::AutoPlayBlocked => {
-                f.write_str("auto-play cannot start while frozen or blacked out")
+                f.write_str("auto-play cannot start while frozen, blacked out, or disconnected")
             }
         }
     }
@@ -214,7 +219,11 @@ impl Engine {
         let Some(run) = self.state.auto_play else {
             return Outcome::Unchanged;
         };
-        if now.0 < run.cue_started.0.saturating_add(run.duration_ms) {
+        // A run parked on a Cue that cannot advance has no deadline.
+        let Some(duration_ms) = run.duration_ms else {
+            return Outcome::Unchanged;
+        };
+        if now.0 < run.cue_started.0.saturating_add(duration_ms) {
             return Outcome::Unchanged;
         }
         let mut next = self.state.clone();
@@ -230,6 +239,22 @@ impl Engine {
         self.commit(next, changed, now)
     }
 
+    /// The next time the owner of the clock should call [`Engine::tick`] or
+    /// redraw: the earliest of the running Program or Preview fade end and the
+    /// auto-play Cue deadline. `None` when nothing is pending. An overdue
+    /// auto-play deadline is returned as is, so a late owner still ticks.
+    pub fn next_deadline(&self) -> Option<Millis> {
+        let fades = [self.program_fade.end(), self.preview_fade.end()]
+            .into_iter()
+            .flatten()
+            .filter(|end| *end > self.last_now);
+        let auto_play = self.state.auto_play.and_then(|run| {
+            run.duration_ms
+                .map(|ms| Millis(run.cue_started.0.saturating_add(ms)))
+        });
+        fades.chain(auto_play).min()
+    }
+
     /// What the Program monitor draws at `now`. Instant state changes are
     /// shown as a 500 ms fade for content to or from black; content to other
     /// content is a cut. Disabling the output or losing the display is instant.
@@ -241,6 +266,11 @@ impl Engine {
     /// What the Preview monitor draws at `now`, with the same fade rules
     /// applied to Preview's own black-and-content changes. Preview is black
     /// when its Cue is a trigger, Hold, unavailable, or a Wait.
+    ///
+    /// `shown: None` means "no congregation frame", not "nothing to show the
+    /// operator": when [`Engine::preview_cue`]'s `program_effect()` is
+    /// `NotPresentable` the UI overlays the operator-only "Output unavailable"
+    /// placeholder on the black Preview (Decision 274).
     pub fn preview_view(&self, now: Millis) -> ProgramView {
         self.preview_fade.view(
             self.preview_frame(self.state.preview),
@@ -312,7 +342,8 @@ impl Engine {
     /// (old, new) difference rather than on individual commands: it stops
     /// when the live state newly enters Frozen, Blackout, OutputDisabled, or
     /// Disconnected, or when Preview is not on a projectable Cue of the scope;
-    /// it restarts the clock when Preview moved to another Cue inside scope.
+    /// it restarts the clock when Preview moved to another Cue inside scope
+    /// (and drops the deadline when that Cue cannot advance).
     fn settle_auto_play(&self, old: &EngineState, next: &mut EngineState, now: Millis) {
         let Some(mut run) = next.auto_play else {
             return;
@@ -325,16 +356,15 @@ impl Engine {
                     | LiveState::OutputDisabled
                     | LiveState::Disconnected { .. }
             );
-        let duration = self.cue_duration_ms(next.preview);
-        let Some(duration_ms) =
-            duration.filter(|_| !halted && self.in_scope(run.scope, next.preview))
-        else {
+        if halted || !self.in_scope(run.scope, next.preview) {
             next.auto_play = None;
             return;
-        };
+        }
         if old.preview != next.preview {
             run.cue_started = now;
-            run.duration_ms = duration_ms;
+            // `None` on an in-scope Cue that cannot advance: the run stays
+            // without a deadline until the operator lands on a projectable Cue.
+            run.duration_ms = self.cue_duration_ms(next.preview);
             next.auto_play = Some(run);
         }
     }
@@ -346,37 +376,56 @@ impl Engine {
         Some(u64::from(seconds) * 1000)
     }
 
-    /// Whether `flat` is a projectable Cue of `scope`.
+    /// Whether `flat` belongs to `scope`: any Cue of the item or section,
+    /// projectable or not. Only navigation outside this stops a run
+    /// (CONTEXT "Auto-play scope").
     fn in_scope(&self, scope: AutoPlayScope, flat: usize) -> bool {
         let Some(position) = self.snapshot.positions().get(flat) else {
             return false;
         };
-        let inside = match scope {
+        match scope {
             AutoPlayScope::Item(item) => position.item_id == item,
             AutoPlayScope::Section(section) => self
                 .snapshot
                 .sections()
                 .get(position.section)
                 .is_some_and(|candidate| candidate.id() == section),
-        };
-        inside && self.cue_duration_ms(flat).is_some()
+        }
+    }
+
+    /// Whether `flat` is a Cue of `scope` that auto-play can show and time:
+    /// projectable, with a duration.
+    fn advancing_in_scope(&self, scope: AutoPlayScope, flat: usize) -> bool {
+        self.in_scope(scope, flat) && self.cue_duration_ms(flat).is_some()
     }
 
     /// The projectable Cue after `from` in `scope`, wrapping last to first.
+    /// Non-projectable Cues of the scope are skipped.
     fn next_in_scope(&self, scope: AutoPlayScope, from: usize) -> Option<usize> {
         let count = self.snapshot.cue_count();
         (1..=count)
             .map(|step| (from + step) % count)
-            .find(|&flat| self.in_scope(scope, flat))
+            .find(|&flat| self.advancing_in_scope(scope, flat))
     }
 
     /// Checks `scope` is eligible, as seen from the Preview Cue's position.
     fn check_eligible(&self, scope: AutoPlayScope, preview: usize) -> Result<(), Refusal> {
         let ineligible = |reason| Err(Refusal::AutoPlayIneligible { reason });
-        let projectable = |item: &&MassItem| {
+        let projectable = |item: &MassItem| {
             item.cues()
                 .iter()
                 .any(|cue| matches!(cue.behavior(), CueBehavior::Project { .. }))
+        };
+        // Content of any kind: an item whose slides all failed still counts
+        // as the wrong kind of item in a section, so it blocks the loop
+        // instead of letting a Song look like an empty one.
+        let has_content = |item: &&MassItem| {
+            item.cues().iter().any(|cue| {
+                matches!(
+                    cue.behavior(),
+                    CueBehavior::Project { .. } | CueBehavior::Unavailable { .. }
+                )
+            })
         };
         let position = self.snapshot.positions()[preview];
         match scope {
@@ -388,20 +437,20 @@ impl Engine {
                 if item.auto_play().is_none() {
                     return ineligible(AutoPlayRefusal::NoDurations);
                 }
-                if !projectable(&item) {
+                if !projectable(item) {
                     return ineligible(AutoPlayRefusal::NothingProjectable);
                 }
             }
             AutoPlayScope::Section(_) => {
                 let section = &self.snapshot.sections()[position.section];
                 let mut any = false;
-                for item in section.items().iter().filter(projectable) {
+                for item in section.items().iter().filter(has_content) {
                     if item.kind() != MassItemKind::GeneralPresentation
                         || item.auto_play().is_none()
                     {
                         return ineligible(AutoPlayRefusal::SectionHasIneligibleItem);
                     }
-                    any = true;
+                    any |= projectable(item);
                 }
                 if !any {
                     return ineligible(AutoPlayRefusal::NothingProjectable);
@@ -420,19 +469,31 @@ impl Engine {
         now: Millis,
     ) -> Result<(), Refusal> {
         self.check_eligible(scope, next.preview)?;
-        if matches!(next.live, LiveState::Frozen | LiveState::Blackout) {
+        if matches!(
+            next.live,
+            LiveState::Frozen | LiveState::Blackout | LiveState::Disconnected { .. }
+        ) {
             return Err(Refusal::AutoPlayBlocked);
         }
-        if !self.in_scope(scope, next.preview) {
-            let first = (0..self.snapshot.cue_count()).find(|&flat| self.in_scope(scope, flat));
+        if !self.advancing_in_scope(scope, next.preview) {
+            let first =
+                (0..self.snapshot.cue_count()).find(|&flat| self.advancing_in_scope(scope, flat));
             if let Some(first) = first {
                 self.navigate(next, first);
             }
         }
+        // Widening a run keeps the current Cue's clock when that Cue is still
+        // in the new scope: the Cue is not shown anew.
+        let kept = next
+            .auto_play
+            .filter(|_| self.in_scope(scope, next.preview) && next.preview == self.state.preview);
         next.auto_play = Some(AutoPlayStatus {
             scope,
-            cue_started: now,
-            duration_ms: self.cue_duration_ms(next.preview).unwrap_or(0),
+            cue_started: kept.map_or(now, |run| run.cue_started),
+            duration_ms: match kept {
+                Some(run) => run.duration_ms,
+                None => self.cue_duration_ms(next.preview),
+            },
         });
         Ok(())
     }
@@ -578,7 +639,11 @@ impl Engine {
                 } => return Err(Refusal::DisplayNotBack),
                 _ => {}
             },
-            Command::DisableOutput => Self::go_black(next, LiveState::OutputDisabled),
+            Command::DisableOutput => {
+                Self::go_black(next, LiveState::OutputDisabled);
+                // Also ends a rehearsal run, where the live state does not move.
+                next.auto_play = None;
+            }
             Command::DisplayLost => match next.live {
                 LiveState::OutputDisabled => {}
                 // The returned display went away again.
@@ -1547,6 +1612,10 @@ mod timed_tests {
             vec![gp(5, 2, vec![project(40, None)])],
             vec![gp(6, 5, vec![trigger(41)])],
         ];
+        build(sections)
+    }
+
+    fn build(sections: Vec<Vec<MassItem>>) -> Engine {
         let sections = sections
             .into_iter()
             .enumerate()
@@ -1819,20 +1888,20 @@ mod timed_tests {
             Some(AutoPlayStatus {
                 scope: item_scope(2),
                 cue_started: Millis(1_000),
-                duration_ms: 8_000
+                duration_ms: Some(8_000)
             })
         );
         assert_eq!(e.tick(Millis(8_999)), Outcome::Unchanged);
         assert_eq!(e.tick(Millis(9_000)), Outcome::Changed);
         assert_eq!(e.state().preview(), 4);
         // The per-Cue override wins over the item default.
-        assert_eq!(e.state().auto_play().unwrap().duration_ms, 3_000);
+        assert_eq!(e.state().auto_play().unwrap().duration_ms, Some(3_000));
         assert_eq!(e.state().auto_play().unwrap().cue_started, Millis(9_000));
         assert_eq!(e.tick(Millis(11_999)), Outcome::Unchanged);
         // Cue 5 is a trigger: skipped.
         assert_eq!(e.tick(Millis(12_000)), Outcome::Changed);
         assert_eq!(e.state().preview(), 6);
-        assert_eq!(e.state().auto_play().unwrap().duration_ms, 8_000);
+        assert_eq!(e.state().auto_play().unwrap().duration_ms, Some(8_000));
         // Wrap from the last to the first projectable Cue.
         assert_eq!(e.tick(Millis(20_000)), Outcome::Changed);
         assert_eq!(e.state().preview(), 3);
@@ -1883,7 +1952,10 @@ mod timed_tests {
         at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
         at(&mut e, Command::Next, 5_000).unwrap();
         let run = e.state().auto_play().unwrap();
-        assert_eq!((run.cue_started, run.duration_ms), (Millis(5_000), 3_000));
+        assert_eq!(
+            (run.cue_started, run.duration_ms),
+            (Millis(5_000), Some(3_000))
+        );
         assert_eq!(e.tick(Millis(7_999)), Outcome::Unchanged);
         assert_eq!(e.tick(Millis(8_000)), Outcome::Changed);
         assert_eq!(e.state().preview(), 6);
@@ -2093,6 +2165,338 @@ mod timed_tests {
         assert_eq!(e.tick(Millis(T0 + 600)), Outcome::Unchanged);
         assert_eq!(e.state().revision(), revision);
         assert_eq!(fview(&e, 600).shown, None);
+    }
+
+    #[test]
+    fn disable_output_and_display_loss_drop_a_running_fade_out() {
+        for command in [Command::DisableOutput, Command::DisplayLost] {
+            let mut e = live_at(3);
+            fat(&mut e, Command::ToggleBlackout, 0).unwrap();
+            assert!(fview(&e, 50).fading);
+            fat(&mut e, command, 100).unwrap();
+            assert_eq!(
+                fview(&e, 100),
+                ProgramView {
+                    shown: None,
+                    opacity: 0.0,
+                    fading: false
+                },
+                "{command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_black_to_content_change_fades_in() {
+        // First Take from an open, black output.
+        let mut e = engine();
+        at(&mut e, Command::EnableOutput, T0).unwrap();
+        at(&mut e, Command::GoTo(3), T0).unwrap();
+        at(&mut e, Command::Take, T0).unwrap();
+        let view = fview(&e, 250);
+        assert_eq!(view.shown, Some(frame(10)));
+        approx(view.opacity, 0.5);
+        assert!(view.fading);
+
+        // A recreated window after Decision 272 resume.
+        let mut e = live_at(3);
+        fat(&mut e, Command::DisplayLost, 0).unwrap();
+        fat(&mut e, Command::DisplayReturned { recognized: true }, 100).unwrap();
+        assert_eq!(fview(&e, 100).shown, None);
+        fat(&mut e, Command::Take, 200).unwrap();
+        let view = fview(&e, 450);
+        assert_eq!(view.shown, Some(frame(10)));
+        approx(view.opacity, 0.5);
+        assert_eq!(fview(&e, 700).opacity, 1.0);
+    }
+
+    #[test]
+    fn a_fade_in_reverses_back_to_black_from_where_it_is() {
+        let mut e = engine();
+        at(&mut e, Command::EnableOutput, T0).unwrap();
+        at(&mut e, Command::GoTo(3), T0).unwrap();
+        at(&mut e, Command::Take, T0).unwrap();
+        // 100 ms into the 500 ms fade-in the opacity is 0.2.
+        approx(fview(&e, 100).opacity, 0.2);
+        fat(&mut e, Command::ToggleBlackout, 100).unwrap();
+        let reversed = fview(&e, 100);
+        assert_eq!(reversed.shown, Some(frame(10)));
+        approx(reversed.opacity, 0.2);
+        // The fade-out takes 0.2 * 500 ms = 100 ms.
+        approx(fview(&e, 150).opacity, 0.1);
+        let done = fview(&e, 200);
+        assert_eq!(
+            done,
+            ProgramView {
+                shown: None,
+                opacity: 0.0,
+                fading: false
+            }
+        );
+    }
+
+    #[test]
+    fn hold_to_content_by_linked_navigation_fades_in() {
+        let mut e = live_at(8);
+        assert_eq!(fview(&e, 0).shown, None);
+        fat(&mut e, Command::Previous, 0).unwrap();
+        let view = fview(&e, 250);
+        assert_eq!(view.shown, Some(frame(20)));
+        approx(view.opacity, 0.5);
+        assert!(view.fading);
+    }
+
+    #[test]
+    fn the_preview_monitor_reverses_mid_fade_too() {
+        let mut e = engine();
+        // Cue 5 is a trigger: Preview fades out, then reverses at 0.5.
+        at(&mut e, Command::GoTo(5), T0).unwrap();
+        approx(preview_of(&e, T0 + 250).opacity, 0.5);
+        at(&mut e, Command::GoTo(0), T0 + 250).unwrap();
+        let reversed = preview_of(&e, T0 + 250);
+        assert_eq!(reversed.shown, Some(frame(0)));
+        approx(reversed.opacity, 0.5);
+        approx(preview_of(&e, T0 + 375).opacity, 0.75);
+        let done = preview_of(&e, T0 + 500);
+        assert_eq!((done.opacity, done.fading), (1.0, false));
+    }
+
+    #[test]
+    fn next_deadline_is_the_earliest_fade_end_or_auto_play_due_time() {
+        let mut e = engine();
+        assert_eq!(e.next_deadline(), None);
+        at(&mut e, Command::EnableOutput, 0).unwrap();
+        at(&mut e, Command::GoTo(3), 0).unwrap();
+        at(&mut e, Command::Take, 0).unwrap();
+        // The Take fade-in ends at 500.
+        assert_eq!(e.next_deadline(), Some(Millis(500)));
+        e.tick(Millis(T0));
+        assert_eq!(e.next_deadline(), None);
+
+        fat(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 8_000)));
+        fat(&mut e, Command::Next, 100).unwrap();
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 3_100)));
+        // Onto the in-scope trigger: both monitors fade out to 700, and the
+        // run has no deadline of its own.
+        fat(&mut e, Command::Next, 200).unwrap();
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 700)));
+        // Reversing at 0.8 makes the fade-in short; it ends before the due time.
+        fat(&mut e, Command::Next, 300).unwrap();
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 400)));
+        e.tick(Millis(T0 + 500));
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 8_300)));
+        // An overdue auto-play deadline stays visible until ticked.
+        assert_eq!(e.tick(Millis(T0 + 9_000)), Outcome::Changed);
+        assert_eq!(e.next_deadline(), Some(Millis(T0 + 17_000)));
+        e.apply(Command::StopAutoPlay, Millis(T0 + 9_100)).unwrap();
+        assert_eq!(e.next_deadline(), None);
+    }
+
+    #[test]
+    fn in_scope_cues_that_cannot_advance_keep_the_run_without_a_deadline() {
+        // Item scope: Cue 5 is an in-scope trigger.
+        let mut e = engine();
+        at(&mut e, Command::GoTo(4), 0).unwrap();
+        at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        at(&mut e, Command::Next, 1_000).unwrap();
+        assert_eq!(e.state().preview(), 5);
+        let run = e.state().auto_play().expect("the run survives");
+        assert_eq!((run.scope, run.duration_ms), (item_scope(2), None));
+        // Only Preview's fade-out is pending: the run itself has no deadline.
+        assert_eq!(e.next_deadline(), Some(Millis(1_500)));
+        // Time does nothing until the operator moves again.
+        assert_eq!(e.tick(Millis(1_000_000)), Outcome::Unchanged);
+        assert_eq!(e.next_deadline(), None);
+        assert_eq!(e.state().preview(), 5);
+        at(&mut e, Command::Next, 2_000_000).unwrap();
+        let run = e.state().auto_play().unwrap();
+        assert_eq!(
+            (run.cue_started, run.duration_ms),
+            (Millis(2_000_000), Some(8_000))
+        );
+        assert_eq!(e.tick(Millis(2_008_000)), Outcome::Changed);
+        // The automatic advance still skips the trigger: 6 wraps to 3.
+        assert_eq!(e.state().preview(), 3);
+
+        // Hold and unavailable Cues of the item are in scope too.
+        let mut e = engine();
+        at(&mut e, Command::GoTo(7), 0).unwrap();
+        at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        for flat in [8, 9] {
+            at(&mut e, Command::Next, 100).unwrap();
+            assert_eq!(e.state().preview(), flat);
+            assert_eq!(e.state().auto_play().unwrap().duration_ms, None);
+        }
+        at(&mut e, Command::Previous, 200).unwrap();
+        at(&mut e, Command::Previous, 200).unwrap();
+        assert_eq!(e.state().auto_play().unwrap().duration_ms, Some(4_000));
+    }
+
+    #[test]
+    fn auto_play_cannot_start_while_disconnected() {
+        let mut e = live_at(3);
+        at(&mut e, Command::DisplayLost, 10).unwrap();
+        for back in [false, true] {
+            if back {
+                at(&mut e, Command::DisplayReturned { recognized: true }, 20).unwrap();
+            }
+            let state = e.state().clone();
+            for command in [Command::ToggleAutoPlay, Command::LoopSection] {
+                assert_eq!(e.check(command, Millis(30)), Err(Refusal::AutoPlayBlocked));
+                assert_eq!(e.apply(command, Millis(30)), Err(Refusal::AutoPlayBlocked));
+            }
+            assert_eq!(e.state(), &state);
+        }
+    }
+
+    #[test]
+    fn disabling_the_output_ends_a_rehearsal_run() {
+        let mut e = engine();
+        at(&mut e, Command::GoTo(3), 0).unwrap();
+        at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        assert_eq!(at(&mut e, Command::DisableOutput, 10), Ok(Outcome::Changed));
+        assert_eq!(e.state().auto_play(), None);
+    }
+
+    #[test]
+    fn navigation_landing_outside_an_item_scope_stops_the_run() {
+        // Cues 3..=6 are item 2.
+        for (start, command) in [
+            (6, Command::Next),
+            (3, Command::Previous),
+            (4, Command::GoTo(7)),
+        ] {
+            let mut e = engine();
+            at(&mut e, Command::GoTo(start), 0).unwrap();
+            at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+            at(&mut e, command, 10).unwrap();
+            assert_eq!(e.state().auto_play(), None, "{command:?} from {start}");
+        }
+    }
+
+    #[test]
+    fn a_section_run_survives_other_items_of_the_section_and_stops_outside() {
+        let mut e = engine();
+        at(&mut e, Command::GoTo(3), 0).unwrap();
+        at(&mut e, Command::LoopSection, 0).unwrap();
+        // Item 3, then item 4 (a trigger, no deadline): still the section run.
+        at(&mut e, Command::NextItem, 100).unwrap();
+        assert_eq!(e.state().preview(), 7);
+        assert_eq!(e.state().auto_play().unwrap().scope, section_scope(1));
+        assert_eq!(e.state().auto_play().unwrap().duration_ms, Some(4_000));
+        at(&mut e, Command::NextItem, 200).unwrap();
+        assert_eq!(e.state().preview(), 10);
+        assert_eq!(e.state().auto_play().unwrap().scope, section_scope(1));
+        assert_eq!(e.state().auto_play().unwrap().duration_ms, None);
+        // Section 2 is outside.
+        at(&mut e, Command::NextItem, 300).unwrap();
+        assert_eq!(e.state().preview(), 12);
+        assert_eq!(e.state().auto_play(), None);
+    }
+
+    #[test]
+    fn previous_within_scope_resets_the_timer() {
+        let mut e = engine();
+        at(&mut e, Command::GoTo(4), 0).unwrap();
+        at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        at(&mut e, Command::Previous, 2_000).unwrap();
+        let run = e.state().auto_play().unwrap();
+        assert_eq!(e.state().preview(), 3);
+        assert_eq!(
+            (run.cue_started, run.duration_ms),
+            (Millis(2_000), Some(8_000))
+        );
+        assert_eq!(e.tick(Millis(9_999)), Outcome::Unchanged);
+        assert_eq!(e.tick(Millis(10_000)), Outcome::Changed);
+    }
+
+    #[test]
+    fn widening_a_run_keeps_the_current_cues_clock() {
+        let mut e = engine();
+        at(&mut e, Command::GoTo(3), 0).unwrap();
+        at(&mut e, Command::ToggleAutoPlay, 0).unwrap();
+        at(&mut e, Command::Next, 5_000).unwrap();
+        at(&mut e, Command::LoopSection, 6_000).unwrap();
+        let run = e.state().auto_play().unwrap();
+        assert_eq!(run.scope, section_scope(1));
+        assert_eq!(
+            (run.cue_started, run.duration_ms),
+            (Millis(5_000), Some(3_000))
+        );
+        assert_eq!(e.tick(Millis(7_999)), Outcome::Unchanged);
+        assert_eq!(e.tick(Millis(8_000)), Outcome::Changed);
+        assert_eq!(e.state().preview(), 6);
+    }
+
+    #[test]
+    fn section_eligibility_counts_unavailable_content() {
+        let failed = |n: u16| {
+            cue(
+                n,
+                None,
+                CueBehavior::Unavailable {
+                    reason: "no font".to_owned(),
+                },
+            )
+        };
+        // A Song whose slides all failed still blocks "Loop this section".
+        let mut e = build(vec![vec![
+            item(0, MassItemKind::Song, None, vec![failed(0)]),
+            gp(1, 5, vec![project(1, None)]),
+        ]]);
+        let reason = AutoPlayRefusal::SectionHasIneligibleItem;
+        assert_eq!(
+            at(&mut e, Command::LoopSection, 0),
+            Err(Refusal::AutoPlayIneligible { reason })
+        );
+        // An auto-play item with only failed Cues is not itself a blocker, but
+        // it does not make the section eligible either.
+        let mut e = build(vec![vec![gp(0, 5, vec![failed(0)])]]);
+        assert_eq!(
+            at(&mut e, Command::LoopSection, 0),
+            Err(Refusal::AutoPlayIneligible {
+                reason: AutoPlayRefusal::NothingProjectable
+            })
+        );
+        let mut e = build(vec![vec![
+            gp(0, 5, vec![failed(0)]),
+            gp(1, 5, vec![project(1, None)]),
+        ]]);
+        assert_eq!(at(&mut e, Command::LoopSection, 0), Ok(Outcome::Changed));
+        assert_eq!(e.state().preview(), 1);
+    }
+
+    #[test]
+    fn check_matches_apply_for_the_auto_play_commands() {
+        let setups: [&[Command]; 4] = [
+            &[],
+            &[Command::GoTo(3), Command::ToggleAutoPlay],
+            &[Command::GoTo(3), Command::LoopSection],
+            &[Command::GoTo(0)],
+        ];
+        for setup in setups {
+            for command in [
+                Command::LoopSection,
+                Command::StopAutoPlay,
+                Command::Recover,
+                Command::ToggleAutoPlay,
+            ] {
+                let mut e = engine();
+                for c in setup {
+                    at(&mut e, *c, 0).unwrap();
+                }
+                let before = e.state().clone();
+                let predicted = e.check(command, Millis(50));
+                assert_eq!(e.state(), &before);
+                assert_eq!(e.last_now(), Millis(0));
+                assert_eq!(
+                    predicted,
+                    e.apply(command, Millis(50)),
+                    "{command:?} after {setup:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -83,8 +83,11 @@ pub struct AutoPlayStatus {
     pub scope: AutoPlayScope,
     /// When the current Cue started showing (the Engine's clamped time).
     pub cue_started: Millis,
-    /// How long the current Cue shows before auto-play advances.
-    pub duration_ms: u64,
+    /// How long the current Cue shows before auto-play advances. `None` while
+    /// Preview sits on an in-scope Cue that cannot advance (trigger, Hold,
+    /// Wait, unavailable): the run stays alive but has no deadline until the
+    /// operator moves onto a projectable Cue again.
+    pub duration_ms: Option<u64>,
 }
 
 /// The Program (or Preview) monitor at one instant: what is drawn and how
@@ -165,8 +168,9 @@ impl FadeTimeline {
 
     /// The shown frame went from `old` to `new` at `now`.
     ///
+    /// * `instant`: the window is gone, so any fade is dropped, even when the
+    ///   shown frame did not change (a fade-out was still running);
     /// * same frame (including black to black): nothing changes;
-    /// * `instant`: the window is gone, so no fade at all;
     /// * content to black: fade out from the current opacity over that
     ///   fraction of [`FADE_MS`];
     /// * black to content: fade in from the current opacity likewise, so a
@@ -181,11 +185,13 @@ impl FadeTimeline {
         instant: bool,
     ) {
         self.settle(now);
-        if old == new {
-            return;
-        }
+        // Checked before the equality test: a fade-out still running when the
+        // window disappears has `old == new == None` yet must be dropped.
         if instant {
             self.fade = None;
+            return;
+        }
+        if old == new {
             return;
         }
         let current = self.view(old, now);
@@ -217,6 +223,15 @@ impl FadeTimeline {
         }
     }
 
+    /// When the running fade ends, if there is one.
+    pub(crate) fn end(&self) -> Option<Millis> {
+        self.fade
+            .map(|fade| Millis(fade.start.0.saturating_add(fade.duration_ms)))
+    }
+
+    /// The fade length for `fraction` of a full fade. Rounding only affects
+    /// the length of the ramp: the end opacity is exact (`opacity_at` returns
+    /// `to` once finished), so rounding never changes the settled state.
     fn scaled(fraction: f32) -> u64 {
         (f64::from(fraction) * FADE_MS as f64).round() as u64
     }
@@ -261,9 +276,10 @@ impl EngineState {
         self.unavailable_black
     }
 
-    /// The active auto-play run, if any. Auto-play is bounded to its scope and
-    /// is never active while Frozen or in Blackout, nor after the output was
-    /// disabled or lost.
+    /// The active auto-play run, if any. Auto-play is bounded to its scope.
+    /// Starting is refused while Frozen, in Blackout, or Disconnected, and
+    /// entering any of those (or disabling the output) stops a run. A
+    /// rehearsal run may exist while the output is disabled or black.
     pub fn auto_play(&self) -> Option<AutoPlayStatus> {
         self.auto_play
     }
