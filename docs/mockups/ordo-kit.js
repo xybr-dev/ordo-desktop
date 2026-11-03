@@ -1086,3 +1086,202 @@
     queue();
   });
 })();
+
+// ── Motion (Decision 301) ─────────────────────────────────────────────────────────────────────
+// The workspace scripts re-render with innerHTML, so motion is inferred here from what each render
+// changed: a tab or rail destination that moved, a slideover or side pane that opened or closed.
+// Presenter is excluded: nothing in it moves like a page, so nothing can be mistaken for a slide change.
+(function () {
+  var STD = 160, OPEN = 400, CLOSE = 200, EASE = "cubic-bezier(0.2, 0, 0, 1)", EXIT = "cubic-bezier(0.3, 0, 1, 1)";
+  var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function still() { return !!(reduce && reduce.matches); }
+  function play(el, frames, ms, ease) {
+    if (!el || !el.animate) return null;
+    try { return el.animate(frames, { duration: ms, easing: ease }); } catch (e) { return null; }
+  }
+  function enter(el, dx, dy) {
+    if (still()) return play(el, [{ opacity: 0 }, { opacity: 1 }], 100, "linear");
+    return play(el, [{ opacity: 0, transform: "translate(" + dx + "px, " + dy + "px)" }, { opacity: 1, transform: "none" }], STD, EASE);
+  }
+  // What a tab strip changes: everything after the header it sits in (or after the strip itself).
+  function panel(strip) {
+    var at = strip.closest("header") || strip, out = [];
+    for (var n = at.nextElementSibling; n; n = n.nextElementSibling) if (!n.matches(".o-scrim, .o-slideover, .o-dialog, .o-toast, .o-ghost")) out.push(n);
+    return out;
+  }
+  function save(v) { try { sessionStorage.setItem("ordo-motion", JSON.stringify(v)); } catch (e) {} }
+  function take() { try { var v = sessionStorage.getItem("ordo-motion"); sessionStorage.removeItem("ordo-motion"); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+
+  // Rail: one pill per rail that travels to the current entry. The entry's icon slides to the middle
+  // and its label fades out in CSS; --o-shift is how far the icon travels for that entry's label.
+  function railPill(nav, animate) {
+    var pill = nav.querySelector(":scope > .o-navpill");
+    if (!pill) { pill = document.createElement("span"); pill.className = "o-navpill"; pill.setAttribute("aria-hidden", "true"); nav.appendChild(pill); }
+    nav.querySelectorAll(":scope > a").forEach(function (a) {
+      var s = a.querySelector("span"); if (s) a.style.setProperty("--o-shift", (s.offsetHeight + 2) / 2 + "px");
+    });
+    var a = nav.querySelector(':scope > a[aria-current="page"]');
+    if (!a) { pill.style.opacity = "0"; return; }
+    var at = "translate(" + a.offsetLeft + "px, " + (a.offsetTop + (a.offsetHeight - pill.offsetHeight) / 2) + "px)";
+    if (!animate && pill.dataset.at === at) return;            // a later render must not cut a pill in flight
+    pill.style.transition = animate && !still() ? "transform " + STD + "ms " + EASE : "none";
+    pill.style.transform = at; pill.style.opacity = "1"; pill.dataset.at = at;
+  }
+
+  // Tabs: the selected tab's underline is one pill that slides between tabs.
+  function tabs(strip) { return [].slice.call(strip.querySelectorAll('[role="tab"]')); }
+  function selected(strip) { return tabs(strip).findIndex(function (t) { return t.getAttribute("aria-selected") === "true"; }); }
+  function tabPill(strip, from) {
+    var pill = strip.querySelector(":scope > .o-tabpill");
+    if (!pill) { pill = document.createElement("span"); pill.className = "o-tabpill"; pill.setAttribute("aria-hidden", "true"); strip.appendChild(pill); }
+    strip.classList.add("has-pill");
+    var t = tabs(strip)[selected(strip)];
+    if (!t) { pill.style.opacity = "0"; return null; }
+    var to = { x: t.offsetLeft, w: t.offsetWidth };
+    if (pill.dataset.at === to.x + "/" + to.w && !from) return to;
+    if (from && !still()) {
+      pill.style.transition = "none"; pill.style.transform = "translateX(" + from.x + "px)"; pill.style.width = from.w + "px";
+      void pill.offsetWidth;
+      pill.style.transition = "transform " + STD + "ms " + EASE + ", width " + STD + "ms " + EASE;
+    } else pill.style.transition = "none";
+    pill.style.transform = "translateX(" + to.x + "px)"; pill.style.width = to.w + "px"; pill.style.opacity = "1";
+    pill.dataset.at = to.x + "/" + to.w;
+    return to;
+  }
+
+  // Slideovers and side panes: open in 400ms fast-start/slow-finish, close in 200ms accelerating.
+  // A closed surface is already gone from the DOM, so its last render is brought back as an inert
+  // ghost just long enough to leave.
+  function slide(el, side) { return side === "l" ? -(el.offsetWidth + 16) : el.offsetWidth + 16; }
+  function opened(el, side, scrim) {
+    if (still()) { play(el, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); return; }
+    play(el, [{ transform: "translateX(" + slide(el, side) + "px)" }, { transform: "none" }], OPEN, EASE);
+    if (scrim) play(scrim, [{ opacity: 0 }, { opacity: 1 }], OPEN, EASE);
+  }
+  function ghost(node, into, before) {
+    var g = node.isConnected ? node.cloneNode(true) : node;
+    g.classList.add("o-ghost"); g.setAttribute("inert", ""); g.setAttribute("aria-hidden", "true");
+    g.querySelectorAll("[id]").forEach(function (x) { x.removeAttribute("id"); });
+    if (before && before.parentNode === into) into.insertBefore(g, before); else into.appendChild(g);
+    return g;
+  }
+  function closed(app, key, rec) {
+    var side = key === "side:l" ? "l" : "r", host, g, gs = null;
+    if (key.indexOf("side:") === 0) {
+      host = app.dataset.tier && app.querySelector(".o-side-host");
+      if (!host) return;                                         // the pane became fixed: nothing leaves
+      g = ghost(rec.el, host); g.classList.add("is-open");
+    } else {
+      if (rec.scrim) gs = ghost(rec.scrim, app);
+      g = ghost(rec.el, app);
+    }
+    var done = function () { g.remove(); if (gs) gs.remove(); };
+    var a = still() ? play(g, [{ opacity: 1 }, { opacity: 0 }], 100, "linear")
+      : play(g, [{ transform: "none" }, { transform: "translateX(" + slide(g, side) + "px)" }], CLOSE, EXIT);
+    if (gs) play(gs, [{ opacity: 1 }, { opacity: 0 }], still() ? 100 : CLOSE, still() ? "linear" : EXIT);
+    if (a) a.onfinish = done; else done();
+  }
+
+  // Full-workspace views rise from the bottom over the workspace they replace, and sink
+  // back over it. The replaced workspace is already gone, so its last render stays underneath meanwhile.
+  var FULL = ".sg-import, .sh-themeed";   // Import .ordo, and a Theme opened for editing
+  function under(ws, nodes, ms) {
+    if (!nodes || !nodes.length) return;
+    var u = document.createElement("div"); u.className = "o-ghost o-under"; u.setAttribute("inert", ""); u.setAttribute("aria-hidden", "true");
+    nodes.forEach(function (n) { if (!n.isConnected) { n.querySelectorAll("[id]").forEach(function (x) { x.removeAttribute("id"); }); u.appendChild(n); } });
+    ws.insertBefore(u, ws.firstChild); setTimeout(function () { u.remove(); }, ms);
+  }
+  function rise(app, st, el) {
+    var ws = el.parentElement; if (!ws) return;
+    if (still()) { play(el, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); return; }
+    ws.classList.add("o-lift"); under(ws, st.kids, OPEN);
+    var a = play(el, [{ transform: "translateY(" + ws.offsetHeight + "px)" }, { transform: "none" }], OPEN, EASE);
+    var end = function () { ws.classList.remove("o-lift"); }; if (a) a.onfinish = end; else end();
+  }
+  function sink(app, rec) {
+    var ws = app.querySelector(".o-body > .o-grow"); if (!ws) return;
+    var g = ghost(rec.el, ws); g.classList.add("o-over"); ws.classList.add("o-lift");
+    var a = still() ? play(g, [{ opacity: 1 }, { opacity: 0 }], 100, "linear")
+      : play(g, [{ transform: "none" }, { transform: "translateY(" + ws.offsetHeight + "px)" }], CLOSE, EXIT);
+    var end = function () { g.remove(); ws.classList.remove("o-lift"); }; if (a) a.onfinish = end; else end();
+  }
+
+  var state = new WeakMap();
+  function scan(app) {
+    if (app.classList.contains("o-presenter")) return;
+    var st = state.get(app), first = !st;
+    if (first) { st = { tabs: {}, open: {} }; state.set(app, st); }
+    app.querySelectorAll(".o-navrail").forEach(function (n) { railPill(n, false); });
+    var strips = [].slice.call(app.querySelectorAll('.o-tabs[role="tablist"]'));
+    strips.forEach(function (strip, i) {
+      var key = strip.className.replace(" has-pill", "") + "#" + i, prev = st.tabs[key], idx = selected(strip), n = tabs(strip).length;
+      var moved = !!prev && idx >= 0 && prev.idx !== idx && prev.n === n;
+      var to = tabPill(strip, moved ? prev : null);
+      if (moved) panel(strip).forEach(function (el) { enter(el, 24 * (idx > prev.idx ? 1 : -1), 0); });
+      st.tabs[key] = to ? { x: to.x, w: to.w, idx: idx, n: n } : null;
+    });
+    var now = {};
+    app.querySelectorAll(".o-slideover:not(.o-ghost)").forEach(function (el) {
+      var p = el.previousElementSibling;
+      now["ov:" + (el.getAttribute("aria-labelledby") || el.className.replace(" is-receded", ""))] = { el: el, scrim: p && p.matches(".o-scrim:not(.o-ghost)") ? p : null };
+    });
+    app.querySelectorAll(".o-side-l.is-open:not(.o-ghost), .o-side-r.is-open:not(.o-ghost)").forEach(function (el) {
+      now[el.classList.contains("o-side-l") ? "side:l" : "side:r"] = { el: el, scrim: null };
+    });
+    var full = app.querySelector(FULL + ":not(.o-ghost)");
+    if (full) now["full"] = { el: full, scrim: null };
+    if (!first) {
+      Object.keys(now).forEach(function (k) {
+        if (st.open[k]) return;
+        if (k === "full") rise(app, st, now[k].el); else opened(now[k].el, k === "side:l" ? "l" : "r", now[k].scrim);
+      });
+      Object.keys(st.open).forEach(function (k) { if (!now[k]) { if (k === "full") sink(app, st.open[k]); else closed(app, k, st.open[k]); } });
+    }
+    st.open = now;
+    var ws = app.querySelector(".o-body > .o-grow");
+    st.kids = ws ? [].filter.call(ws.children, function (c) { return !c.classList.contains("o-ghost"); }) : null;
+  }
+  var busy = false;
+  function scanAll() { if (busy) return; busy = true; try { document.querySelectorAll(".o-app").forEach(scan); } finally { busy = false; } }
+
+  // Rail destinations and linked tabs are other mockup pages: the pill moves first, then the page
+  // loads, and the arriving workspace finishes the motion.
+  document.addEventListener("click", function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest && e.target.closest('.o-navrail > a[href], .o-tabs a[role="tab"][href]');
+    if (!a || a.getAttribute("aria-current") === "page" || a.getAttribute("aria-selected") === "true" || !a.closest(".o-app")) return;
+    e.preventDefault();
+    var rail = a.closest(".o-navrail");
+    if (rail) {
+      var cur = rail.querySelector(':scope > a[aria-current="page"]');
+      if (cur) { cur.setAttribute("aria-current", "false"); cur.removeAttribute("title"); }
+      a.setAttribute("aria-current", "page"); railPill(rail, true); save({ kind: "dest" });
+    } else {
+      var strip = a.closest(".o-tabs"), from = selected(strip), list = tabs(strip), prev = list[from], to = list.indexOf(a);
+      var at = prev ? { x: prev.offsetLeft, w: prev.offsetWidth } : null;
+      if (prev) prev.setAttribute("aria-selected", "false");
+      a.setAttribute("aria-selected", "true"); tabPill(strip, at); save({ kind: "tab", dir: to > from ? 1 : -1 });
+    }
+    var href = a.href;
+    setTimeout(function () { location.href = href; }, still() ? 0 : STD + 40);
+  });
+
+  window.addEventListener("load", function () {
+    scanAll();
+    var arrive = take();
+    if (arrive) document.querySelectorAll(".o-app:not(.o-presenter)").forEach(function (app) {
+      var ws = app.querySelector(".o-body > .o-grow");
+      if (!ws) return;
+      if (arrive.kind === "tab") {
+        var strip = ws.querySelector('.o-tabs[role="tablist"]');
+        if (strip) panel(strip).forEach(function (el) { enter(el, 24 * arrive.dir, 0); });
+      } else {
+        // The header, its tabs and the rail stay put; what is under the header rises.
+        var head = ws.querySelector("header, .pl-head"), parts = head ? panel(head) : [];
+        if (!parts.length) parts = [ws];
+        parts.forEach(function (el) { enter(el, 0, 12); });
+      }
+    });
+    new MutationObserver(scanAll).observe(document.body, { childList: true, subtree: true });
+  });
+})();

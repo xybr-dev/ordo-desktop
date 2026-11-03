@@ -698,6 +698,17 @@ motion and exit in `200ms` with smooth acceleration; nested parent recession
 follows the same direction. Do not use spring, bounce, overshoot, decorative
 looping, or attention-seeking animation.
 
+Navigation moves in `160ms` (Decision 301). The rail's pill and a tab strip's
+underline each travel to the new selection. The current rail entry's label
+fades out while its icon slides to the middle, and the entry being left
+reverses that. A new tab view slides about `24px` in from the side the operator
+moved towards and fades in; a new rail destination rises about `12px` and fades
+in. The old view disappears at once. The rail, the workspace header and the tab
+strip stay still; only the content beneath them moves. The change itself takes
+effect immediately, and Presenter never uses page motion. A full-workspace view
+(Review Song import, a Theme opened for editing) rises from the bottom over the
+workspace it covers with the slideover timing, and sinks back when it closes.
+
 All motion remains interruptible and may never delay accepting the next input.
 Content-to-content Preview and Program changes remain immediate cuts. Content
 to Blackout/Hold and Blackout/Hold to content use a `500ms` opacity fade,
@@ -706,7 +717,7 @@ opacity with proportional remaining duration; presentation commands never
 queue. Operator state changes immediately even while the output fade completes.
 
 Under `prefers-reduced-motion`, remove translation, scaling, animated
-reordering, and parent recession. A short opacity transition of at most `100ms`
+reordering, parent recession, and travelling selection markers. A short opacity transition of at most `100ms`
 may remain where it clarifies appearance, including blank/content boundaries.
 Focus order, surface ownership, state transitions, and final layouts remain
 identical.
