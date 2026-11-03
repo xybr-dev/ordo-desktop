@@ -47,10 +47,11 @@ pub enum FrameSlot {
 pub enum UnavailableReason {
     /// Composition failed.
     Render(RenderError),
-    /// An asset exists but could not be decoded. Reserved for the image
-    /// decoder (the T1.4 lab); nothing produces it yet. A missing foreground
-    /// image is already reported by [`compose`] as
-    /// `Render(RenderError::MissingForegroundImage)`.
+    /// A frame's foreground asset could not be used: its bytes are not a
+    /// decodable image, the asset is missing from the snapshot, or the
+    /// frame's image id does not parse. Produced by the Presenter's frame
+    /// store (T1.4). A General Image frame with no image at all is reported
+    /// by [`compose`] as `Render(RenderError::MissingForegroundImage)`.
     DecodeFailed,
 }
 

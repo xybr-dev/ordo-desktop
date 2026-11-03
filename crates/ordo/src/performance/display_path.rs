@@ -127,6 +127,12 @@ impl PaintTally {
         self.draws.get()
     }
 
+    /// Opaque background quads the last draw painted (zero for
+    /// [`retained_glyphs`], which leaves what is underneath visible).
+    pub fn quads(&self) -> usize {
+        self.quads.get()
+    }
+
     /// Glyphs the last draw placed without error.
     pub fn glyphs(&self) -> usize {
         self.glyphs.get()

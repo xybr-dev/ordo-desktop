@@ -9,11 +9,18 @@
 //!
 //! # Ownership and shutdown
 //!
-//! One `PresenterFrames` belongs to one view (the Presenter view) and one
-//! [`LoadedSnapshot`]; a new snapshot gets a new value. Every running job is
-//! a [`Task`] held in `in_flight`, so dropping the store (with its owning
-//! view) drops every task and cancels the work. Obsolete jobs are dropped
-//! the same way as soon as the scheduler abandons their tickets.
+//! The owner is the Presenter view: it holds one `PresenterFrames` per
+//! [`LoadedSnapshot`] (a new snapshot gets a new value) and calls
+//! [`PresenterFrames::sync`] when the Engine changes, never from `render`.
+//! Every running job is a [`Task`] held in `in_flight`, so dropping the store
+//! (with its owning view) drops every task. Obsolete jobs are dropped the
+//! same way as soon as the scheduler abandons their tickets. A background
+//! compose that is already running cannot be interrupted: it finishes and its
+//! result is discarded.
+//!
+//! Foreground images are decoded eagerly inside the job (not lazily at first
+//! paint), so a frame is only ever Ready with its image, and a corrupt asset
+//! becomes [`UnavailableReason::DecodeFailed`] instead of a silent gap.
 //!
 //! The store does not own the Engine. A composition that fails is queued and
 //! handed out by [`PresenterFrames::take_failures`] so the view can call
@@ -23,7 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use domain::presentation::{AssetId, FrameId};
-use gpui::{AppContext, Context, Image, ImageFormat, Task};
+use gpui::{App, AppContext, Context, Image, ImageFormat, RenderImage, SvgRenderer, Task, Window};
 use presentation::snapshot_reader::LoadedSnapshot;
 use rendering::{
     Completion, FRAME_CAPACITY, Frame, FrameCache, FrameEntry, FrameScheduler, FrameSlot, Ticket,
@@ -37,7 +44,7 @@ pub enum FrameView {
     /// frame places one.
     Ready {
         frame: Arc<Frame>,
-        image: Option<Arc<Image>>,
+        image: Option<Arc<RenderImage>>,
     },
     /// Not composed yet. The caller keeps drawing the last frame it drew
     /// (the consumer rule in `rendering::frame_cache`).
@@ -50,7 +57,9 @@ pub enum FrameView {
 /// the image it wrapped, if the asset was not already cached.
 struct Prepared {
     result: Result<Frame, UnavailableReason>,
-    image: Option<(AssetId, Arc<Image>)>,
+    /// True when `compose` actually ran.
+    composed: bool,
+    image: Option<(AssetId, Arc<RenderImage>)>,
 }
 
 /// Owner of composed frames, decoded images and in-flight compose jobs for
@@ -59,17 +68,30 @@ pub struct PresenterFrames {
     snapshot: Arc<LoadedSnapshot>,
     cache: FrameCache<FrameId>,
     scheduler: FrameScheduler<FrameId>,
-    /// One image per asset of this snapshot, so the number of entries is
-    /// bounded by the snapshot's asset count.
-    images: HashMap<AssetId, Arc<Image>>,
+    /// One decoded image per asset of this snapshot, so the number of
+    /// entries is bounded by the snapshot's asset count. Keyed by `AssetId`
+    /// rather than by asset hash (Decision 310): within one snapshot an
+    /// `AssetId` names exactly one verified byte string, so the two keys
+    /// select the same entries, and a new snapshot gets a new store.
+    images: HashMap<AssetId, Arc<RenderImage>>,
     /// Dropping a task cancels its job.
     in_flight: HashMap<FrameId, Task<()>>,
     composed_count: usize,
     failures: Vec<(FrameId, UnavailableReason)>,
-    /// Test seam: pretend the snapshot carries no asset bytes, the only way
-    /// to reach the missing-asset path through a verified snapshot.
+    /// Test seam: a verified snapshot never lacks or corrupts an asset, so
+    /// this is the only way to reach those paths.
     #[cfg(test)]
-    withhold_assets: bool,
+    fault: AssetFault,
+}
+
+/// Where a test injects an asset fault. Production is always `None`.
+#[derive(Clone, Copy)]
+enum AssetFault {
+    None,
+    #[cfg(test)]
+    Withhold,
+    #[cfg(test)]
+    Corrupt,
 }
 
 impl PresenterFrames {
@@ -83,7 +105,7 @@ impl PresenterFrames {
             composed_count: 0,
             failures: Vec::new(),
             #[cfg(test)]
-            withhold_assets: false,
+            fault: AssetFault::None,
         }
     }
 
@@ -115,17 +137,22 @@ impl PresenterFrames {
         }
         tickets.extend(self.scheduler.request_preload(preload, &self.cache));
 
+        let mut abandoned = false;
         for ticket in self.scheduler.obsolete() {
             if self.scheduler.abandon(&ticket) {
                 self.in_flight.remove(&ticket.key());
+                abandoned = true;
             }
         }
+        let started = !tickets.is_empty();
 
         for ticket in tickets {
             let task = self.start_job(ticket, access, cx);
             self.in_flight.insert(ticket.key(), task);
         }
-        cx.notify();
+        if started || abandoned {
+            cx.notify();
+        }
     }
 
     fn start_job<V: 'static>(
@@ -138,10 +165,12 @@ impl PresenterFrames {
         let snapshot = self.snapshot.clone();
         let known = self.known_image(key);
         #[cfg(test)]
-        let withhold = self.withhold_assets;
+        let fault = self.fault;
         #[cfg(not(test))]
-        let withhold = false;
-        let job = cx.background_spawn(async move { prepare(&snapshot, key, known, withhold) });
+        let fault = AssetFault::None;
+        let renderer = cx.svg_renderer();
+        let job =
+            cx.background_spawn(async move { prepare(&snapshot, key, known, &renderer, fault) });
         cx.spawn(async move |this, cx| {
             let prepared = job.await;
             this.update(cx, |view, cx| {
@@ -154,7 +183,7 @@ impl PresenterFrames {
 
     /// The image already wrapped for the asset `key`'s frame uses, so a job
     /// does not build a second copy.
-    fn known_image(&self, key: FrameId) -> Option<Arc<Image>> {
+    fn known_image(&self, key: FrameId) -> Option<Arc<RenderImage>> {
         let content = self.snapshot.frame(key)?;
         let asset = AssetId::parse(&content.image.as_ref()?.id).ok()?;
         self.images.get(&asset).cloned()
@@ -164,11 +193,15 @@ impl PresenterFrames {
         // Dropping the finished task here is safe: the job has nothing left
         // to await.
         self.in_flight.remove(&ticket.key());
-        self.composed_count += 1;
+        if prepared.composed {
+            self.composed_count += 1;
+        }
         let failure = prepared.result.as_ref().err().copied();
         let completion = self
             .scheduler
             .complete(ticket, prepared.result, &mut self.cache);
+        // Defensive: `sync` drops obsolete tasks, so a stale result should
+        // not arrive; the scheduler still decides if one does.
         if completion != Completion::Accepted {
             return;
         }
@@ -201,8 +234,9 @@ impl PresenterFrames {
         std::mem::take(&mut self.failures)
     }
 
-    /// Compose jobs that have finished (accepted or not). Resizing never
-    /// changes it.
+    /// Jobs in which `compose` actually ran (a job that failed before
+    /// composing, on a missing or undecodable asset, is not counted).
+    /// Resizing never changes it.
     pub fn composed_count(&self) -> usize {
         self.composed_count
     }
@@ -212,22 +246,41 @@ impl PresenterFrames {
         self.cache.len()
     }
 
+    /// Drop every decoded image and release its GPU atlas tile. Call when
+    /// the Presenter stops showing this snapshot's images (for example when
+    /// the view closes); frames stay cached, but a ready image frame drawn
+    /// afterwards has no image, so only call it when idle.
+    pub fn release(&mut self, window: Option<&mut Window>, cx: &mut App) {
+        let mut window = window;
+        for (_, image) in self.images.drain() {
+            cx.drop_image(image, window.as_deref_mut());
+        }
+    }
+
+    #[cfg(test)]
+    fn scheduler_in_flight(&self) -> usize {
+        self.scheduler.in_flight()
+    }
+
     /// Jobs started and not yet finished or dropped.
     pub fn jobs_in_flight(&self) -> usize {
         self.in_flight.len()
     }
 }
 
-/// The background job: resolve and wrap the foreground asset, then compose.
-/// Runs off the GPUI thread. `Image::from_bytes` copies the asset bytes here,
-/// not on the UI thread; GPUI decodes the PNG lazily when the image is first
-/// painted.
+/// The background job: resolve and decode the foreground asset, then
+/// compose. Runs off the GPUI thread. The asset is decoded eagerly into the
+/// `RenderImage` GPUI paints, so a bad PNG fails here as `DecodeFailed`.
 fn prepare(
     snapshot: &LoadedSnapshot,
     key: FrameId,
-    known: Option<Arc<Image>>,
-    withhold_assets: bool,
+    known: Option<Arc<RenderImage>>,
+    renderer: &SvgRenderer,
+    fault: AssetFault,
 ) -> Prepared {
+    // An id from another snapshot is a programming error in the caller (the
+    // Engine only names this snapshot's frames); there is no fitting render
+    // error, so it is reported as the same structured failure.
     let Some(content) = snapshot.frame(key) else {
         return failed(UnavailableReason::DecodeFailed);
     };
@@ -237,22 +290,27 @@ fn prepare(
             return failed(UnavailableReason::DecodeFailed);
         };
         if known.is_none() {
-            let bytes = if withhold_assets {
-                None
-            } else {
-                snapshot.asset(asset)
+            let bytes = match fault {
+                AssetFault::None => snapshot.asset(asset).map(<[u8]>::to_vec),
+                #[cfg(test)]
+                AssetFault::Withhold => None,
+                #[cfg(test)]
+                AssetFault::Corrupt => Some(b"not a png".to_vec()),
             };
             let Some(bytes) = bytes else {
                 return failed(UnavailableReason::DecodeFailed);
             };
-            image = Some((
-                asset,
-                Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec())),
-            ));
+            let Ok(decoded) =
+                Image::from_bytes(ImageFormat::Png, bytes).to_image_data(renderer.clone())
+            else {
+                return failed(UnavailableReason::DecodeFailed);
+            };
+            image = Some((asset, decoded));
         }
     }
     Prepared {
         result: compose(content),
+        composed: true,
         image,
     }
 }
@@ -260,6 +318,7 @@ fn prepare(
 fn failed(reason: UnavailableReason) -> Prepared {
     Prepared {
         result: Err(reason),
+        composed: false,
         image: None,
     }
 }
@@ -301,14 +360,32 @@ mod tests {
     use super::test_support::{fixture_snapshot, frame_ids};
     use super::*;
     use gpui::{Render, TestAppContext, Window, div, prelude::*, px, size};
+    use ui::environment::{ResolvedAppearance, UiEnvironment, UiPreferences};
 
     struct Host {
         frames: PresenterFrames,
+        shown: Option<FrameId>,
+        paints: usize,
     }
 
     impl Render for Host {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div().size_full()
+            self.paints += 1;
+            let (frame, image) = match self.shown.map(|id| self.frames.get(id)) {
+                Some(FrameView::Ready { frame, image }) => (Some(frame), image),
+                _ => (None, None),
+            };
+            let environment =
+                UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+            div()
+                .size_full()
+                .child(crate::canonical_views::live_viewport(
+                    frame,
+                    image,
+                    320.0,
+                    None,
+                    environment,
+                ))
         }
     }
 
@@ -319,13 +396,17 @@ mod tests {
     fn open(
         cx: &mut TestAppContext,
         snapshot: Arc<LoadedSnapshot>,
-        withhold_assets: bool,
+        fault: AssetFault,
     ) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
         cx.update(ui::init).unwrap();
         let (host, cx) = cx.add_window_view(|_, _| {
             let mut frames = PresenterFrames::new(snapshot);
-            frames.withhold_assets = withhold_assets;
-            Host { frames }
+            frames.fault = fault;
+            Host {
+                frames,
+                shown: None,
+                paints: 0,
+            }
         });
         cx.simulate_resize(size(px(800.0), px(600.0)));
         cx.run_until_parked();
@@ -359,7 +440,7 @@ mod tests {
         let snapshot = fixture_snapshot();
         let plain = frame_ids(&snapshot, false);
         let (a, b) = (plain[0], plain[1]);
-        let (host, cx) = open(cx, snapshot, false);
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
 
         sync(&host, cx, Some(a), Some(b));
         // Nothing is composed on the calling thread: the jobs are queued.
@@ -378,12 +459,13 @@ mod tests {
         let snapshot = fixture_snapshot();
         let plain = frame_ids(&snapshot, false);
         let (a, b, c) = (plain[0], plain[1], plain[2]);
-        let (host, cx) = open(cx, snapshot, false);
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
 
         sync(&host, cx, Some(a), Some(b));
         sync(&host, cx, Some(a), Some(c));
         // B was still pending and nothing wants it: its task is gone.
         assert_eq!(host.read_with(cx, |h, _| h.frames.jobs_in_flight()), 2);
+        assert_eq!(host.read_with(cx, |h, _| h.frames.scheduler_in_flight()), 2);
 
         cx.run_until_parked();
         assert!(matches!(view(&host, cx, a), FrameView::Ready { .. }));
@@ -397,7 +479,7 @@ mod tests {
         let snapshot = fixture_snapshot();
         let plain = frame_ids(&snapshot, false);
         let (a, b) = (plain[0], plain[1]);
-        let (host, cx) = open(cx, snapshot, false);
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
         sync(&host, cx, Some(a), Some(b));
         cx.run_until_parked();
         let before = counts(&host, cx);
@@ -406,8 +488,18 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(counts(&host, cx), before);
 
+        host.update(cx, |host, cx| {
+            host.shown = Some(a);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let paints = host.read_with(cx, |h, _| h.paints);
         cx.simulate_resize(size(px(1280.0), px(720.0)));
         cx.run_until_parked();
+        assert!(
+            host.read_with(cx, |h, _| h.paints) > paints,
+            "the resize must repaint the viewport"
+        );
         assert_eq!(counts(&host, cx), before);
     }
 
@@ -415,7 +507,7 @@ mod tests {
     fn an_image_frame_is_ready_with_its_decoded_image(cx: &mut TestAppContext) {
         let snapshot = fixture_snapshot();
         let image_frame = frame_ids(&snapshot, true)[0];
-        let (host, cx) = open(cx, snapshot, false);
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
 
         sync(&host, cx, Some(image_frame), None);
         cx.run_until_parked();
@@ -430,10 +522,31 @@ mod tests {
     }
 
     #[gpui::test]
+    fn an_image_frame_with_corrupt_asset_bytes_is_unavailable_and_reported(
+        cx: &mut TestAppContext,
+    ) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let (host, cx) = open(cx, snapshot, AssetFault::Corrupt);
+
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        assert!(matches!(
+            view(&host, cx, image_frame),
+            FrameView::Unavailable(UnavailableReason::DecodeFailed)
+        ));
+        let failures = host.update(cx, |h, _| h.frames.take_failures());
+        assert_eq!(
+            failures,
+            vec![(image_frame, UnavailableReason::DecodeFailed)]
+        );
+    }
+
+    #[gpui::test]
     fn an_image_frame_without_its_asset_is_unavailable_and_reported(cx: &mut TestAppContext) {
         let snapshot = fixture_snapshot();
         let image_frame = frame_ids(&snapshot, true)[0];
-        let (host, cx) = open(cx, snapshot, true);
+        let (host, cx) = open(cx, snapshot, AssetFault::Withhold);
 
         sync(&host, cx, Some(image_frame), None);
         cx.run_until_parked();

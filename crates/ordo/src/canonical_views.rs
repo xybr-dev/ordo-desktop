@@ -11,7 +11,8 @@
 use std::{rc::Rc, sync::Arc};
 
 use gpui::{
-    AnyElement, IntoElement, ObjectFit, ParentElement, StyledImage, div, img, prelude::*, px,
+    AnyElement, IntoElement, ObjectFit, ParentElement, RenderImage, StyledImage, div, img,
+    prelude::*, px,
 };
 use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment, tokens};
 
@@ -140,6 +141,10 @@ pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
 /// path every live surface uses; the raster-based viewports above remain for
 /// export only, and this function never calls `rasterize`.
 ///
+/// `width` is already Interface-scaled by the caller; only the corner radius
+/// is scaled here. `image` is the eagerly decoded foreground, so the first
+/// paint is never a frame without its image.
+///
 /// The box is black, exactly `16:9` (`height = width * 9 / 16`), clipped to
 /// the operator-only slide-viewport radius. `None` for `frame` is the black
 /// box: no frame has arrived yet, or Program is black. Paint order matches
@@ -156,7 +161,7 @@ pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
 /// later package (T1.4 WP4) layered over this box.
 pub fn live_viewport(
     frame: Option<Arc<rendering::Frame>>,
-    image: Option<Arc<gpui::Image>>,
+    image: Option<Arc<RenderImage>>,
     width: f32,
     tally: Option<Rc<PaintTally>>,
     environment: UiEnvironment,
@@ -169,7 +174,7 @@ pub fn live_viewport(
         .h(px(height))
         .overflow_hidden()
         .rounded(px(scale.apply(tokens::radius::SLIDE_VIEWPORT)))
-        .bg(gpui::black());
+        .bg(gpui::rgb(tokens::color::PROJECTION_BACKGROUND));
     if let Some(frame) = frame {
         if let (Some(placed), Some(image)) = (frame.image(), image) {
             let (logical_width, _) = frame.logical_size();
@@ -876,7 +881,7 @@ mod live_viewport_tests {
 
     struct Host {
         frame: Option<Arc<rendering::Frame>>,
-        image: Option<Arc<gpui::Image>>,
+        image: Option<Arc<RenderImage>>,
         tallies: Vec<Rc<PaintTally>>,
     }
 
@@ -903,7 +908,7 @@ mod live_viewport_tests {
     fn open(
         cx: &mut TestAppContext,
         frame: Option<Arc<rendering::Frame>>,
-        image: Option<Arc<gpui::Image>>,
+        image: Option<Arc<RenderImage>>,
     ) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
         cx.update(ui::init).unwrap();
         let (host, cx) = cx.add_window_view(|_, _| Host {
@@ -916,7 +921,10 @@ mod live_viewport_tests {
         (host, cx)
     }
 
-    fn compose_fixture(with_image: bool) -> (Arc<rendering::Frame>, Option<Arc<gpui::Image>>) {
+    fn compose_fixture(
+        cx: &TestAppContext,
+        with_image: bool,
+    ) -> (Arc<rendering::Frame>, Option<Arc<RenderImage>>) {
         let snapshot = fixture_snapshot();
         let id = frame_ids(&snapshot, with_image)[0];
         let content = snapshot.frame(id).expect("fixture frame");
@@ -924,14 +932,16 @@ mod live_viewport_tests {
         let image = content.image.as_ref().map(|foreground| {
             let asset = domain::presentation::AssetId::parse(&foreground.id).unwrap();
             let bytes = snapshot.asset(asset).expect("fixture asset").to_vec();
-            Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes))
+            let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes);
+            cx.update(|app| image.to_image_data(app.svg_renderer()))
+                .expect("fixture asset decodes")
         });
         (frame, image)
     }
 
     #[gpui::test]
     fn one_frame_paints_the_same_glyphs_at_every_width_in_16_by_9(cx: &mut TestAppContext) {
-        let (frame, _) = compose_fixture(false);
+        let (frame, _) = compose_fixture(cx, false);
         let expected = glyph_count(&frame);
         assert!(expected > 0, "the fixture frame must place glyphs");
         let (host, cx) = open(cx, Some(frame), None);
@@ -958,14 +968,17 @@ mod live_viewport_tests {
                 "attempts at {width}"
             );
             assert_eq!(tally.failed(), 0, "failed glyphs at {width}");
+            // No opaque quad may sit over a foreground image.
+            assert_eq!(tally.quads(), 0, "background quads at {width}");
             assert_eq!(tally.glyphs(), expected, "glyphs at {width}");
         }
     }
 
     #[gpui::test]
     fn the_placed_image_scales_with_the_viewport(cx: &mut TestAppContext) {
-        let (frame, image) = compose_fixture(true);
+        let (frame, image) = compose_fixture(cx, true);
         let placed = frame.image().expect("image frame places an image").bounds;
+        let (logical_width, _) = frame.logical_size();
         let (_host, cx) = open(cx, Some(frame), image);
 
         // Every viewport holds an image element under one shared selector,
@@ -977,9 +990,14 @@ mod live_viewport_tests {
         let close = |a: gpui::Pixels, b: f32| (f32::from(a) - b).abs() < 0.5;
         let index = WIDTHS
             .iter()
-            .position(|width| close(image.size.width, placed.width as f32 * width / 1920.0))
+            .position(|width| {
+                close(
+                    image.size.width,
+                    placed.width as f32 * width / logical_width as f32,
+                )
+            })
             .expect("the image width matches one viewport's scale");
-        let factor = WIDTHS[index] / 1920.0;
+        let factor = WIDTHS[index] / logical_width as f32;
         let selector: &'static str = Box::leak(format!("viewport-{index}").into_boxed_str());
         let viewport = cx.debug_bounds(selector).expect("viewport");
         assert!(close(image.size.height, placed.height as f32 * factor));
@@ -1006,7 +1024,12 @@ mod live_viewport_tests {
     /// The live path draws the retained frame; only export rasterizes.
     #[test]
     fn live_viewport_never_rasterizes() {
-        let source = include_str!("canonical_views.rs");
+        // The repo checks out with CRLF on Windows (`core.autocrlf`).
+        let source = include_str!("canonical_views.rs").replace(
+            "
+", "
+",
+        );
         let start = source.find("pub fn live_viewport(").expect("live_viewport");
         let body = &source[start..];
         let end = body.find("\n}\n").expect("end of live_viewport");
