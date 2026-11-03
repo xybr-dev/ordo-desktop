@@ -416,7 +416,7 @@ fn normal_mass_has_a_stable_fingerprint_and_hashes() {
 
 #[test]
 fn the_recovery_drill_command_script_uses_only_known_commands() {
-    const KNOWN: [&str; 13] = [
+    const KNOWN: [&str; 18] = [
         "next",
         "previous",
         "next-item",
@@ -429,8 +429,20 @@ fn the_recovery_drill_command_script_uses_only_known_commands() {
         "enable-output",
         "disable-output",
         "disconnect",
+        "display-back",
+        "display-back-other",
         "autoplay",
+        "loop-section",
+        "stop-autoplay",
+        "recover",
     ];
+    // `tick <milliseconds>` lets time pass instead of issuing a command.
+    let known = |line: &str| {
+        KNOWN.contains(&line)
+            || line
+                .strip_prefix("tick ")
+                .is_some_and(|ms| !ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()))
+    };
     let script = fs::read_to_string(fixture_dir("recovery-drill").join("commands.txt")).unwrap();
     assert!(!script.is_empty());
     assert!(script.ends_with('\n') && !script.contains('\r'));
@@ -441,7 +453,7 @@ fn the_recovery_drill_command_script_uses_only_known_commands() {
         .collect();
     for (index, line) in script.lines().enumerate() {
         assert!(
-            line.starts_with('#') || KNOWN.contains(&line),
+            line.starts_with('#') || known(line),
             "commands.txt line {} is not a known command: {line:?}",
             index + 1
         );

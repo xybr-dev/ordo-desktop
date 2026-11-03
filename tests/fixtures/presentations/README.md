@@ -34,11 +34,14 @@ operator-only (trigger plus Hold), an auto-play item with several Cues, frame
 reuse, a long wrapping lyric, a Black frame, an image frame with its asset,
 and both Themes with an override.
 
-`commands.txt` is the canonical command script T1.2 replays: one command per
-line from `next previous next-item previous-item first last take freeze
-blackout enable-output disable-output disconnect autoplay`; lines starting with
-`#` are comments. In T1.1 it is only data; the E2E test checks every other line
-is a known command.
+`commands.txt` is the canonical command script the Presentation Engine tests replay:
+one command per line from `next previous next-item previous-item first last take
+freeze blackout enable-output disable-output disconnect display-back
+display-back-other autoplay loop-section stop-autoplay recover`, or `tick <ms>`;
+lines starting with `#` are comments. The clock advances 100 ms per line (or by
+the tick). `commands.expect` holds the engine state after every command; the
+example `engine-replay` prints the same lines, so after a deliberate Engine
+change regenerate it and review the diff by hand.
 
 ## Changing a fixture and re-hashing
 

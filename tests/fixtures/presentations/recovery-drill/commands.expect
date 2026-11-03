@@ -1,0 +1,66 @@
+1 enable-output -> live=EnabledBlack preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+2 take -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+3 next -> live=Live preview=1 program=frame:1 unavailable_black=false autoplay=none outcome=changed
+4 next -> live=Live preview=2 program=black unavailable_black=true autoplay=none outcome=changed
+5 take -> live=Live preview=2 program=black unavailable_black=true autoplay=none outcome=refused:UnavailablePreview
+6 next -> live=Live preview=3 program=frame:3 unavailable_black=false autoplay=none outcome=changed
+7 next -> live=Live preview=4 program=black unavailable_black=false autoplay=none outcome=changed
+8 next -> live=Live preview=5 program=frame:5 unavailable_black=false autoplay=none outcome=changed
+9 next-item -> live=Live preview=6 program=black unavailable_black=false autoplay=none outcome=changed
+10 next -> live=Live preview=7 program=black unavailable_black=false autoplay=none outcome=changed
+11 next -> live=Live preview=8 program=frame:8 unavailable_black=false autoplay=none outcome=changed
+12 next -> live=Live preview=9 program=frame:8 unavailable_black=false autoplay=none outcome=changed
+13 next -> live=Live preview=10 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+14 freeze -> live=Frozen preview=10 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+15 next -> live=Frozen preview=11 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+16 next -> live=Frozen preview=12 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+17 previous-item -> live=Frozen preview=8 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+18 freeze -> live=Live preview=8 program=frame:8 unavailable_black=false autoplay=none outcome=changed
+19 blackout -> live=Blackout preview=8 program=black unavailable_black=false autoplay=none outcome=changed
+20 next -> live=Blackout preview=9 program=black unavailable_black=false autoplay=none outcome=changed
+21 blackout -> live=Live preview=9 program=black unavailable_black=false autoplay=none outcome=changed
+22 next -> live=Live preview=10 program=frame:10 unavailable_black=false autoplay=none outcome=changed
+23 first -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+24 autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+25 tick 3000 -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=unchanged
+26 tick 3000 -> live=Live preview=1 program=frame:1 unavailable_black=false autoplay=item outcome=changed
+27 tick 2000 -> live=Live preview=1 program=frame:1 unavailable_black=false autoplay=item outcome=unchanged
+28 tick 1000 -> live=Live preview=3 program=frame:3 unavailable_black=false autoplay=item outcome=changed
+29 tick 6000 -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+30 loop-section -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=section outcome=changed
+31 stop-autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+32 stop-autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=unchanged
+33 autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+34 freeze -> live=Frozen preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+35 autoplay -> live=Frozen preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=refused:AutoPlayBlocked
+36 freeze -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+37 next-item -> live=Live preview=4 program=black unavailable_black=false autoplay=none outcome=changed
+38 autoplay -> live=Live preview=4 program=black unavailable_black=false autoplay=none outcome=refused:AutoPlayIneligible(NotGeneralPresentation)
+39 loop-section -> live=Live preview=4 program=black unavailable_black=false autoplay=none outcome=refused:AutoPlayIneligible(SectionHasIneligibleItem)
+40 next -> live=Live preview=5 program=frame:5 unavailable_black=false autoplay=none outcome=changed
+41 disconnect -> live=Disconnected(back=false) preview=5 program=black unavailable_black=false autoplay=none outcome=changed
+42 take -> live=Disconnected(back=false) preview=5 program=black unavailable_black=false autoplay=none outcome=refused:DisplayNotBack
+43 display-back-other -> live=Disconnected(back=false) preview=5 program=black unavailable_black=false autoplay=none outcome=unchanged
+44 take -> live=Disconnected(back=false) preview=5 program=black unavailable_black=false autoplay=none outcome=refused:DisplayNotBack
+45 display-back -> live=Disconnected(back=true) preview=5 program=black unavailable_black=false autoplay=none outcome=changed
+46 take -> live=Live preview=5 program=frame:5 unavailable_black=false autoplay=none outcome=changed
+47 first -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+48 autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+49 recover -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+50 autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+51 disconnect -> live=Disconnected(back=false) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+52 display-back -> live=Disconnected(back=true) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+53 disconnect -> live=Disconnected(back=false) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+54 display-back -> live=Disconnected(back=true) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+55 enable-output -> live=EnabledBlack preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+56 take -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+57 disconnect -> live=Disconnected(back=false) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+58 display-back-other -> live=Disconnected(back=false) preview=0 program=black unavailable_black=false autoplay=none outcome=unchanged
+59 take -> live=Disconnected(back=false) preview=0 program=black unavailable_black=false autoplay=none outcome=refused:DisplayNotBack
+60 display-back -> live=Disconnected(back=true) preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+61 disable-output -> live=OutputDisabled preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+62 enable-output -> live=EnabledBlack preview=0 program=black unavailable_black=false autoplay=none outcome=changed
+63 last -> live=EnabledBlack preview=17 program=black unavailable_black=false autoplay=none outcome=changed
+64 take -> live=Live preview=17 program=frame:17 unavailable_black=false autoplay=none outcome=changed
+65 first -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
+66 previous -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=unchanged
