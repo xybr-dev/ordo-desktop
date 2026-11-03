@@ -1113,6 +1113,13 @@ mod tests {
             );
         });
 
+        // Choirs is the Library's fourth view (Decision 278).
+        click(cx, "button-Library");
+        click(cx, "tab-3");
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(shell.local_view(cx), Some("Choirs"));
+        });
+
         // A destination keeps the local view it was left on.
         click(cx, "button-Library");
         click(cx, "tab-2");

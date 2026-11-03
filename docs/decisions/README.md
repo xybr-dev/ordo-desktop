@@ -333,5 +333,10 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0301](0301-navigation-and-slideover-motion.md) | Navigation and slideover motion | accepted | 2026-11-03 | design, motion, navigation |
 | [0302](0302-header-bars-keep-their-height.md) | Header bars keep their height across states | accepted | 2026-11-03 | design, layout, responsive |
 | [0303](0303-cue-captions-are-one-line.md) | Cue captions are one line; indicators keep their width | accepted | 2026-11-03 | design, presenter, layout |
+| [0304](0304-close-t0-6-s-hot-path-ac-on-what-exists-later-work-proves.md) | Close T0.6's hot-path AC on what exists; later work proves its own | accepted | 2026-10-11 | performance, presenter, qualification |
+| [0305](0305-the-walking-skeleton-lab-stands-in-for-packaged-checks-the.md) | The walking-skeleton lab stands in for packaged checks; the sign-off is restated to delivered scope | accepted | 2026-10-20 | qualification, platform |
+| [0306](0306-defer-the-ordo-inspector-promotion-keep-t0-10-ac5-on-the.md) | Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule | accepted | 2026-10-20 | qualification, portability |
+| [0307](0307-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | superseded by [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | 2026-11-01 | display, qualification |
+| [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
 
 <!-- adr-index:end -->

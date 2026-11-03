@@ -99,3 +99,28 @@ jobs:
           name: presenter-performance-report
           path: target/ordo-performance/report.json
           if-no-files-found: error
+
+  # T0.10 Phase 0 qualification bundle. Runs `cargo xtask qualify` on the Windows
+  # runner, skipping the two steps already gated by their own jobs above
+  # (`verify`) and below (`measure-presenter`). Fails on any failed or missing
+  # step, or on incomplete provenance. The bundle is uploaded even on failure so
+  # every result is retained.
+  windows-qualification:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Run qualification bundle
+        shell: pwsh
+        run: |
+          cargo xtask qualify --skip "verify=covered by the verify job" --skip "measure-presenter=covered by windows-presenter-performance"
+      - name: Upload qualification bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-bundle
+          path: target/qualification/
+          if-no-files-found: error
