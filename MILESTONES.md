@@ -844,6 +844,7 @@ only commands valid for the current focus context reach the Engine.
 keeping congregation exposure deliberate and fail-closed.
 
 **Changes:** `crates/platform/src/presenter_mode.rs`, `crates/platform/src/display/output_controller.rs`,
+`crates/platform/src/display/monitor_identity.rs`,
 `crates/ordo/src/presenter/session_header/`, `tests/e2e/output-lifecycle.*`
 
 **Depends on:** T0.5, T1.4, T1.5.
@@ -861,8 +862,23 @@ keeping congregation exposure deliberate and fail-closed.
       and restores the same main window and preparation context.
 - [ ] `[UI-AUTO]` Display disconnection updates visible state and Engine state
       without reassigning output or showing stale confidence.
+- [ ] `[UI-AUTO]` A reconnection is noticed without a key press. When the same
+      recognized congregation display returns, `Space` (or Resume Output)
+      recreates its window and takes Preview live in one step (Decision 272);
+      any other display, including one with the same resolution but a
+      different monitor identity, is refused with the reason and recovery goes
+      through Select display.
+- [ ] `[AUTO]` On Windows, display recognition carries the monitor's identity
+      (friendly name and EDID maker/product) read through the display
+      configuration API; blank or generic names count as no name. This adds a
+      second audited `unsafe` module, so a decision amending Decision 269 is
+      accepted first and `cargo xtask verify` allows exactly the two named
+      modules. Scope, blast radius, and rejected alternatives: issue #81.
 - [ ] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
       and recovery work in packaged Windows builds.
+- [ ] `[MANUAL]` On the church projector's real cabling (including any
+      extender or switch), unplugging and replugging it is recognized as the
+      same display, and a different display is refused.
 
 **E2E** `[UI-AUTO]` — Enter Presenter from a fixture host, rehearse with no
 output window, enable fake output, take a Cue live, attempt exit and cancel,
