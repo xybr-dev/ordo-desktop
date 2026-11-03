@@ -687,7 +687,7 @@ protection, and fail-closed recovery.
 **Goal:** Give the Presenter one immutable, realistic input contract independent
 of planning and persistence.
 
-**Changes:** `crates/domain/src/presentation.rs`, `crates/presentation/src/snapshot_reader.rs`,
+**Changes:** `crates/domain/src/presentation.rs`, `crates/presentation/src/snapshot_reader/`,
 `tests/fixtures/presentations/normal-mass/`,
 `tests/fixtures/presentations/recovery-drill/`
 
@@ -695,18 +695,18 @@ of planning and persistence.
 
 **AC**
 
-- [ ] `[AUTO]` Build sanitized Normal Mass and Recovery Drill fixtures with the
+- [x] `[AUTO]` Build sanitized Normal Mass and Recovery Drill fixtures with the
       six Mass sections and complete stable IDs/hashes.
-- [ ] `[AUTO]` Cover projectable lyrics, identification, responses, readings,
+- [x] `[AUTO]` Cover projectable lyrics, identification, responses, readings,
       timed General Presentations, operator-only triggers, Wait, Hold, Blackout,
       long wrapping, repeated chorus/refrain occurrences, both Themes, and an
       unavailable Cue.
 - [x] `[AUTO]` Every Cue belongs to exactly one Mass item; Mass sections own no
       Cue and no projectable output.
-- [ ] `[AUTO]` Operator-only triggers and Hold provide black projectable output
+- [x] `[AUTO]` Operator-only triggers and Hold provide black projectable output
       while retaining private operator context; Wait Cues retain private context
       and deliberately leave Program unchanged.
-- [ ] `[AUTO]` Snapshot loading validates every required frame/dependency before
+- [x] `[AUTO]` Snapshot loading validates every required frame/dependency before
       exposing a usable presentation input.
 
 **E2E** `[AUTO]` — Load both fixtures through the snapshot reader, flatten their
