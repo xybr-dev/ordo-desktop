@@ -678,8 +678,10 @@ or status (Decision 302): workspace and editor header titles take one line with
 an ellipsis, narrow workspaces always put header tabs on their own row, and an
 editor header's secondary actions show their icon alone there. The Mass plan
 title may wrap to two lines; narrow list, outline, and Ordo
-rows use one-line ellipsis; Cue captions may use two lines outside the canonical
-frame.
+rows use one-line ellipsis. A Cue caption is one line outside the canonical
+frame (Decision 303): its label ellipsizes to make room for its indicators
+(Edited, Program, Preview, Held), which never shrink, so a tile keeps its height
+as they come and go.
 
 Every visually truncated value reveals its full text on pointer hover and
 keyboard focus and retains that full accessible text. Collapse older breadcrumb

@@ -8,11 +8,13 @@ tags: []
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [303]
 sources: []
 ---
 
 # Explicit responsive truncation and disclosure hierarchy
+
+> Amended by Decision [303](0303-cue-captions-are-one-line.md): Cue captions are one line, and their indicators keep their width.
 
 - Never truncate or replace with icon-only ambiguity the text for **Live**, **Freeze**, **Blackout**, congregation-output health, active warnings/errors, readiness counts, scheduled times, or the contextual primary action. Reflow these labels or adapt surrounding lower-priority content first.
 - Let the current workspace or entity title wrap to at most two lines in its owning header. In narrow list, outline, and Ordo-rail rows, keep titles to one ellipsized line; allow Cue captions outside their canonical frame up to two lines.
