@@ -411,6 +411,7 @@ fn toggle(
         .child(
             div().flex_1().min_w_0().flex().flex_col().child(
                 Button::new(format!("toggle-{label}"), label, environment)
+                    .control_height(tokens::density::PRESENTER_CONTROL)
                     .current(pressed)
                     .availability(if enabled {
                         Availability::Available
@@ -480,6 +481,7 @@ pub fn primary_action(
             slot.child(
                 div().flex_1().min_w_0().flex().flex_col().child(
                     Button::new("primary-action-button", label, environment)
+                        .control_height(tokens::density::PRESENTER_CONTROL)
                         .tone(Tone::Primary)
                         .availability(if model.can_primary {
                             Availability::Available

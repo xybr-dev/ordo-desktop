@@ -186,7 +186,9 @@ pub fn presenter_layout(input: LayoutInput) -> PresenterLayout {
     let dock = match regime {
         Regime::Constrained => {
             let by_height = (height * BAND_HEIGHT_SHARE * SLIDE_ASPECT).floor();
-            let by_width = (width - 2.0 * BAND_GUTTER * s - BAND_GAP * s) / 2.0;
+            // The tab column sits beside the band, so it comes off the width first.
+            let tab = RAIL_TAB_WIDTH * s;
+            let by_width = (width - tab - 2.0 * BAND_GUTTER * s - BAND_GAP * s) / 2.0;
             DockLayout::Band {
                 monitor_width: by_height.min(by_width).max(0.0),
             }
@@ -400,21 +402,48 @@ mod tests {
         let DockLayout::Band { monitor_width } = layout.dock else {
             panic!("expected a band");
         };
-        assert!(2.0 * monitor_width + BAND_GAP + 2.0 * BAND_GUTTER <= 900.0 + 0.01);
+        assert!(
+            2.0 * monitor_width + BAND_GAP + 2.0 * BAND_GUTTER + RAIL_TAB_WIDTH <= 900.0 + 0.01
+        );
     }
+
+    #[test]
+    fn band_and_tab_fit_the_width_at_every_scale() {
+        for scale in [
+            InterfaceScale::Percent100,
+            InterfaceScale::Percent125,
+            InterfaceScale::Percent150,
+            InterfaceScale::Percent175,
+            InterfaceScale::Percent200,
+        ] {
+            let s = scale.apply(1.0);
+            for width in [700.0, 900.0, 1366.0] {
+                let layout = at(width, 2000.0, scale);
+                let DockLayout::Band { monitor_width } = layout.dock else {
+                    continue;
+                };
+                let used =
+                    2.0 * monitor_width + 2.0 * BAND_GUTTER * s + BAND_GAP * s + RAIL_TAB_WIDTH * s;
+                assert!(used <= width + EPS, "{width} at {scale:?}: {used}");
+            }
+        }
+    }
+
     #[test]
     fn band_monitors_shrink_to_the_width_at_200_percent() {
         let layout = at(900.0, 2000.0, InterfaceScale::Percent200);
-        // by height: floor(2000 * 0.3 * 16/9) = 1066; by width: (900 - 64 - 24) / 2 = 406.
+        // by height: floor(2000 * 0.3 * 16/9) = 1066; by width: (900 - 56 - 64 - 24) / 2 = 378.
         assert_eq!(
             layout.dock,
             DockLayout::Band {
-                monitor_width: 406.0
+                monitor_width: 378.0
             }
         );
         let DockLayout::Band { monitor_width } = layout.dock else {
             panic!("expected a band");
         };
-        assert!(2.0 * monitor_width + 2.0 * (BAND_GAP / 2.0 + BAND_GUTTER) * 2.0 <= 900.0 + EPS);
+        assert!(
+            2.0 * monitor_width + 2.0 * (BAND_GAP / 2.0 + BAND_GUTTER) * 2.0 + 56.0 <= 900.0 + EPS
+        );
     }
 }

@@ -245,7 +245,11 @@ impl PresenterView {
         cx.notify();
     }
 
-    /// Start the header clock: the time now, refreshed on every minute. The
+    /// Start the header clock: the time now, refreshed on every minute.
+    ///
+    /// The clock is UTC and says so. Local time needs a Windows API behind an
+    /// unsafe platform module, which is out of scope here; that seam is
+    /// deferred to T1.6. Labelling the zone means it never misleads. The
     /// ticker is owned by the view and stops with it.
     pub fn start_wall_clock(&mut self, cx: &mut Context<Self>) {
         self.wall_clock = Some(cx.spawn(async move |this, cx| {
@@ -321,6 +325,11 @@ impl PresenterView {
         {
             return;
         }
+        // A deadline at or before now is legitimate: an auto-play step that is
+        // already overdue. The wait is then zero, the timer fires, and the tick
+        // restarts the run's clock (or settles the fade), so the next deadline
+        // lies later and this cannot spin. Nothing is asserted because the
+        // Engine may rightly report an overdue step.
         let wait = Duration::from_millis(deadline.0.saturating_sub((self.clock)().0));
         let task = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
@@ -347,6 +356,9 @@ impl PresenterView {
             return;
         }
         let now = (self.clock)();
+        // Until the deferred `engine_changed` below runs, this frame still
+        // draws from the pre-failure view of the Engine: one frame of stale
+        // content, after which the store is synced to the new state.
         for (frame, reason) in failures {
             self.engine.mark_frame_unavailable(frame, reason, now);
         }
@@ -599,12 +611,6 @@ impl Render for PresenterView {
                     .into_any_element()
             }
             DockLayout::Band { monitor_width } => {
-                // The layout model sizes the band from the whole window, but
-                // the tab takes its column first: never let two monitors and
-                // their gutters outgrow what is left.
-                let column = f32::from(size.width) - layout.rail.width();
-                let fits = (column - scale.apply(2.0 * BAND_GUTTER + BAND_GAP)) / 2.0;
-                let monitor_width = monitor_width.min(fits.max(0.0));
                 let band = div()
                     .id("monitor-band")
                     .debug_selector(|| "monitor-band".into())
@@ -1071,6 +1077,15 @@ mod tests {
                 open.saved.borrow().last().map(|saved| saved.cue_view),
                 Some(CueView::Grid)
             );
+        }
+    }
+
+    #[gpui::test]
+    fn freeze_is_presenter_height_scaled_by_interface_scale(cx: &mut TestAppContext) {
+        for (case, expected) in [(SIZES[0], 40.0), (SIZES[2], 80.0)] {
+            let (_, cx) = open(cx, case);
+            let height = f32::from(bounds(cx, "button-Freeze").size.height);
+            assert!((height - expected).abs() < 0.5, "{height} != {expected}");
         }
     }
 }

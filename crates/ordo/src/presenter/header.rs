@@ -70,6 +70,10 @@ impl DisplayHealth {
 
 /// `HH:MM` for a time given as seconds since the Unix epoch, in UTC.
 ///
+/// Local time needs a platform seam (a Windows API behind an unsafe
+/// platform module), deferred to T1.6. The zone is printed, so the clock
+/// never passes UTC off as local time.
+///
 /// ponytail: the standard library has no local time zone and the workspace
 /// carries no time crate, so the header shows UTC until a platform seam
 /// supplies local time (it is labelled, not passed off as local).
