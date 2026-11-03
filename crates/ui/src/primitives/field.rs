@@ -84,6 +84,8 @@ pub struct Field {
     availability: Availability,
     read_only: Option<SharedString>,
     not_assigned: bool,
+    placeholder: Option<SharedString>,
+    label_hidden: bool,
     on_clear: Option<Clear>,
     environment: UiEnvironment,
     surface: u32,
@@ -107,6 +109,8 @@ impl Field {
             availability: Availability::default(),
             read_only: None,
             not_assigned: false,
+            placeholder: None,
+            label_hidden: false,
             on_clear: None,
             environment,
             surface: tokens::palette(environment.appearance()).background,
@@ -133,6 +137,21 @@ impl Field {
 
     /// Shows a quiet Clear control inside the field while it holds a value it
     /// can still edit, and runs this when the operator uses it.
+    /// A hint shown while the field is empty, such as what a search looks
+    /// through. It is never the field's name: the label stays that.
+    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    /// Leaves the label off the screen, where the field's purpose is plain
+    /// from its place and its placeholder (a filter bar's search). The label
+    /// stays the accessible name.
+    pub fn label_hidden(mut self) -> Self {
+        self.label_hidden = true;
+        self
+    }
+
     pub fn on_clear(mut self, on_clear: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_clear = Some(Rc::new(on_clear));
         self
@@ -200,7 +219,7 @@ impl RenderOnce for Field {
         let placeholder = if self.not_assigned {
             SharedString::new_static(Self::NOT_ASSIGNED)
         } else {
-            SharedString::default()
+            self.placeholder.clone().unwrap_or_default()
         };
 
         div()
@@ -211,11 +230,13 @@ impl RenderOnce for Field {
             .min_w(px(scale.apply(MIN_WIDTH)))
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-            .child(
-                div()
-                    .text_color(rgb(palette.text_muted))
-                    .child(self.label.clone()),
-            )
+            .when(!self.label_hidden, |field| {
+                field.child(
+                    div()
+                        .text_color(rgb(palette.text_muted))
+                        .child(self.label.clone()),
+                )
+            })
             .child(self.control(
                 disabled,
                 read_only,

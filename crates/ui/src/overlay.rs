@@ -881,10 +881,46 @@ impl OverlayHost {
             .any(|entry| entry.id == id && !entry.closing)
     }
 
+    /// A slideover closes from a quiet ✕ at the start of its own header,
+    /// before its title (Decision 299), which makes it the first stop after
+    /// the surface itself. A dialog keeps its close at the trailing end, where
+    /// its title reads first.
     fn header(&self, overlay: &Overlay, id: usize, environment: UiEnvironment) -> impl IntoElement {
         let palette = tokens::palette(environment.appearance());
         let scale = environment.preferences().scale;
         let close = self.closer(id);
+        let leads = overlay.kind == Surface::Slideover;
+        let name = format!("Close {}", overlay.title);
+        let close = Button::new(("overlay-close", id), "Close", environment)
+            .name(name.clone())
+            .tooltip(format!("{name} (Esc)"))
+            .icon(icon::X)
+            .icon_only()
+            .quiet()
+            .on_surface(palette.surface)
+            .on_activate(move |window, cx| close(window, cx));
+        let title = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+            .child(
+                div()
+                    .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                    .child(overlay.title.clone()),
+            )
+            .children(overlay.description.clone().map(|text| {
+                div()
+                    .text_color(rgb(palette.text_muted))
+                    .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                    .child(text)
+            }));
+        let (before, after) = if leads {
+            (Some(close), None)
+        } else {
+            (None, Some(close))
+        };
         div()
             .flex_none()
             .flex()
@@ -893,33 +929,9 @@ impl OverlayHost {
             .p(px(scale.apply(tokens::spacing::GROUP)))
             .border_b(px(tokens::border::SEPARATOR))
             .border_color(rgb(palette.border))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                    .child(
-                        div()
-                            .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                            .child(overlay.title.clone()),
-                    )
-                    .children(overlay.description.clone().map(|text| {
-                        div()
-                            .text_color(rgb(palette.text_muted))
-                            .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                            .child(text)
-                    })),
-            )
-            .child(
-                Button::new(("overlay-close", id), "Close", environment)
-                    .icon(icon::X)
-                    .icon_only()
-                    .quiet()
-                    .on_surface(palette.surface)
-                    .on_activate(move |window, cx| close(window, cx)),
-            )
+            .children(before)
+            .child(title)
+            .children(after)
     }
 
     /// The footer exists only where there is a decision to take; a slideover
@@ -1648,6 +1660,40 @@ mod tests {
                 && viewport.width - resting.right()
                     <= px(tokens::density::WORKSPACE_GUTTER_WIDE + 1.0),
             "and comes to rest one exterior gutter from the edge"
+        );
+    }
+
+    /// Decision 299: a slideover closes from a ✕ at the start of its header,
+    /// named for the panel; a dialog keeps its ✕ at the trailing end.
+    #[gpui::test]
+    fn a_slideover_leads_its_header_with_close_and_a_dialog_trails_it(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let slideover = view.read_with(cx, |view, _| view.overlay(Surface::Slideover));
+        cx.update(|window, cx| view.read(cx).host.clone().open(slideover, window, cx));
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let surface = cx.debug_bounds("overlay-Inspector").unwrap();
+        let close = cx.debug_bounds("button-Close").unwrap();
+        assert!(
+            close.center().x < surface.center().x,
+            "a slideover's close leads its header"
+        );
+        cx.simulate_mouse_move(close.center(), None, gpui::Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("control-tooltip").is_some());
+
+        let (_, cx) = open(cx);
+        press_invoker(cx);
+        let dialog = cx.debug_bounds("overlay-Delete this Mass?").unwrap();
+        let close = cx.debug_bounds("button-Close").unwrap();
+        assert!(
+            close.center().x > dialog.center().x,
+            "a dialog's close stays at the trailing end"
         );
     }
 

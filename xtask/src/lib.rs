@@ -90,11 +90,26 @@ const LUCIDE_ICONS: &[&str] = &[
     "hard-drive-download.svg",
     "info.svg",
     "library.svg",
+    "package.svg",
     "palette.svg",
     "plus.svg",
     "settings.svg",
     "triangle-alert.svg",
     "x.svg",
+];
+
+const FILLED_ICON_DIR: &str = "crates/ui/assets/icons/filled";
+
+/// The filled forms of the rail icons (Decision 300), derived from the
+/// Lucide outlines above.
+const FILLED_ICONS: &[&str] = &[
+    "activity.svg",
+    "calendar-days.svg",
+    "circle-question-mark.svg",
+    "hard-drive-download.svg",
+    "library.svg",
+    "palette.svg",
+    "settings.svg",
 ];
 
 /// Bundled assets that are not icons; the Lucide subset is appended from
@@ -115,6 +130,11 @@ fn required_ui_assets() -> impl Iterator<Item = String> {
             LUCIDE_ICONS
                 .iter()
                 .map(|icon| format!("{LUCIDE_ICON_DIR}/{icon}")),
+        )
+        .chain(
+            FILLED_ICONS
+                .iter()
+                .map(|icon| format!("{FILLED_ICON_DIR}/{icon}")),
         )
 }
 
@@ -839,7 +859,10 @@ fn validate_lucide_assets(icons_root: &Path) -> XtaskResult<()> {
     let families: BTreeSet<_> = fs::read_dir(icons_root)?
         .map(|entry| entry.map(|entry| entry.file_name()))
         .collect::<Result<_, _>>()?;
-    if families != BTreeSet::from(["lucide".into()]) {
+    // `filled` is not another family: it holds the filled forms of Lucide
+    // outlines for the current rail destination (Decision 300), and is checked
+    // against them below.
+    if families != BTreeSet::from(["filled".into(), "lucide".into()]) {
         return Err("crates/ui/assets/icons must contain only the Lucide family".into());
     }
 
@@ -866,6 +889,36 @@ fn validate_lucide_assets(icons_root: &Path) -> XtaskResult<()> {
             || !svg.contains("stroke-width=\"2\"")
         {
             return Err(format!("Lucide icon has unexpected visual vocabulary: {icon}").into());
+        }
+    }
+
+    let filled_root = icons_root.join("filled");
+    let actual: BTreeSet<_> = fs::read_dir(&filled_root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    let expected: BTreeSet<_> = FILLED_ICONS
+        .iter()
+        .map(OsStr::new)
+        .map(OsStr::to_owned)
+        .collect();
+    if actual != expected {
+        return Err(format!(
+            "bundled filled subset differs: expected {expected:?}, got {actual:?}"
+        )
+        .into());
+    }
+    for icon in FILLED_ICONS {
+        if !LUCIDE_ICONS.contains(icon) {
+            return Err(
+                format!("filled icon has no Lucide outline it derives from: {icon}").into(),
+            );
+        }
+        let svg = fs::read_to_string(filled_root.join(icon))?;
+        if !svg.contains("viewBox=\"0 0 24 24\"")
+            || !svg.contains("stroke=\"currentColor\"")
+            || !(svg.contains("stroke-width=\"2\"") || svg.contains("stroke-width=\"2.75\""))
+        {
+            return Err(format!("filled icon leaves the Lucide grid: {icon}").into());
         }
     }
     Ok(())
