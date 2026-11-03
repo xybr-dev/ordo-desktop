@@ -135,7 +135,7 @@
   function seg(path, value, options, label) {
     return '<div class="o-segmented" role="group" aria-label="' + esc(label) + '">' + options.map(function (o) { return '<button data-a="set" data-path="' + path + '" data-v="' + esc(o) + '" aria-pressed="' + (String(value) === String(o)) + '">' + esc(o) + "</button>"; }).join("") + "</div>";
   }
-  function closeTab(label) { return '<button class="pl-close-tab" data-a="close" aria-label="' + label + '" title="' + label + '">' + icon("chevron-right") + "</button>"; }
+  function closeTab(label) { return '<button class="o-btn o-btn--quiet o-btn--icon o-close" data-a="close" aria-label="' + label + '" title="' + label + ' (Esc)">' + icon("x") + "</button>"; }
   function kbd(k) { return k.split("  ").map(function (one) { return one.replace(/\+\+$/, "+PLUS").split("+").map(function (x) { return x === "PLUS" ? "+" : x; }).map(function (x) { return '<kbd class="o-kbd">' + esc(x || "+") + "</kbd>"; }).join("+"); }).join(" "); }
 
   var DESTS = { Masses: "masses", Themes: "themes", "Transfer & Backup": "transfer", Diagnostics: "diagnostics", Help: "help", Settings: "settings" };
@@ -248,8 +248,8 @@
     }
     function newCel() {
       var n = S.newCel, ok = n.title.trim() && n.date.trim();
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-nc">' + closeTab("Cancel") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-nc">New Celebration</h2><div class="o-meta">The Celebration comes first; its Masses hang under it (Decision 84).</div></div></div>' +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-nc">' +
+        '<div class="o-overlay-head">' + closeTab("Cancel") + '<div class="o-grow"><h2 class="o-title" id="sh-nc">New Celebration</h2><div class="o-meta">The Celebration comes first; its Masses hang under it (Decision 84).</div></div></div>' +
         '<div class="o-overlay-body sh-form">' + field("Date", input("newCel.date", n.date)) + field("Title", input("newCel.title", n.title, { ph: "e.g. Ika-34 nga Domingo · Christ the King" })) +
         '<div class="sh-two">' + field("Season or occasion", sel("newCel.season", n.season, ["Ordinary Time", "Advent", "Christmas", "Lent", "Easter", "Solemnity", "Feast", "Special"], "Season")) +
         field("Liturgical colour", sel("newCel.color", n.color, ["Green", "White", "Violet", "Red", "Rose", "Black"], "Colour")) + "</div>" +
@@ -318,8 +318,8 @@
         }
       }
       var ok = /^\d{1,2}:\d{2}$/.test(a.time.trim()) && (a.method === "template" || src);
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-am">' + closeTab("Cancel") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-am">' + (c.masses.length ? "Add another Mass" : "Add a Mass") + '</h2><div class="o-meta">' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-am">' +
+        '<div class="o-overlay-head">' + closeTab("Cancel") + '<div class="o-grow"><h2 class="o-title" id="sh-am">' + (c.masses.length ? "Add another Mass" : "Add a Mass") + '</h2><div class="o-meta">' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
         '<div class="o-overlay-body sh-form">' + start + (a.method === "template" ? when + who + how : how.split('<div class="sh-summary">')[0] + when + who + (src ? '<div class="sh-summary">' + how.split('<div class="sh-summary">')[1] : "")) + "</div>" +
         '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="createmass"' + (ok ? "" : " disabled") + ">" +
         (a.method === "dup" ? "Duplicate Mass" : a.method === "reuse" ? "Reuse plan" : "Create Mass plan") + "</button></div></div>";
@@ -363,8 +363,8 @@
         (mismatch ? "<li>Seasonal items: the source was " + esc(c.season) + ", the target is " + esc(tgt.season) + ". Check the Gloria, Creed and seasonal Songs</li>" : "") + "</ul></div>" +
         '<div><b>Not copied</b><ul class="pl-changes"><li>The old Celebration and date</li><li>Presentation snapshots, sessions and history</li></ul></div></div>';
       var ok = n && (r.into === "existing" ? !!r.target : r.nt.trim() && r.nd.trim()) && ms.every(function (x) { return !r.pick[x.id] || /^\d{1,2}:\d{2}$/.test(r.times[x.id].trim()); });
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-ru">' + closeTab("Cancel") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-ru">Reuse for another Celebration</h2><div class="o-meta">From ' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-ru">' +
+        '<div class="o-overlay-head">' + closeTab("Cancel") + '<div class="o-grow"><h2 class="o-title" id="sh-ru">Reuse for another Celebration</h2><div class="o-meta">From ' + esc(c.title) + " · " + esc(c.date) + "</div></div></div>" +
         '<div class="o-overlay-body sh-form">' + plans + into + summary + '<p class="o-meta">The copies are independent: later edits to either plan don’t affect the other. ' + esc(c.title) + " keeps its plans.</p></div>" +
         '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="doreuse"' + (ok ? "" : " disabled") + ">Reuse " + n + " plan" + (n === 1 ? "" : "s") + "</button></div></div>";
     }
@@ -483,15 +483,15 @@
     }
     function reviewOver() {
       var r = S.review;
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-rv">' + closeTab("Close review") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-rv">Review affected plans</h2><div class="o-meta">' + esc(r.name) + " is saved. Only plans with new problems are listed; the rest re-rendered cleanly.</div></div></div>" +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-rv">' +
+        '<div class="o-overlay-head">' + closeTab("Close review") + '<div class="o-grow"><h2 class="o-title" id="sh-rv">Review affected plans</h2><div class="o-meta">' + esc(r.name) + " is saved. Only plans with new problems are listed; the rest re-rendered cleanly.</div></div></div>" +
         '<div class="o-overlay-body">' + r.list.map(function (g) { return '<div class="pl-fgroup"><div class="o-label">' + esc(g[0]) + "</div>" + g[1].map(function (f) { return '<div class="pl-find">' + statusLabel("warning", "", "square") + '<div class="o-grow"><span class="pl-find-t">' + esc(f[0]) + '</span><span class="o-meta">' + esc(f[1]) + '</span><button class="pl-link" data-a="toast" data-msg="Opens the plan at that item and slide">Open at this slide</button></div></div>'; }).join("") + "</div>"; }).join("") + "</div>" +
         '<div class="o-overlay-foot"><button class="o-btn" data-a="undo">Undo the save</button><button class="o-btn o-btn--primary" data-a="close">Done</button></div></div>';
     }
     function histOver() {
       var t = theme(S.ed.id), h = S.hist, rev = t.revs[h.i];
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-th">' + closeTab("Close History") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-th">History · ' + esc(t.name) + '</h2><div class="o-meta">Each Save is a revision. Previewing doesn\'t change the editor.</div></div></div>' +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-th">' +
+        '<div class="o-overlay-head">' + closeTab("Close History") + '<div class="o-grow"><h2 class="o-title" id="sh-th">History · ' + esc(t.name) + '</h2><div class="o-meta">Each Save is a revision. Previewing doesn\'t change the editor.</div></div></div>' +
         '<div class="o-overlay-body"><div class="sh-list">' + t.revs.map(function (r, i) { return '<button class="o-row sh-rev' + (i === h.i ? " is-sel" : "") + '" data-a="rev" data-i="' + i + '" aria-pressed="' + (i === h.i) + '"><div class="o-grow"><b>' + esc(r.when) + (i === 0 ? " · current" : "") + '</b><span class="o-meta">' + esc(r.what) + " · " + r.plans + " plans updated</span></div></button>"; }).join("") + "</div>" +
         '<div class="sh-revprev">' + themeSlide(i0(t, h.i), SPECIMENS[0][2]) + "</div></div>" +
         '<div class="o-overlay-foot"><button class="o-btn" data-a="close">Close</button><button class="o-btn o-btn--primary" data-a="restorerev"' + (h.i === 0 ? " disabled" : "") + ">Restore this revision</button></div></div>";
@@ -528,7 +528,7 @@
     }
     function expOver() {
       var x = S.exp, c = x.cel ? cel(x.cel) : null;
-      var head = '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-ex">' + (x.done ? "Export complete" : "Export Celebration Package") + "</h2>" + (c ? '<div class="o-meta">' + esc(c.title) + " · " + esc(c.date) + "</div>" : "") + "</div></div>";
+      var head = '<div class="o-overlay-head">' + closeTab("Close") + '<div class="o-grow"><h2 class="o-title" id="sh-ex">' + (x.done ? "Export complete" : "Export Celebration Package") + "</h2>" + (c ? '<div class="o-meta">' + esc(c.title) + " · " + esc(c.date) + "</div>" : "") + "</div></div>";
       var body, foot;
       if (!c) {
         body = '<p class="o-meta">Choose the Celebration to export. The package is always the whole Celebration with every Mass plan under it.</p><div class="sh-list">' +
@@ -551,7 +551,7 @@
           '<details class="sh-disc"><summary>Package contents</summary><ul class="pl-changes"><li>' + ms.length + " Presentation snapshots, one per Mass plan</li><li>14 Arrangements · 9 Responses &amp; Prayers · 2 General Presentations</li><li>Theme Parish Dark and its fonts</li><li>3 images, stored once each</li></ul></details>");
         foot = '<button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="doexport"' + (blocked ? " disabled" : "") + ">" + icon("package") + "Export package…</button>";
       }
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-ex">' + closeTab("Close") + head + '<div class="o-overlay-body">' + body + '</div><div class="o-overlay-foot">' + foot + "</div></div>";
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-ex">' + head + '<div class="o-overlay-body">' + body + '</div><div class="o-overlay-foot">' + foot + "</div></div>";
     }
     function mkOver() {
       var x = S.mk;
@@ -562,8 +562,8 @@
           '<p class="o-meta">A Parish Backup is always the whole parish. It doesn\'t include Ordo itself, caches, or the logs used by Diagnostics.</p><details class="sh-disc"><summary>Backup contents</summary><ul class="pl-changes"><li>Parish details and settings</li><li>Display calibration, kept for this computer\'s displays only</li><li>Package history, identity mappings and sync anchors</li></ul></details>';
       var foot = x.done ? '<button class="o-btn" data-a="toast" data-msg="Opens the folder">Show in folder</button><button class="o-btn" data-a="toast" data-msg="Copies the same verified file elsewhere">Copy to another location…</button><button class="o-btn o-btn--primary" data-a="close">Done</button>'
         : '<button class="o-btn" data-a="close">Cancel</button><button class="o-btn o-btn--primary" data-a="domk">' + icon("hard-drive-download") + "Create backup…</button>";
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-mk">' + closeTab("Close") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-mk">' + (x.done ? "Backup complete" : "Create parish backup") + '</h2><div class="o-meta">Everything Ordo knows about ' + esc(S.parish.name) + ", in one .ordo file.</div></div></div>" +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-mk">' +
+        '<div class="o-overlay-head">' + closeTab("Close") + '<div class="o-grow"><h2 class="o-title" id="sh-mk">' + (x.done ? "Backup complete" : "Create parish backup") + '</h2><div class="o-meta">Everything Ordo knows about ' + esc(S.parish.name) + ", in one .ordo file.</div></div></div>" +
         '<div class="o-overlay-body">' + body + '</div><div class="o-overlay-foot">' + foot + "</div></div>";
     }
     var STAGED = [
@@ -585,8 +585,8 @@
         '<div class="o-label sh-sub">Staged changes</div><div class="sh-list">' + rows + "</div></div></div></div>";
     }
     function decideOver() {
-      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-dc">' + closeTab("Close") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-title" id="sh-dc">Amahan Namo (Walter)</h2><div class="o-meta">Possible match: <b>Amahan Namo</b> · Walter · already in this Library</div></div></div>' +
+      return '<div class="o-scrim" data-a="close"></div><div class="o-slideover sh-over" role="dialog" aria-modal="true" aria-labelledby="sh-dc">' +
+        '<div class="o-overlay-head">' + closeTab("Close") + '<div class="o-grow"><h2 class="o-title" id="sh-dc">Amahan Namo (Walter)</h2><div class="o-meta">Possible match: <b>Amahan Namo</b> · Walter · already in this Library</div></div></div>' +
         '<div class="o-overlay-body sh-radios">' + [["Keep both as separate Songs", "The incoming Song gets its own identity; Ordo remembers this choice for later imports."], ["Add as an Arrangement of Amahan Namo", "One Song work with both Arrangements."], ["Same Song: review the differences", "Compare content side by side before choosing."]]
           .map(function (o, i) { return '<label class="sh-radio"><input type="radio" name="dc"' + (i === 0 ? " checked" : "") + "><span><b>" + o[0] + '</b><br><span class="o-meta">' + o[1] + "</span></span></label>"; }).join("") +
         '<button class="pl-link" data-a="toast" data-msg="Opens the read-only comparison (Song import review)">Compare content</button></div>' +

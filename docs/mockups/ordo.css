@@ -410,7 +410,6 @@
 }
 .o-app[data-tier] .o-side-r.is-open { right: 0; }
 .o-app[data-tier] .o-side-l.is-open { left: 0; }
-.o-side-l .pl-close-tab { left: auto; right: calc(-14px * var(--o-scale)); }
 .pl-head .pl-title, .pl-head .o-grow { min-width: 0; }
 .o-app:not([data-tier="full"]) .pl-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pl-outline { width: calc(280px * var(--o-scale)); min-width: calc(240px * var(--o-scale)); flex: 0 1 auto; }
@@ -484,12 +483,9 @@
 .pl-picker, .pl-theme-panel { width: min(calc(560px * var(--o-scale)), calc(100% - 64px)); }
 .pl-child { width: min(calc(520px * var(--o-scale)), calc(100% - 64px)); z-index: 23; }
 .pl-readiness { top: calc(92px * var(--o-scale)); width: min(calc(440px * var(--o-scale)), calc(100% - 64px)); }
-.pl-close-tab {
-  all: unset; position: absolute; left: calc(-14px * var(--o-scale)); top: 50%; transform: translateY(-50%); cursor: pointer;
-  display: grid; place-items: center; width: calc(28px * var(--o-scale)); height: calc(56px * var(--o-scale));
-  background: var(--o-surface); border: 1px solid var(--o-border-strong); border-radius: var(--o-radius-control); box-shadow: var(--o-shadow-floating); color: var(--o-text);
-}
-.pl-close-tab:focus-visible { outline: 2px solid var(--o-focus); outline-offset: 2px; }
+/* Slideover close: leads the header, so it reads as dismiss and sits where the pane's name is. */
+.o-close { flex: none; margin-left: calc(-8px * var(--o-scale)); }
+.o-overlay-head > .o-close { margin-top: calc(-2px * var(--o-scale)); }
 .o-overlay-body > * + * { margin-top: var(--o-s3); }
 .pl-results { border: 1px solid var(--o-border); border-radius: var(--o-radius-control); overflow: hidden; }
 .pl-result { min-height: calc(40px * var(--o-scale)); }

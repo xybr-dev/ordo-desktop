@@ -189,7 +189,7 @@
   }
   function panes(app, width, opts) {
     app.removeAttribute("data-tier"); app.removeAttribute("data-side");
-    app.querySelectorAll(".o-sidebar, .o-side-scrim, .o-side-close").forEach(function (e) { e.remove(); });
+    app.querySelectorAll(".o-sidebar, .o-side-scrim, .o-side-close, .o-side-head").forEach(function (e) { e.remove(); });
     app.querySelectorAll(".o-side-l.is-open, .o-side-r.is-open").forEach(function (e) {
       e.classList.remove("is-open"); e.removeAttribute("aria-modal");
       restore(e, "role", e.dataset.sideRole); restore(e, "aria-label", e.dataset.sideLabel);
@@ -219,7 +219,11 @@
       open.dataset.sideRole = open.getAttribute("role") || ""; open.dataset.sideLabel = open.getAttribute("aria-label") || "";
       open.setAttribute("role", "dialog"); open.setAttribute("aria-modal", "true"); open.setAttribute("aria-label", title);
       list[1].setAttribute("inert", "");
-      open.insertAdjacentHTML("afterbegin", '<button class="pl-close-tab o-side-close" data-side-close aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(app.__side === "left" ? "chevron-left" : "chevron-right") + "</button>");
+      // Close leads the pane's own header (Notion-style); a pane without one gets a minimal header.
+      var btn = '<button class="o-btn o-btn--quiet o-btn--icon o-close o-side-close" data-side-close aria-label="' + esc(label) + '" title="' + esc(label) + ' (Esc)">' + icon("x") + "</button>";
+      var head = open.querySelector(":scope > .o-pane-head, :scope > .sg-browser-head > .sg-row");
+      if (head) head.insertAdjacentHTML("afterbegin", btn);
+      else open.insertAdjacentHTML("afterbegin", '<div class="o-pane-head o-side-head">' + btn + "<b>" + esc(title) + "</b></div>");
       host.insertAdjacentHTML("afterbegin", '<div class="o-scrim pl-scrim--light o-side-scrim" data-side-close></div>');
     }
     icons();
@@ -245,7 +249,7 @@
           e.preventDefault(); var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]');
         } else if (e.key === "Tab") {
           var pane = app.querySelector(".o-side-l.is-open, .o-side-r.is-open");
-          var all = [].filter.call(pane.querySelectorAll(FOCUSABLE), function (x) { return x.getClientRects().length; });
+          var all = [].filter.call(pane.querySelectorAll(FOCUSABLE), function (x) { return x.getClientRects().length && x.getAttribute("tabindex") !== "-1"; });
           if (!all.length) return;
           var at = all.indexOf(document.activeElement), next = at < 0 ? all[0] : e.shiftKey && at === 0 ? all[all.length - 1] : !e.shiftKey && at === all.length - 1 ? all[0] : null;
           if (next) { e.preventDefault(); next.focus(); }

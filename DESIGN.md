@@ -402,6 +402,14 @@ and converts it to a fixed pane. Every overlay and its scrim share one
 application-owned stacking layer so background controls cannot receive stray
 events.
 
+A slideover closes from a quiet ✕ icon button that leads its header, before
+the title (Decision 299). The header is the panel's top bar: the panel's own
+actions sit at its trailing end, and no separate bar is added. A side pane with
+no header gets a minimal one, the ✕ and its name, while it is a slideover; when
+it is fixed again, the ✕ goes and nothing else moves. Focus lands on the ✕ when
+the panel opens. Escape, the scrim and the toggle that opened the panel close it
+too.
+
 Fixed panes, list rows, buttons, selected items, and canonical slide frames have
 no shadow. Nested slide-overs use one overlay shadow plus the adopted parent
 recession; they do not accumulate increasingly dramatic shadows with nesting.

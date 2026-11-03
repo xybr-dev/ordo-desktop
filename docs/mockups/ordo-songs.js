@@ -328,7 +328,7 @@
     }
 
     // ── shared views ──────────────────────────────────────────────────────────────────────────
-    function closeTab(label) { return '<button class="pl-close-tab" data-act="close" aria-label="' + label + '" title="' + label + '">' + icon("chevron-right") + "</button>"; }
+    function closeTab(label) { return '<button class="o-btn o-btn--quiet o-btn--icon o-close" data-act="close" aria-label="' + label + '" title="' + label + ' (Esc)">' + icon("x") + "</button>"; }
     function frame(c) { return K.slide(c || null); }
     function clip(c) { return { k: c.k, h: c.h, b: c.b.split("\n").slice(0, 4).join("\n") }; }   // never preview a squeezed frame
     function thumbs(list, cur, attr) {
@@ -722,8 +722,8 @@
       var f = S.form, d = duplicates(), edit = S.overlay === "songdetails", s = song(), n = edit ? s.arrs.filter(function (a) { return !a.archived; }).length : 0;
       var dupHtml = d.length ? '<div class="sg-dups"><button class="pl-link" data-act="dups" aria-expanded="' + S.dupOpen + '">' + icon(S.dupOpen ? "chevron-down" : "chevron-right") + d.length + (d.length === 1 ? " possible existing Song" : " possible existing Songs") + "</button>" +
         (S.dupOpen ? '<div class="sg-dup-list">' + d.map(function (s) { return '<button class="o-row" data-dup="' + s.id + '"><span class="o-grow"><b>' + esc(s.title) + '</b><span class="o-meta">' + esc(s.by) + " · " + s.arrs.length + " Arrangements</span></span>" + icon("chevron-right") + "</button>"; }).join("") + "</div>" : "") + "</div>" : "";
-      return '<div class="o-scrim"></div><div class="o-slideover sg-form' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="sg-ns-t">' + closeTab(edit ? "Cancel" : "Cancel new song") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="sg-ns-t">' + (edit ? "Song details" : "New song") + '</h2><div class="o-meta">' + (edit ? esc(s.title) + " · the composition itself." : "The composition itself.") + " Lyrics, language and choirs belong to its Arrangements.</div></div></div>" +
+      return '<div class="o-scrim"></div><div class="o-slideover sg-form' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="sg-ns-t">' +
+        '<div class="o-overlay-head">' + closeTab(edit ? "Cancel" : "Cancel new song") + '<div class="o-grow"><h2 class="o-h2" id="sg-ns-t">' + (edit ? "Song details" : "New song") + '</h2><div class="o-meta">' + (edit ? esc(s.title) + " · the composition itself." : "The composition itself.") + " Lyrics, language and choirs belong to its Arrangements.</div></div></div>" +
         '<div class="o-overlay-body">' +
         (edit && n ? '<div class="o-notice" data-state="info">' + icon("link") + "<div><b>Shown by " + n + (n === 1 ? " Arrangement." : " Arrangements.") + "</b> The title and credits appear on each of them and in the Mass plans that use this Song. Past Presentation snapshots don’t change.</div></div>" : "") +
         '<div class="pl-form">' +
@@ -763,8 +763,8 @@
           (open ? "" : '<button class="sg-toggle sg-toggle--add"' + (key === "occ" ? "" : ' data-act="pick" data-key="' + key + '"') + ">" + icon("plus") + esc(extra) + "</button>") + "</div>" + (open ? pickerHtml(key) : "");
       }
       var shared = !f.create && a.choirs.length > 1;
-      return '<div class="o-scrim"></div><div class="o-slideover sg-form" role="dialog" aria-modal="true" aria-labelledby="sg-ad-t">' + closeTab("Cancel") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="sg-ad-t">' + (f.create ? "New Arrangement" : "Arrangement details") + '</h2><div class="o-meta">' + esc(s.title) + (f.create ? "" : " · " + esc(arrLabel(a))) + "</div></div></div>" +
+      return '<div class="o-scrim"></div><div class="o-slideover sg-form" role="dialog" aria-modal="true" aria-labelledby="sg-ad-t">' +
+        '<div class="o-overlay-head">' + closeTab("Cancel") + '<div class="o-grow"><h2 class="o-h2" id="sg-ad-t">' + (f.create ? "New Arrangement" : "Arrangement details") + '</h2><div class="o-meta">' + esc(s.title) + (f.create ? "" : " · " + esc(arrLabel(a))) + "</div></div></div>" +
         '<div class="o-overlay-body">' +
         (shared ? '<div class="o-notice" data-state="info">' + icon("users") + "<div><b>Shared by " + esc(a.choirs.join(" and ")) + ".</b> Saving updates this one Arrangement for every choir that uses it. Mass plans keep their references; past Presentation snapshots don’t change.</div></div>" : "") +
         '<div class="pl-form">' +
@@ -792,8 +792,8 @@
               (r.current ? '<span class="pl-chip">Current</span>' : icon("chevron-right")) + "</button>";
           }).join("") + "</div>" : "") + "</div>";
       }).join("");
-      return '<div class="o-scrim"></div><div class="o-slideover sg-history' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="sg-h-t">' + closeTab("Close History") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="sg-h-t">History</h2><div class="o-meta">' + (h.kind === "song" ? "Song · " : "Arrangement · ") + esc(ent) + "</div></div></div>" +
+      return '<div class="o-scrim"></div><div class="o-slideover sg-history' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="sg-h-t">' +
+        '<div class="o-overlay-head">' + closeTab("Close History") + '<div class="o-grow"><h2 class="o-h2" id="sg-h-t">History</h2><div class="o-meta">' + (h.kind === "song" ? "Song · " : "Arrangement · ") + esc(ent) + "</div></div></div>" +
         '<div class="o-overlay-body">' + list + '<p class="o-meta">' + (h.kind === "song" ? "Song History covers its title, attribution and metadata. Each Arrangement keeps its own History." : "Every saved change is kept. Select a revision to compare it with the current Arrangement.") + "</p></div></div>" +
         (S.child === "compare" ? compare() : "");
     }
@@ -883,8 +883,8 @@
         else body = '<div class="sg-cmp-slides">' + [].concat.apply([], a.seq.map(function (id) { return slides(secOf(a, id)); })).map(function (c) { return frame(c); }).join("") + "</div>";
         return '<div class="sg-cmp-col"><div class="sg-cmp-head"><b>' + label + "</b></div>" + body + "</div>";
       }
-      return '<div class="o-scrim"></div><div class="o-slideover sg-compare sg-compare--wide" role="dialog" aria-modal="true" aria-labelledby="sg-cd-t">' + closeTab("Close comparison") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="sg-cd-t">Compare contents</h2><div class="o-meta">Read-only · the staged action doesn’t change here</div></div>' +
+      return '<div class="o-scrim"></div><div class="o-slideover sg-compare sg-compare--wide" role="dialog" aria-modal="true" aria-labelledby="sg-cd-t">' +
+        '<div class="o-overlay-head">' + closeTab("Close comparison") + '<div class="o-grow"><h2 class="o-h2" id="sg-cd-t">Compare contents</h2><div class="o-meta">Read-only · the staged action doesn’t change here</div></div>' +
         (m ? '<label class="o-meta sg-row">Nearest match <select class="pl-input pl-input--sel">' + m.arrs.map(function (a) { return "<option" + (a === near ? " selected" : "") + ">" + esc(arrLabel(a)) + "</option>"; }).join("") + "</select></label>" : "") + "</div>" +
         '<div class="o-tabs" role="tablist">' + tabs.map(function (t) { return '<button role="tab" data-cmptab="' + t + '" aria-selected="' + (S.cmpTab === t) + '">' + t.charAt(0).toUpperCase() + t.slice(1) + "</button>"; }).join("") + "</div>" +
         '<div class="o-overlay-body"><div class="sg-cmp">' + col(x.a, "Imported · " + esc(d.file), near, "cur") + col(near, "Library · " + (near ? esc(arrLabel(near)) : ""), x.a, "old") + "</div></div>" +
