@@ -338,5 +338,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0306](0306-defer-the-ordo-inspector-promotion-keep-t0-10-ac5-on-the.md) | Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule | accepted | 2026-10-20 | qualification, portability |
 | [0307](0307-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | superseded by [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | 2026-11-01 | display, qualification |
 | [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
+| [0309](0309-floating-surfaces-fade-and-rise-instead-of-zooming.md) | Floating surfaces fade and rise instead of zooming | accepted | 2026-11-03 | design, motion, gpui |
 
 <!-- adr-index:end -->

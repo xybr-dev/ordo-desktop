@@ -1930,6 +1930,24 @@ mod tests {
         );
     }
 
+    /// Decision 309: a popup fades in while dropping `4px` from its trigger,
+    /// rather than zooming.
+    #[gpui::test]
+    fn a_popup_drops_into_place_from_its_trigger(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        click(cx, "button-Language: All");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        let dropping = cx.debug_bounds("selection-list").unwrap();
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        let resting = cx.debug_bounds("selection-list").unwrap();
+        assert!(
+            dropping.top() < resting.top(),
+            "it starts above where it rests"
+        );
+        assert!(resting.top() - dropping.top() <= px(4.0));
+        assert_eq!(dropping.size, resting.size, "nothing grows or rewraps");
+    }
+
     /// A Celebration folds its plans away by shrinking them up into its
     /// header over `160ms`, and grows them back the same way (`DESIGN.md`).
     #[gpui::test]

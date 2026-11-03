@@ -71,6 +71,8 @@ struct State {
     /// Where a tab strip last laid out its tabs, which its underline travels
     /// between (Decision 301). Unused by the popup kinds.
     track: crate::motion::Track,
+    /// How many times the popup has opened, which restarts its entrance.
+    opens: u64,
 }
 
 impl State {
@@ -103,6 +105,7 @@ impl State {
             creatable: false,
             press_on_trigger: false,
             track: crate::motion::Track::default(),
+            opens: 0,
         }
     }
 
@@ -200,6 +203,9 @@ impl State {
     }
 
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.open {
+            self.opens += 1;
+        }
         self.open = true;
         if let Some(field) = self.field.as_ref() {
             self.restore_to = field.value(cx);
@@ -1034,6 +1040,7 @@ impl Control {
     fn render(self, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
         let state = self.state.0.read(cx);
         let open = state.open;
+        let opens = state.opens;
         let choice_count = state.choices.len();
         let frame = state.frame(cx);
         let scroll = state.scroll.clone();
@@ -1187,18 +1194,33 @@ impl Control {
         // The indicator is a sibling of the scrolling element, not a child:
         // a child would be translated by the scroll offset and slide away with
         // the content it is reporting on.
-        let list = div().relative().child(list).children(
-            open.then(|| {
-                scroll.indicator(
-                    "selection-list",
-                    tokens::radius::OVERLAY,
-                    window,
-                    cx,
-                    self.environment,
-                )
-            })
-            .flatten(),
+        // A popup fades in while dropping `4px` from its trigger (Decision
+        // 309). Sampled on every render, open or not, so the entrance state
+        // exists before the first open and that one moves too.
+        let entrance = crate::motion::entrance(
+            (self.id.clone(), "popup-entrance"),
+            opens,
+            -scale.apply(4.0),
+            window,
+            cx,
         );
+        let list = div()
+            .relative()
+            .top(px(entrance.offset))
+            .opacity(entrance.opacity)
+            .child(list)
+            .children(
+                open.then(|| {
+                    scroll.indicator(
+                        "selection-list",
+                        tokens::radius::OVERLAY,
+                        window,
+                        cx,
+                        self.environment,
+                    )
+                })
+                .flatten(),
+            );
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so
             // this offset is the deliberate gap, not the trigger's own height.

@@ -47,8 +47,8 @@ const SLIDEOVER_WIDTH: f32 = 360.0;
 /// How far a dialog sits below its resting place before it settles into the
 /// fade, and falls back through on the way out.
 ///
-/// A dialog would rather grow into its fade the way a web one does, and the pin
-/// cannot: GPUI's `Style` carries opacity but no transform, and the base's own
+/// Decision 309: a dialog fades in while rising one spacing step, rather than
+/// zooming from `95%` as a web one would, because the pin cannot: GPUI's `Style` carries opacity but no transform, and the base's own
 /// effect vocabulary is slide, fade, width, and height for the same reason. A
 /// width and height animation would be a real scale, and would also rewrap every
 /// line of the body on every frame of it, which is a worse artifact than the
@@ -61,12 +61,10 @@ const DIALOG_RISE: f32 = tokens::spacing::RELATED;
 /// the parent to recede slightly and for reduced motion to remove it entirely.
 const RECESSION: f32 = tokens::spacing::GROUP;
 
-/// How far below its resting place a toast arrives from, and falls back to.
-///
-/// One control height, which is a toast's own minimum, so it reads as coming
-/// from off the bottom edge the way the shadcn toaster's does. Same limit as
+/// How far below its resting place a toast arrives from, and falls back to:
+/// `8px`, as `DESIGN.md` gives it (Decision 309). Same limit as
 /// [`DIALOG_RISE`]: the pin has no transform, so this is a relative inset.
-const TOAST_RISE: f32 = tokens::density::DEFAULT_CONTROL;
+const TOAST_RISE: f32 = tokens::spacing::RELATED;
 
 /// How long an expiring confirmation stays. Long enough to read a sentence and
 /// reach its Undo, short enough not to sit over the timeline.
