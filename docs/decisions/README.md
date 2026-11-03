@@ -267,7 +267,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0235](0235-concise-screen-reader-naming-and-safety-prioritized.md) | Concise screen-reader naming and safety-prioritized announcements | accepted | 2026-08-29 | ui |
 | [0236](0236-editor-first-adaptation-for-constrained-preparation.md) | Editor-first adaptation for constrained Preparation workspaces | accepted | 2026-08-29 | ui |
 | [0237](0237-safety-first-constrained-presenter-composition.md) | Safety-first constrained Presenter composition | accepted | 2026-08-29 | presenter |
-| [0238](0238-explicit-responsive-truncation-and-disclosure-hierarchy.md) | Explicit responsive truncation and disclosure hierarchy | accepted | 2026-08-29 |  |
+| [0238](0238-explicit-responsive-truncation-and-disclosure-hierarchy.md) | Explicit responsive truncation and disclosure hierarchy | accepted, amended by [0303](0303-cue-captions-are-one-line.md) | 2026-08-29 |  |
 | [0239](0239-approved-constrained-high-scale-presenter-acceptance.md) | Approved constrained/high-scale Presenter acceptance reference | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | presenter, ui |
 | [0240](0240-approved-paired-mass-planning-responsive-acceptance.md) | Approved paired Mass Planning responsive acceptance reference | accepted, amended by [0294](0294-the-latest-mockup-page-is-canonical-and-superseded-pages.md) | 2026-08-29 | mass-plan |
 | [0241](0241-keep-physical-qualification-outside-the-mvp-application.md) | Keep physical qualification outside the MVP application | accepted | 2026-08-29 | repo |
@@ -332,5 +332,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0300](0300-current-navigation-destination-fills-its-icon.md) | The current navigation destination fills its icon and marks it with a short pill | accepted | 2026-11-03 | design, navigation, icons |
 | [0301](0301-navigation-and-slideover-motion.md) | Navigation and slideover motion | accepted | 2026-11-03 | design, motion, navigation |
 | [0302](0302-header-bars-keep-their-height.md) | Header bars keep their height across states | accepted | 2026-11-03 | design, layout, responsive |
+| [0303](0303-cue-captions-are-one-line.md) | Cue captions are one line; indicators keep their width | accepted | 2026-11-03 | design, presenter, layout |
 
 <!-- adr-index:end -->

@@ -1055,7 +1055,7 @@
       var l = document.createElement("span"); l.className = "o-btn-label"; l.textContent = text.trim(); b.appendChild(l);
       if (!b.title) b.title = text.trim();
     });
-    app.querySelectorAll(".o-ellipsis, .sh-edname > .o-title, .sh-edname > .o-meta, .sg-edhead > .o-grow > *, .sh-head > .o-meta").forEach(function (e) {
+    app.querySelectorAll(".o-ellipsis, .sh-edname > .o-title, .sh-edname > .o-meta, .sg-edhead > .o-grow > *, .sh-head > .o-meta, .o-caption > .o-t").forEach(function (e) {
       if (e.scrollWidth > e.clientWidth + 1) e.title = e.textContent.trim(); else e.removeAttribute("title");
     });
   }
