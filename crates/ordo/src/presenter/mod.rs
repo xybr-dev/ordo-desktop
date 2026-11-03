@@ -132,6 +132,13 @@ pub struct PresenterView {
     /// The timeline's scroll surface. The groups are its only children, so a
     /// group's index is its child index for `scroll_to_top_of_item`.
     timeline_scroll: Scroll,
+    /// The groups (first, last) the timeline showed when the visible-frame
+    /// set was last requested. A different range after a scroll or a resize
+    /// asks for a new set, outside `render`.
+    visible_range: (usize, usize),
+    /// Whether the rail was drawn pinned on the last frame, so a pin toggle
+    /// flips what the operator saw.
+    rail_is_pinned: bool,
     rail_scroll: Scroll,
     /// Where focus goes when the rail overlay closes (the timeline, which
     /// holds the Cues), and where it goes while the overlay is open.
@@ -173,6 +180,8 @@ impl PresenterView {
             rail_generation: 0,
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
+            visible_range: (0, 0),
+            rail_is_pinned: false,
             rail_scroll: Scroll::new(),
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
@@ -274,6 +283,7 @@ impl PresenterView {
         if let Some(save) = &self.save_preferences {
             save(preferences);
         }
+        self.request_visible(cx);
         cx.notify();
     }
 
@@ -315,19 +325,85 @@ impl PresenterView {
         let preload = self.preload_frames();
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
+        self.request_visible(cx);
         self.reschedule(cx);
         cx.notify();
+    }
+
+    /// The groups the timeline shows now, from where it was last laid out:
+    /// the first and last group touching its viewport. Before the first
+    /// layout this is the first group.
+    fn visible_groups(&self) -> (usize, usize) {
+        let handle = self.timeline_scroll.handle();
+        let last = self.engine.snapshot().item_count().saturating_sub(1);
+        (handle.top_item().min(last), handle.bottom_item().min(last))
+    }
+
+    /// Ask the frame store for the thumbnails the timeline wants: the Project
+    /// frames of the groups on screen, then of their neighbours, nearest
+    /// first. The store takes the first `MAX_VISIBLE` distinct ones, never
+    /// pins them and keeps the cache within `FRAME_CAPACITY`. List mode shows
+    /// no thumbnail, so it wants none. Called when something that changes the
+    /// set changed (the Engine, Grid/List, a fold, a jump) and from the
+    /// one-shot hop `render` schedules after a scroll or resize; never from
+    /// `render` itself.
+    fn request_visible(&mut self, cx: &mut Context<Self>) {
+        self.visible_range = self.visible_groups();
+        let ids = self.visible_frames(self.visible_range);
+        self.frames
+            .request_visible(ids, |view| &mut view.frames, cx);
+    }
+
+    /// Frames for `(first, last)` and then each step outward, skipping folded
+    /// groups and Cues that cannot be shown.
+    fn visible_frames(&self, (first, last): (usize, usize)) -> Vec<FrameId> {
+        if self.cue_view == CueView::List {
+            return Vec::new();
+        }
+        let snapshot = self.engine.snapshot();
+        let items: Vec<_> = snapshot
+            .sections()
+            .iter()
+            .flat_map(|section| section.items())
+            .collect();
+        let mut order: Vec<usize> = (first..=last).collect();
+        for step in 1..items.len() {
+            order.extend((last + step < items.len()).then_some(last + step));
+            order.extend(first.checked_sub(step));
+        }
+        let mut frames = Vec::new();
+        for group in order {
+            if self.collapsed.contains(&group) {
+                continue;
+            }
+            let (Some(item), Some(start)) = (items.get(group), snapshot.item_start(group)) else {
+                continue;
+            };
+            for (at, cue) in item.cues().iter().enumerate() {
+                if let CueBehavior::Project { frame, .. } = cue.behavior()
+                    && matches!(
+                        self.engine.cue_availability(start + at),
+                        Some(Availability::Presentable)
+                    )
+                    && !frames.contains(frame)
+                {
+                    frames.push(*frame);
+                }
+            }
+            if frames.len() >= rendering::MAX_VISIBLE {
+                break;
+            }
+        }
+        frames
     }
 
     /// Project frames of the Cues around Preview, nearest first, Preview's
     /// own excluded.
     ///
-    /// The timeline's thumbnails read what is already composed and request
-    /// nothing of their own: the scheduler bounds the preload set to
-    /// `2 * PRELOAD_RADIUS` keys, so a Cue's tile is black until Preview has
-    /// been within that radius, and then it stays (the cache holds at most
-    /// `FRAME_CAPACITY` entries, Program and Preview pinned). A bigger
-    /// preload would need a bigger bound in `rendering`.
+    /// The scheduler bounds this set to `2 * PRELOAD_RADIUS` keys. The
+    /// timeline's thumbnails are a separate, lower-priority set
+    /// (`request_visible`), so together with the two pins they stay within
+    /// `FRAME_CAPACITY`.
     fn preload_frames(&self) -> Vec<FrameId> {
         let snapshot = self.engine.snapshot();
         let preview = self.engine.state().preview();
@@ -527,6 +603,12 @@ impl PresenterView {
     /// every other group are unchanged, so the rail never filters.
     pub fn jump_to_group(&mut self, group: usize, cx: &mut Context<Self>) {
         self.timeline_scroll.handle().scroll_to_top_of_item(group);
+        // The scroll is applied at the next layout, so ask for the target
+        // group's frames now; `render` corrects the set once it has moved.
+        self.visible_range = (group, group);
+        let ids = self.visible_frames((group, group));
+        self.frames
+            .request_visible(ids, |view| &mut view.frames, cx);
         cx.notify();
     }
 
@@ -535,6 +617,7 @@ impl PresenterView {
         if !self.collapsed.remove(&group) {
             self.collapsed.insert(group);
         }
+        self.request_visible(cx);
         cx.notify();
     }
 
@@ -572,11 +655,12 @@ impl PresenterView {
     }
 
     /// One group per Mass item, with each Cue's frame, marks and caption. It
-    /// asks the frame store only for what is already composed: composing
-    /// follows the Engine (`engine_changed`), never a paint.
-    fn timeline_model(&mut self, layout: &PresenterLayout) -> TimelineModel {
+    /// reads the frame store with `peek`, so a paint never changes what the
+    /// cache would evict, and composing follows state changes
+    /// (`engine_changed`, `request_visible`), never a paint.
+    fn timeline_model(&self, layout: &PresenterLayout) -> TimelineModel {
         let engine = &self.engine;
-        let frames = &mut self.frames;
+        let frames = &self.frames;
         let snapshot = engine.snapshot();
         let state = engine.state();
         let preview = state.preview();
@@ -588,7 +672,7 @@ impl PresenterView {
                 let mut cues = Vec::with_capacity(item.cues().len());
                 for (at, cue) in item.cues().iter().enumerate() {
                     let (kind, mut frame, mut image) = match cue.behavior() {
-                        CueBehavior::Project { frame: id, .. } => match frames.get(*id) {
+                        CueBehavior::Project { frame: id, .. } => match frames.peek(*id) {
                             FrameView::Ready { frame, image } => {
                                 (CueKind::Slide, Some(frame), image)
                             }
@@ -704,8 +788,21 @@ impl Render for PresenterView {
         // The rail is on screen already when pinned, so a stale open overlay
         // (the window grew, or the rail was pinned) is dropped, not kept for
         // the next unpin to resurrect.
-        if matches!(layout.rail, RailLayout::Pinned { .. }) {
+        self.rail_is_pinned = matches!(layout.rail, RailLayout::Pinned { .. });
+        if self.rail_is_pinned && self.rail_open {
             self.rail_open = false;
+            // The overlay held focus; the Cues get it back, as on any close.
+            self.timeline_focus.focus(window, cx);
+        }
+        // A scroll or a resize moved the groups on screen: ask for their
+        // thumbnails on the next turn, because the store is not synced from
+        // `render`. The hop holds only a weak handle and ends at once.
+        if self.cue_view == CueView::Grid && self.visible_groups() != self.visible_range {
+            self.visible_range = self.visible_groups();
+            cx.spawn(async move |this, cx| {
+                this.update(cx, |view, cx| view.request_visible(cx)).ok();
+            })
+            .detach();
         }
         let timeline_handlers = timeline::Handlers {
             go_to: {
@@ -725,7 +822,6 @@ impl Render for PresenterView {
                 })
             },
         };
-        let pinned = matches!(layout.rail, RailLayout::Pinned { .. });
         let rail_handlers = rail::Handlers {
             jump: {
                 let view = view.clone();
@@ -742,13 +838,16 @@ impl Render for PresenterView {
             toggle_pin: {
                 let view = view.clone();
                 Rc::new(move |_, cx| {
-                    let choice = if pinned {
-                        RailChoice::Unpinned
-                    } else {
-                        RailChoice::Pinned
-                    };
-                    view.update(cx, |view, cx| view.set_rail_choice(choice, cx))
-                        .ok();
+                    view.update(cx, |view, cx| {
+                        // Flip what was on screen: `Auto` can be either.
+                        let choice = if view.rail_is_pinned {
+                            RailChoice::Unpinned
+                        } else {
+                            RailChoice::Pinned
+                        };
+                        view.set_rail_choice(choice, cx);
+                    })
+                    .ok();
                 })
             },
             close: {
@@ -1574,8 +1673,18 @@ mod tests {
                 (f32::from(last.size.width) - full).abs() < 0.5,
                 "{width}: a sparse row keeps the full-row width"
             );
+            // Cue 1 opens a row of three: its width is the reference too.
+            let reference = f32::from(bounds(cx, cue(1)).size.width);
+            assert!(
+                (f32::from(last.size.width) - reference).abs() < 0.5,
+                "{width}: the last tile of a sparse row matches cue 1"
+            );
             // A group of one Cue.
             let single = bounds(cx, cue(0));
+            assert!(
+                (f32::from(single.size.width) - reference).abs() < 0.5,
+                "{width}: a one-Cue group matches cue 1"
+            );
             assert!(
                 (f32::from(single.size.width) - full).abs() < 0.5,
                 "{width}: a one-Cue group keeps the full-row width"
@@ -1648,6 +1757,37 @@ mod tests {
                 !open.view.read_with(cx, |view, _| view.rail_open()),
                 "an overlay closes once the group is in place"
             );
+        }
+    }
+
+    #[gpui::test]
+    fn the_last_group_comes_to_the_top_after_the_first_four_are_folded(cx: &mut TestAppContext) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            for group in 0..4 {
+                open.view
+                    .update(cx, |view, cx| view.toggle_group(group, cx));
+            }
+            animate(&open, cx, 400);
+            animate(&open, cx, 0);
+            let last = open
+                .view
+                .read_with(cx, |view, _| view.engine.snapshot().item_count() - 1);
+            let before = engine_state(&open, cx);
+            open.view
+                .update(cx, |view, cx| view.jump_to_group(last, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            let timeline = bounds(cx, "cue-timeline");
+            let group = bounds(cx, sel(format!("group-{last}")));
+            assert!(
+                (top(group) - top(timeline)).abs() <= 1.0,
+                "{case:?}: last group at {} under timeline top {}",
+                top(group),
+                top(timeline)
+            );
+            assert!(timeline_offset(&open, cx) < -1.0, "{case:?}: it scrolled");
+            assert_eq!(engine_state(&open, cx), before);
         }
     }
 
@@ -1883,6 +2023,98 @@ mod tests {
             open.view
                 .read_with(cx, |view, _| view.frames.composed_count())
                 > 5
+        );
+        // Visible requests join the walk: scrolling to every group, in Grid,
+        // asks for its thumbnails too, and the bound still holds.
+        let groups = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_count());
+        for group in (0..groups).chain((0..groups).rev()) {
+            open.view
+                .update(cx, |view, cx| view.jump_to_group(group, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            let held = open.view.read_with(cx, |view, _| view.frames.cache_len());
+            assert!(
+                held <= rendering::FRAME_CAPACITY,
+                "group {group}: {held} cached frames"
+            );
+        }
+    }
+
+    /// Every Project Cue's frame, by Cue, with whether it is composed.
+    fn tile_frames(open: &Open, cx: &VisualTestContext, cues: &[usize]) -> Vec<(usize, bool)> {
+        open.view.read_with(cx, |view, _| {
+            cues.iter()
+                .map(|flat| {
+                    let CueBehavior::Project { frame, .. } =
+                        view.engine.snapshot().cue(*flat).unwrap().behavior()
+                    else {
+                        panic!("cue {flat} is not a slide");
+                    };
+                    (
+                        *flat,
+                        matches!(view.frames.peek(*frame), FrameView::Ready { .. }),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[gpui::test]
+    fn grid_thumbnails_are_composed_for_groups_far_from_preview(cx: &mut TestAppContext) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            // Preview sits on cue 0: the last group's slides (cues 31 and 32)
+            // are nowhere near Program, Preview or the preload radius.
+            let far = [31, 32];
+            open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            cx.run_until_parked();
+            for (flat, ready) in tile_frames(&open, cx, &far) {
+                assert!(ready, "{case:?}: cue {flat} is still black");
+            }
+            let held = open.view.read_with(cx, |view, _| view.frames.cache_len());
+            assert!(
+                held <= rendering::FRAME_CAPACITY + 2,
+                "{held} cached frames"
+            );
+            // The tile paints the thumbnail, not a black box: the viewport
+            // draws glyphs for a ready frame.
+            assert!(present(cx, "cue-31-frame"));
+        }
+    }
+
+    #[gpui::test]
+    fn the_visible_set_follows_the_groups_on_screen_nearest_first_and_is_empty_in_list(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+        cx.run_until_parked();
+        animate(&open, cx, 0);
+        let (first, wanted, list) = open.view.update(cx, |view, cx| {
+            view.set_cue_view(CueView::List, cx);
+            let list = view.visible_frames((14, 14));
+            view.set_cue_view(CueView::Grid, cx);
+            (view.visible_groups(), view.visible_frames((14, 14)), list)
+        });
+        assert!(list.is_empty(), "List shows no thumbnails");
+        assert!(first.1 == 14, "the last group is on screen: {first:?}");
+        let last_group_frames = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            [31, 32]
+                .map(|flat| match snapshot.cue(flat).unwrap().behavior() {
+                    CueBehavior::Project { frame, .. } => *frame,
+                    _ => panic!("slide"),
+                })
+                .to_vec()
+        });
+        assert_eq!(
+            wanted[..2],
+            last_group_frames[..],
+            "the group on screen comes first"
         );
     }
 }

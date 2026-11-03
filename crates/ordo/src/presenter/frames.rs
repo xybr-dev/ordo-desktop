@@ -155,6 +155,36 @@ impl PresenterFrames {
         }
     }
 
+    /// Replace the set of frames the timeline's thumbnails want (the lowest
+    /// priority; see [`rendering::FrameScheduler::request_visible`]), nearest
+    /// first, and start a job for each that is neither composed nor in flight.
+    /// Like [`PresenterFrames::sync`] it runs after state changed, never from
+    /// `render`. At most `MAX_VISIBLE` keys are taken, so the cache stays
+    /// within `FRAME_CAPACITY`; they are never pinned.
+    pub fn request_visible<V: 'static>(
+        &mut self,
+        ids: impl IntoIterator<Item = FrameId>,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) {
+        let tickets = self.scheduler.request_visible(ids, &self.cache);
+        let mut abandoned = false;
+        for ticket in self.scheduler.obsolete() {
+            if self.scheduler.abandon(&ticket) {
+                self.in_flight.remove(&ticket.key());
+                abandoned = true;
+            }
+        }
+        let started = !tickets.is_empty();
+        for ticket in tickets {
+            let task = self.start_job(ticket, access, cx);
+            self.in_flight.insert(ticket.key(), task);
+        }
+        if started || abandoned {
+            cx.notify();
+        }
+    }
+
     fn start_job<V: 'static>(
         &self,
         ticket: Ticket<FrameId>,
@@ -216,10 +246,30 @@ impl PresenterFrames {
 
     /// What to draw for `id`. Marks a ready frame recently used.
     pub fn get(&mut self, id: FrameId) -> FrameView {
-        let frame = match self.cache.get(&id) {
-            Some(FrameEntry::Ready(frame)) => Arc::clone(frame),
-            Some(FrameEntry::Unavailable(reason)) => return FrameView::Unavailable(*reason),
-            None => return FrameView::Pending,
+        let view = match self.cache.get(&id) {
+            Some(FrameEntry::Ready(frame)) => Ok(Arc::clone(frame)),
+            Some(FrameEntry::Unavailable(reason)) => Err(Some(*reason)),
+            None => Err(None),
+        };
+        self.view_of(view)
+    }
+
+    /// What to draw for `id` without touching its recency, for the timeline's
+    /// thumbnails: painting must never change what the cache evicts.
+    pub fn peek(&self, id: FrameId) -> FrameView {
+        let view = match self.cache.peek(&id) {
+            Some(FrameEntry::Ready(frame)) => Ok(Arc::clone(frame)),
+            Some(FrameEntry::Unavailable(reason)) => Err(Some(*reason)),
+            None => Err(None),
+        };
+        self.view_of(view)
+    }
+
+    fn view_of(&self, entry: Result<Arc<Frame>, Option<UnavailableReason>>) -> FrameView {
+        let frame = match entry {
+            Ok(frame) => frame,
+            Err(Some(reason)) => return FrameView::Unavailable(reason),
+            Err(None) => return FrameView::Pending,
         };
         let image = frame
             .image()

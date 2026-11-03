@@ -246,9 +246,30 @@ pub fn timeline(
                 .pr(px(
                     scale.apply(tokens::spacing::GROUP) + super::layout::SCROLLBAR_WIDTH
                 ))
-                .children(groups),
+                .children(groups)
+                .child(tail(scroll)),
         )
         .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
+        .into_any_element()
+}
+
+/// Empty space after the last group, as tall as the viewport lacks of the last
+/// group, so that every group (the last included) can be scrolled to the top
+/// of the timeline. It is the scroll element's last child, after the groups,
+/// so a group's index is still its child index. It is sized from the previous
+/// layout; the surface asks for one more frame when that moved.
+fn tail(scroll: &Scroll) -> AnyElement {
+    let handle = scroll.handle();
+    let viewport = f32::from(handle.bounds().size.height);
+    let last = handle.children_count().saturating_sub(2);
+    let last_height = handle
+        .bounds_for_item(last)
+        .map_or(0.0, |bounds| f32::from(bounds.size.height));
+    div()
+        .debug_selector(|| "timeline-tail".into())
+        .flex_none()
+        .w_full()
+        .h(px((viewport - last_height).max(0.0)))
         .into_any_element()
 }
 
