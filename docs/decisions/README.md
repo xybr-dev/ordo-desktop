@@ -339,5 +339,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0307](0307-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | superseded by [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | 2026-11-01 | display, qualification |
 | [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
 | [0309](0309-floating-surfaces-fade-and-rise-instead-of-zooming.md) | Floating surfaces fade and rise instead of zooming | accepted | 2026-11-03 | design, motion, gpui |
+| [0310](0310-live-output-draws-the-retained-frame-rasterize-only-for.md) | Live output draws the retained Frame; rasterize only for pixels | proposed | 2026-11-04 | rendering, presenter, performance |
 
 <!-- adr-index:end -->
