@@ -261,6 +261,8 @@
 
 /* ── overlays ───────────────────────────────────────────────────────────── */
 .o-scrim { position: absolute; inset: 0; background: var(--o-scrim); z-index: 20; }
+/* Side-pane slideovers block the pane behind without dimming it: the operator keeps reading it. */
+.o-scrim--clear { background: transparent; }
 .o-dialog, .o-slideover, .o-menu {
   position: absolute; z-index: 21; display: flex; flex-direction: column; background: var(--o-surface);
   border: 1px solid var(--o-border-strong); border-radius: var(--o-radius-overlay); box-shadow: var(--o-shadow-overlay);
@@ -406,11 +408,10 @@
 .o-app[data-tier="inspector"] .o-side-r, .o-app[data-tier="editor"] .o-side-r, .o-app[data-tier="editor"] .o-side-l { display: none; }
 .o-app[data-tier] .o-side-l.is-open, .o-app[data-tier] .o-side-r.is-open {
   display: flex; position: absolute; top: 0; bottom: 0; z-index: 21; min-width: 0; max-width: calc(100% - calc(32px * var(--o-scale)));
-  background: var(--o-surface); box-shadow: var(--o-shadow-floating);
+  background: var(--o-surface); box-shadow: var(--o-shadow-overlay);
 }
 .o-app[data-tier] .o-side-r.is-open { right: 0; }
 .o-app[data-tier] .o-side-l.is-open { left: 0; }
-.o-side-l .pl-close-tab { left: auto; right: calc(-14px * var(--o-scale)); }
 .pl-head .pl-title, .pl-head .o-grow { min-width: 0; }
 .o-app:not([data-tier="full"]) .pl-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pl-outline { width: calc(280px * var(--o-scale)); min-width: calc(240px * var(--o-scale)); flex: 0 1 auto; }
@@ -478,18 +479,14 @@
 .pl-type .o-grow { display: flex; flex-direction: column; }
 .pl-menu-sep { height: 1px; background: var(--o-border); margin: var(--o-s1) 0; }
 /* slide-overs */
-.pl-scrim--light { background: transparent; }
 .o-slideover { transition: transform var(--o-overlay-open) var(--o-ease), opacity var(--o-overlay-open) var(--o-ease); }
 .o-slideover.is-receded { transform: translateX(calc(-24px * var(--o-scale))) scale(.985); opacity: .75; }
 .pl-picker, .pl-theme-panel { width: min(calc(560px * var(--o-scale)), calc(100% - 64px)); }
 .pl-child { width: min(calc(520px * var(--o-scale)), calc(100% - 64px)); z-index: 23; }
 .pl-readiness { top: calc(92px * var(--o-scale)); width: min(calc(440px * var(--o-scale)), calc(100% - 64px)); }
-.pl-close-tab {
-  all: unset; position: absolute; left: calc(-14px * var(--o-scale)); top: 50%; transform: translateY(-50%); cursor: pointer;
-  display: grid; place-items: center; width: calc(28px * var(--o-scale)); height: calc(56px * var(--o-scale));
-  background: var(--o-surface); border: 1px solid var(--o-border-strong); border-radius: var(--o-radius-control); box-shadow: var(--o-shadow-floating); color: var(--o-text);
-}
-.pl-close-tab:focus-visible { outline: 2px solid var(--o-focus); outline-offset: 2px; }
+/* Slideover close: leads the header, so it reads as dismiss and sits where the pane's name is. */
+.o-close { flex: none; margin-left: calc(-8px * var(--o-scale)); }
+.o-overlay-head > .o-close { margin-top: calc(-2px * var(--o-scale)); }
 .o-overlay-body > * + * { margin-top: var(--o-s3); }
 .pl-results { border: 1px solid var(--o-border); border-radius: var(--o-radius-control); overflow: hidden; }
 .pl-result { min-height: calc(40px * var(--o-scale)); }

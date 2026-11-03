@@ -328,5 +328,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0296](0296-the-output-dock-grows-to-520px-at-1920.md) | The Output Dock grows to 520px at 1920 | accepted | 2026-11-02 | design, presenter |
 | [0297](0297-operator-tokens-gain-a-graphite-foreground-text-levels-and.md) | Operator tokens gain a graphite foreground, text levels and a compact row | accepted | 2026-11-02 | design |
 | [0298](0298-high-contrast-keeps-ordo-s-palette-for-the-mvp-following.md) | High Contrast keeps Ordo's palette for the MVP; following system colours is deferred | accepted | 2026-11-02 | design, accessibility, platform |
+| [0299](0299-slideover-close-leads-its-header.md) | A slideover's close button leads its header | accepted | 2026-11-03 | design, interaction, accessibility |
 
 <!-- adr-index:end -->

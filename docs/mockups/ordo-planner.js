@@ -652,7 +652,7 @@
     }
 
     // overlays
-    function closeTab(label) { return '<button class="pl-close-tab" data-act="close" aria-label="' + label + '" title="' + label + '">' + icon("chevron-right") + "</button>"; }
+    function closeTab(label) { return '<button class="o-btn o-btn--quiet o-btn--icon o-close" data-act="close" aria-label="' + label + '" title="' + label + ' (Esc)">' + icon("x") + "</button>"; }
     function addMenu() {
       var opts_ = "";
       S.sec.forEach(function (sec, si) {
@@ -710,8 +710,8 @@
       }
       if (!list) list = '<div class="o-meta pl-none">Nothing matches “' + esc(S.pick.q) + "”.</div>";
       var use = st ? (isCurrent(st) ? "Already in use" : st.use) : (kind === "song" ? "Use arrangement" : "Use");
-      return '<div class="o-scrim pl-scrim--light"></div><div class="o-slideover pl-picker' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-pick-t">' + closeTab("Close picker") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="pl-pick-t">' + title + "</h2>" +
+      return '<div class="o-scrim"></div><div class="o-slideover pl-picker' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-pick-t">' +
+        '<div class="o-overlay-head">' + closeTab("Close picker") + '<div class="o-grow"><h2 class="o-h2" id="pl-pick-t">' + title + "</h2>" +
         '<div class="o-meta">For ' + it.n + ". " + esc(it.title) + " · " + esc(S.sec[it.section].title) + "</div></div>" +
         '<button class="o-btn o-btn--primary" data-act="use"' + (!st || isCurrent(st) ? " disabled" : "") + ">" + icon("check") + esc(use) + "</button></div>" +
         '<div class="o-overlay-body"><div class="o-field">' + icon("search") + '<input data-input="q" data-focus-key="q" placeholder="' + ph + '" value="' + esc(S.pick.q) + '" aria-label="' + ph + '"></div>' +
@@ -733,8 +733,8 @@
     }
     function returnConfirm() {
       var it = S.sel;
-      return '<div class="o-scrim"></div><div class="o-slideover" role="dialog" aria-modal="true" aria-labelledby="pl-ret-t">' + closeTab("Cancel") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="pl-ret-t">Return to library ' + (it.song ? "arrangement" : "source") + "?</h2><div class=\"o-meta\">" + it.n + ". " + esc(it.title) + "</div></div></div>" +
+      return '<div class="o-scrim"></div><div class="o-slideover" role="dialog" aria-modal="true" aria-labelledby="pl-ret-t">' +
+        '<div class="o-overlay-head">' + closeTab("Cancel") + '<div class="o-grow"><h2 class="o-h2" id="pl-ret-t">Return to library ' + (it.song ? "arrangement" : "source") + "?</h2><div class=\"o-meta\">" + it.n + ". " + esc(it.title) + "</div></div></div>" +
         '<div class="o-overlay-body"><div class="pl-compare"><div><div class="o-section-label">Library ' + (it.song ? "Arrangement" : "source") + "</div><b>" + esc(it.song || it.src) + '</b><div class="o-meta">' + (it.song ? esc(it.arr) + " · " : "") + it.base.cues.length + " Cues</div></div>" +
         '<div><div class="o-section-label">Local changes removed</div>' + changesList(it) + "</div></div>" +
         '<p class="o-meta">The item follows the Library again. Undo restores the local copy.</p></div>' +
@@ -751,8 +751,8 @@
       }
       var sum = f.inc.length ? statusLabel("warning", "Incomplete", "diamond") + '<span class="o-meta">' + f.inc.length + " incomplete · " + f.warn.length + " warning" + (f.warn.length === 1 ? "" : "s") + "</span>" :
         f.warn.length ? statusLabel("info", "Ready with warnings") : statusLabel("live", "Ready");
-      return '<div class="o-slideover pl-readiness" role="dialog" aria-labelledby="pl-rd-t">' + closeTab("Close Readiness") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="pl-rd-t">Readiness</h2><div class="pl-rd-sum">' + sum + "</div></div></div>" +
+      return '<div class="o-slideover pl-readiness" role="dialog" aria-labelledby="pl-rd-t">' +
+        '<div class="o-overlay-head">' + closeTab("Close Readiness") + '<div class="o-grow"><h2 class="o-h2" id="pl-rd-t">Readiness</h2><div class="pl-rd-sum">' + sum + "</div></div></div>" +
         '<div class="o-overlay-body">' + group("Incomplete presentation", f.inc, "warning") + group("Review recommended", f.warn, "info") +
         (f.inc.length || f.warn.length ? '<p class="o-meta">Incomplete content doesn\'t stop Present: its Cues stay visible but can\'t be taken live.</p>' :
           '<div class="pl-empty">' + icon("circle-check", "o-icon-20") + "<b>Nothing needs attention</b><div class=\"o-meta\">Every Cue can produce its frame.</div></div>") + "</div></div>";
@@ -771,8 +771,8 @@
         ' <button class="pl-link" data-act="overrides">Review</button></div></div>' : "";
       var changed = S.stagedTheme !== S.theme || ov.some(function (it) { return S.keepOverride[it.n] === false; });
       var sample = c && projectable(c) ? c : S.sel.cues.filter(projectable)[0] || null;
-      return '<div class="o-scrim"></div><div class="o-slideover pl-theme-panel' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-th-t">' + closeTab("Close Mass Theme") +
-        '<div class="o-overlay-head"><div class="o-grow"><h2 class="o-h2" id="pl-th-t">Mass Theme</h2><div class="o-meta">Applies to every item that doesn\'t keep its own Theme</div></div>' +
+      return '<div class="o-scrim"></div><div class="o-slideover pl-theme-panel' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-th-t">' +
+        '<div class="o-overlay-head">' + closeTab("Close Mass Theme") + '<div class="o-grow"><h2 class="o-h2" id="pl-th-t">Mass Theme</h2><div class="o-meta">Applies to every item that doesn\'t keep its own Theme</div></div>' +
         '<button class="o-btn o-btn--primary" data-act="apply-theme"' + (changed ? "" : " disabled") + ">" + icon("check") + (S.stagedTheme !== S.theme ? "Apply " + esc(themeName(S.stagedTheme)) : changed ? "Apply override changes" : "Apply") + "</button></div>" +
         '<div class="o-overlay-body"><div class="pl-block-head"><b>Preview</b><span class="o-meta">' + S.sel.n + ". " + esc(S.sel.title) + " · Cue " + (S.cue + 1) + (S.sel.theme ? " · keeps its override" : "") + "</span></div>" +
         tslide(sample, S.sel.theme && S.keepOverride[S.sel.n] !== false ? S.sel.theme : S.stagedTheme) +
