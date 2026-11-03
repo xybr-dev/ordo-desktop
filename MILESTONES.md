@@ -617,8 +617,13 @@ contract and that the church PowerPoint can reopen it.
       membership, image dimensions/hashes, notes, and safety slides.
 - [x] `[AUTO]` Failed generation or validation leaves the existing destination
       untouched and no apparently successful file behind.
-- [ ] `[MANUAL]` The generated fixture opens and presents correctly in the exact
-      PowerPoint version installed on the Windows 10 church PC.
+- [x] `[MANUAL]` The generated fixture opens and presents correctly in the exact
+      PowerPoint version installed on the Windows 10 church PC. Passed on
+      sign-off attempt 2 (1 Nov 2026, bundle `20261031T213536Z-4e8ea3d`): no repair prompt, sections, slide order, images,
+      notes, and safety slides correct, and the Slide Show ran on the
+      congregation display. The church PC runs PowerPoint 2016
+      16.0.12527.22286, as recorded on attempt 1 (T0.9 plan, church-PC
+      finding 1); attempt 2's sheet left the version field blank.
 
 **E2E** `[AUTO]` `[MANUAL]` — Export a fixture containing identification,
 lyrics, response, reading, Hold, and Blackout Cues; automatically inspect the

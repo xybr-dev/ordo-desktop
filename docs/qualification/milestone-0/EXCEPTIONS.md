@@ -65,7 +65,7 @@ crates do not depend on them (see the reuse rule in `README.md`).
 | 17 | A `format_version` above 1 is reported as `Unsupported`, not as a bad manifest. | `.ordo` container spike | Version tests in `tests/artifact-container/tests/e2e.rs`; contract text in `docs/contracts/README.md` section 5 | Domain has no archive dependency | `docs/plans/T0.8-implementation-plan.md` "Deviations" (Format version) |
 | 18 | The `powerpoint-tests` package was registered in WP3, not WP1, because xtask compares members as an exact set. | `tests/powerpoint` (test package) | xtask workspace member check (`cargo xtask verify`) | Not applicable to domain | `docs/plans/T0.9-implementation-plan.md` "Deviations" (No `powerpoint-tests` placeholder) |
 | 19 | `export_with` is `pub(crate)` so unit tests can force a post-write validation failure. Public `export` delegates to it. | `tools/powerpoint-spike` | Unit tests in `tools/powerpoint-spike/src/tests.rs` that force validation failure and check that the destination is untouched; `tests/powerpoint/tests/e2e.rs` | Domain has no PowerPoint dependency | `docs/plans/T0.9-implementation-plan.md` "Deviations" (Test seam) |
-| 20 | PowerPoint structure is checked by the inspector, not by PowerPoint. Opening without a repair prompt is not proved by automation. | `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` | Manual: "Emergency PowerPoint fallback" in `WINDOWS-10-SIGNOFF.md`, in the installed PowerPoint version. Still open | Domain has no PowerPoint dependency | `docs/plans/T0.9-implementation-plan.md` "Deviations" (Not verified here); `MILESTONES.md` T0.9 `[MANUAL]` |
+| 20 | PowerPoint structure is checked by the inspector, not by PowerPoint. Opening without a repair prompt is not proved by automation. | `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` | Manual: "Emergency PowerPoint fallback" in `WINDOWS-10-SIGNOFF.md`, in the installed PowerPoint version. Passed on sign-off attempt 2 in PowerPoint 2016 16.0.12527.22286 | Domain has no PowerPoint dependency | `docs/plans/T0.9-implementation-plan.md` "Deviations" (Not verified here); `MILESTONES.md` T0.9 `[MANUAL]` |
 
 ### Phase 0 sign-off scope and T0.6 evidence (T0.5, T0.6, T0.10)
 
@@ -88,8 +88,11 @@ is accepted.
 - Rows 1 to 7, row 10, and row 27 close only when the pinned GPUI, `gpui-base`,
   or wgpu revision changes the gap. Re-check them at every GPUI supply change,
   as `GPUI-BASE-T0.4a.md` does.
-- Rows 21, 22, 23, and 27 requalify together on the Phase 0 sign-off attempt 2
-  (issue #50), when the sign-off sheets run against the rebuilt kit.
+- Rows 21, 23, and 27 requalified on sign-off attempt 2 (bundle
+  `20261031T213536Z-4e8ea3d`), except the display-loss check that row 21's lab
+  also stands in for. That check and row 22 failed on attempt 2 (loss needed
+  `F8`) and requalify on attempt 3 (issue #50), which also rechecks row 27's
+  hot-plug row because Decision 308 changes the handler it exercises.
 - Row 25 stays open until T6 packaging lands, when the packaged checks rerun
   against the installed package.
 - Row 24 closes when a Preparation workspace backs the benchmark.
@@ -98,7 +101,7 @@ is accepted.
 - Row 11 remains until T6.2 completes Linux packaged sign-off, or the decision
   is revisited.
 - Row 12 remains open. The NFC gap is not closed by any Phase 0 proof.
-- Row 20 remains open until the manual PowerPoint check is recorded.
+- Row 20 closed on sign-off attempt 2.
 - Known gap, not a workaround row: the `.ordo` container inspector is still
   spike code. It is promoted into a `portability` crate at its owning milestone
   (`MVP-PLAN.md` section 6.4); T0.10 AC5 stays ticked on the enforceable reuse

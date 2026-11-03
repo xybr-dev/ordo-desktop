@@ -122,7 +122,7 @@ boxes in `MILESTONES.md` at the time of writing.
 | T0.6 Presentation Engine and performance | Pure engine, ordered and coalesced commands, caches bounded, measured latency and memory | `tests/presentation/tests/presenter_sequences.rs`, `tests/presentation/tests/caches.rs`, `tests/performance/tests/presenter_bench.rs`; `cargo xtask measure-presenter`; job `windows-presenter-performance` | measure-presenter | None listed. Hardware acceleration box ticked on the church-PC run | Closed (all boxes ticked). Two former opens close on the church-PC run (`docs/plans/T0.6-implementation-plan.md`, Recorded results, church PC); the hot-path leg closes on what exists, with zero violations in that run (Decision 304) |
 | T0.7 SQLite owner worker and migrations | Single worker owns the connection; ordered, transactional migrations; refusal of newer schema; panic and shutdown handling | `tests/storage/tests/acceptance.rs`; `crates/ordo/tests/storage_supervision.rs` | verify | None | Closed (all boxes ticked) |
 | T0.8 Versioned contracts and `.ordo` container | JSON Schemas for each contract kind; bounded inspection; atomic create and reopen | `tests/artifact-container/tests/e2e.rs`; `contracts/` (eight kinds); `tools/artifact-container-spike`; runs inside the workspace test set | verify | None | Closed (all boxes ticked) |
-| T0.9 Emergency PowerPoint | Image-only 16:9 slides, sections and notes, reopen verification, atomic publication | `tests/powerpoint/tests/e2e.rs`; `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` (`cargo xtask inspect-pptx`) | powerpoint-fixture, verify | `PHYSICAL-QUALIFICATION-TEMPLATE.md` (Emergency PowerPoint fallback) and `WINDOWS-10-SIGNOFF.md` | Open. The `[MANUAL]` box for the exact installed PowerPoint version is unticked |
+| T0.9 Emergency PowerPoint | Image-only 16:9 slides, sections and notes, reopen verification, atomic publication | `tests/powerpoint/tests/e2e.rs`; `tools/powerpoint-spike`; `xtask/src/inspect_pptx.rs` (`cargo xtask inspect-pptx`) | powerpoint-fixture, verify | `PHYSICAL-QUALIFICATION-TEMPLATE.md` (Emergency PowerPoint fallback) and `WINDOWS-10-SIGNOFF.md` | Closed. The `[MANUAL]` box passed on sign-off attempt 2 in PowerPoint 2016 16.0.12527.22286 |
 
 Notes on the table:
 
@@ -143,11 +143,20 @@ Notes on the table:
 - T0.5's display path had a latent hot-plug defect, found and fixed during this
   work: after a display change the operator window's display id could read
   stale, so a projector connected after launch could not be enabled. It is
-  recorded as row 27 in `EXCEPTIONS.md` and requalifies through the attempt-2
+  recorded as row 27 in `EXCEPTIONS.md` and requalified on the attempt-2
   hot-plug row in `WINDOWS-10-SIGNOFF.md` (`MILESTONES.md`, T0.5 hot-plug
-  note).
-- T0.9 is open, and T0.10's manual sign-off (AC2) and failed-proof
-  requalification (AC3) are unticked, so Phase 0 is not yet closed. T0.6 closed
+  note). Attempt 3 rechecks it, because the vendored GPUI patch (Decision 308)
+  changes the display-change handler that row exercises.
+- Sign-off attempt 2 (1 Nov 2026, bundle `20261031T213536Z-4e8ea3d`) passed every row but display loss, which needed `F8`.
+  The sheet's rule is that a rerun gets a new attempt row naming the attempt
+  it reruns, so those passes stand: attempt 3 reruns display loss (and
+  rechecks hot-plug) on a fresh clean bundle from the final commit, and records
+  the corrective build. The impact since `4e8ea3d` is bounded: the vendored
+  GPUI display-change handler (Decision 308), operator message text, and
+  Preparation colour tokens the lab's checks do not show.
+- T0.9 closed on attempt 2. T0.10's manual sign-off (AC2) and failed-proof
+  requalification (AC3) are unticked until attempt 3, so Phase 0 is not yet
+  closed. T0.6 closed
   on the church-PC run, its hot-path leg included (Decision 304).
 
 ## Reuse rule
