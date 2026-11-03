@@ -805,7 +805,7 @@ bounded decoded resources, and no visible partial frame.
 at every qualified effective size.
 
 **Changes:** `crates/ordo/src/presenter/`, `crates/ordo/src/commands/`,
-`tests/e2e/presenter/`, approved `design-references/`
+`crates/ordo/src/presenter/e2e.rs`, approved `design-references/`
 
 **Depends on:** T0.3, T1.2, T1.3.
 
