@@ -384,6 +384,7 @@ impl ShellView {
             } else {
                 restored.scale
             },
+            // T1.4b: when the Grid/List toggle lands, keep current.cue_view if it changed during startup (like appearance/scale).
             cue_view: restored.cue_view,
         };
         let changed_since_startup = mem::take(&mut self.appearance_changed_since_startup)

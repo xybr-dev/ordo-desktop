@@ -46,7 +46,8 @@ pub const DOCK_FREEZE_BLACKOUT_HEIGHT: f32 = 40.0;
 /// Primary action button (spec: 48; kit `--o-h-presenter`).
 pub const DOCK_PRIMARY_HEIGHT: f32 = 48.0;
 /// Label row above each monitor (kit `.pr-mon-head`: 14 px text, rounded up
-/// to 24 to leave room for the state glyph).
+/// to 24 to leave room for the state glyph). An approximation of the kit's
+/// DOM-measured overflow, not a kit token.
 pub const MONITOR_LABEL_HEIGHT: f32 = 24.0;
 /// Items stacked in the dock: two monitors, status, Freeze/Blackout, primary.
 const DOCK_ITEM_COUNT: f32 = 5.0;
@@ -60,6 +61,8 @@ pub const DOCK_CONTROLS_HEIGHT: f32 =
 /// Height the Side dock reserves for everything except the two 16:9 slides:
 /// header, both label rows with their gaps, the never-shrinking controls, the
 /// gaps between the five dock items and the dock's own top and bottom padding.
+/// The kit measures this overflow in the DOM (`dockEl.scrollHeight`); this
+/// sum approximates it and is not a kit token.
 pub const DOCK_RESERVED_HEIGHT: f32 = HEADER_HEIGHT
     + DOCK_MONITOR_COUNT * (MONITOR_LABEL_HEIGHT + MONITOR_LABEL_GAP)
     + DOCK_CONTROLS_HEIGHT
@@ -243,6 +246,12 @@ mod tests {
         InterfaceScale::Percent200,
     ];
 
+    const EPS: f32 = 0.01;
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < EPS, "{actual} != {expected}");
+    }
+
     fn at(width: f32, height: f32, scale: InterfaceScale) -> PresenterLayout {
         presenter_layout(LayoutInput {
             width,
@@ -259,6 +268,11 @@ mod tests {
         assert_eq!(layout.rail, RailLayout::Pinned { width: 200.0 });
         assert!(matches!(layout.dock, DockLayout::Side { width, .. } if width == 520.0));
         assert_eq!(layout.grid_columns, 4);
+        assert_close(layout.timeline_width, 1137.0);
+        assert_close(layout.cell_width, 271.25);
+        assert!(
+            matches!(layout.dock, DockLayout::Side { monitor_width, .. } if (monitor_width - 488.0).abs() < EPS)
+        );
     }
 
     #[test]
@@ -268,15 +282,27 @@ mod tests {
         assert_eq!(layout.rail, RailLayout::Tab { width: 28.0 });
         assert!(matches!(layout.dock, DockLayout::Side { width, .. } if width == 360.0));
         assert_eq!(layout.grid_columns, 3);
+        assert_close(layout.timeline_width, 915.0);
+        assert_close(layout.cell_width, 293.0);
+        assert!(
+            matches!(layout.dock, DockLayout::Side { monitor_width, .. } if (monitor_width - 328.0).abs() < EPS)
+        );
     }
 
     #[test]
     fn constrained_1366_by_768_at_200_percent_is_overlay_only_with_a_band() {
         let layout = at(1366.0, 768.0, InterfaceScale::Percent200);
         assert_eq!(layout.regime, Regime::Constrained);
-        assert!(matches!(layout.rail, RailLayout::OverlayOnly { .. }));
-        assert!(matches!(layout.dock, DockLayout::Band { .. }));
-        assert!(layout.grid_columns >= 1);
+        assert_eq!(layout.rail, RailLayout::OverlayOnly { tab_width: 56.0 });
+        assert_eq!(
+            layout.dock,
+            DockLayout::Band {
+                monitor_width: 409.0
+            }
+        );
+        assert_eq!(layout.grid_columns, 2);
+        assert_close(layout.timeline_width, 1199.0);
+        assert_close(layout.cell_width, 579.5);
     }
 
     #[test]
@@ -354,6 +380,7 @@ mod tests {
 
     #[test]
     fn shrinking_the_window_never_adds_columns_or_breaks_the_floor() {
+        let mut columns = Vec::new();
         let mut previous = u32::MAX;
         for width in [1920.0, 1500.0, 1200.0] {
             let layout = at(width, 900.0, InterfaceScale::Percent100);
@@ -362,7 +389,9 @@ mod tests {
                 assert!(layout.cell_width >= FRAME_FLOOR_WIDTH - 0.01);
             }
             previous = layout.grid_columns;
+            columns.push(layout.grid_columns);
         }
+        assert_eq!(columns, [4, 2, 2]);
     }
 
     #[test]
@@ -372,5 +401,20 @@ mod tests {
             panic!("expected a band");
         };
         assert!(2.0 * monitor_width + BAND_GAP + 2.0 * BAND_GUTTER <= 900.0 + 0.01);
+    }
+    #[test]
+    fn band_monitors_shrink_to_the_width_at_200_percent() {
+        let layout = at(900.0, 2000.0, InterfaceScale::Percent200);
+        // by height: floor(2000 * 0.3 * 16/9) = 1066; by width: (900 - 64 - 24) / 2 = 406.
+        assert_eq!(
+            layout.dock,
+            DockLayout::Band {
+                monitor_width: 406.0
+            }
+        );
+        let DockLayout::Band { monitor_width } = layout.dock else {
+            panic!("expected a band");
+        };
+        assert!(2.0 * monitor_width + 2.0 * (BAND_GAP / 2.0 + BAND_GUTTER) * 2.0 <= 900.0 + EPS);
     }
 }
