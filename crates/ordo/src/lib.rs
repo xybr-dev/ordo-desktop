@@ -28,6 +28,7 @@ use ui::environment::UiPreferences;
 
 pub mod canonical;
 pub mod canonical_views;
+pub mod commands;
 pub mod diagnostics;
 pub mod output;
 pub mod performance;

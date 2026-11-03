@@ -157,13 +157,28 @@ pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
 /// `tally` records the glyph paint for tests and diagnostics; production
 /// passes `None`.
 ///
-/// Fades are out of scope here: the black overlay for a Program fade is a
-/// later package (T1.4 WP4) layered over this box.
+/// A Program fade is [`live_viewport_fading`]; this is the unfaded box.
 pub fn live_viewport(
     frame: Option<Arc<rendering::Frame>>,
     image: Option<Arc<RenderImage>>,
     width: f32,
     tally: Option<Rc<PaintTally>>,
+    environment: UiEnvironment,
+) -> AnyElement {
+    live_viewport_fading(frame, image, width, tally, 1.0, environment)
+}
+
+/// [`live_viewport`] while the Engine fades the monitor: `opacity` is the
+/// `ProgramView` opacity, and a black layer at `1 - opacity` is drawn over
+/// the frame, so `1.0` is the plain viewport and `0.0` is solid black. The
+/// frame itself is untouched, so a fade never recomposes or repaints
+/// differently sized glyphs.
+pub fn live_viewport_fading(
+    frame: Option<Arc<rendering::Frame>>,
+    image: Option<Arc<RenderImage>>,
+    width: f32,
+    tally: Option<Rc<PaintTally>>,
+    opacity: f32,
     environment: UiEnvironment,
 ) -> AnyElement {
     let scale = environment.preferences().scale;
@@ -192,6 +207,18 @@ pub fn live_viewport(
         }
         let tally = tally.unwrap_or_default();
         viewport = viewport.child(retained_glyphs(frame, tally));
+    }
+    let cover = 1.0 - opacity.clamp(0.0, 1.0);
+    if cover > 0.0 {
+        viewport = viewport.child(
+            div()
+                .debug_selector(|| "live-viewport-fade".into())
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(gpui::black().opacity(cover)),
+        );
     }
     viewport.into_any_element()
 }
