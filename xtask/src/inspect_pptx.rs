@@ -635,10 +635,15 @@ fn parse_content_types(xml: &[u8]) -> Parsed<ContentTypes> {
 fn content_type_problems(raw: &[u8]) -> Parsed<Vec<String>> {
     let mut zip = open_zip(raw)?;
     let types = parse_content_types(&read_part(&mut zip, CONTENT_TYPES)?)?;
-    let parts: Vec<String> = zip
+    // zip 9 yields an error for a name it cannot decode; the deck is refused.
+    let names: Vec<String> = zip
         .file_names()
+        .map(|name| name.map(|name| name.into_owned()))
+        .collect::<Result<_, _>>()
+        .map_err(|error| format!("a part name cannot be decoded: {error}"))?;
+    let parts: Vec<String> = names
+        .into_iter()
         .filter(|name| !name.ends_with('/'))
-        .map(str::to_owned)
         .collect();
     // Part names are compared case-insensitively, as OPC requires.
     let part_names: HashSet<String> = parts.iter().map(|name| name.to_ascii_lowercase()).collect();
@@ -1109,11 +1114,14 @@ mod tests {
             let mut file = source.by_index(index).unwrap();
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            if file.name() == CONTENT_TYPES {
+            if file.name().unwrap() == CONTENT_TYPES {
                 data = edit(String::from_utf8(data).unwrap()).into_bytes();
             }
             writer
-                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .start_file(
+                    file.name().unwrap(),
+                    zip::write::SimpleFileOptions::default(),
+                )
                 .unwrap();
             writer.write_all(&data).unwrap();
         }
@@ -1222,13 +1230,16 @@ mod tests {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for index in 0..source.len() {
             let mut file = source.by_index(index).unwrap();
-            if file.name() == "ppt/media/image1.png" {
+            if file.name().unwrap() == "ppt/media/image1.png" {
                 continue;
             }
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             writer
-                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .start_file(
+                    file.name().unwrap(),
+                    zip::write::SimpleFileOptions::default(),
+                )
                 .unwrap();
             writer.write_all(&data).unwrap();
         }
@@ -1251,13 +1262,16 @@ mod tests {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for index in 0..source.len() {
             let mut file = source.by_index(index).unwrap();
-            if file.name() == CONTENT_TYPES {
+            if file.name().unwrap() == CONTENT_TYPES {
                 continue;
             }
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             writer
-                .start_file(file.name(), zip::write::SimpleFileOptions::default())
+                .start_file(
+                    file.name().unwrap(),
+                    zip::write::SimpleFileOptions::default(),
+                )
                 .unwrap();
             writer.write_all(&data).unwrap();
         }

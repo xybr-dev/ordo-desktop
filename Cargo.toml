@@ -43,7 +43,10 @@ ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
-zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+# `deflate-flate2`, not `deflate`: zip 9's `deflate` forces flate2's zlib-rs backend
+# workspace-wide, which changes every PNG the spikes encode (T0.9 pins their
+# hashes). This keeps the miniz_oxide backend zip 2.4.2 compressed with.
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # GPUI comes from Longbridge's exactly pinned `gpui-pre` crates.io snapshot of

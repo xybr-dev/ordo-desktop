@@ -42,7 +42,10 @@ fn image_pngs(plan: &DeckPlan) -> Vec<&[u8]> {
 /// Every entry of the archive whose name matches `keep`, as UTF-8 text.
 fn raw_parts(bytes: &[u8], keep: impl Fn(&str) -> bool) -> Vec<(String, String)> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("deck is a ZIP");
-    let names: Vec<String> = archive.file_names().map(str::to_owned).collect();
+    let names: Vec<String> = archive
+        .file_names()
+        .map(|name| name.expect("decodable part name").into_owned())
+        .collect();
     let mut parts = Vec::new();
     for name in names.into_iter().filter(|name| keep(name)) {
         let mut text = String::new();

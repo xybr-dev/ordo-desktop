@@ -311,7 +311,10 @@ fn read_parts(pptx: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
         let mut file = archive
             .by_index(index)
             .map_err(|error| format!("unreadable zip entry {index}: {error}"))?;
-        let name = file.name().to_owned();
+        let name = file
+            .name()
+            .map_err(|error| format!("zip entry {index} has an undecodable name: {error}"))?
+            .into_owned();
         let mut bytes = Vec::new();
         file.by_ref()
             .take(MAX_PART_BYTES + 1)

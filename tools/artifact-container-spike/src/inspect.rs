@@ -436,7 +436,17 @@ fn scan_entries(
                 continue;
             }
         };
-        let name = raw.name().to_owned();
+        // zip 9 refuses a name it cannot decode; such an entry is unreadable,
+        // never judged under a guessed spelling.
+        let name = match raw.name() {
+            Ok(name) => name.into_owned(),
+            Err(e) => {
+                failures.push(unreadable(format!(
+                    "entry {index} has an undecodable name: {e}"
+                )));
+                continue;
+            }
+        };
         let size = raw.size();
         let compressed = raw.compressed_size();
         let mode = raw.unix_mode();
