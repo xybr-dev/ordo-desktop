@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 pub mod cache;
 pub mod presenter;
+pub mod snapshot_reader;
 
 /// A complete immutable RGBA Program frame ready for every presentation view.
 ///

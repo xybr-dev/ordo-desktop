@@ -9,6 +9,9 @@ publish.workspace = true
 [dependencies]
 domain.workspace = true
 rendering.workspace = true
+# Snapshot dependency digests. Exact pin: the fingerprint rule is a frozen
+# contract, so the digest implementation must not drift under it.
+sha2 = "=0.10.9"
 
 [lints]
 workspace = true
