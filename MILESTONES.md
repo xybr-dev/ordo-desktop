@@ -701,7 +701,7 @@ of planning and persistence.
       timed General Presentations, operator-only triggers, Wait, Hold, Blackout,
       long wrapping, repeated chorus/refrain occurrences, both Themes, and an
       unavailable Cue.
-- [ ] `[AUTO]` Every Cue belongs to exactly one Mass item; Mass sections own no
+- [x] `[AUTO]` Every Cue belongs to exactly one Mass item; Mass sections own no
       Cue and no projectable output.
 - [ ] `[AUTO]` Operator-only triggers and Hold provide black projectable output
       while retaining private operator context; Wait Cues retain private context
