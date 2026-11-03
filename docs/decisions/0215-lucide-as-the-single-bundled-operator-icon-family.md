@@ -8,11 +8,13 @@ tags: []
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [300]
 sources: []
 ---
 
 # Lucide as the single bundled operator icon family
+
+> **Amended by Decision [300](0300-current-navigation-destination-fills-its-icon.md).** The current global-navigation destination shows a filled form of its icon, derived from Lucide; line-only icons use a 2.75px stroke for that form.
 
 - Use Lucide as Ordo's sole general operator-interface icon family. Bundle the selected SVG modules locally, import only used icons, pin the dependency with the rest of the implementation toolchain, and preserve the applicable ISC/MIT notices in distributed third-party notices.
 - Use `16px` icons inside ordinary controls and `20px` icons for navigation and prominent actions, with a consistent `2px` stroke across Preparation and Presenter appearances.

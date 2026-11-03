@@ -110,8 +110,29 @@
   font-size: calc(12px * var(--o-scale)); font-weight: 500;
 }
 .o-navrail a { position: relative; }
-.o-navrail a[aria-current="page"] { background: var(--o-selection); color: var(--o-text); font-weight: 600; }
+.o-navrail a[aria-current="page"] { background: var(--o-selection); color: var(--o-text); }
+/* Every entry is at least one label tall and centres its content, so the current one, which shows its
+   icon alone (as the Microsoft Store rail does), keeps its height and its icon sits in the middle. */
+.o-navrail a { justify-content: center; min-height: calc(54px * var(--o-scale)); }
+.o-navrail a[aria-current="page"] span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .o-navrail .o-spacer { flex: 1; }
+.o-navrail a span { text-align: center; line-height: 1.25; }   /* a two-line label ("Transfer & Backup") stays centred under its icon */
+/* The current destination's icon is filled. Lucide has no filled set, so the outer shape fills and its
+   details are cut out in the selection color; line-only icons take a heavier stroke instead. */
+.o-navrail a[aria-current="page"] .lucide { --o-cut: var(--o-selection); }
+.o-navrail a[aria-current="page"] .lucide-calendar-days rect,
+.o-navrail a[aria-current="page"] .lucide-hard-drive-download rect,
+.o-navrail a[aria-current="page"] .lucide-circle-help circle,
+.o-navrail a[aria-current="page"] .lucide-palette path,
+.o-navrail a[aria-current="page"] .lucide-settings path { fill: currentColor; }
+.o-navrail a[aria-current="page"] .lucide-calendar-days :nth-child(n+4),
+.o-navrail a[aria-current="page"] .lucide-hard-drive-download :nth-child(n+4),
+.o-navrail a[aria-current="page"] .lucide-circle-help path,
+.o-navrail a[aria-current="page"] .lucide-palette circle,
+.o-navrail a[aria-current="page"] .lucide-settings circle { stroke: var(--o-cut); fill: var(--o-cut); }
+.o-navrail a[aria-current="page"] .lucide-circle-help path:first-of-type { fill: none; }
+.o-navrail a[aria-current="page"] .lucide-library,
+.o-navrail a[aria-current="page"] .lucide-activity { stroke-width: 2.75; }
 
 /* ── panes, headers, tabs ───────────────────────────────────────────────── */
 .o-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--o-surface); }
@@ -189,6 +210,10 @@
 .o-row[aria-selected="true"]::before, .o-row[aria-current="true"]::before,
 .o-navrail a[aria-current="page"]::before, .sh-navrow[aria-current="true"]::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--o-text);
+}
+/* Rounded nav entries take a short centred pill (as Windows NavigationView does), so the bar never meets the corners. */
+.o-navrail a[aria-current="page"]::before, .sh-navrow[aria-current="true"]::before {
+  top: 50%; bottom: auto; height: calc(16px * var(--o-scale)); transform: translateY(-50%); border-radius: 2px;
 }
 .o-row .o-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .o-row:focus-visible .o-ellipsis { white-space: normal; }

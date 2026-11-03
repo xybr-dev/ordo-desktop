@@ -159,7 +159,12 @@
     var m = marker === "square" ? "o-marker o-marker--square" : marker === "diamond" ? "o-marker o-marker--diamond" : marker === "ring" ? "o-marker o-marker--ring" : "o-marker";
     return '<span class="o-status" data-state="' + state + '"><span class="' + m + '"></span>' + esc(text) + "</span>";
   }
-  function icons() { if (window.lucide) window.lucide.createIcons({ attrs: { "stroke-width": 2 } }); }
+  function icons() {
+    if (!window.lucide) return;
+    window.lucide.createIcons({ attrs: { "stroke-width": 2 } });
+    // Palette draws its paint dots before the palette; move them last so the filled (current) nav icon can cut them out.
+    document.querySelectorAll("svg.lucide-palette").forEach(function (s) { s.querySelectorAll("circle").forEach(function (c) { s.appendChild(c); }); });
+  }
 
   // Shrink a fixed logical window (w x h) to the width of its wrapper, as a screenshot would.
   function fit(wrapper, app, w, h) {
@@ -999,7 +1004,7 @@
   var PAGE_OF = { Masses: "masses-index.html", Library: "song-library-master-detail-v2.html", Themes: "themes.html", "Transfer & Backup": "transfer-backup.html",
     Diagnostics: "diagnostics.html", Help: "help.html", Settings: "settings.html" };
   function navrail(active) {
-    function a(n) { return '<a href="' + (PAGE_OF[n[0]] || "#") + '" data-dest="' + esc(n[0]) + '" aria-current="' + (n[0] === active ? "page" : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
+    function a(n) { return '<a href="' + (PAGE_OF[n[0]] || "#") + '" data-dest="' + esc(n[0]) + '" aria-current="' + (n[0] === active ? "page\" title=\"" + esc(n[0]) : "false") + '">' + icon(n[1], "o-icon-20") + "<span>" + esc(n[0]) + "</span></a>"; }
     return '<nav class="o-navrail" aria-label="Global navigation">' + NAV.map(a).join("") + '<span class="o-spacer"></span>' + NAV_FOOT.map(a).join("") + "</nav>";
   }
 
