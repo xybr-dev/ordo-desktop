@@ -164,11 +164,12 @@
     },
     {
       slug: "mass-planning-responsive-v2", group: "planning", title: "Mass Planning, 1366 and 1920", replaces: "mass-planning-responsive",
-      summary: "The three-pane hierarchy on the shared kit at 1366×768 and 1920×1080, holding the same Mass, Song item, Arrangement and Cue. Interactive: outline, generated Cues and Inspector stay in sync.",
+      summary: "The three-pane hierarchy on the shared kit at 1366×768 and 1920×1080, plus the constrained slideover layouts for resized windows and high Interface scale, holding the same Mass, Song item, Arrangement and Cue. Interactive: outline, generated Cues and Inspector stay in sync.",
       status: "approved", gate: true,
       decisions: ["0240-approved-paired-mass-planning-responsive-acceptance", "0169-inspector-navigation-follows-the-selected-mass-item-s-cue", "0250-use-a-hybrid-global-rail-and-local-tab-navigation-hierarchy", "0257-make-library-a-multi-view-destination-with-revision-bound"],
       interpretations: [
         "The global rail shows Library rather than Songs (Decision 257).",
+        "The constrained layouts apply the pane minima of Decision 236: three panes need 1060 logical px after the global rail, and the outline and editor need 760. Choosing an item closes the outline slideover.",
         "The wide composition starts at an effective width of 1700 logical px. That is illustrative; production adapts to effective dimensions and minimum pane widths (Decisions 234 and 236).",
         "The selected item is the Entrance Song rather than the original Kyrie, so that the comparison has enough generated Cues to show the thumbnail difference."
       ]

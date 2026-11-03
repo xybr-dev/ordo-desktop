@@ -402,12 +402,24 @@
 .pl-head { display: flex; align-items: center; gap: var(--o-s2); padding: var(--o-s3) var(--o-s4); background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; }
 .pl-title { font-size: calc(24px * var(--o-scale)); }
 .pl-ready { gap: var(--o-s3); }
-.pl-panes { display: flex; flex: 1; min-height: 0; }
-.pl-outline { width: calc(280px * var(--o-scale)); flex: none; }
+.pl-panes { position: relative; display: flex; flex: 1; min-height: 0; }
+/* Constrained: the editor stays fixed; the Inspector, then the outline, become opposing temporary panes (Decision 236). */
+.pl-sidebar { display: flex; align-items: center; gap: var(--o-s2); padding: var(--o-s1) var(--o-s3); background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; }
+.o-app[data-tier="inspector"] .pl-inspector, .o-app[data-tier="editor"] .pl-inspector, .o-app[data-tier="editor"] .pl-outline { display: none; }
+.o-app[data-side="inspector"] .pl-inspector, .o-app[data-side="outline"] .pl-outline {
+  display: flex; position: absolute; top: 0; bottom: 0; z-index: 21; min-width: 0; max-width: calc(100% - calc(32px * var(--o-scale)));
+  background: var(--o-surface); box-shadow: var(--o-shadow-floating);
+}
+.o-app[data-side="inspector"] .pl-inspector { right: 0; }
+.o-app[data-side="outline"] .pl-outline { left: 0; }
+.pl-outline .pl-close-tab { left: auto; right: calc(-14px * var(--o-scale)); }
+.pl-head .pl-title, .pl-head .o-grow { min-width: 0; }
+.o-app:not([data-tier="full"]) .pl-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pl-outline { width: calc(280px * var(--o-scale)); min-width: calc(240px * var(--o-scale)); flex: 0 1 auto; }
 [data-layout="wide"] .pl-outline { width: calc(320px * var(--o-scale)); }
 .pl-outline .o-pane-head b { white-space: nowrap; }
-.pl-editor { flex: 1; min-width: calc(440px * var(--o-scale)); }
-.pl-inspector { width: calc(340px * var(--o-scale)); flex: none; }
+.pl-editor { flex: 1 1 0; min-width: min(100%, calc(520px * var(--o-scale))); }
+.pl-inspector { width: calc(340px * var(--o-scale)); min-width: calc(300px * var(--o-scale)); flex: 0 1 auto; }
 [data-layout="wide"] .pl-inspector { width: calc(460px * var(--o-scale)); }
 .pl-sec { display: flex; align-items: center; gap: 4px; padding-left: var(--o-s2); }
 .pl-item { padding-left: calc(28px * var(--o-scale)); min-height: calc(var(--o-h-row-compact) * var(--o-scale)); }

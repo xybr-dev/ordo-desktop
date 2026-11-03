@@ -28,11 +28,25 @@
     <div id="wide"></div>
   </section>
 
+  <section class="o-variant">
+    <h2>C. A window snapped to half of 1920×1080</h2>
+    <p>Too narrow for three panes, so the outline stays beside the editor and the Inspector becomes a right slideover. 1366×768 at 125% takes this composition too: layout follows the room left, not the monitor.</p>
+    <div id="half"></div>
+  </section>
+
+  <section class="o-variant">
+    <h2>D. A window snapped to half of 1366×768</h2>
+    <p>Only the editor stays fixed. <b>Mass outline</b> and <b>Inspector</b> open as opposing slideovers, one at a time. 1366×768 at 200% takes this composition too.</p>
+    <div id="narrow"></div>
+  </section>
+
 </main>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     OrdoKit.planner(document.getElementById("compact"), { w: 1366, h: 768, item: 2, cue: 1 });
     OrdoKit.planner(document.getElementById("wide"), { w: 1920, h: 1080, item: 2, cue: 1 });
+    OrdoKit.planner(document.getElementById("half"), { w: 960, h: 1040, item: 2, cue: 1 });
+    OrdoKit.planner(document.getElementById("narrow"), { w: 683, h: 768, item: 2, cue: 1 });
   });
 </script>
 </body>
