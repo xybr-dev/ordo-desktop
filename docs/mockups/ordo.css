@@ -114,7 +114,19 @@
 /* Every entry is at least one label tall and centres its content, so the current one, which shows its
    icon alone (as the Microsoft Store rail does), keeps its height and its icon sits in the middle. */
 .o-navrail a { justify-content: center; min-height: calc(54px * var(--o-scale)); }
-.o-navrail a[aria-current="page"] span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The label fades and the icon slides to the middle (--o-shift is set per entry by the motion layer);
+   the label stays in place, so it remains the entry's accessible name and the entry keeps its height. */
+.o-navrail a .lucide { transition: transform var(--o-standard) var(--o-ease); }
+.o-navrail a span { transition: opacity var(--o-standard) var(--o-ease), transform var(--o-standard) var(--o-ease); }
+.o-navrail a[aria-current="page"] .lucide { transform: translateY(var(--o-shift, 8.5px)); }
+.o-navrail a[aria-current="page"] span { opacity: 0; transform: translateY(calc(4px * var(--o-scale))); }
+/* One pill per rail travels to the current entry (Decision 301). */
+.o-navrail { position: relative; }
+.o-navrail a[aria-current="page"]::before { display: none; }
+.o-navpill {
+  position: absolute; left: 0; top: 0; width: 3px; height: calc(16px * var(--o-scale)); border-radius: 2px;
+  background: var(--o-text); pointer-events: none; opacity: 0;
+}
 .o-navrail .o-spacer { flex: 1; }
 .o-navrail a span { text-align: center; line-height: 1.25; }   /* a two-line label ("Transfer & Backup") stays centred under its icon */
 /* The current destination's icon is filled. Lucide has no filled set, so the outer shape fills and its
@@ -154,6 +166,15 @@
   font-size: calc(14px * var(--o-scale)); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .o-tabs button[aria-selected="true"] { color: var(--o-text); border-bottom-color: var(--o-primary-fg); }
+/* One underline per strip slides between tabs (Decision 301); the selected tab's own border steps aside. */
+.o-tabs { position: relative; }
+.o-tabs.has-pill > [role="tab"][aria-selected="true"] { border-bottom-color: transparent; }
+/* A full-workspace view rising or sinking: the workspace it replaces stays underneath meanwhile. */
+.o-grow.o-lift { position: relative; overflow: hidden; }
+.o-lift > .o-under { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; }
+.o-lift > :not(.o-under) { position: relative; z-index: 1; background: var(--o-bg); box-shadow: var(--o-shadow-overlay); }
+.o-lift > .o-over { position: absolute; inset: 0; z-index: 2; }
+.o-tabpill { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--o-primary-fg); pointer-events: none; opacity: 0; }
 
 /* ── controls ───────────────────────────────────────────────────────────── */
 .o-btn {
@@ -1095,4 +1116,6 @@ a.o-btn:not(.o-btn--primary) { color: inherit; }
   .o-btn, .pl-switch span, .pl-switch span::after, .sh-progress > span { transition: none; }
   .o-slideover { transition: opacity 100ms linear; }
   .o-slideover.is-receded { transform: none; }
+  .o-navrail a .lucide { transition: none; }
+  .o-navrail a span { transition: opacity 100ms linear; }
 }

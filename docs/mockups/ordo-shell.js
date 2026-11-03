@@ -466,7 +466,7 @@
       var specBar = '<div class="o-segmented sh-specs" role="group" aria-label="Specimen">' + SPECIMENS.map(function (s) { return '<button data-a="set" data-path="ed.spec" data-v="' + s[0] + '" aria-pressed="' + (e.spec === s[0]) + '">' + s[1] + "</button>"; }).join("") +
         (e.from ? '<button data-a="set" data-path="ed.spec" data-v="current" aria-pressed="' + (e.spec === "current") + '">Current Mass slide</button>' : "") + "</div>";
       var cue = e.spec === "current" ? { k: "lyrics", h: "Koro", b: "Daygon, daygon ta\nang ngalan sa Ginoo" } : spec[2];
-      return '<div class="sh-page">' + head + share + roNote + '<div class="sh-edpanes"><div class="o-pane sh-ctl"><div class="o-tabs sh-gtabs" role="tablist">' +
+      return '<div class="sh-page sh-themeed">' + head + share + roNote + '<div class="sh-edpanes"><div class="o-pane sh-ctl"><div class="o-tabs sh-gtabs" role="tablist">' +
         groups.map(function (g) { return '<button role="tab" data-a="set" data-path="ed.group" data-v="' + g[0] + '" aria-selected="' + (e.group === g[0]) + '">' + g[1] + "</button>"; }).join("") + "</div>" +
         '<div class="o-pane-body sh-form">' + ctl + "</div></div>" +
         '<div class="sh-stage">' + specBar + '<div class="sh-big">' + themeSlide(t, cue) + '</div><div class="o-meta">Canonical 1920 × 1080 · the same frame Presenter projects. The specimen is test content only.</div></div></div></div>';
