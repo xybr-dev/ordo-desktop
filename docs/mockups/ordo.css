@@ -299,12 +299,6 @@
 .o-segmented:not(.o-app .o-segmented) button[aria-pressed="false"] { color: var(--mk-muted, var(--o-muted)); }
 .o-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 0 0 12px; font: 14px var(--o-font); }
 
-@media (prefers-reduced-motion: reduce) {
-  .o-canvas { transition-duration: 100ms; }
-  .o-btn, .pl-switch span, .pl-switch span::after, .sh-progress > span { transition: none; }
-  .o-slideover { transition: opacity 100ms linear; }
-  .o-slideover.is-receded { transform: none; }
-}
 /* Browser only: forced colors remove the box-shadow ring here. Ordo itself keeps its own ring (Decision 298). */
 @media (forced-colors: active) {
   .o-app :focus-visible, .o-focus { outline: 2px solid Highlight; outline-offset: 2px; }
@@ -430,19 +424,19 @@
 .pl-insp-body { display: flex; flex-direction: column; gap: var(--o-s3); padding: var(--o-s4); }
 
 /* ── Program and Preview rings on timeline Cues ─────────────────────────── */
-/* Preview: the blue ring. Program: a green ring, amber while held by Freeze. Together: Program inside, Preview outside. */
+/* Preview: a neutral bar under the frame. Program: a green ring, amber while held by Freeze. Neither is the blue focus ring. */
 .o-slide-wrap[data-onair="live"] { box-shadow: 0 0 0 2px var(--o-surface), 0 0 0 4px var(--o-live); }
 .o-slide-wrap[data-onair="held"] { box-shadow: 0 0 0 2px var(--o-surface), 0 0 0 4px var(--o-freeze); }
 .o-slide-wrap[aria-current="true"][data-onair]::after { bottom: -9px; }
-.pr-tile .o-slide-wrap { margin: 4px 4px 12px; }
-.pr-row[aria-current="true"] { box-shadow: inset 0 -3px 0 var(--o-text); }
+.pr-tile .o-slide-wrap { margin: 4px 0 12px; }   /* the ring sits in the grid gap; a side margin would take the 270px floor */
+.pr-row[aria-current="true"]:not(:focus-visible) { box-shadow: inset 0 -3px 0 var(--o-text); }
 .pr-row[aria-current="true"]::before { display: none; }
-.pr-row[data-onair="live"] { box-shadow: inset 4px 0 0 var(--o-live); }
-.pr-row[data-onair="held"] { box-shadow: inset 4px 0 0 var(--o-freeze); }
-.pr-row[aria-current="true"][data-onair="live"] { box-shadow: inset 4px 0 0 var(--o-live), inset 0 -3px 0 var(--o-text); }
-.pr-row[aria-current="true"][data-onair="held"] { box-shadow: inset 4px 0 0 var(--o-freeze), inset 0 -3px 0 var(--o-text); }
+.pr-row[data-onair="live"]:not(:focus-visible) { box-shadow: inset 4px 0 0 var(--o-live); }
+.pr-row[data-onair="held"]:not(:focus-visible) { box-shadow: inset 4px 0 0 var(--o-freeze); }
+.pr-row[aria-current="true"][data-onair="live"]:not(:focus-visible) { box-shadow: inset 4px 0 0 var(--o-live), inset 0 -3px 0 var(--o-text); }
+.pr-row[aria-current="true"][data-onair="held"]:not(:focus-visible) { box-shadow: inset 4px 0 0 var(--o-freeze), inset 0 -3px 0 var(--o-text); }
 .pr-onair { display: inline-flex; flex-wrap: wrap; gap: 2px var(--o-s2); justify-content: flex-end; }
-.o-status[data-state="preview"] { color: var(--o-focus); }
+.o-status[data-state="preview"] { color: var(--o-text); }
 .o-marker--ring { box-sizing: border-box; border: 2px solid currentColor; background: transparent !important; border-radius: 50%; }
 .pl-saved { display: inline-flex; align-items: center; gap: 4px; }
 .pl-ed-body { display: flex; flex-direction: column; gap: var(--o-s4); padding: var(--o-s4); }
@@ -641,7 +635,7 @@ span.sg-sec-name { cursor: default; }
 .sg-bounds > .o-meta { display: inline-flex; align-items: center; gap: 4px; }
 .sg-thumbs { grid-template-columns: repeat(auto-fill, calc(168px * var(--o-scale))); }
 .sg-occ { border: 1px solid var(--o-border); border-radius: var(--o-radius-control); }
-.sg-occ.is-selected { border-color: var(--o-focus); }
+.sg-occ.is-selected { border-color: var(--o-primary-fg); }
 .sg-occ-row { align-items: center; gap: var(--o-s1); border-radius: var(--o-radius-control); }
 .sg-occ-row > .lucide:first-child { color: var(--o-muted); }
 .sg-expander { all: unset; cursor: pointer; display: inline-flex; padding: var(--o-s2); border-radius: var(--o-radius-control); }
@@ -1071,4 +1065,12 @@ a.o-btn:not(.o-btn--primary) { color: inherit; }
   .sg-rep-table td:nth-last-child(2) { grid-column: 1 / -1; grid-row: 3; }
   .sg-rep-with { display: inline; }
   .sg-rep-none { display: none; }
+}
+
+/* Last, so these win over the equal-specificity rules above. */
+@media (prefers-reduced-motion: reduce) {
+  .o-canvas { transition-duration: 100ms; }
+  .o-btn, .pl-switch span, .pl-switch span::after, .sh-progress > span { transition: none; }
+  .o-slideover { transition: opacity 100ms linear; }
+  .o-slideover.is-receded { transform: none; }
 }
