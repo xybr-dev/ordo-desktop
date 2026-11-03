@@ -372,6 +372,7 @@ impl LabView {
             UiPreferences {
                 appearance: PreparationAppearance::System,
                 scale: SCALES[self.scale_idx],
+                ..Default::default()
             },
             ResolvedAppearance::Light,
         )

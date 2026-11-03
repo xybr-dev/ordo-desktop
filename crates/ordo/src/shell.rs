@@ -384,6 +384,7 @@ impl ShellView {
             } else {
                 restored.scale
             },
+            cue_view: restored.cue_view,
         };
         let changed_since_startup = mem::take(&mut self.appearance_changed_since_startup)
             | mem::take(&mut self.scale_changed_since_startup);
@@ -2099,6 +2100,7 @@ mod tests {
                 Some(UiPreferences {
                     appearance: PreparationAppearance::Dark,
                     scale: InterfaceScale::Percent175,
+                    ..Default::default()
                 }),
                 cx,
             );
@@ -2107,6 +2109,7 @@ mod tests {
         let expected = UiPreferences {
             appearance: PreparationAppearance::Dark,
             scale: InterfaceScale::Percent125,
+            ..Default::default()
         };
         shell.read_with(cx, |shell, _| {
             assert_eq!(shell.environment().preferences(), expected);

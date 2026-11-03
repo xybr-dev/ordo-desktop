@@ -150,6 +150,7 @@ mod tests {
             UiPreferences {
                 appearance: PreparationAppearance::Light,
                 scale,
+                ..Default::default()
             },
             ResolvedAppearance::Light,
         )

@@ -61,10 +61,20 @@ impl InterfaceScale {
     }
 }
 
+/// How the Presenter shows the Cue timeline. Grid is the default so an
+/// installation file written before this preference existed still decodes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CueView {
+    #[default]
+    Grid,
+    List,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct UiPreferences {
     pub appearance: PreparationAppearance,
     pub scale: InterfaceScale,
+    pub cue_view: CueView,
 }
 
 impl UiPreferences {
@@ -74,12 +84,20 @@ impl UiPreferences {
             PreparationAppearance::Light => "light",
             PreparationAppearance::Dark => "dark",
         };
-        format!("appearance={appearance}\nscale={}\n", self.scale.percent())
+        let cue_view = match self.cue_view {
+            CueView::Grid => "grid",
+            CueView::List => "list",
+        };
+        format!(
+            "appearance={appearance}\nscale={}\ncue-view={cue_view}\n",
+            self.scale.percent()
+        )
     }
 
     pub fn decode(contents: &str) -> Result<Self, &'static str> {
         let mut appearance = None;
         let mut scale = None;
+        let mut cue_view = None;
         for line in contents.lines() {
             let (name, value) = line.split_once('=').ok_or("invalid preference line")?;
             match name {
@@ -94,13 +112,21 @@ impl UiPreferences {
                 "scale" if scale.is_none() => {
                     scale = Some(InterfaceScale::parse(value).ok_or("invalid scale preference")?);
                 }
-                "appearance" | "scale" => return Err("duplicate preference"),
+                "cue-view" if cue_view.is_none() => {
+                    cue_view = Some(match value {
+                        "grid" => CueView::Grid,
+                        "list" => CueView::List,
+                        _ => return Err("invalid cue-view preference"),
+                    });
+                }
+                "appearance" | "scale" | "cue-view" => return Err("duplicate preference"),
                 _ => return Err("unknown preference"),
             }
         }
         Ok(Self {
             appearance: appearance.ok_or("missing appearance preference")?,
             scale: scale.ok_or("missing scale preference")?,
+            cue_view: cue_view.unwrap_or_default(),
         })
     }
 }
@@ -200,6 +226,7 @@ mod tests {
         let preferences = UiPreferences {
             appearance: PreparationAppearance::Dark,
             scale: InterfaceScale::Percent175,
+            cue_view: CueView::List,
         };
         assert_eq!(
             UiPreferences::decode(&preferences.encode()),
@@ -209,11 +236,36 @@ mod tests {
     }
 
     #[test]
+    fn cue_view_round_trips_defaults_for_legacy_files_and_rejects_bad_input() {
+        for cue_view in [CueView::Grid, CueView::List] {
+            let preferences = UiPreferences {
+                cue_view,
+                ..UiPreferences::default()
+            };
+            assert_eq!(
+                UiPreferences::decode(&preferences.encode()),
+                Ok(preferences)
+            );
+        }
+        let legacy = UiPreferences::decode("appearance=light\nscale=125\n").unwrap();
+        assert_eq!(legacy.cue_view, CueView::Grid);
+        assert!(
+            UiPreferences::default()
+                .encode()
+                .ends_with("cue-view=grid\n")
+        );
+        let duplicate = "appearance=light\nscale=125\ncue-view=grid\ncue-view=list\n";
+        assert!(UiPreferences::decode(duplicate).is_err());
+        assert!(UiPreferences::decode("appearance=light\nscale=125\ncue-view=tiles\n").is_err());
+    }
+
+    #[test]
     fn presenter_override_does_not_replace_preparation_preference() {
         let mut environment = UiEnvironment::new(
             UiPreferences {
                 appearance: PreparationAppearance::Light,
                 scale: InterfaceScale::Percent100,
+                ..UiPreferences::default()
             },
             ResolvedAppearance::Dark,
         );

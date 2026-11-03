@@ -151,6 +151,7 @@ mod tests {
             UiPreferences {
                 appearance: PreparationAppearance::Light,
                 scale,
+                ..Default::default()
             },
             crate::environment::ResolvedAppearance::Light,
         )
