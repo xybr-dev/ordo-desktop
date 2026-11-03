@@ -1052,11 +1052,7 @@ mod live_viewport_tests {
     #[test]
     fn live_viewport_never_rasterizes() {
         // The repo checks out with CRLF on Windows (`core.autocrlf`).
-        let source = include_str!("canonical_views.rs").replace(
-            "
-", "
-",
-        );
+        let source = include_str!("canonical_views.rs").replace(['\r'], "");
         let start = source.find("pub fn live_viewport(").expect("live_viewport");
         let body = &source[start..];
         let end = body.find("\n}\n").expect("end of live_viewport");
