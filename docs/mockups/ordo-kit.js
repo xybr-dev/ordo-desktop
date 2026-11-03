@@ -528,8 +528,11 @@
             (p.action ? '<button class="o-btn">' + esc(p.action) + "</button>" : "") + "</div>";
         }).join("") + "</section>";
     }
+    // The timeline's tools sit above its scroller, not inside it, so they never move while it scrolls.
+    var TOOLS = "";
     function timeline() {
-      var html = preflight() + '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button>' +
+      var html = preflight();
+      TOOLS = '<div class="pr-tl-tools"><button class="o-btn" data-act="ins-open">' + icon("plus") + "Insert after " + esc(CUES[S.preview].item.title) + ' <span class="o-kbd">Insert</span></button>' +
         '<button class="o-btn" data-act="ins-rep" title="Replace ' + esc(CUES[S.preview].item.title) + ' for this Mass">' + icon("replace") + "Replace " + (CUES[S.preview].item.type === "Song" ? "Song" : "item") + ' <span class="o-kbd">Ctrl+R</span></button>' +
         '<button class="o-btn" data-act="ins-edit"' + (projectable(CUES[S.preview]) && !CUES[S.preview].img ? "" : ' disabled title="Ctrl+E edits projectable slides"') + ">" + icon("pencil") + 'Edit slide <span class="o-kbd">Ctrl+E</span></button></div>';
       ITEMS.forEach(function (it) {
@@ -876,7 +879,7 @@
         '<button class="o-btn o-btn--quiet o-btn--icon" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">' + icon("keyboard") + "</button>" +
         '<button class="o-btn">' + icon("log-out") + "Exit Presenter</button></header>";
       var tab = pinned ? "" : '<button class="pr-ordo-tab" data-act="open-rail" aria-label="Open Ordo">ORDO</button>';
-      var main = '<section class="pr-timeline" aria-label="Cue timeline">' + timeline() + "</section>";
+      var tlh = timeline(), main = '<div class="pr-tlwrap">' + TOOLS + '<section class="pr-timeline" aria-label="Cue timeline">' + tlh + "</section></div>";
       var body;
       if (l === "constrained") body = tab + '<div class="pr-col">' + dock() + main + "</div>";
       else body = (pinned ? rail(false) : tab) + main + dock();
@@ -1220,8 +1223,17 @@
   }
 
   var state = new WeakMap();
+  // Dialogs, menus and popovers, and toasts float over the workspace: they fade and settle in place.
+  function floats(app, now) {
+    app.querySelectorAll(".o-dialog:not(.o-ghost), .o-menu:not(.o-ghost), .o-toast:not(.o-ghost)").forEach(function (el) {
+      if (el.closest(".o-ghost")) return;
+      var kind = el.classList.contains("o-dialog") ? "dlg" : el.classList.contains("o-menu") ? "menu" : "toast", p = el.previousElementSibling;
+      now[kind + ":" + (kind === "toast" ? "" : el.getAttribute("aria-labelledby") || el.className)] =
+        { el: el, kind: kind, scrim: kind === "dlg" && p && p.matches(".o-scrim:not(.o-ghost)") ? p : null, path: path(app, el.parentElement), pc: el.parentElement.className };
+    });
+  }
   function scan(app) {
-    if (app.classList.contains("o-presenter")) return;
+    if (app.classList.contains("o-presenter")) { presScan(app); return; }
     var st = state.get(app), first = !st;
     if (first) { st = { tabs: {}, open: {} }; state.set(app, st); }
     app.querySelectorAll(".o-navrail").forEach(function (n) { railPill(n, false); });
@@ -1243,12 +1255,7 @@
     });
     var full = app.querySelector(FULL + ":not(.o-ghost)");
     if (full) now["full"] = { el: full, scrim: null };
-    // Dialogs, menus and popovers, and toasts float over the workspace: they fade and settle in place.
-    app.querySelectorAll(".o-dialog:not(.o-ghost), .o-menu:not(.o-ghost), .o-toast:not(.o-ghost)").forEach(function (el) { if (el.closest(".o-ghost")) return;
-      var kind = el.classList.contains("o-dialog") ? "dlg" : el.classList.contains("o-menu") ? "menu" : "toast", p = el.previousElementSibling;
-      now[kind + ":" + (kind === "toast" ? "" : el.getAttribute("aria-labelledby") || el.className)] =
-        { el: el, kind: kind, scrim: kind === "dlg" && p && p.matches(".o-scrim:not(.o-ghost)") ? p : null, path: path(app, el.parentElement), pc: el.parentElement.className };
-    });
+    floats(app, now);
     if (!first) {
       Object.keys(now).forEach(function (k) {
         if (st.open[k]) return;
@@ -1259,12 +1266,16 @@
     st.open = now;
     var ws = app.querySelector(".o-body > .o-grow");
     st.kids = ws ? [].filter.call(ws.children, function (c) { return !c.classList.contains("o-ghost"); }) : null;
-    // Disclosure rows (Diagnostics details): the body opens and shuts in 160ms and the chevron turns.
+    disclose(app, st, first);
+  }
+  // Disclosure rows (Diagnostics details, Presenter item groups): the body opens and shuts in 160ms
+  // and the chevron turns.
+  function disclose(app, st, first) {
     var disc = {};
-    app.querySelectorAll(".sh-drow").forEach(function (row) {
+    app.querySelectorAll(".sh-drow, .pr-group").forEach(function (row) {
       var h = row.querySelector(":scope > [aria-expanded]"); if (!h) return;
       var b = h.nextElementSibling;
-      disc[h.dataset.id || h.textContent] = { row: row, head: h, open: h.getAttribute("aria-expanded") === "true", body: b && !b.classList.contains("o-ghost") ? b : null };
+      disc[h.dataset.id || h.dataset.toggle || h.textContent] = { row: row, head: h, open: h.getAttribute("aria-expanded") === "true", body: b && !b.classList.contains("o-ghost") ? b : null };
     });
     if (!first && st.disc) Object.keys(disc).forEach(function (id) {
       var was = st.disc[id], d = disc[id];
@@ -1278,12 +1289,18 @@
   // Floating surfaces. A dialog zooms in from 95% with the overlay timing (400ms in, 200ms out); a menu, popover
   // or toast with the standard 160ms. Each keeps its own centring transform underneath the motion.
   var FLOAT = { dlg: { inMs: OPEN, outMs: CLOSE, from: "scale(0.95)" }, menu: { inMs: STD, outMs: 120, from: "translateY(-4px) scale(0.95)", origin: "top" }, toast: { inMs: STD, outMs: STD, from: "translateY(8px)" } };
+  FLOAT.panel = { inMs: OPEN, outMs: CLOSE, fade: false, from: function (el) { return "translateX(" + -(el.offsetWidth + 16) + "px)"; } };
+  function frames(f, el, b, shown) {
+    var fr = { transform: shown ? b || "none" : b + (typeof f.from === "function" ? f.from(el) : f.from), transformOrigin: f.origin || "center" };
+    if (f.fade !== false) fr.opacity = shown ? 1 : 0;
+    return fr;
+  }
   function base(el) { var t = getComputedStyle(el).transform; return t && t !== "none" ? t + " " : ""; }
   function appear(rec) {
     var f = FLOAT[rec.kind], el = rec.el;
     if (still()) { play(el, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); if (rec.scrim) play(rec.scrim, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); return; }
     var b = base(el);
-    play(el, [{ opacity: 0, transform: b + f.from, transformOrigin: f.origin || "center" }, { opacity: 1, transform: b || "none", transformOrigin: f.origin || "center" }], f.inMs, EASE);
+    play(el, [frames(f, el, b, false), frames(f, el, b, true)], f.inMs, EASE);
     if (rec.scrim) play(rec.scrim, [{ opacity: 0 }, { opacity: 1 }], f.inMs, EASE);
   }
   function vanish(app, rec) {
@@ -1291,11 +1308,87 @@
     if (!host || host.className !== rec.pc) return;              // its container went too: nothing to leave from
     var gs = rec.scrim ? ghost(rec.scrim, host) : null, g = ghost(rec.el, host);
     var b = base(g), ms = still() ? 100 : f.outMs, ease = still() ? "linear" : EXIT;
-    var a = play(g, still() ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, transform: b || "none", transformOrigin: f.origin || "center" }, { opacity: 0, transform: b + f.from, transformOrigin: f.origin || "center" }], ms, ease);
+    var a = play(g, still() ? [{ opacity: 1 }, { opacity: 0 }] : [frames(f, g, b, true), frames(f, g, b, false)], ms, ease);
     if (gs) play(gs, [{ opacity: 1 }, { opacity: 0 }], ms, ease);
     var done = function () { g.remove(); if (gs) gs.remove(); };
     if (a) a.onfinish = done; else done();
   }
+  // Presenter: no page, tab or marker motion, so nothing can be mistaken for a slide change. Its
+  // panels, dialogs, menus and toasts move like everywhere else, and each monitor fades between
+  // content and black (Blackout, Hold, nothing live) in 500ms. Content to content stays a cut.
+  function presScan(app) {
+    var st = state.get(app), first = !st;
+    if (first) { st = { open: {}, mon: [] }; state.set(app, st); }
+    var now = {};
+    floats(app, now);
+    app.querySelectorAll(".pr-ins-panel:not(.o-ghost), .pr-rail--overlay:not(.o-ghost)").forEach(function (el) {
+      var p = el.previousElementSibling;
+      now["panel:" + (el.classList.contains("pr-rail") ? "rail" : "ins")] = { el: el, kind: "panel", scrim: p && p.matches(".o-scrim:not(.o-ghost)") ? p : null, path: path(app, el.parentElement), pc: el.parentElement.className };
+    });
+    // Pinning or unpinning Ordo: the timeline slides to its new place; the rail is already where it
+    // belongs (the open overlay becomes the pinned rail), or slides in or out with the timeline.
+    var rail = app.querySelector(".pr-rail:not(.pr-rail--overlay):not(.o-ghost)"), pinned = !!rail, wrap = app.querySelector(".pr-tlwrap");
+    var x = wrap ? wrap.getBoundingClientRect().left : 0;
+    if (!first && st.pinned != null && st.pinned !== pinned && wrap) {
+      var wasOver = !!st.open["panel:rail"];
+      if (now["panel:rail"]) st.open["panel:rail"] = now["panel:rail"]; else delete st.open["panel:rail"];
+      // The rail's space opens or closes; the timeline resizes into it, so its tools (right-aligned) stay
+      // put and its slides reflow rather than travel. The rail itself floats above while that happens.
+      if (!still() && rail) spaceFor(rail, wrap, x - st.x, wasOver);
+      if (!still() && !pinned && st.rail) {
+        var host = resolve(app, st.rail.path);
+        if (host && host.className === st.rail.pc) {
+          var b = st.rail.box, g = ghost(st.rail.el, host);
+          g.style.cssText += ";position:absolute;z-index:5;left:" + b.l + "px;top:" + b.t + "px;width:" + b.w + "px;height:" + b.h + "px";
+          var sp = spacer(host, wrap), a = play(sp, [{ width: (st.x - x) + "px" }, { width: "0px" }], CLOSE, EASE);
+          if (!now["panel:rail"]) play(g, [{ transform: "none" }, { transform: "translateX(" + -(b.w + 16) + "px)" }], CLOSE, EXIT);
+          var end = function () { g.remove(); sp.remove(); };
+          if (a) a.onfinish = end; else end();
+        }
+      }
+    }
+    st.pinned = pinned; st.x = x;
+    st.rail = rail ? { el: rail, path: path(app, rail.parentElement), pc: rail.parentElement.className, box: { l: rail.offsetLeft, t: rail.offsetTop, w: rail.offsetWidth, h: rail.offsetHeight } } : null;
+    disclose(app, st, first);
+    if (!first) {
+      Object.keys(now).forEach(function (k) { if (!st.open[k]) appear(now[k]); });
+      Object.keys(st.open).forEach(function (k) { if (!now[k]) vanish(app, st.open[k]); });
+    }
+    st.open = now;
+    var t = performance.now(), FADE = still() ? 100 : 500;
+    app.querySelectorAll(".pr-monitor > .o-slide .o-canvas:not(.o-ghost)").forEach(function (el, i) {
+      var blank = el.dataset.dim === "true" || el.dataset.t === "black", m = st.mon[i];
+      if (!m || first) { st.mon[i] = { blank: blank, from: blank ? 0 : 1, to: blank ? 0 : 1, t0: t, ms: 0, el: el, src: blank ? null : el.cloneNode(true) }; return; }
+      if (m.el === el) return;
+      var v = vis(m, t);
+      if (m.blank !== blank) { m.from = v; m.to = blank ? 0 : 1; m.t0 = t; m.ms = FADE * Math.abs(m.to - v); m.blank = blank; }
+      else if (!blank && m.to === 1 && v === 1) { m.from = 1; m.ms = 0; }      // content to content: a cut
+      if (m.g) { m.g.remove(); m.g = null; }
+      var left = m.ms - (t - m.t0);
+      if (left > 0 && m.to === 1) play(el, [{ opacity: v }, { opacity: 1 }], left, "linear");
+      else if (left > 0 && m.src) {
+        var g = ghost(m.src.cloneNode(true), el.parentNode); g.removeAttribute("data-dim");
+        m.g = g; var a = play(g, [{ opacity: v }, { opacity: 0 }], left, "linear");
+        if (a) a.onfinish = function () { g.remove(); if (m.g === g) m.g = null; }; else g.remove();
+      }
+      m.el = el;
+      if (!blank) m.src = el.cloneNode(true);
+    });
+  }
+  function spacer(host, before) {
+    var sp = document.createElement("div"); sp.className = "o-ghost o-spacer"; sp.setAttribute("aria-hidden", "true");
+    sp.style.cssText = "flex:none;align-self:stretch;width:0"; host.insertBefore(sp, before); return sp;
+  }
+  // Pinning: the rail floats where it will sit while a spacer grows from the tab's width to the rail's.
+  function spaceFor(rail, wrap, grow, wasOver) {
+    var w = rail.offsetWidth, l = rail.offsetLeft, t = rail.offsetTop, h = rail.offsetHeight;
+    rail.style.cssText += ";position:absolute;z-index:5;left:" + l + "px;top:" + t + "px;width:" + w + "px;height:" + h + "px";
+    var sp = spacer(rail.parentNode, wrap), a = play(sp, [{ width: (w - grow) + "px" }, { width: w + "px" }], OPEN, EASE);
+    if (!wasOver) play(rail, [{ transform: "translateX(" + -(w + 16) + "px)" }, { transform: "none" }], OPEN, EASE);
+    var end = function () { ["position", "z-index", "left", "top", "width", "height"].forEach(function (p) { rail.style.removeProperty(p); }); sp.remove(); };
+    if (a) a.onfinish = end; else end();
+  }
+  function vis(m, t) { return m.ms <= 0 ? m.to : m.from + (m.to - m.from) * Math.max(0, Math.min(1, (t - m.t0) / m.ms)); }
   function path(app, el) { var p = []; for (var n = el; n && n !== app; n = n.parentElement) p.unshift([].indexOf.call(n.parentElement.children, n)); return p; }
   function resolve(app, p) { var n = app; for (var i = 0; n && i < p.length; i++) n = n.children[p[i]]; return n || null; }
   function fold(el, open, done) {

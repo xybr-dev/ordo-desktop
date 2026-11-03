@@ -709,11 +709,19 @@ reverses that. A new tab view slides about `24px` in from the side the operator
 moved towards and fades in; a new rail destination rises about `12px` and fades
 in. The old view disappears at once. The rail, the workspace header and the tab
 strip stay still; only the content beneath them moves. The change itself takes
-effect immediately, and Presenter never uses page motion. A full-workspace view
+effect immediately, and Presenter never uses page motion: no page, tab or
+travelling-marker motion, so nothing on the operator surface can look like a
+slide change. Its Insert and Edit panels and the overlay Ordo rail slide in from
+the left with the slideover timing. Pinning or unpinning Ordo opens or closes
+the rail's space with the same timing: the Cue timeline resizes into it, so its
+slides reflow and its tools stay put, while the rail stays where the overlay was
+or slides in or out. Its dialogs, menus and toasts move as
+elsewhere, and each monitor fades to and from black as below. A full-workspace view
 (Review Song import, a Theme opened for editing) rises from the bottom over the
 workspace it covers with the slideover timing, and sinks back when it closes.
 
-A disclosure (a Diagnostics detail row, a package's contents) opens by growing
+A disclosure (a Diagnostics detail row, a package's contents, a Presenter item
+group in the Cue timeline) opens by growing
 its content from the header down while fading it in, and its chevron turns
 towards the new state. Closing reverses it with smooth acceleration. Both take
 `160ms`; the content below moves with it, and nothing is clipped once open.
