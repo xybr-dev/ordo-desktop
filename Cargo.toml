@@ -9,11 +9,13 @@ members = [
     "crates/ordo",
     "tools/ui-lab",
     "tools/artifact-container-spike",
+    "tools/powerpoint-spike",
     "tests/native-runtime",
     "tests/display",
     "tests/presentation",
     "tests/storage",
     "tests/artifact-container",
+    "tests/powerpoint",
     "tests/performance",
     "xtask",
 ]
