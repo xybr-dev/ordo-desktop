@@ -393,8 +393,10 @@ and the focused child in a nested slide-over sequence. Both retain their
 adopted neutral border so the edge remains legible without depending upon the
 shadow alone.
 
-Dialogs, ordinary slideovers, and unpinned Presenter Ordo use the same visible
-dim scrim. It captures pointer input entirely: clicking the scrim dismisses the
+Dialogs, ordinary slideovers (including a list/outline or Inspector opened as
+a temporary side pane), and unpinned Presenter Ordo use the same visible dim
+scrim. Fixed panes, pinned Ordo, and non-modal panels such as Readiness never
+dim what is beside them. It captures pointer input entirely: clicking the scrim dismisses the
 temporary surface without activating anything beneath it, and a control the
 scrim covers does not respond to the pointer at all — no hover treatment, no
 pointer cursor, no tooltip. Pinning Ordo removes the scrim

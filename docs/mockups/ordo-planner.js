@@ -710,7 +710,7 @@
       }
       if (!list) list = '<div class="o-meta pl-none">Nothing matches “' + esc(S.pick.q) + "”.</div>";
       var use = st ? (isCurrent(st) ? "Already in use" : st.use) : (kind === "song" ? "Use arrangement" : "Use");
-      return '<div class="o-scrim pl-scrim--light"></div><div class="o-slideover pl-picker' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-pick-t">' +
+      return '<div class="o-scrim"></div><div class="o-slideover pl-picker' + (S.child ? " is-receded" : "") + '" role="dialog" aria-modal="true" aria-labelledby="pl-pick-t">' +
         '<div class="o-overlay-head">' + closeTab("Close picker") + '<div class="o-grow"><h2 class="o-h2" id="pl-pick-t">' + title + "</h2>" +
         '<div class="o-meta">For ' + it.n + ". " + esc(it.title) + " · " + esc(S.sec[it.section].title) + "</div></div>" +
         '<button class="o-btn o-btn--primary" data-act="use"' + (!st || isCurrent(st) ? " disabled" : "") + ">" + icon("check") + esc(use) + "</button></div>" +
