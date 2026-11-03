@@ -28,7 +28,7 @@ fn rewrite_zip(bytes: &[u8], mut edit: impl FnMut(&str, Vec<u8>) -> Option<Vec<u
     let options = zip::write::SimpleFileOptions::default();
     for index in 0..archive.len() {
         let mut file = archive.by_index(index).expect("entry");
-        let name = file.name().to_owned();
+        let name = file.name().expect("entry name").into_owned();
         let mut data = Vec::new();
         file.read_to_end(&mut data).expect("read entry");
         drop(file);
