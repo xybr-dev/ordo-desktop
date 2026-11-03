@@ -1243,12 +1243,18 @@
     });
     var full = app.querySelector(FULL + ":not(.o-ghost)");
     if (full) now["full"] = { el: full, scrim: null };
+    // Dialogs, menus and popovers, and toasts float over the workspace: they fade and settle in place.
+    app.querySelectorAll(".o-dialog:not(.o-ghost), .o-menu:not(.o-ghost), .o-toast:not(.o-ghost)").forEach(function (el) { if (el.closest(".o-ghost")) return;
+      var kind = el.classList.contains("o-dialog") ? "dlg" : el.classList.contains("o-menu") ? "menu" : "toast", p = el.previousElementSibling;
+      now[kind + ":" + (kind === "toast" ? "" : el.getAttribute("aria-labelledby") || el.className)] =
+        { el: el, kind: kind, scrim: kind === "dlg" && p && p.matches(".o-scrim:not(.o-ghost)") ? p : null, path: path(app, el.parentElement), pc: el.parentElement.className };
+    });
     if (!first) {
       Object.keys(now).forEach(function (k) {
         if (st.open[k]) return;
-        if (k === "full") rise(app, st, now[k].el); else opened(now[k].el, k === "side:l" ? "l" : "r", now[k].scrim);
+        if (k === "full") rise(app, st, now[k].el); else if (now[k].kind) appear(now[k]); else opened(now[k].el, k === "side:l" ? "l" : "r", now[k].scrim);
       });
-      Object.keys(st.open).forEach(function (k) { if (!now[k]) { if (k === "full") sink(app, st.open[k]); else closed(app, k, st.open[k]); } });
+      Object.keys(st.open).forEach(function (k) { if (!now[k]) { if (k === "full") sink(app, st.open[k]); else if (st.open[k].kind) vanish(app, st.open[k]); else closed(app, k, st.open[k]); } });
     }
     st.open = now;
     var ws = app.querySelector(".o-body > .o-grow");
@@ -1269,6 +1275,29 @@
     });
     st.disc = disc;
   }
+  // Floating surfaces. A dialog zooms in from 95% with the overlay timing (400ms in, 200ms out); a menu, popover
+  // or toast with the standard 160ms. Each keeps its own centring transform underneath the motion.
+  var FLOAT = { dlg: { inMs: OPEN, outMs: CLOSE, from: "scale(0.95)" }, menu: { inMs: STD, outMs: 120, from: "translateY(-4px) scale(0.95)", origin: "top" }, toast: { inMs: STD, outMs: STD, from: "translateY(8px)" } };
+  function base(el) { var t = getComputedStyle(el).transform; return t && t !== "none" ? t + " " : ""; }
+  function appear(rec) {
+    var f = FLOAT[rec.kind], el = rec.el;
+    if (still()) { play(el, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); if (rec.scrim) play(rec.scrim, [{ opacity: 0 }, { opacity: 1 }], 100, "linear"); return; }
+    var b = base(el);
+    play(el, [{ opacity: 0, transform: b + f.from, transformOrigin: f.origin || "center" }, { opacity: 1, transform: b || "none", transformOrigin: f.origin || "center" }], f.inMs, EASE);
+    if (rec.scrim) play(rec.scrim, [{ opacity: 0 }, { opacity: 1 }], f.inMs, EASE);
+  }
+  function vanish(app, rec) {
+    var f = FLOAT[rec.kind], host = resolve(app, rec.path);
+    if (!host || host.className !== rec.pc) return;              // its container went too: nothing to leave from
+    var gs = rec.scrim ? ghost(rec.scrim, host) : null, g = ghost(rec.el, host);
+    var b = base(g), ms = still() ? 100 : f.outMs, ease = still() ? "linear" : EXIT;
+    var a = play(g, still() ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, transform: b || "none", transformOrigin: f.origin || "center" }, { opacity: 0, transform: b + f.from, transformOrigin: f.origin || "center" }], ms, ease);
+    if (gs) play(gs, [{ opacity: 1 }, { opacity: 0 }], ms, ease);
+    var done = function () { g.remove(); if (gs) gs.remove(); };
+    if (a) a.onfinish = done; else done();
+  }
+  function path(app, el) { var p = []; for (var n = el; n && n !== app; n = n.parentElement) p.unshift([].indexOf.call(n.parentElement.children, n)); return p; }
+  function resolve(app, p) { var n = app; for (var i = 0; n && i < p.length; i++) n = n.children[p[i]]; return n || null; }
   function fold(el, open, done) {
     var h = el.offsetHeight, cs = getComputedStyle(el), a;
     if (still()) a = play(el, open ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], 100, "linear");
