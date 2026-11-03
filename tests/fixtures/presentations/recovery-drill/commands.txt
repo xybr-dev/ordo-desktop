@@ -69,3 +69,10 @@ last
 take
 first
 previous
+autoplay
+next
+next
+tick 100000
+next
+disconnect
+autoplay

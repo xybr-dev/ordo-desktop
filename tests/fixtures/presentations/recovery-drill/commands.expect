@@ -64,3 +64,10 @@
 64 take -> live=Live preview=17 program=frame:17 unavailable_black=false autoplay=none outcome=changed
 65 first -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=changed
 66 previous -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=none outcome=unchanged
+67 autoplay -> live=Live preview=0 program=frame:0 unavailable_black=false autoplay=item outcome=changed
+68 next -> live=Live preview=1 program=frame:1 unavailable_black=false autoplay=item outcome=changed
+69 next -> live=Live preview=2 program=black unavailable_black=true autoplay=item outcome=changed
+70 tick 100000 -> live=Live preview=2 program=black unavailable_black=true autoplay=item outcome=unchanged
+71 next -> live=Live preview=3 program=frame:3 unavailable_black=false autoplay=item outcome=changed
+72 disconnect -> live=Disconnected(back=false) preview=3 program=black unavailable_black=false autoplay=none outcome=changed
+73 autoplay -> live=Disconnected(back=false) preview=3 program=black unavailable_black=false autoplay=none outcome=refused:AutoPlayBlocked

@@ -164,12 +164,16 @@ fn assert_invariants(loaded: &LoadedSnapshot, engine: &Engine, clock: Millis, co
         }
     }
 
-    // Auto-play is bounded to its scope and never runs while Program is held
-    // or blacked out. Rehearsal (output disabled or black) may run it
-    // (Decision 54), so those states are not asserted against.
+    // Auto-play is bounded to its scope and never runs while Program is held,
+    // blacked out, or the display is disconnected. Rehearsal (output disabled
+    // or black) may run it (Decision 54), so those states are not asserted
+    // against.
     if let Some(run) = state.auto_play() {
         assert!(
-            !matches!(live, LiveState::Frozen | LiveState::Blackout),
+            !matches!(
+                live,
+                LiveState::Frozen | LiveState::Blackout | LiveState::Disconnected { .. }
+            ),
             "{context}: auto-play in {live:?}"
         );
         let position = snapshot.positions()[state.preview()];
@@ -181,13 +185,21 @@ fn assert_invariants(loaded: &LoadedSnapshot, engine: &Engine, clock: Millis, co
                 "{context}"
             ),
         }
-        assert!(
-            matches!(
-                snapshot.cue(state.preview()).unwrap().behavior(),
-                CueBehavior::Project { .. }
-            ),
-            "{context}: auto-play Preview is not projectable"
+        // The scope is the whole item or section, so Preview may sit on a
+        // Cue that cannot advance; then the run has no deadline. On a
+        // projectable Cue it has one, and the owner of the clock is told.
+        let projectable = matches!(
+            snapshot.cue(state.preview()).unwrap().behavior(),
+            CueBehavior::Project { .. }
         );
+        assert_eq!(run.duration_ms.is_some(), projectable, "{context}");
+        if let Some(duration_ms) = run.duration_ms {
+            let due = Millis(run.cue_started.0 + duration_ms);
+            assert!(
+                engine.next_deadline().is_some_and(|next| next <= due),
+                "{context}: next_deadline misses the auto-play due time"
+            );
+        }
     }
 
     // The monitors never draw anything but black or a loaded Project frame.
