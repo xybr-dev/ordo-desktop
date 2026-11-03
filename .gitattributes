@@ -19,3 +19,5 @@ MILESTONES.md text eol=lf
 # `adr.py` writes records and the index as LF; a CRLF working copy would commit
 # whole-file churn the next time it regenerates them.
 docs/decisions/** text eol=lf
+# Vendored mockup files stay byte-identical to upstream on every checkout.
+docs/mockups/vendor/** -text

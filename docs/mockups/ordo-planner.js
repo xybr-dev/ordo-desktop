@@ -195,7 +195,7 @@
   function field(path, val, o) {
     o = o || {};
     var attrs = ' data-input="f" data-path="' + path + '" data-focus-key="' + path + '"' + (o.ro ? " readonly" : "") + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : "") + (o.id ? ' id="' + o.id + '"' : "");
-    if (o.rows) return '<textarea class="pl-input" rows="' + o.rows + '"' + attrs + ">" + esc(val) + "</textarea>";
+    if (o.rows) return '<textarea class="pl-input" aria-label="' + esc(o.name || o.label || "Text") + '" rows="' + o.rows + '"' + attrs + ">" + esc(val) + "</textarea>";
     return '<input class="pl-input' + (o.small ? " pl-input--sm" : "") + '"' + (o.type ? ' type="' + o.type + '"' : "") + attrs + ' value="' + esc(val) + '">';
   }
   function choose(path, val, options, o) {
@@ -399,7 +399,7 @@
         sec.items.forEach(function (x) {
           var flag = f.inc.some(function (y) { return y.it === x; });
           var sub = x.song || x.src || "";
-          html += '<button class="o-row pl-item" data-item="' + x.n + '"' + (x === S.sel ? ' aria-selected="true"' : "") + '><span class="o-meta">' + x.n + '</span><span class="o-grow o-ellipsis">' + esc(x.title) +
+          html += '<button class="o-row pl-item" data-item="' + x.n + '"' + (x === S.sel ? ' aria-current="true"' : "") + '><span class="o-meta">' + x.n + '</span><span class="o-grow o-ellipsis">' + esc(x.title) +
             (sub && sub !== x.title ? ' <span class="o-muted">· ' + esc(sub) + "</span>" : "") + "</span>" +
             (x.local ? '<span class="o-meta" title="Mass-local override">' + icon("pencil") + "</span>" : "") +
             (flag ? '<span class="o-status" data-state="warning" title="Incomplete" aria-label="Incomplete">' + icon("triangle-alert") + "</span>" : "") + "</button>";
@@ -453,7 +453,7 @@
         seq = it.cues.map(function (q, i) {
           var name = q.k === "song-id" ? "Song title" : q.h + (q.forked ? " (this occurrence)" : "");
           var link = linked(it, i) ? '<span class="pl-chip">' + icon("link") + "Linked</span>" : "";
-          return '<div class="o-row pl-seq pl-occ"' + (i === S.cue ? ' aria-selected="true"' : "") + ">" + icon("grip-vertical") +
+          return '<div class="o-row pl-seq pl-occ"' + (i === S.cue ? ' aria-current="true"' : "") + ">" + icon("grip-vertical") +
             '<button class="pl-occ-name" data-cue="' + i + '"><span class="o-meta">' + (i + 1) + "</span> " + esc(name) + "</button>" + link + '<span class="o-grow"></span>' + mover("cues", i, it.cues.length) + "</div>";
         }).join("");
         var c = it.cues[S.cue];
@@ -572,7 +572,7 @@
       var types = CUE_TYPES.map(function (t) { return '<button class="o-row pl-type" role="menuitem" data-addcue="' + t[0] + '">' + icon(t[2]) + '<span class="o-grow"><b>' + t[1] + '</b><span class="o-meta">' + t[3] + "</span></span></button>"; }).join("");
       var list = it.cues.map(function (q, i) {
         var t = CUE_TYPES.filter(function (x) { return x[0] === q.k; })[0];
-        return '<div class="o-row pl-seq pl-occ"' + (i === S.cue ? ' aria-selected="true"' : "") + ">" + icon("grip-vertical") +
+        return '<div class="o-row pl-seq pl-occ"' + (i === S.cue ? ' aria-current="true"' : "") + ">" + icon("grip-vertical") +
           '<button class="pl-occ-name" data-cue="' + i + '"><span class="o-meta">' + (i + 1) + "</span> " + icon(t ? t[2] : "square") + " " + esc(t ? t[1] : KIND[q.k]) +
           ' <span class="o-muted">' + esc(cueLabel(q) ? "· " + cueLabel(q) : "") + "</span></button>" + '<span class="o-grow"></span>' + mover("cues", i, it.cues.length) + "</div>";
       }).join("");
@@ -602,7 +602,7 @@
           var tag = q.k === "trigger" ? '<span class="o-meta">Operator only</span>' : OP_ONLY[q.k] ? '<span class="o-meta">' + KIND[q.k] + " · operator only</span>" :
             q.k === "unavailable" ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : '<span class="o-meta">Output</span>';
           var sub = q.k === "trigger" ? (WHO[q.who] || q.who) + " · private timing prompt" : q.k === "response" ? "Congregation response" : q.k === "blackout" ? "Program stays black until Space" : KIND[q.k];
-          return '<button class="o-row pl-cue" data-cue="' + i + '"' + (i === S.cue ? ' aria-selected="true"' : "") + '><span class="o-meta">' + (i + 1) + "</span>" + lead +
+          return '<button class="o-row pl-cue" data-cue="' + i + '"' + (i === S.cue ? ' aria-current="true"' : "") + '><span class="o-meta">' + (i + 1) + "</span>" + lead +
             '<span class="o-grow"><span class="o-ellipsis pl-cue-t">' + esc(cueLabel(q)) + '</span><span class="o-meta">' + esc(sub) + "</span></span>" + tag + "</button>";
         }).join("") + "</div></div>";
     }
@@ -659,10 +659,10 @@
         sec.items.forEach(function (x, ai) { opts_ += '<option value="' + si + ":" + ai + '"' + (S.dest.sec === si && S.dest.at === ai ? " selected" : "") + ">After " + esc(x.title) + " · " + esc(sec.title) + "</option>"; });
       });
       var types = Object.keys(NEW_ITEM).map(function (t) {
-        return '<button class="o-row pl-type" role="menuitem" data-add="' + esc(t) + '">' + icon(NEW_ITEM[t].icon) + '<span class="o-grow"><b>' + esc(t) + '</b><span class="o-meta">' + esc(NEW_ITEM[t].note) + "</span></span></button>" +
+        return '<button class="o-row pl-type" data-add="' + esc(t) + '">' + icon(NEW_ITEM[t].icon) + '<span class="o-grow"><b>' + esc(t) + '</b><span class="o-meta">' + esc(NEW_ITEM[t].note) + "</span></span></button>" +
           (t === "General Presentation" ? '<div class="pl-menu-sep"></div>' : "");
       }).join("");
-      return '<div class="o-menu pl-menu" role="menu" aria-label="Add Mass item">' +
+      return '<div class="o-menu pl-menu" role="group" aria-label="Add Mass item">' +
         '<div class="pl-dest"><span class="o-meta">Insert</span><b>' + esc(destLabel(S.dest)) + "</b>" +
         '<label class="o-meta pl-dest-change">' + icon("map-pin") + 'Change<select data-dest aria-label="Insertion destination">' + opts_ + "</select></label></div>" + types + "</div>";
     }
@@ -679,7 +679,7 @@
           if (!open) return r;
           return r + '<div class="pl-arrs">' + song.arrs.map(function (a, ai) {
             var cur = it.song === song.title && it.arr === a.name, sel = S.pick.arr === ai;
-            return '<button class="o-row pl-arr" data-arr="' + ai + '"' + (sel ? ' aria-selected="true"' : "") + (a.broken ? " disabled" : "") + ">" + icon(sel ? "circle-dot" : "circle") +
+            return '<button class="o-row pl-arr" data-arr="' + ai + '"' + (sel ? ' aria-current="true"' : "") + (a.broken ? " disabled" : "") + ">" + icon(sel ? "circle-dot" : "circle") +
               '<span class="o-grow"><span class="o-label">' + esc(a.name) + '</span><span class="o-meta">' + (a.broken ? esc(a.broken) : a.cues.length + " Cues · " + esc(K.MASS.language)) + "</span></span>" +
               (cur ? '<span class="pl-chip">Current</span>' : "") + (a.broken ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : "") + "</button>";
           }).join("") + "</div>";
@@ -695,7 +695,7 @@
         list = lib.map(function (e, ei) {
           if (q && (e.name + " " + e.note).toLowerCase().indexOf(q) < 0) return "";
           var sel = S.pick.song === ei, count = kind === "response" ? e.ex.length + (e.ex.length === 1 ? " exchange" : " exchanges") : e.slides.length + (e.slides.length === 1 ? " Slide" : " Slides");
-          return '<button class="o-row pl-arr pl-entry" data-entry="' + ei + '"' + (sel ? ' aria-selected="true"' : "") + ">" + icon(sel ? "circle-dot" : "circle") +
+          return '<button class="o-row pl-arr pl-entry" data-entry="' + ei + '"' + (sel ? ' aria-current="true"' : "") + ">" + icon(sel ? "circle-dot" : "circle") +
             '<span class="o-grow"><span class="o-label">' + esc(e.name) + '</span><span class="o-meta">' + esc(e.note) + " · " + count + "</span></span>" + (it.src === e.name && !it.pending ? '<span class="pl-chip">Current</span>' : "") + "</button>";
         }).join("");
         list += '<button class="o-row pl-arr pl-entry" data-act="local-new">' + icon("pencil") + '<span class="o-grow"><span class="o-label">Write for this Mass only</span><span class="o-meta">Starts empty; not added to the Library</span></span></button>';
@@ -760,7 +760,7 @@
       var c = S.sel.cues[S.cue], ov = overridden();
       var rows = THEMES.map(function (t) {
         var sel = S.stagedTheme === t.id;
-        return '<button class="o-row pl-theme" data-theme="' + t.id + '"' + (sel ? ' aria-selected="true"' : "") + '><span class="pl-swatch">' + tslide({ k: "response", h: "", b: "Aa" }, t.id) + "</span>" +
+        return '<button class="o-row pl-theme" data-theme="' + t.id + '"' + (sel ? ' aria-current="true"' : "") + '><span class="pl-swatch">' + tslide({ k: "response", h: "", b: "Aa" }, t.id) + "</span>" +
           '<span class="o-grow"><span class="o-label">' + esc(t.name) + '</span><span class="o-meta">' + esc(t.note) + "</span></span>" + (S.theme === t.id ? '<span class="pl-chip">Current</span>' : "") + "</button>";
       }).join("");
       var keep = ov.filter(function (it) { return S.keepOverride[it.n] !== false; });

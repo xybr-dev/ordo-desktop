@@ -18,9 +18,9 @@ pub mod color {
     pub const PREPARATION_SURFACE: u32 = 0xFFFDF8;
     pub const PREPARATION_SURFACE_MUTED: u32 = 0xEBE5DB;
     pub const PREPARATION_TEXT: u32 = 0x27231F;
-    pub const PREPARATION_TEXT_MUTED: u32 = 0x716B62;
+    pub const PREPARATION_TEXT_MUTED: u32 = 0x6B655C;
     pub const PREPARATION_BORDER: u32 = 0xD7CFC2;
-    pub const PREPARATION_BORDER_STRONG: u32 = 0x8E8476;
+    pub const PREPARATION_BORDER_STRONG: u32 = 0x8A8072;
     pub const PRESENTER_BACKGROUND: u32 = 0x151816;
     pub const PRESENTER_SURFACE: u32 = 0x222722;
     pub const PRESENTER_SURFACE_RAISED: u32 = 0x303630;
@@ -29,16 +29,17 @@ pub mod color {
     pub const PRESENTER_BORDER: u32 = 0x414842;
     pub const PRESENTER_BORDER_STRONG: u32 = 0x7A857B;
     pub const PRIMARY: u32 = 0x355D4B;
+    pub const PRIMARY_FOREGROUND_PRESENTER: u32 = 0x8FBFA3;
     pub const ON_PRIMARY: u32 = 0xFFFFFF;
     pub const SELECTION_PREPARATION: u32 = 0xDFE9E2;
     pub const SELECTION_PRESENTER: u32 = 0x26362C;
     pub const LIVE_PREPARATION: u32 = 0x2F6B4F;
     pub const LIVE_PRESENTER: u32 = 0x55D69C;
-    pub const FREEZE_PREPARATION: u32 = 0x9A5B10;
+    pub const FREEZE_PREPARATION: u32 = 0x945710;
     pub const FREEZE_PRESENTER: u32 = 0xF0B35E;
     pub const BLACKOUT: u32 = 0x050606;
     pub const ON_BLACKOUT: u32 = 0xFFFFFF;
-    pub const WARNING_PREPARATION: u32 = 0x9A5B10;
+    pub const WARNING_PREPARATION: u32 = 0x945710;
     pub const WARNING_PRESENTER: u32 = 0xF0B35E;
     pub const DANGER_PREPARATION: u32 = 0x9D3E31;
     pub const DANGER_PRESENTER: u32 = 0xEF8E82;
@@ -119,6 +120,11 @@ pub mod typography {
         weight: 600,
         line_height: 1.2,
     };
+    pub const HEADING: TypeStyle = TypeStyle {
+        size: 18.0,
+        weight: 600,
+        line_height: 1.25,
+    };
     pub const BODY: TypeStyle = TypeStyle {
         size: 16.0,
         weight: 400,
@@ -127,6 +133,16 @@ pub mod typography {
     pub const LABEL: TypeStyle = TypeStyle {
         size: 14.0,
         weight: 500,
+        line_height: 1.3,
+    };
+    pub const META: TypeStyle = TypeStyle {
+        size: 13.0,
+        weight: 400,
+        line_height: 1.35,
+    };
+    pub const CAPTION: TypeStyle = TypeStyle {
+        size: 12.0,
+        weight: 600,
         line_height: 1.3,
     };
     pub const PROJECTED_RESPONSE: TypeStyle = TypeStyle {
@@ -228,6 +244,7 @@ pub mod icon {
 
 pub mod density {
     pub const COMPACT_CONTROL: f32 = 32.0;
+    pub const COMPACT_ROW: f32 = 32.0;
     pub const DEFAULT_CONTROL: f32 = 36.0;
     pub const PRESENTER_CONTROL: f32 = 40.0;
     pub const WORKSPACE_GUTTER_COMPACT: f32 = 16.0;
@@ -358,6 +375,7 @@ mod tests {
             ("presenter_border", PRESENTER_BORDER),
             ("presenter_border_strong", PRESENTER_BORDER_STRONG),
             ("primary", PRIMARY),
+            ("primary_foreground_presenter", PRIMARY_FOREGROUND_PRESENTER),
             ("on_primary", ON_PRIMARY),
             ("selection_preparation", SELECTION_PREPARATION),
             ("selection_presenter", SELECTION_PRESENTER),
@@ -390,8 +408,11 @@ mod tests {
     #[test]
     fn typography_and_icons_match_design_tokens() {
         assert_type_style("operator_title", typography::TITLE);
+        assert_type_style("operator_heading", typography::HEADING);
         assert_type_style("operator_body", typography::BODY);
         assert_type_style("operator_label", typography::LABEL);
+        assert_type_style("operator_meta", typography::META);
+        assert_type_style("operator_caption", typography::CAPTION);
         assert_type_style("projected_response", typography::PROJECTED_RESPONSE);
 
         assert_entry("family", icon::FAMILY.to_owned());
@@ -413,6 +434,7 @@ mod tests {
             ("overlay", radius::OVERLAY),
             ("slide_viewport", radius::SLIDE_VIEWPORT),
             ("compact_control", density::COMPACT_CONTROL),
+            ("compact_row", density::COMPACT_ROW),
             ("default_control", density::DEFAULT_CONTROL),
             ("presenter_control", density::PRESENTER_CONTROL),
             (

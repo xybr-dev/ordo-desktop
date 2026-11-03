@@ -93,7 +93,7 @@
     function entryList() {
       return S.doc.entries.map(function (e) {
         var ps = targets(), n = ps.filter(function (p) { return open(p, e); }).length, same = ps.every(function (p) { return outcome(p, e) === "same"; });
-        return '<button class="o-row pl-item li-entry" data-a="sel" data-id="' + e.id + '"' + (S.sel === e.id ? ' aria-selected="true"' : "") + ">" + icon(e.icon, "tp-ic") +
+        return '<button class="o-row pl-item li-entry" data-a="sel" data-id="' + e.id + '"' + (S.sel === e.id ? ' aria-current="true"' : "") + ">" + icon(e.icon, "tp-ic") +
           '<span class="o-grow"><span class="li-role">' + esc(e.role) + '</span><span class="o-meta">' + esc(e.ref || e.text.slice(0, 32) + "…") + "</span></span>" +
           (n ? statusLabel("warning", n + " to decide", "square") : same ? '<span class="o-meta">Unchanged</span>' : statusLabel("live", "Ready")) + "</button>";
       }).join("");

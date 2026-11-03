@@ -219,13 +219,13 @@
       if (S.railPref === "collapsed") return false;
       return l === "wide";                               // 1920 pinned, 1366 collapsed
     }
-    // Frames keep a 300px floor (scaled with the chrome); drop a column before shrinking below it.
+    // Frames keep a 270px floor (scaled with the chrome); drop a column before shrinking below it.
     function maxCols() {
       var s = S.scale, l = layout(), w = W;
-      if (l !== "constrained") w -= (railPinned() ? 200 : 28) * s + (l === "wide" ? 400 : 360) * s;
+      if (l !== "constrained") w -= (railPinned() ? 200 : 28) * s + (l === "wide" ? 520 : 360) * s;
       else w -= 28 * s;
       w -= (32 + 16) * s;                                  // timeline padding and group indent
-      var n = Math.floor((w + 12 * s) / ((300 + 12) * s));
+      var n = Math.floor((w + 12 * s) / ((270 + 12) * s));
       return Math.max(1, Math.min(l === "wide" ? 4 : 3, n));
     }
 
@@ -424,7 +424,7 @@
         c.k === "wait" ? icon("hourglass") : c.k === "hold" ? icon("square") :
         c.k === "unavailable" ? icon("circle-off") : '<span class="pr-mini">' + slide(c) + "</span>";
       var kind = c.k === "unavailable" ? '<span class="o-status" data-state="unavailable">Unavailable</span>' : '<span class="o-meta">' + KIND_LABEL[c.k] + "</span>";
-      return '<button class="o-row pr-row" data-cue="' + c.i + '"' + (cur ? ' aria-selected="true"' : "") + airAttr + '><span class="o-n o-meta">' + c.item.n + "." + (c.ci + 1) + "</span>" + lead +
+      return '<button class="o-row pr-row" data-cue="' + c.i + '"' + (cur ? ' aria-current="true"' : "") + airAttr + '><span class="o-n o-meta">' + c.item.n + "." + (c.ci + 1) + "</span>" + lead +
         '<span class="o-grow o-ellipsis">' + esc(cueLabel(c)) + "</span>" + (c.edited ? '<span class="pl-chip">' + icon("pencil") + "Edited</span>" : "") + kind + onAir + "</button>";
     }
     function preflight() {
@@ -607,7 +607,7 @@
         '<div class="pr-qi-none"><b>Nothing in Responses &amp; Prayers matches “' + esc(d.q) + '”.</b><span class="o-meta">Use <b>Text or image</b> to type it.</span></div>';
       var ph = d.kind === "song" ? "Title, other name or first line" : "Title or words of a response";
       return '<label class="o-field pr-qi-search">' + icon("search") + '<input class="pl-input" data-qin="q" value="' + esc(d.q) + '" placeholder="' + ph + '" role="combobox" aria-expanded="true" aria-controls="qi-list" aria-activedescendant="' + (r.length ? "qi-" + act : "") + '" autocomplete="off"></label>' +
-        '<div class="pr-qi-list" id="qi-list" role="listbox" aria-label="' + (d.kind === "song" ? "Songs" : "Responses and Prayers") + '">' + html + "</div>";
+        '<div class="pr-qi-list" id="qi-list" tabindex="0"' + (r.length ? ' role="listbox"' : "") + ' aria-label="' + (d.kind === "song" ? "Songs" : "Responses and Prayers") + '">' + html + "</div>";
     }
     function form() {
       var d = S.ins;
@@ -779,11 +779,11 @@
       var header = '<header class="pr-header"><div class="pr-session"><b>' + esc(MASS.title) + '</b><span class="o-meta">' + esc(MASS.date) + "</span></div>" +
         '<span class="o-grow"></span><span class="o-meta pr-clock">9:14</span>' +
         (S.output === "enabled" ? statusLabel("live", dn() + " connected") : S.output === "disconnected" ? (S.back === "same" ? statusLabel("warning", dn() + " back · not resumed", "diamond") : statusLabel("danger", dn() + " disconnected", "square")) : statusLabel("disabled", dn() + " ready · not enabled", "square")) +
-        '<div class="o-segmented" role="group" aria-label="Timeline view"><button data-view="grid" aria-pressed="' + (S.mode === "grid") + '">' + icon("layout-grid") + (l === "constrained" ? "" : "Grid") + '</button><button data-view="list" aria-pressed="' + (S.mode === "list") + '">' + icon("list") + (l === "constrained" ? "" : "List") + "</button></div>" +
+        '<div class="o-segmented" role="group" aria-label="Timeline view"><button data-view="grid" aria-label="Grid" aria-pressed="' + (S.mode === "grid") + '">' + icon("layout-grid") + (l === "constrained" ? "" : "Grid") + '</button><button data-view="list" aria-label="List" aria-pressed="' + (S.mode === "list") + '">' + icon("list") + (l === "constrained" ? "" : "List") + "</button></div>" +
         '<button class="o-btn o-btn--quiet o-btn--icon" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">' + icon("keyboard") + "</button>" +
         '<button class="o-btn">' + icon("log-out") + "Exit Presenter</button></header>";
       var tab = pinned ? "" : '<button class="pr-ordo-tab" data-act="open-rail" aria-label="Open Ordo">ORDO</button>';
-      var main = '<main class="pr-timeline" aria-label="Cue timeline">' + timeline() + "</main>";
+      var main = '<section class="pr-timeline" aria-label="Cue timeline">' + timeline() + "</section>";
       var body;
       if (l === "constrained") body = tab + '<div class="pr-col">' + dock() + main + "</div>";
       else body = (pinned ? rail(false) : tab) + main + dock();
@@ -792,6 +792,13 @@
       var fk = document.activeElement && app.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.qin : null, caret = fk && document.activeElement.selectionStart;
       app.innerHTML = header + strip() + '<div class="o-body pr-body">' + body + insertPanel() + "</div>" + overlay;
       icons();
+      // On a short window the monitors give up height, so Freeze, Blackout and the primary action stay on screen.
+      var dockEl = app.querySelector(".pr-dock");
+      if (dockEl) {
+        dockEl.style.removeProperty("--pr-mon-w");
+        var monitors = dockEl.querySelectorAll(".o-slide"), over = dockEl.scrollHeight - dockEl.clientHeight;
+        if (over > 0 && monitors.length) dockEl.style.setProperty("--pr-mon-w", Math.floor((monitors[0].offsetHeight - over / monitors.length) * 16 / 9) + "px");
+      }
       if (S.ins) {
         var dk = app.querySelector(".pr-dock"), pn = app.querySelector(".pr-ins-panel");
         if (pn) pn.style.right = (dk ? dk.offsetWidth : 0) + "px";
@@ -912,4 +919,69 @@
     navrail: navrail
   };
   document.addEventListener("DOMContentLoaded", icons);
+
+  // The keyboard behaviour DESIGN.md's Focus Navigation asks of every screen: one Tab stop per list
+  // with arrow keys inside it, F6 between major regions, and truncated text that names itself.
+  // The Presenter's own arrow keys stay in charge of its timeline.
+  var ITEMS_SEL = "button.pr-tile, button.pr-row, button.pr-rail-row, button.pl-item, button.pl-cue, button.sg-result, button.sg-doc, button.sg-rev";
+  var GROUP_SEL = ".pr-timeline, .pr-rail, .pl-outline, .pl-thumbs, .sg-browser, .pl-cues";
+  var REGION_SEL = ".o-navrail, .pr-rail, .pr-timeline, .pr-dock, .o-pane";
+  function shown(e) { return e.getClientRects().length > 0; }
+  function refresh(app) {
+    app.querySelectorAll(GROUP_SEL).forEach(function (g) {
+      var items = Array.prototype.filter.call(g.querySelectorAll(ITEMS_SEL), function (e) { return e.closest(GROUP_SEL) === g; });
+      if (!items.length) return;
+      var on = items.filter(function (e) { return e === document.activeElement; })[0] ||
+        items.filter(function (e) { return e.getAttribute("aria-current") === "true"; })[0] || items[0];
+      items.forEach(function (e) { e.tabIndex = e === on ? 0 : -1; });
+    });
+    // A scrolling panel with no control inside still has to be reachable to scroll by keyboard.
+    app.querySelectorAll(".pr-ins-prev, .pr-ins-main, .o-overlay-body, .pl-insp-body").forEach(function (e) {
+      if (e.scrollHeight > e.clientHeight && !e.querySelector("a[href], button, input, select, textarea")) e.tabIndex = 0;
+      else e.removeAttribute("tabindex");
+    });
+    app.querySelectorAll(".o-ellipsis").forEach(function (e) {
+      if (e.scrollWidth > e.clientWidth + 1) e.title = e.textContent.trim(); else e.removeAttribute("title");
+    });
+  }
+  function move(g, from, dir) {
+    var items = Array.prototype.filter.call(g.querySelectorAll(ITEMS_SEL), function (e) { return e.closest(GROUP_SEL) === g && shown(e); });
+    var next = items[items.indexOf(from) + dir];
+    if (!next) return;
+    from.tabIndex = -1; next.tabIndex = 0; next.focus();
+  }
+  document.addEventListener("keydown", function (e) {
+    var t = e.target, app = t.closest && t.closest(".o-app");
+    if (!app) return;
+    if (e.key === "F6") {
+      var rs = Array.prototype.filter.call(app.querySelectorAll(REGION_SEL), shown);
+      rs = rs.filter(function (r) { return !rs.some(function (o) { return o !== r && o.contains(r); }); });
+      if (rs.length < 2) return;
+      var at = rs.findIndex(function (r) { return r.contains(t); });
+      var r = rs[(at + (e.shiftKey ? -1 : 1) + rs.length) % rs.length];
+      var f = r.querySelector('[tabindex="0"], a[href], button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select, textarea');
+      if (f) f.focus();
+      e.preventDefault(); e.stopPropagation();
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (!t.matches(ITEMS_SEL) || t.closest(".pr-timeline")) return;
+    var g = t.closest(GROUP_SEL);
+    if (!g) return;
+    move(g, t, e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1);
+    e.preventDefault(); e.stopPropagation();
+  }, true);
+  document.addEventListener("DOMContentLoaded", function () {
+    var queued = false;
+    function refreshAll() { queued = false; document.querySelectorAll(".o-app").forEach(refresh); }
+    function queue() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(refreshAll);
+    }
+    new MutationObserver(queue).observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("load", queue);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(queue);
+    queue();
+  });
 })();

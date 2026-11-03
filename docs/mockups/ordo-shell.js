@@ -615,7 +615,7 @@
       var scanning = d.state === "scan";
       var head = '<header class="sh-head"><h1 class="o-title">Diagnostics</h1><span class="o-meta">Last full check: ' + esc(d.when) + '</span><span class="o-grow"></span>' +
         (scanning ? '<button class="o-btn" data-a="dcancel">Cancel</button>' : '<button class="o-btn o-btn--primary" data-a="dscan">' + icon("activity") + "Run full diagnostics</button>") + "</header>" +
-        (scanning ? '<div class="sh-progress" role="progressbar" aria-valuenow="' + d.pct + '" aria-valuemin="0" aria-valuemax="100"><span style="width:' + d.pct + '%"></span></div>' : "");
+        (scanning ? '<div class="sh-progress" role="progressbar" aria-label="Scan progress" aria-valuenow="' + d.pct + '" aria-valuemin="0" aria-valuemax="100"><span style="width:' + d.pct + '%"></span></div>' : "");
       var strip = '<div class="sh-health" data-state="' + (findings.length ? "warn" : "ok") + '">' + icon(findings.length ? "triangle-alert" : "circle-check", "o-icon-20") +
         "<div><b>" + (findings.length ? "Needs attention" : "Healthy") + "</b><br>" + (findings.length ? findings.length + " things need attention. Presenting still works; each item says what it affects." : "Everything Ordo checked is working. Nothing was sent anywhere.") + "</div></div>";
       var note = d.cancelled ? '<p class="o-meta">' + icon("circle-slash") + " A full check started at " + esc(d.cancelled) + " was cancelled. The result above is still the last completed one.</p>" : "";
