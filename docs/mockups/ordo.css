@@ -261,6 +261,8 @@
 
 /* ── overlays ───────────────────────────────────────────────────────────── */
 .o-scrim { position: absolute; inset: 0; background: var(--o-scrim); z-index: 20; }
+/* Side-pane slideovers block the pane behind without dimming it: the operator keeps reading it. */
+.o-scrim--clear { background: transparent; }
 .o-dialog, .o-slideover, .o-menu {
   position: absolute; z-index: 21; display: flex; flex-direction: column; background: var(--o-surface);
   border: 1px solid var(--o-border-strong); border-radius: var(--o-radius-overlay); box-shadow: var(--o-shadow-overlay);

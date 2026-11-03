@@ -224,7 +224,7 @@
       var head = open.querySelector(":scope > .o-pane-head, :scope > .sg-browser-head > .sg-row");
       if (head) head.insertAdjacentHTML("afterbegin", btn);
       else open.insertAdjacentHTML("afterbegin", '<div class="o-pane-head o-side-head">' + btn + "<b>" + esc(title) + "</b></div>");
-      host.insertAdjacentHTML("afterbegin", '<div class="o-scrim o-side-scrim" data-side-close></div>');
+      host.insertAdjacentHTML("afterbegin", '<div class="o-scrim o-side-scrim o-scrim--clear" data-side-close></div>');
     }
     icons();
     if (!app.__sideBound) {
