@@ -4,6 +4,10 @@
 //! completed canonical rendering values, never on GPUI views. The
 //! snapshot-driven state machine is in `engine` (state in `state`, inputs in
 //! `commands`).
+//!
+//! `engine::Engine` is the authority from T1.2 on. `PresentationEngine` and
+//! `presenter::PresenterEngine` are Phase-0 qualification seams that T1.4
+//! retires.
 
 use std::sync::Arc;
 

@@ -731,8 +731,9 @@ Interface used by UI and tests.
       items; Home/End go to first/last Cue.
 - [ ] `[AUTO]` Live navigation links Preview and Program; Frozen and Blackout
       navigation changes Preview only; Space takes valid Preview live.
-- [ ] `[AUTO]` `F` toggles Freeze, `B` activates Blackout, and unchanged/repeated
-      commands are deterministic.
+- [ ] `[AUTO]` `F` toggles Freeze, `B` toggles Blackout, releasing either does
+      what Space does (Decision 273), and unchanged/repeated commands are
+      deterministic.
 - [ ] `[AUTO]` Content-to-content changes cut; content-to/from Blackout or Hold
       exposes interruptible reversible 500ms fade progress without queueing
       commands or delaying the underlying state transition.
@@ -742,9 +743,9 @@ Interface used by UI and tests.
       navigation, Freeze, Blackout, exit, or recovery.
 - [ ] `[AUTO]` Selecting an operator-only Cue while Live sends black, not private
       content, to Program.
-- [ ] `[AUTO]` An unavailable future Cue preserves the last valid Program,
-      enters protective Freeze when necessary, remains navigable, and cannot be
-      taken live.
+- [ ] `[AUTO]` An unavailable future Cue remains navigable and cannot be taken
+      live; while linked Live lands on one, Program goes black and linked Live
+      continues, and Freeze and Blackout stay active (Decision 274).
 - [ ] `[AUTO]` Property tests generate long valid command sequences and assert
       Program is always black, disconnected, or one complete valid frame.
 

@@ -12,6 +12,10 @@ use domain::presentation::FrameId;
 /// The Engine never reads a clock. The caller supplies the time of every
 /// command, which keeps replay deterministic: the same snapshot and the same
 /// (command, time) sequence always produce the same states.
+///
+/// Time must not run backwards, but the Engine does not trust the caller: it
+/// clamps each command's time to the latest time it has already seen, so a
+/// late or reordered timestamp can never move the Engine's clock back.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Millis(pub u64);
 
@@ -56,8 +60,10 @@ pub enum ProgramContent {
 
 /// The Engine's complete state after one command.
 ///
-/// Invariant: while `live` is `OutputDisabled`, `EnabledBlack`, `Blackout`, or
-/// `Disconnected`, `program` is [`ProgramContent::Black`].
+/// Invariants: while `live` is `OutputDisabled`, `EnabledBlack`, `Blackout`, or
+/// `Disconnected`, `program` is [`ProgramContent::Black`]; and
+/// `unavailable_black` is true only while `live` is `Live`. Every transition
+/// out of `Live` (Freeze, Blackout, Disable, display loss) clears it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EngineState {
     pub(crate) live: LiveState,
@@ -85,6 +91,7 @@ impl EngineState {
 
     /// True when Program is black because linked Live landed on an
     /// unavailable Cue (status "LIVE · black · Cue unavailable", Decision 274).
+    /// Only ever true while the live state is `Live`.
     pub fn unavailable_black(&self) -> bool {
         self.unavailable_black
     }

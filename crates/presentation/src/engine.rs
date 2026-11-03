@@ -33,16 +33,25 @@ pub enum Refusal {
         /// The unavailable Preview Cue.
         cue: CueId,
     },
-    /// Output is disabled; enable it first.
+    /// Output is disabled; enable it first. Returned for Space, F, and B.
     OutputDisabled,
     /// The display is disconnected and the recognized display is not back.
+    /// Returned for Space and EnableOutput only; F and B report
+    /// [`Refusal::OutputDisconnected`].
     DisplayNotBack,
+    /// F or B arrived while the output display is disconnected, whether or not
+    /// the recognized display is back: neither can act on a lost output.
+    OutputDisconnected,
     /// Freeze is meaningless while Program is blacked out.
     FreezeDuringBlackout,
-    /// The command needs output that is live (or at least open).
+    /// F needs Live or Frozen; B needs an open output (EnabledBlack, Live,
+    /// Frozen, or Blackout). Returned only for F from EnabledBlack, since the
+    /// closed and disconnected cases have their own reasons.
     NotLive,
 }
 
+/// The `Display` text is a developer-facing log string, not operator copy.
+/// Operator-visible wording belongs to the T1.4 UI.
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -52,6 +61,7 @@ impl fmt::Display for Refusal {
             Self::OutputDisabled => f.write_str("output is disabled"),
             Self::DisplayNotBack => f.write_str("the output display is not back"),
             Self::FreezeDuringBlackout => f.write_str("cannot freeze during Blackout"),
+            Self::OutputDisconnected => f.write_str("the output display is disconnected"),
             Self::NotLive => f.write_str("output is not live"),
         }
     }
@@ -90,17 +100,23 @@ impl Engine {
     }
 
     /// The snapshot being presented.
-    pub fn snapshot(&self) -> &PresentationSnapshot {
+    pub fn snapshot(&self) -> &Arc<PresentationSnapshot> {
         &self.snapshot
     }
 
     /// The Preview Cue.
     pub fn preview_cue(&self) -> &Cue {
+        self.cue_at(self.state.preview)
+    }
+
+    /// The Cue at flat index `index`.
+    fn cue_at(&self, index: usize) -> &Cue {
         // A snapshot always has a Cue (sections, items, and Cues are non-empty)
-        // and Preview is clamped to its range, so this lookup cannot fail.
+        // and every index the Engine stores is clamped to its range, so this
+        // lookup cannot fail.
         self.snapshot
-            .cue(self.state.preview)
-            .expect("preview index is always inside the snapshot")
+            .cue(index)
+            .expect("Cue index is always inside the snapshot")
     }
 
     /// The operator-only context of the Preview Cue. Never part of Program.
@@ -115,17 +131,44 @@ impl Engine {
 
     /// Apply one command at time `now`.
     ///
-    /// A refused command changes nothing, including `last_now`.
+    /// A refused command changes nothing, including `last_now`. Time never
+    /// runs backwards: `now` is clamped to the latest time already seen.
     pub fn apply(&mut self, command: Command, now: Millis) -> Result<Outcome, Refusal> {
+        let next = self.evaluate(command)?;
+        self.last_now = now.max(self.last_now);
+        Ok(match next {
+            Some(next) => {
+                self.state = next;
+                Outcome::Changed
+            }
+            None => Outcome::Unchanged,
+        })
+    }
+
+    /// Dry run of [`Engine::apply`]: what the command would return, without
+    /// changing state, revision, or `last_now`. `_now` is reserved for the
+    /// time-dependent commands WP2 adds.
+    pub fn check(&self, command: Command, _now: Millis) -> Result<Outcome, Refusal> {
+        Ok(match self.evaluate(command)? {
+            Some(_) => Outcome::Changed,
+            None => Outcome::Unchanged,
+        })
+    }
+
+    /// The state `command` leads to (revision already bumped), or `None` when
+    /// it changes nothing.
+    fn evaluate(&self, command: Command) -> Result<Option<EngineState>, Refusal> {
         let mut next = self.state.clone();
         self.transition(&mut next, command)?;
-        self.last_now = now;
+        // Change detection compares the whole `EngineState`, so everything in
+        // it must be observable state. Timestamps WP2 adds (fade starts,
+        // auto-play deadlines) must stay out of this equality, or every
+        // command would look like a change.
         if next == self.state {
-            return Ok(Outcome::Unchanged);
+            return Ok(None);
         }
         next.revision = self.state.revision + 1;
-        self.state = next;
-        Ok(Outcome::Changed)
+        Ok(Some(next))
     }
 
     fn last_index(&self) -> usize {
@@ -150,18 +193,14 @@ impl Engine {
             Command::First => 0,
             Command::Last => last,
             Command::GoTo(index) => index.min(last),
-            _ => preview,
+            _ => unreachable!("navigation_target is only called for navigation commands"),
         }
     }
 
     /// Put the linked effect of Cue `cue` onto `next`, with `keep` as the
     /// Program a `Wait` leaves alone.
     fn apply_effect(&self, next: &mut EngineState, cue: usize, keep: ProgramContent) {
-        let effect = self
-            .snapshot
-            .cue(cue)
-            .map_or(ProgramEffect::Black, Cue::program_effect);
-        match effect {
+        match self.cue_at(cue).program_effect() {
             ProgramEffect::Frame(frame) => {
                 next.program = ProgramContent::Frame { frame, cue };
                 next.unavailable_black = false;
@@ -187,7 +226,7 @@ impl Engine {
     /// Space semantics; also how Freeze and Blackout release.
     fn take(&self, next: &mut EngineState) -> Result<(), Refusal> {
         let preview = next.preview;
-        let cue = self.preview_cue();
+        let cue = self.cue_at(preview);
         if !cue.is_presentable() {
             return Err(Refusal::UnavailablePreview { cue: cue.id() });
         }
@@ -209,14 +248,8 @@ impl Engine {
 
     fn transition(&self, next: &mut EngineState, command: Command) -> Result<(), Refusal> {
         match command {
-            Command::Next
-            | Command::Previous
-            | Command::NextItem
-            | Command::PreviousItem
-            | Command::First
-            | Command::Last
-            | Command::GoTo(_) => {
-                next.preview = self.navigation_target(command);
+            c if c.is_navigation() => {
+                next.preview = self.navigation_target(c);
                 if next.live == LiveState::Live {
                     let (preview, keep) = (next.preview, next.program);
                     self.apply_effect(next, preview, keep);
@@ -224,17 +257,24 @@ impl Engine {
             }
             Command::Take => self.take(next)?,
             Command::ToggleFreeze => match next.live {
-                LiveState::Live => next.live = LiveState::Frozen,
+                LiveState::Live => {
+                    next.live = LiveState::Frozen;
+                    // The flag describes linked Live only; Frozen holds Black.
+                    next.unavailable_black = false;
+                }
                 LiveState::Frozen => self.take(next)?,
                 LiveState::Blackout => return Err(Refusal::FreezeDuringBlackout),
-                _ => return Err(Refusal::NotLive),
+                LiveState::EnabledBlack => return Err(Refusal::NotLive),
+                LiveState::OutputDisabled => return Err(Refusal::OutputDisabled),
+                LiveState::Disconnected { .. } => return Err(Refusal::OutputDisconnected),
             },
             Command::ToggleBlackout => match next.live {
                 LiveState::Live | LiveState::Frozen | LiveState::EnabledBlack => {
                     Self::go_black(next, LiveState::Blackout);
                 }
                 LiveState::Blackout => self.take(next)?,
-                _ => return Err(Refusal::NotLive),
+                LiveState::OutputDisabled => return Err(Refusal::OutputDisabled),
+                LiveState::Disconnected { .. } => return Err(Refusal::OutputDisconnected),
             },
             Command::EnableOutput => match next.live {
                 LiveState::OutputDisabled | LiveState::Disconnected { display_back: true } => {
@@ -247,7 +287,13 @@ impl Engine {
             },
             Command::DisableOutput => Self::go_black(next, LiveState::OutputDisabled),
             Command::DisplayLost => match next.live {
-                LiveState::OutputDisabled | LiveState::Disconnected { .. } => {}
+                LiveState::OutputDisabled => {}
+                // The returned display went away again.
+                LiveState::Disconnected { .. } => {
+                    next.live = LiveState::Disconnected {
+                        display_back: false,
+                    };
+                }
                 _ => Self::go_black(
                     next,
                     LiveState::Disconnected {
@@ -256,19 +302,16 @@ impl Engine {
                 ),
             },
             Command::DisplayReturned { recognized } => {
-                if let LiveState::Disconnected { .. } = next.live {
+                // An unrecognized display never revokes one already recognized.
+                if let LiveState::Disconnected { display_back } = next.live {
                     next.live = LiveState::Disconnected {
-                        display_back: recognized,
+                        display_back: display_back || recognized,
                     };
                 }
             }
-            Command::DisplayGone => {
-                if let LiveState::Disconnected { .. } = next.live {
-                    next.live = LiveState::Disconnected {
-                        display_back: false,
-                    };
-                }
-            }
+            // The guard arm above takes every navigation command; the compiler
+            // cannot see that through the guard.
+            _ => unreachable!("navigation commands are handled by the first arm"),
         }
         Ok(())
     }
@@ -334,33 +377,54 @@ mod tests {
                 reason: "no font".to_owned(),
             },
         );
-        let section = MassSection::new(
-            uuid(0x100).parse().unwrap(),
-            "Section".to_owned(),
-            vec![
-                item(
-                    0,
-                    MassItemKind::Song,
-                    vec![project(0), project(1), unavailable],
-                ),
-                item(
-                    1,
-                    MassItemKind::Reading,
-                    vec![
-                        project(3),
-                        cue(4, Some("Wait for amen"), CueBehavior::OperatorTrigger),
-                        cue(5, Some("Priest speaks"), CueBehavior::Wait),
-                        cue(6, None, CueBehavior::Hold),
-                    ],
-                ),
-                item(
-                    2,
-                    MassItemKind::GeneralPresentation,
-                    vec![project(7), project(8)],
-                ),
-            ],
-        )
-        .unwrap();
+        build(vec![
+            item(
+                0,
+                MassItemKind::Song,
+                vec![project(0), project(1), unavailable],
+            ),
+            item(
+                1,
+                MassItemKind::Reading,
+                vec![
+                    project(3),
+                    cue(4, Some("Wait for amen"), CueBehavior::OperatorTrigger),
+                    cue(5, Some("Priest speaks"), CueBehavior::Wait),
+                    cue(6, None, CueBehavior::Hold),
+                ],
+            ),
+            item(
+                2,
+                MassItemKind::GeneralPresentation,
+                vec![project(7), project(8)],
+            ),
+        ])
+    }
+
+    /// Flat layout: 0 project, 1 project; 2 hold; 3 project, 4 trigger.
+    /// Item starts are 0, 2 (Hold), and 3; the last Cue is a trigger.
+    fn black_edges_engine() -> Engine {
+        build(vec![
+            item(0, MassItemKind::Song, vec![project(0), project(1)]),
+            item(
+                1,
+                MassItemKind::Reading,
+                vec![cue(6, None, CueBehavior::Hold)],
+            ),
+            item(
+                2,
+                MassItemKind::GeneralPresentation,
+                vec![
+                    project(7),
+                    cue(4, Some("Wait for amen"), CueBehavior::OperatorTrigger),
+                ],
+            ),
+        ])
+    }
+
+    fn build(items: Vec<MassItem>) -> Engine {
+        let section =
+            MassSection::new(uuid(0x100).parse().unwrap(), "Section".to_owned(), items).unwrap();
         let theme: ThemeId = uuid(0x400).parse().unwrap();
         let snapshot = PresentationSnapshot::new(
             uuid(1).parse::<SnapshotId>().unwrap(),
@@ -410,6 +474,16 @@ mod tests {
         e
     }
 
+    /// Asserts `command` is refused with `reason` and that nothing changed:
+    /// the whole state and the stored time.
+    fn assert_refused(e: &mut Engine, command: Command, reason: Refusal) {
+        let (state, now) = (e.state().clone(), e.last_now());
+        assert_eq!(e.check(command, Millis(99)), Err(reason));
+        assert_eq!(e.apply(command, Millis(99)), Err(reason));
+        assert_eq!(e.state(), &state);
+        assert_eq!(e.last_now(), now);
+    }
+
     #[test]
     fn new_engine_is_disabled_black_at_first_cue() {
         let e = engine();
@@ -457,6 +531,19 @@ mod tests {
         assert_eq!(e.state().preview(), 8);
         run(&mut e, Command::PreviousItem).unwrap();
         assert_eq!(e.state().preview(), 3);
+    }
+
+    #[test]
+    fn page_up_from_an_items_first_cue_goes_to_the_previous_items_first_cue() {
+        let mut e = engine();
+        run(&mut e, Command::GoTo(7)).unwrap();
+        run(&mut e, Command::PreviousItem).unwrap();
+        assert_eq!(e.state().preview(), 3);
+        run(&mut e, Command::PreviousItem).unwrap();
+        assert_eq!(e.state().preview(), 0);
+        // From the first item's first Cue there is nowhere to go.
+        assert_eq!(run(&mut e, Command::PreviousItem), Ok(Outcome::Unchanged));
+        assert_eq!(e.state().preview(), 0);
     }
 
     #[test]
@@ -516,6 +603,47 @@ mod tests {
     }
 
     #[test]
+    fn linked_landing_on_hold_or_trigger_from_a_frame_goes_black() {
+        let mut e = engine();
+        run(&mut e, Command::EnableOutput).unwrap();
+        run(&mut e, Command::Take).unwrap();
+        assert!(shows(&e, 0));
+        run(&mut e, Command::GoTo(6)).unwrap();
+        assert_eq!(e.state().live(), LiveState::Live);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+
+        let mut e = black_edges_engine();
+        run(&mut e, Command::EnableOutput).unwrap();
+        run(&mut e, Command::Take).unwrap();
+        assert!(shows(&e, 0));
+        // NextItem lands on the Hold at flat 2.
+        run(&mut e, Command::NextItem).unwrap();
+        assert_eq!(e.state().preview(), 2);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+        // Back onto a frame, then Last lands on a trigger.
+        run(&mut e, Command::First).unwrap();
+        assert!(shows(&e, 0));
+        run(&mut e, Command::Last).unwrap();
+        assert_eq!(e.state().preview(), 4);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+        // GoTo a trigger from a frame.
+        run(&mut e, Command::GoTo(3)).unwrap();
+        assert_eq!(
+            e.state().program(),
+            ProgramContent::Frame {
+                frame: frame(7),
+                cue: 3
+            }
+        );
+        run(&mut e, Command::GoTo(4)).unwrap();
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
     fn wait_keeps_program_and_unavailable_flag() {
         let mut e = live_at(3);
         run(&mut e, Command::GoTo(5)).unwrap();
@@ -528,29 +656,32 @@ mod tests {
 
     #[test]
     fn take_refused_on_unavailable_preview_in_any_state() {
-        let setups: [&[Command]; 4] = [
+        let setups: [&[Command]; 6] = [
             &[],
             &[Command::EnableOutput],
             &[Command::EnableOutput, Command::Take, Command::ToggleFreeze],
             &[Command::EnableOutput, Command::ToggleBlackout],
+            // Decision 272: Space on a Disconnected output still refuses an
+            // unavailable Preview, whether or not the display is back.
+            &[Command::EnableOutput, Command::DisplayLost],
+            &[
+                Command::EnableOutput,
+                Command::DisplayLost,
+                Command::DisplayReturned { recognized: true },
+            ],
         ];
         for commands in setups {
             let mut e = setup(commands);
             run(&mut e, Command::GoTo(2)).unwrap();
-            let before = e.state().clone();
             let cue = e.preview_cue().id();
-            assert_eq!(
-                run(&mut e, Command::Take),
-                Err(Refusal::UnavailablePreview { cue })
-            );
-            assert_eq!(e.state(), &before);
+            assert_refused(&mut e, Command::Take, Refusal::UnavailablePreview { cue });
         }
     }
 
     #[test]
     fn take_from_each_state() {
         let mut e = engine();
-        assert_eq!(run(&mut e, Command::Take), Err(Refusal::OutputDisabled));
+        assert_refused(&mut e, Command::Take, Refusal::OutputDisabled);
         run(&mut e, Command::EnableOutput).unwrap();
         assert_eq!(run(&mut e, Command::Take), Ok(Outcome::Changed));
         assert_eq!(e.state().live(), LiveState::Live);
@@ -570,7 +701,7 @@ mod tests {
         assert!(shows(&e, 3));
         // Disconnected, display not back.
         run(&mut e, Command::DisplayLost).unwrap();
-        assert_eq!(run(&mut e, Command::Take), Err(Refusal::DisplayNotBack));
+        assert_refused(&mut e, Command::Take, Refusal::DisplayNotBack);
     }
 
     #[test]
@@ -604,15 +735,76 @@ mod tests {
     }
 
     #[test]
+    fn freeze_on_a_trigger_black_program_holds_black_without_the_flag() {
+        let mut e = live_at(3);
+        run(&mut e, Command::Next).unwrap();
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        run(&mut e, Command::ToggleFreeze).unwrap();
+        assert_eq!(e.state().live(), LiveState::Frozen);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn freeze_on_an_unavailable_black_program_clears_the_flag() {
+        let mut e = live_at(1);
+        run(&mut e, Command::Next).unwrap();
+        assert!(e.state().unavailable_black());
+        run(&mut e, Command::ToggleFreeze).unwrap();
+        assert_eq!(e.state().live(), LiveState::Frozen);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+        // Releasing onto a Wait keeps the held Black; the flag stays clear.
+        run(&mut e, Command::GoTo(5)).unwrap();
+        run(&mut e, Command::ToggleFreeze).unwrap();
+        assert_eq!(e.state().live(), LiveState::Live);
+        assert_eq!(e.state().program(), ProgramContent::Black);
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn unavailable_black_only_while_live() {
+        let mut e = live_at(1);
+        run(&mut e, Command::Next).unwrap();
+        assert!(e.state().unavailable_black());
+        run(&mut e, Command::ToggleBlackout).unwrap();
+        assert!(!e.state().unavailable_black());
+        let mut e = live_at(1);
+        run(&mut e, Command::Next).unwrap();
+        run(&mut e, Command::DisplayLost).unwrap();
+        assert!(!e.state().unavailable_black());
+        let mut e = live_at(1);
+        run(&mut e, Command::Next).unwrap();
+        run(&mut e, Command::DisableOutput).unwrap();
+        assert!(!e.state().unavailable_black());
+    }
+
+    #[test]
+    fn unavailable_cue_leaves_frozen_and_blackout_unchanged() {
+        for toggle in [Command::ToggleFreeze, Command::ToggleBlackout] {
+            let mut e = live_at(1);
+            run(&mut e, toggle).unwrap();
+            let (live, program) = (e.state().live(), e.state().program());
+            run(&mut e, Command::GoTo(2)).unwrap();
+            assert_eq!(e.state().preview(), 2);
+            assert_eq!(e.state().live(), live);
+            assert_eq!(e.state().program(), program);
+            assert!(!e.state().unavailable_black());
+        }
+    }
+
+    #[test]
     fn freeze_release_refused_on_unavailable_preview_and_stays_frozen() {
         let mut e = live_at(1);
         run(&mut e, Command::ToggleFreeze).unwrap();
         run(&mut e, Command::Next).unwrap();
         let before = e.state().clone();
-        assert!(matches!(
-            run(&mut e, Command::ToggleFreeze),
-            Err(Refusal::UnavailablePreview { .. })
-        ));
+        let cue = e.preview_cue().id();
+        assert_refused(
+            &mut e,
+            Command::ToggleFreeze,
+            Refusal::UnavailablePreview { cue },
+        );
         assert_eq!(e.state(), &before);
         assert_eq!(e.state().live(), LiveState::Frozen);
     }
@@ -636,10 +828,12 @@ mod tests {
         run(&mut e, Command::ToggleBlackout).unwrap();
         run(&mut e, Command::Next).unwrap();
         let before = e.state().clone();
-        assert!(matches!(
-            run(&mut e, Command::ToggleBlackout),
-            Err(Refusal::UnavailablePreview { .. })
-        ));
+        let cue = e.preview_cue().id();
+        assert_refused(
+            &mut e,
+            Command::ToggleBlackout,
+            Refusal::UnavailablePreview { cue },
+        );
         assert_eq!(e.state(), &before);
         assert_eq!(e.state().live(), LiveState::Blackout);
     }
@@ -659,27 +853,49 @@ mod tests {
     fn freeze_refusals() {
         let mut e = live_at(0);
         run(&mut e, Command::ToggleBlackout).unwrap();
-        assert_eq!(
-            run(&mut e, Command::ToggleFreeze),
-            Err(Refusal::FreezeDuringBlackout)
-        );
+        assert_refused(&mut e, Command::ToggleFreeze, Refusal::FreezeDuringBlackout);
         assert_eq!(e.state().live(), LiveState::Blackout);
 
         let mut e = engine();
-        assert_eq!(run(&mut e, Command::ToggleFreeze), Err(Refusal::NotLive));
+        assert_refused(&mut e, Command::ToggleFreeze, Refusal::OutputDisabled);
         run(&mut e, Command::EnableOutput).unwrap();
-        assert_eq!(run(&mut e, Command::ToggleFreeze), Err(Refusal::NotLive));
+        assert_refused(&mut e, Command::ToggleFreeze, Refusal::NotLive);
         run(&mut e, Command::DisplayLost).unwrap();
-        assert_eq!(run(&mut e, Command::ToggleFreeze), Err(Refusal::NotLive));
+        assert_refused(&mut e, Command::ToggleFreeze, Refusal::OutputDisconnected);
+        run(&mut e, Command::DisplayReturned { recognized: true }).unwrap();
+        assert_refused(&mut e, Command::ToggleFreeze, Refusal::OutputDisconnected);
     }
 
     #[test]
-    fn blackout_not_live_refusals() {
+    fn blackout_refusals_when_output_is_not_open() {
         let mut e = engine();
-        assert_eq!(run(&mut e, Command::ToggleBlackout), Err(Refusal::NotLive));
+        assert_refused(&mut e, Command::ToggleBlackout, Refusal::OutputDisabled);
         run(&mut e, Command::EnableOutput).unwrap();
         run(&mut e, Command::DisplayLost).unwrap();
-        assert_eq!(run(&mut e, Command::ToggleBlackout), Err(Refusal::NotLive));
+        assert_refused(&mut e, Command::ToggleBlackout, Refusal::OutputDisconnected);
+        run(&mut e, Command::DisplayReturned { recognized: true }).unwrap();
+        assert_refused(&mut e, Command::ToggleBlackout, Refusal::OutputDisconnected);
+    }
+
+    #[test]
+    fn blackout_twice_from_enabled_black_goes_live() {
+        let mut e = enabled();
+        run(&mut e, Command::ToggleBlackout).unwrap();
+        assert_eq!(e.state().live(), LiveState::Blackout);
+        run(&mut e, Command::ToggleBlackout).unwrap();
+        assert_eq!(e.state().live(), LiveState::Live);
+        assert!(shows(&e, 0));
+    }
+
+    #[test]
+    fn enable_output_is_unchanged_in_frozen_and_blackout() {
+        for toggle in [Command::ToggleFreeze, Command::ToggleBlackout] {
+            let mut e = live_at(0);
+            run(&mut e, toggle).unwrap();
+            let before = e.state().clone();
+            assert_eq!(run(&mut e, Command::EnableOutput), Ok(Outcome::Unchanged));
+            assert_eq!(e.state(), &before);
+        }
     }
 
     #[test]
@@ -758,7 +974,8 @@ mod tests {
             LiveState::Disconnected { display_back: true }
         );
         assert_eq!(e.state().program(), ProgramContent::Black);
-        run(&mut e, Command::DisplayGone).unwrap();
+        // The returned display going away again is one more DisplayLost.
+        assert_eq!(run(&mut e, Command::DisplayLost), Ok(Outcome::Changed));
         assert_eq!(
             e.state().live(),
             LiveState::Disconnected {
@@ -770,9 +987,21 @@ mod tests {
             run(&mut e, Command::DisplayReturned { recognized: false }),
             Ok(Outcome::Unchanged)
         );
+        assert_refused(&mut e, Command::EnableOutput, Refusal::DisplayNotBack);
+    }
+
+    #[test]
+    fn unrecognized_display_never_revokes_a_recognized_one() {
+        let mut e = live_at(0);
+        run(&mut e, Command::DisplayLost).unwrap();
+        run(&mut e, Command::DisplayReturned { recognized: true }).unwrap();
         assert_eq!(
-            run(&mut e, Command::EnableOutput),
-            Err(Refusal::DisplayNotBack)
+            run(&mut e, Command::DisplayReturned { recognized: false }),
+            Ok(Outcome::Unchanged)
+        );
+        assert_eq!(
+            e.state().live(),
+            LiveState::Disconnected { display_back: true }
         );
     }
 
@@ -783,8 +1012,8 @@ mod tests {
             run(&mut e, Command::DisplayReturned { recognized: true }),
             Ok(Outcome::Unchanged)
         );
-        assert_eq!(run(&mut e, Command::DisplayGone), Ok(Outcome::Unchanged));
         assert!(shows(&e, 0));
+        assert_eq!(e.state().live(), LiveState::Live);
     }
 
     #[test]
@@ -842,6 +1071,34 @@ mod tests {
         e.apply(Command::EnableOutput, Millis(5)).unwrap();
         assert!(e.apply(Command::ToggleFreeze, Millis(9)).is_err());
         assert_eq!(e.last_now(), Millis(5));
+    }
+
+    #[test]
+    fn time_never_runs_backwards() {
+        let mut e = engine();
+        e.apply(Command::EnableOutput, Millis(9)).unwrap();
+        e.apply(Command::Take, Millis(3)).unwrap();
+        assert_eq!(e.last_now(), Millis(9));
+        e.apply(Command::Next, Millis(12)).unwrap();
+        assert_eq!(e.last_now(), Millis(12));
+    }
+
+    #[test]
+    fn check_is_a_dry_run_that_matches_apply() {
+        let mut e = enabled();
+        let (state, now) = (e.state().clone(), e.last_now());
+        assert_eq!(e.check(Command::Take, Millis(50)), Ok(Outcome::Changed));
+        assert_eq!(
+            e.check(Command::EnableOutput, Millis(50)),
+            Ok(Outcome::Unchanged)
+        );
+        assert_eq!(
+            e.check(Command::ToggleFreeze, Millis(50)),
+            Err(Refusal::NotLive)
+        );
+        assert_eq!(e.state(), &state);
+        assert_eq!(e.last_now(), now);
+        assert_eq!(e.apply(Command::Take, Millis(50)), Ok(Outcome::Changed));
     }
 
     #[test]

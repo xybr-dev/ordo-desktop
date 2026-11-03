@@ -28,15 +28,15 @@ pub enum Command {
     EnableOutput,
     /// Close the output.
     DisableOutput,
-    /// The output display disappeared.
+    /// The output display disappeared. In `Disconnected` it also means a
+    /// returned display went away again: `display_back` becomes false (one
+    /// event per physical fact).
     DisplayLost,
     /// A display appeared; `recognized` is the platform's identity verdict.
     DisplayReturned {
         /// Whether it is the same display the output used.
         recognized: bool,
     },
-    /// The returned display went away again.
-    DisplayGone,
 }
 
 impl Command {
