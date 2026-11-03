@@ -5,13 +5,12 @@
 //! two never trade places, so the rail is a list of destinations and nothing
 //! else.
 
-use gpui::{
-    App, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px, rgb,
-};
+use gpui::{App, Div, ParentElement, SharedString, Styled, Window, div, prelude::*, px, rgb};
 use ui::{
     assets::icon,
     environment::{InterfaceScale, UiEnvironment},
-    primitives::button::Button,
+    motion::{self, Track},
+    primitives::nav::NavEntry,
     tokens,
 };
 
@@ -63,6 +62,20 @@ impl Destination {
         }
     }
 
+    /// The filled form shown while this is the current destination
+    /// (Decision 300).
+    const fn filled_icon(self) -> &'static str {
+        match self {
+            Self::Masses => icon::filled::CALENDAR_DAYS,
+            Self::Library => icon::filled::LIBRARY,
+            Self::Themes => icon::filled::PALETTE,
+            Self::TransferAndBackup => icon::filled::HARD_DRIVE_DOWNLOAD,
+            Self::Settings => icon::filled::SETTINGS,
+            Self::Help => icon::filled::CIRCLE_QUESTION_MARK,
+            Self::Diagnostics => icon::filled::ACTIVITY,
+        }
+    }
+
     /// The horizontal local views inside this destination, empty where it has
     /// none. `MVP-PLAN.md` names both sets; Decision 278 adds Choirs.
     pub fn local_views(self) -> &'static [&'static str] {
@@ -87,18 +100,21 @@ impl Destination {
     }
 }
 
-/// What the collapse decision reserves for an expanded rail. The rail itself
-/// is sized by its own content, because Atkinson is wide and a fixed width is
-/// a guess that only ever fails one way: a destination whose label is painted
-/// past the edge it was told to fit inside. This is the reserve the workspace
-/// is measured against, and a test pins it to what the rail actually measures.
-pub const EXPANDED_RESERVE: f32 = 240.0;
+/// The rail's width, fixed rather than sized by its labels: each entry stacks
+/// its icon over its label, and a label too long for one line ("Transfer &
+/// Backup") wraps under its icon instead of widening the rail (Decision 300).
+pub const EXPANDED_WIDTH: f32 = 76.0;
 /// `DESIGN.md`'s minimum logical list and editor widths. The rail gives up its
 /// labels before the workspace gives up a pane, so these are the threshold.
 const MINIMUM_WORKSPACE: f32 = 240.0 + 520.0;
+/// The pill that marks the current destination: 3px wide and 16px tall, with
+/// rounded ends (Decision 300).
+const PILL_WIDTH: f32 = 3.0;
+const PILL_HEIGHT: f32 = 16.0;
+const PILL_RADIUS: f32 = 2.0;
 
 /// A collapsed rail is exactly one square icon control plus the rail's inset
-/// and its separator. The active marker is out of flow, so it adds nothing.
+/// and its separator. The pill is out of flow, so it adds nothing.
 pub fn collapsed_width(scale: InterfaceScale) -> f32 {
     scale.apply(tokens::density::DEFAULT_CONTROL)
         + 2.0 * scale.apply(tokens::spacing::RELATED)
@@ -112,140 +128,118 @@ pub fn collapsed_width(scale: InterfaceScale) -> f32 {
 /// renders: measuring the branch it is deciding against the other branch's
 /// gutter would leave the workspace narrower than the minimum this protects.
 pub fn collapsed(viewport_width: f32, scale: InterfaceScale) -> bool {
-    viewport_width - scale.apply(EXPANDED_RESERVE)
+    viewport_width - (scale.apply(EXPANDED_WIDTH) + tokens::border::SEPARATOR)
         < scale.apply(MINIMUM_WORKSPACE + 2.0 * tokens::density::WORKSPACE_GUTTER_WIDE)
 }
 
-/// One rail row. Collapsed it is an icon whose tooltip is its accessible name,
-/// which is the Button's own contract for an icon-only control.
-///
-/// The active marker is the row's own leading edge in both widths:
-/// `MILESTONES.md` asks the active destination to be non-color-only, and
-/// `Button::current` is the assistive half of that, not the visible one. It is
-/// drawn as the left border of a quad the size of the row, so it takes the
-/// row's corner rather than approximating it, and it is out of flow, so the
-/// only difference between the two widths is what the row reserves beside it:
-/// expanded, every row reserves the bar's width and the icons line up down the
-/// rail; collapsed, nothing is reserved and the single icon stays centred.
-fn item(
-    destination: Destination,
-    active: bool,
-    collapsed: bool,
-    environment: UiEnvironment,
-    open: impl Fn(&mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    let label = destination.label();
-    let corner = px(scale.apply(tokens::radius::CONTROL));
-    let bar = px(scale.apply(tokens::spacing::UNIT));
-    // What a focused control's rings need beside it. They are outset box
-    // shadows, so they are painted outside the Button's own bounds and the row
-    // has to leave them somewhere to land — see the reserve below and the
-    // absent `overflow_hidden` above it.
-    let rings = px(scale.apply(tokens::border::FOCUS_SEPARATION + tokens::border::FOCUS_OUTER));
-    // The marker is the leading edge of a quad the size of the whole row, drawn
-    // as that quad's left border, so its curve is the row's own corner and
-    // matches the control beside it exactly. A quad only the bar's own width
-    // cannot do that: GPUI clamps a corner radius to half the quad's smaller
-    // side, so a four-pixel bar asking for the four-pixel control radius was
-    // given two, and came out visibly tighter than everything around it. Out of
-    // flow it neither moves the icon nor takes the pointer — a div with nothing
-    // but a border inserts no hitbox — and being the row's last child it is
-    // drawn over the control's hover fill rather than under it.
-    let marker = || {
-        div()
-            .absolute()
-            .inset_0()
-            .rounded(corner)
-            .border_l(bar)
-            .border_color(rgb(tokens::color::PRIMARY))
-            .debug_selector(move || format!("rail-active-{label}"))
-    };
-    div()
-        .flex()
-        .items_center()
-        .relative()
-        .rounded(corner)
-        // No `overflow_hidden`. GPUI masks a child's paint to this row's
-        // rectangle, box shadows included, and Ordo's focus treatment is two
-        // outset shadows — so clipping here erased the ring from every rail
-        // destination, in the first region `F6` reaches. Nothing needs the clip
-        // any more: the marker carries its own corner and the Button rounds its
-        // own fill to the same radius.
-        .when(active, |row| row.bg(rgb(palette.selection)))
-        // Expanded, every row reserves the marker's width so the icons share one
-        // edge down the rail whether or not their row is the active one, plus
-        // the room a focused control's rings need — without it the ring lands in
-        // the marker's band and the two cannot both be seen, which `DESIGN.md`
-        // requires of focus and selection alike. Collapsed there is no label to
-        // line the icons up against, so nothing is reserved, the single icon
-        // stays centred, and the rings fall outside the row entirely.
-        .when(!collapsed, |row| {
-            row.child(div().flex_none().w(bar + rings))
-        })
-        // The control takes what the marker leaves, rather than only what its
-        // own label needs: a row sized to its label leaves seven fills at seven
-        // widths staggered down the rail.
-        .child(
-            div().flex_1().min_w_0().child(
-                Button::new(SharedString::from(label), label, environment)
-                    .icon(destination.icon())
-                    .quiet()
-                    .current(active)
-                    // Expanded, a destination is read down the rail with the other
-                    // six, so its icon and label start on a shared edge rather than
-                    // floating in the middle.
-                    .when(!collapsed, Button::stretch)
-                    .when(collapsed, Button::icon_only)
-                    .on_surface(if active {
-                        palette.selection
-                    } else {
-                        palette.surface
-                    })
-                    .on_activate(open),
-            ),
-        )
-        .when(active, |row| row.child(marker()))
+/// Where each destination sits among the rail's children: the origin probe
+/// first, then the parish's four, the spacer, and the installation's three.
+fn child_index(destination: Destination) -> usize {
+    if let Some(at) = Destination::PRIMARY.iter().position(|d| *d == destination) {
+        1 + at
+    } else {
+        let at = Destination::ANCHORED
+            .iter()
+            .position(|d| *d == destination)
+            .expect("every destination is on the rail");
+        2 + Destination::PRIMARY.len() + at
+    }
 }
 
+/// The rail: the parish's destinations at the top and the installation's
+/// anchored at the bottom, with one pill marking the current one.
+///
+/// The pill belongs to the rail rather than to an entry, so it can travel
+/// between them (Decision 301). It is placed from where the rail last laid its
+/// entries out, which `track` records. `MILESTONES.md` asks the current
+/// destination to be non-color-only: the pill, the filled icon, and the entry
+/// showing its icon alone are that cue, and `aria-selected` is its assistive
+/// half.
 pub fn render(
     active: Destination,
     collapsed: bool,
+    track: &Track,
     environment: UiEnvironment,
     open: impl Fn(Destination) -> Box<dyn Fn(&mut Window, &mut App)>,
-) -> impl IntoElement {
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    let group = |destinations: &'static [Destination]| {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-            .children(destinations.iter().map(|&destination| {
-                item(
-                    destination,
-                    destination == active,
-                    collapsed,
-                    environment,
-                    open(destination),
-                )
-            }))
+    let entry = |destination: Destination| {
+        let label = destination.label();
+        let open = open(destination);
+        NavEntry::new(
+            SharedString::from(label),
+            label,
+            destination.icon(),
+            destination.filled_icon(),
+            environment,
+        )
+        .current(destination == active)
+        .compact(collapsed)
+        .on_activate(move |window, cx| open(window, cx))
     };
+
+    // The pill's place relative to the rail, from the last layout. Until the
+    // rail has been laid out once there is nowhere to put it; the first layout
+    // redraws the window, so that lasts a single frame.
+    let height = scale.apply(PILL_HEIGHT);
+    let place = track
+        .get(0)
+        .zip(track.get(child_index(active)))
+        .map(|(rail, entry)| {
+            (
+                f32::from(entry.origin.x - rail.origin.x),
+                f32::from(entry.origin.y - rail.origin.y)
+                    + (f32::from(entry.size.height) - height) / 2.0,
+            )
+        });
+    let pill = place.map(|(left, top)| {
+        // `transition` adopts its first target on the spot, so the pill is
+        // simply there at startup and only travels on a change. Under reduced
+        // motion it jumps, as Decision 301 asks.
+        let top = motion::travel("rail-pill", child_index(active), top, window, cx);
+        let label = active.label();
+        div()
+            .debug_selector(move || format!("rail-active-{label}"))
+            .absolute()
+            .left(px(left))
+            .top(px(top))
+            .w(px(PILL_WIDTH))
+            .h(px(height))
+            .rounded(px(PILL_RADIUS))
+            .bg(rgb(palette.text))
+    });
+
     div()
         .debug_selector(|| "shell-rail".into())
+        .relative()
         .flex_none()
         .h_full()
         .flex()
         .flex_col()
-        .justify_between()
-        .gap(px(scale.apply(tokens::spacing::GROUP)))
-        .p(px(scale.apply(tokens::spacing::RELATED)))
+        .items_center()
+        .gap(px(scale.apply(tokens::spacing::UNIT)))
+        .when(collapsed, |rail| {
+            rail.p(px(scale.apply(tokens::spacing::RELATED)))
+        })
+        .when(!collapsed, |rail| {
+            rail.w(px(scale.apply(EXPANDED_WIDTH) + tokens::border::SEPARATOR))
+                .py(px(scale.apply(tokens::spacing::RELATED)))
+                .px(px(scale.apply(tokens::spacing::UNIT)))
+        })
         .border_r(px(tokens::border::SEPARATOR))
         .border_color(rgb(palette.border))
         .bg(rgb(palette.surface))
-        .child(group(&Destination::PRIMARY))
-        .child(group(&Destination::ANCHORED))
+        .on_children_prepainted(track.record())
+        // The origin probe: an empty box over the whole rail, so the recorded
+        // bounds carry the rail's own origin as their first entry.
+        .child(div().absolute().inset_0())
+        .children(Destination::PRIMARY.map(&entry))
+        .child(div().flex_1())
+        .children(Destination::ANCHORED.map(&entry))
+        .children(pill)
 }
 
 #[cfg(test)]
@@ -262,13 +256,16 @@ mod tests {
             // 1366x768
             ((1366.0, Percent100), false),
             ((1366.0, Percent125), false),
-            ((1366.0, Percent150), true),
+            ((1366.0, Percent150), false),
+            ((1366.0, Percent175), true),
             ((1366.0, Percent200), true),
-            // 1920x1080
+            // 1920x1080: the stacked rail is narrow enough to keep its labels
+            // at every Interface scale.
             ((1920.0, Percent100), false),
             ((1920.0, Percent150), false),
-            ((1920.0, Percent175), false),
-            ((1920.0, Percent200), true),
+            ((1920.0, Percent200), false),
+            // A narrow window collapses it at any scale.
+            ((800.0, Percent100), true),
         ];
         for ((width, scale), collapse) in expected {
             assert_eq!(
@@ -278,10 +275,12 @@ mod tests {
                 scale.percent()
             );
         }
-        assert!(
-            collapsed_width(Percent100) < EXPANDED_RESERVE,
-            "collapsing has to give the workspace width back"
-        );
+        for scale in [Percent100, Percent200] {
+            assert!(
+                collapsed_width(scale) < scale.apply(EXPANDED_WIDTH),
+                "collapsing has to give the workspace width back"
+            );
+        }
     }
 
     #[test]
@@ -298,6 +297,7 @@ mod tests {
         for destination in all {
             assert!(!destination.label().is_empty());
             assert!(!destination.icon().is_empty());
+            assert_ne!(destination.icon(), destination.filled_icon());
             // A destination is navigation; only its local views are tabs.
             assert_eq!(
                 destination.has_primary_list(),
