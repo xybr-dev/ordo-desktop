@@ -700,12 +700,12 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
     )
 }
 
-/// The one GPUI crate taken from `vendor/` instead of crates.io (Decision 299).
+/// The one GPUI crate taken from `vendor/` instead of crates.io (Decision 308).
 const VENDORED_GPUI_PACKAGE: &str = "gpui-pre-windows";
 
 /// Cargo only warns about an unused `[patch]`, so a GPUI upgrade could
 /// restore the registry crate and silently lose display-change reporting
-/// (Decision 299). A patched crate has no `source` in the lockfile.
+/// (Decision 308). A patched crate has no `source` in the lockfile.
 fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
     let packages = parse_lock_packages(lock);
     let package = packages
@@ -713,10 +713,10 @@ fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
         .find(|package| package.name == VENDORED_GPUI_PACKAGE)
         .ok_or("Cargo.lock has no gpui-pre-windows package")?;
     if package.source.is_some() {
-        return Err("gpui-pre-windows resolves to the registry, not vendor/ (Decision 299)".into());
+        return Err("gpui-pre-windows resolves to the registry, not vendor/ (Decision 308)".into());
     }
     if !events.contains("ORDO PATCH") {
-        return Err("vendor/gpui-pre-windows lost its ORDO PATCH (Decision 299)".into());
+        return Err("vendor/gpui-pre-windows lost its ORDO PATCH (Decision 308)".into());
     }
     Ok(())
 }

@@ -3,7 +3,7 @@
 ## gpui-pre-windows 0.3.8
 
 An unmodified copy of the crates.io release, apart from one change marked `ORDO PATCH` in
-`src/events.rs` (Decision 299). `handle_display_change_msg` now calls the window's `moved` callback,
+`src/events.rs` (Decision 308). `handle_display_change_msg` now calls the window's `moved` callback,
 including when the window is left on no monitor. That runs GPUI's bounds observers, so
 `crates/ordo/src/output.rs` hears about every display change.
 

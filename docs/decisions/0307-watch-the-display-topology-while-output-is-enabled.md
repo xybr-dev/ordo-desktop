@@ -1,12 +1,12 @@
 ---
-id: 298
+id: 307
 title: Watch the display topology while output is enabled
 status: superseded
 date: 2026-11-01
 recorded: 2026-11-01
 tags: [display, qualification]
 supersedes: []
-superseded_by: 299
+superseded_by: 308
 amends: []
 amended_by: []
 sources: [crates/ordo/src/output.rs, tests/display/tests/display_control.rs, docs/qualification/milestone-0/USB-KIT-README.md]

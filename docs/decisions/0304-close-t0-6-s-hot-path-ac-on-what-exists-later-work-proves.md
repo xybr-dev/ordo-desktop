@@ -1,5 +1,5 @@
 ---
-id: 295
+id: 304
 title: "Close T0.6's hot-path AC on what exists; later work proves its own"
 status: accepted
 date: 2026-10-11

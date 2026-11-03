@@ -13,7 +13,7 @@
 //! happens in three places: [`CongregationOutput::enable_output`] refreshes
 //! before it places output; a bounds observer on the open congregation window
 //! refreshes when Windows moves that window and, through the vendored GPUI
-//! patch, on every display change (Decision 299); and
+//! patch, on every display change (Decision 308); and
 //! [`CongregationOutput::refresh_displays`] is available to callers that want
 //! one now. No periodic task is started. The bounds observer is owned by this
 //! controller in `window_bounds`, which is dropped in `close_window` and
@@ -325,7 +325,7 @@ impl CongregationOutput {
         }
 
         // The observer refreshes topology whenever the window moves or
-        // resizes, and on every display change (Decision 299). This is how an
+        // resizes, and on every display change (Decision 308). This is how an
         // unplugged projector is noticed without a caller.
         let Ok(bounds) = window.update(cx, |_, placed, cx| {
             cx.observe_window_bounds(placed, move |_, _, cx| {

@@ -23,7 +23,7 @@ default-members = ["crates/ordo"]
 exclude = ["vendor"]
 resolver = "3"
 
-# One patched GPUI crate; see vendor/README.md and Decision 299.
+# One patched GPUI crate; see vendor/README.md and Decision 308.
 [patch.crates-io]
 gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 

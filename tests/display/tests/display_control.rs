@@ -959,7 +959,7 @@ fn click_on_congregation_output_returns_focus_to_the_operator(cx: &mut TestAppCo
 }
 
 /// A display change reaches the congregation window as a bounds change, from
-/// Windows moving it or from the vendored GPUI patch (Decision 299). The
+/// Windows moving it or from the vendored GPUI patch (Decision 308). The
 /// controller refreshes on that change without a caller.
 #[gpui::test]
 fn moving_the_congregation_window_refreshes_topology(cx: &mut TestAppContext) {

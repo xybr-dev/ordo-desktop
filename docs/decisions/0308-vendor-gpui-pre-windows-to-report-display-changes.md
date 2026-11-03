@@ -1,11 +1,11 @@
 ---
-id: 299
+id: 308
 title: Vendor gpui-pre-windows to report display changes
 status: accepted
 date: 2026-11-01
 recorded: 2026-11-01
 tags: [display, qualification, gpui]
-supersedes: [298]
+supersedes: [307]
 superseded_by: null
 amends: []
 amended_by: []
@@ -16,7 +16,7 @@ sources: [vendor/README.md, vendor/gpui-pre-windows/src/events.rs, crates/ordo/s
 
 ## Context
 
-Decision [298](0298-watch-the-display-topology-while-output-is-enabled.md) made enabled output compare the display topology
+Decision [307](0307-watch-the-display-topology-while-output-is-enabled.md) made enabled output compare the display topology
 every 500 ms. That cost runs on the GPUI thread and no performance gate measures it, because
 `presenter-lab` never enables output. The owner asked for an event-driven trigger.
 

@@ -1,5 +1,5 @@
 ---
-id: 296
+id: 305
 title: The walking-skeleton lab stands in for packaged checks; the sign-off is restated to delivered scope
 status: accepted
 date: 2026-10-20

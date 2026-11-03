@@ -1,5 +1,5 @@
 ---
-id: 297
+id: 306
 title: Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule
 status: accepted
 date: 2026-10-20
@@ -37,7 +37,7 @@ The tick closes on the rule the criterion exists to enforce. The inspector's pro
 `portability` crate belongs to that milestone (`MVP-PLAN.md` section 6.4). The deferral is named
 where the gap shows: the tick note in `MILESTONES.md`, the Known gap in
 `docs/qualification/milestone-0/README.md`, and the open items in `EXCEPTIONS.md`. This has the
-same shape as Decision [295](0295-close-t0-6-s-hot-path-ac-on-what-exists-later-work-proves.md):
+same shape as Decision [304](0304-close-t0-6-s-hot-path-ac-on-what-exists-later-work-proves.md):
 close on what exists, name what is deferred and where it lands.
 
 ## Alternatives considered
