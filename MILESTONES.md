@@ -734,10 +734,10 @@ Interface used by UI and tests.
 - [x] `[AUTO]` `F` toggles Freeze, `B` toggles Blackout, releasing either does
       what Space does (Decision 273), and unchanged/repeated commands are
       deterministic.
-- [ ] `[AUTO]` Content-to-content changes cut; content-to/from Blackout or Hold
+- [x] `[AUTO]` Content-to-content changes cut; content-to/from Blackout or Hold
       exposes interruptible reversible 500ms fade progress without queueing
       commands or delaying the underlying state transition.
-- [ ] `[AUTO]` Explicit item/section auto-play advances eligible General
+- [x] `[AUTO]` Explicit item/section auto-play advances eligible General
       Presentation Cues from inherited eight-second/per-Slide durations, wraps
       inside scope, resets each newly shown Cue's timer, and stops on outside
       navigation, Freeze, Blackout, exit, or recovery.
