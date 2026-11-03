@@ -331,5 +331,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0299](0299-slideover-close-leads-its-header.md) | A slideover's close button leads its header | accepted | 2026-11-03 | design, interaction, accessibility |
 | [0300](0300-current-navigation-destination-fills-its-icon.md) | The current navigation destination fills its icon and marks it with a short pill | accepted | 2026-11-03 | design, navigation, icons |
 | [0301](0301-navigation-and-slideover-motion.md) | Navigation and slideover motion | accepted | 2026-11-03 | design, motion, navigation |
+| [0302](0302-header-bars-keep-their-height.md) | Header bars keep their height across states | accepted | 2026-11-03 | design, layout, responsive |
 
 <!-- adr-index:end -->

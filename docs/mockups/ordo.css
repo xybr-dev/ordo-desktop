@@ -152,7 +152,8 @@
 .o-pane--muted { background: var(--o-bg); }
 .o-pane-head {
   display: flex; align-items: center; gap: var(--o-s2); flex: none;
-  min-height: calc(48px * var(--o-scale)); padding: var(--o-s2) var(--o-s4);
+  /* Tall enough for a full-height control, so a pane head keeps its height whichever actions it shows. */
+  box-sizing: border-box; min-height: calc(var(--o-h-control) * var(--o-scale) + 2 * var(--o-s2) + 1px); padding: var(--o-s2) var(--o-s4);
   border-bottom: 1px solid var(--o-border);
 }
 .o-pane-body { flex: 1; min-height: 0; overflow: auto; }
@@ -625,7 +626,7 @@ textarea.pl-input { resize: vertical; line-height: 1.45; }
 .sg-ws { display: flex; flex-direction: column; min-width: 0; }
 .sg-lib, .sg-editor, .sg-import { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .sg-row { display: flex; align-items: center; gap: var(--o-s2); }
-.sg-libhead { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--o-s4); padding: var(--o-s3) var(--o-s4) 0; background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; }
+.sg-libhead { display: flex; align-items: flex-end; gap: var(--o-s4); padding: var(--o-s3) var(--o-s4) 0; background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; }
 .sg-libhead .o-title { padding-bottom: var(--o-s3); font-size: calc(24px * var(--o-scale)); }
 .sg-libhead .o-tabs { border-bottom: 0; padding: 0; }
 .sg-libhead > .o-btn { margin-bottom: var(--o-s2); }
@@ -778,7 +779,7 @@ span.sg-sec-name { cursor: default; }
 /* ── shell destinations (ordo-shell.js): Masses index, Themes, Transfer & Backup, Diagnostics, Help, Settings ── */
 .sh-ws { display: flex; flex-direction: column; min-width: 0; }
 .sh-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.sh-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--o-s4); padding: var(--o-s3) var(--o-s4) 0; background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; min-height: calc(52px * var(--o-scale)); box-sizing: border-box; }
+.sh-head { display: flex; align-items: flex-end; gap: var(--o-s4); padding: var(--o-s3) var(--o-s4) 0; background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; }
 .sh-head .o-title { padding-bottom: var(--o-s3); font-size: calc(24px * var(--o-scale)); }
 .sh-head > .o-meta { padding-bottom: var(--o-s3); }
 .sh-head > .o-btn, .sh-head > .sh-check { margin-bottom: var(--o-s2); }
@@ -871,8 +872,32 @@ span.sg-sec-name { cursor: default; }
 .sh-th .o-canvas[data-t="response"] .b { font-size: calc(var(--sh-rsize) * 1cqw); font-weight: var(--sh-w); line-height: var(--sh-lh); text-align: var(--sh-align); align-items: var(--sh-items); justify-content: var(--sh-v); }
 .sh-th { background-size: cover !important; }
 .sh-edhead { display: flex; align-items: center; gap: var(--o-s2); padding: var(--o-s2) var(--o-s4); background: var(--o-surface); border-bottom: 1px solid var(--o-border); flex: none; min-height: calc(52px * var(--o-scale)); box-sizing: border-box; }
-.sh-edname { display: flex; align-items: center; gap: var(--o-s3); min-width: 0; flex-wrap: wrap; }
+.sh-edname { display: flex; align-items: center; gap: var(--o-s3); min-width: 0; flex-wrap: nowrap; }
 .sh-edname .o-title { font-size: calc(18px * var(--o-scale)); }
+/* Stable header heights: a header's height follows the workspace width only, never which title,
+   status or actions the current state shows. Text that runs out of room ends in an ellipsis instead
+   of wrapping, and the kit gives it a tooltip with the full text. */
+.sh-edname > * { flex: none; white-space: nowrap; }
+.sh-edname > .o-title, .sh-edname > .o-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sh-edname > .o-meta { flex-shrink: 4; }
+.sh-edname > .o-title { min-width: min(max-content, 7em); }
+.sh-edname > .o-status { flex: none; }
+.o-grow[data-narrow] :is(.sh-edhead, .sg-edhead) .o-btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.o-grow[data-narrow] :is(.sh-edhead, .sg-edhead) > .o-btn:has(> .o-btn-label) { width: calc(var(--o-h-control) * var(--o-scale)); padding: 0; }
+.sh-edhead > .o-btn, .sg-edhead > .o-btn { flex: none; }
+.sg-edhead > .o-grow { min-width: 0; }
+.sg-edhead > .o-grow > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-head, .sg-libhead { flex-wrap: nowrap; box-sizing: border-box; min-height: calc(var(--o-s3) + var(--o-h-control) * var(--o-scale) + var(--o-s2) + 1px); }
+.sh-head > *, .sg-libhead > * { flex: none; }
+.sh-head > .o-grow, .sg-libhead > .o-grow { flex: 1 1 0; }
+/* The title holds the row at button height, so a row without actions is as tall as one with them. */
+:is(.sh-head, .sg-libhead) > .o-title { box-sizing: border-box; min-height: calc(var(--o-h-control) * var(--o-scale) + var(--o-s2)); display: flex; align-items: flex-end; }
+.sh-edhead { min-height: calc(var(--o-s3) + var(--o-h-control) * var(--o-scale) + var(--o-s2) + 1px); }
+.sh-head > .o-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A narrow workspace (data-narrow, set from its logical width) always puts a header's tabs on a second
+   row, whether or not the current view has actions beside the title. */
+.o-grow[data-narrow] :is(.sh-head, .sg-libhead):has(> [role="tablist"]) { flex-wrap: wrap; row-gap: 0; }
+.o-grow[data-narrow] :is(.sh-head, .sg-libhead) > [role="tablist"] { order: 10; flex: 1 0 100%; }
 .sh-edpanes { display: flex; flex: 1; min-height: 0; }
 .sh-ctl { width: calc(380px * var(--o-scale)); flex: none; border-right: 1px solid var(--o-border); }
 .sh-gtabs { padding: 0 var(--o-s4); background: var(--o-surface); flex: none; }

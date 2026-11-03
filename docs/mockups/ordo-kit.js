@@ -1039,7 +1039,20 @@
       if (e.scrollHeight > e.clientHeight && !e.querySelector("a[href], button, input, select, textarea")) e.tabIndex = 0;
       else e.removeAttribute("tabindex");
     });
-    app.querySelectorAll(".o-ellipsis").forEach(function (e) {
+    // Header rows follow the workspace's logical width: under 1000px a header's tabs take a second row.
+    var ws = app.querySelector(".o-body > .o-grow"), sc = parseFloat(app.style.getPropertyValue("--o-scale")) || 1;
+    if (ws) ws.toggleAttribute("data-narrow", ws.clientWidth / sc < 1000);
+    // In a narrow workspace an editor header's secondary actions show their icon alone (the label stays
+    // the accessible name), so the title keeps its room and the header keeps one row.
+    app.querySelectorAll(":is(.sh-edhead, .sg-edhead) > .o-btn:not(:first-child):not(.o-btn--primary)").forEach(function (b) {
+      if (!b.querySelector(":scope > svg") || b.querySelector(":scope > .o-btn-label")) return;
+      var text = "";
+      [].slice.call(b.childNodes).forEach(function (n) { if (n.nodeType === 3 && n.textContent.trim()) { text += n.textContent; n.remove(); } });
+      if (!text.trim()) return;
+      var l = document.createElement("span"); l.className = "o-btn-label"; l.textContent = text.trim(); b.appendChild(l);
+      if (!b.title) b.title = text.trim();
+    });
+    app.querySelectorAll(".o-ellipsis, .sh-edname > .o-title, .sh-edname > .o-meta, .sg-edhead > .o-grow > *, .sh-head > .o-meta").forEach(function (e) {
       if (e.scrollWidth > e.clientWidth + 1) e.title = e.textContent.trim(); else e.removeAttribute("title");
     });
   }

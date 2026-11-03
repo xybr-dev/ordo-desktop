@@ -672,8 +672,12 @@ effective space returns.
 
 Never truncate Live, Freeze, Blackout, congregation-output health, active
 warnings/errors, readiness counts, scheduled times, or contextual primary
-actions. Reflow them and remove lower-priority context first. A current
-workspace/entity title may wrap to two lines; narrow list, outline, and Ordo
+actions. Reflow them and remove lower-priority context first. A header bar's
+height follows the workspace width only, never the current tab, item, actions
+or status (Decision 302): workspace and editor header titles take one line with
+an ellipsis, narrow workspaces always put header tabs on their own row, and an
+editor header's secondary actions show their icon alone there. The Mass plan
+title may wrap to two lines; narrow list, outline, and Ordo
 rows use one-line ellipsis; Cue captions may use two lines outside the canonical
 frame.
 
