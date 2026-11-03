@@ -12,7 +12,7 @@
   --mk-text: #27231F;
   --mk-muted: #6B655C;
   --mk-border: #D7CFC2;
-  --mk-border-strong: #8E8476;
+  --mk-border-strong: #8A8072;
   --mk-primary: #355D4B;
   --mk-focus: #2F6FA3;
   --mk-approved: #2F6B4F;
@@ -23,7 +23,7 @@
   --mk-superseded-soft: #F3E0DC;
   --mk-research: #6D4A87;
   --mk-research-soft: #EAE2F0;
-  --mk-caveat: #9A5B10;
+  --mk-caveat: #945710;
   --mk-caveat-soft: #F5E6D0;
 }
 @media (prefers-color-scheme: dark) {

@@ -7,7 +7,7 @@ recorded: 2026-11-02
 tags: [design, presenter]
 supersedes: []
 superseded_by: null
-amends: []
+amends: [10, 63]
 amended_by: []
 sources: []
 ---
@@ -23,7 +23,9 @@ up to four thumbnails per row at that size.
 ## Decision
 
 - At `1920x1080` the Output Dock is `520px` wide.
-- The Cue frame floor drops from `300px` to `270px`, which keeps four frames per row.
+- The Cue frame floor drops from `300px` to `270px`, which keeps four frames per row. This replaces the
+  `300px` floor in Decisions [10](0010-presenter-layout.md) and
+  [63](0063-minimum-visual-slide-grid-thumbnail-size.md).
 - `1366x768` keeps its `360px` dock and three frames.
 - When the window is too short for both monitors and the commands, the monitors shrink. Freeze, Blackout
   and the primary action never leave the window.
@@ -31,9 +33,9 @@ up to four thumbnails per row at that size.
 ## Alternatives considered
 
 - **Leave the dock at `400px`.** It keeps larger thumbnails and smaller monitors, against the plan.
-- **A wider dock.** `556px` is the limit at which four `270px` frames still fit.
+- **A wider dock.** `525px` is the limit at which four `270px` frames still fit.
 
 ## Consequences
 
-Program and Preview are about 1.75 times a Cue frame's width at `1920x1080`. Cue frames are smaller, so
+Program and Preview are about 1.8 times a Cue frame's width at `1920x1080`. Cue frames are smaller, so
 their captions need checking on real parish content.

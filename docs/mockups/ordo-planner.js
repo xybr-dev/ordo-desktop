@@ -195,7 +195,7 @@
   function field(path, val, o) {
     o = o || {};
     var attrs = ' data-input="f" data-path="' + path + '" data-focus-key="' + path + '"' + (o.ro ? " readonly" : "") + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : "") + (o.id ? ' id="' + o.id + '"' : "");
-    if (o.rows) return '<textarea class="pl-input" aria-label="' + esc(o.name || o.label || "Text") + '" rows="' + o.rows + '"' + attrs + ">" + esc(val) + "</textarea>";
+    if (o.rows) return '<textarea class="pl-input" aria-label="' + esc(o.name || o.label || o.ph || "Text") + '" rows="' + o.rows + '"' + attrs + ">" + esc(val) + "</textarea>";
     return '<input class="pl-input' + (o.small ? " pl-input--sm" : "") + '"' + (o.type ? ' type="' + o.type + '"' : "") + attrs + ' value="' + esc(val) + '">';
   }
   function choose(path, val, options, o) {
@@ -407,7 +407,7 @@
         });
       });
       return '<section class="o-pane pl-outline" aria-label="Mass outline"><div class="o-pane-head"><b>Mass outline</b><span class="o-grow"></span>' +
-        '<button class="o-btn' + (wide ? "" : " o-btn--icon") + '" data-act="add" data-anchor="add" aria-haspopup="menu" aria-expanded="' + (S.overlay === "add") + '"' + (wide ? "" : ' aria-label="Add Mass item" title="Add Mass item"') + ">" +
+        '<button class="o-btn' + (wide ? "" : " o-btn--icon") + '" data-act="add" data-anchor="add" aria-expanded="' + (S.overlay === "add") + '"' + (wide ? "" : ' aria-label="Add Mass item" title="Add Mass item"') + ">" +
         icon("plus") + (wide ? "Add Mass item" : "") + "</button></div>" +
         '<div class="o-pane-body o-rows--open">' + html + "</div></section>";
     }
@@ -816,7 +816,7 @@
       var toast = S.toast ? '<div class="o-toast" role="status">' + esc(S.toast) + (S.undo ? '<button class="o-btn" data-act="undo">Undo</button>' : "") + "</div>" : "";
       app.innerHTML = '<div class="o-body">' + K.navrail("Masses") + '<div class="o-grow pl-ws">' + header(wide, f) +
         '<div class="pl-panes">' + outline(wide, f) + editor(it, wide) + inspector(it, wide) + "</div></div></div>" + ov + toast;
-      K.panes(app, W / S.scale, { open: S.overlay === "add" ? "left" : null });   // the Add menu belongs to the outline
+      K.panes(app, W / S.scale, { open: S.overlay === "add" ? "left" : null, onClose: function () { if (S.overlay === "add") { S.overlay = null; render(); } } });   // the Add menu belongs to the outline
       K.icons();
       Object.keys(keep).forEach(function (q) {
         var el = app.querySelector(q + " .o-pane-body, " + q + " .o-overlay-body");

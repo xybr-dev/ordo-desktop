@@ -786,7 +786,7 @@ Passive Presenter surfaces such as the Ordo rail and shortcut reference leave `F
 - `O` opens and focuses the collapsed Ordo overlay, or focuses an already-pinned rail, without changing pin state. `Esc` returns focus to the active Cue; it closes an unpinned overlay but never collapses a pinned rail. The ORDO tab, rail footer, and shortcut reference expose this binding.
 - Selecting a Mass-item title scrolls the complete timeline rather than filtering it.
 - Timeline groups can be collapsed manually. The active Cue stays highlighted and is automatically kept in view during keyboard navigation.
-- Visual Slide Grid frames retain a minimum `300px` width at supported Presenter sizes. The responsive grid removes a column before shrinking below that floor; captions remain outside the canonical 16:9 frame.
+- Visual Slide Grid frames retain a minimum `270px` width at supported Presenter sizes. The responsive grid removes a column before shrinking below that floor; captions remain outside the canonical 16:9 frame.
 - At 1366×768, start with the Ordo rail collapsed, approximately three timeline thumbnails per row, and stacked Program/Preview.
 - At 1920×1080, start with the rail pinned, allow up to four thumbnails per row, and allocate more output-monitor space.
 - Narrower resizable windows may fall to two or one grid columns without automatically changing the operator's persisted timeline mode or any presentation state.

@@ -8,7 +8,7 @@ tags: [presenter, ui]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: [203]
+amended_by: [203, 296]
 sources: []
 ---
 
@@ -17,6 +17,10 @@ sources: []
 > **Superseded in part by Decision [203](0203-same-window-native-full-screen-presenter-mode.md).** Presenter now transforms the existing
 > operator window into native full-screen Live Control rather than merely
 > maximizing it. The three-column hierarchy and remaining layout rules below
+> stay adopted.
+
+> **Amended by Decision [296](0296-the-output-dock-grows-to-520px-at-1920.md).** The Visual Slide Grid
+> floor is now `270px`, not `300px`, and the Output Dock is `520px` at `1920x1080`. The other layout rules
 > stay adopted.
 
 Every projectable slide uses a fixed `1920x1080` logical canvas:

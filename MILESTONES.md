@@ -784,7 +784,7 @@ at every qualified effective size.
       monitors simultaneously visible above the timeline when required.
 - [ ] `[UI-AUTO]` Visual Slide Grid and Compact Cue List preferences persist
       locally and never change Presentation Engine state.
-- [ ] `[UI-AUTO]` Grid thumbnails stay at least 300px where the preferred layout
+- [ ] `[UI-AUTO]` Grid thumbnails stay at least 270px where the preferred layout
       can remove a column; sparse rows never stretch frames.
 - [ ] `[UI-AUTO]` Ordo groups display Mass-item titles only and scroll the full
       timeline to a group rather than filtering it.

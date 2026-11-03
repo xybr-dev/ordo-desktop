@@ -8,11 +8,14 @@ tags: [rendering]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [296]
 sources: []
 ---
 
 # Minimum Visual Slide Grid thumbnail size
+
+> **Amended by Decision [296](0296-the-output-dock-grows-to-520px-at-1920.md).** The floor is now `270px`,
+> not `300px`. Removing a column before shrinking below the floor stays adopted.
 
 - In supported Presenter layouts, the canonical 16:9 frame inside a Visual Slide Grid item has a minimum width of `300px`, producing a frame approximately `300x169px` on screen.
 - The minimum applies to the canonical image area, not to captions or group labels placed outside it. The frame is always a scaled or density-rerendered copy of the canonical slide and never reflows its content to fit the thumbnail.

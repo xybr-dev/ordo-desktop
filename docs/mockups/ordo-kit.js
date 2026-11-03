@@ -178,6 +178,10 @@
   // the main pane stays fixed and the others become opposing slideovers, one at a time. `width` is the
   // logical window width after Interface scale, so a resized window and a high scale behave alike.
   var RAIL_W = 77, MIN_LIST = 240, MIN_MAIN = 520, MIN_INSPECTOR = 300;
+  var SIDE_PICK = "button.pl-item, button.sg-result, button.sg-doc, button.sh-navrow, button.sg-sec-name";   // choosing one of these closes the list
+  var SIDE_ABOVE = ".o-menu, .o-dialog, .o-slideover";                                                       // surfaces that sit over a slideover
+  var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
+  function restore(e, attr, v) { if (v) e.setAttribute(attr, v); else e.removeAttribute(attr); }
   function paneTier(width, hasInspector, listW) {
     var room = width - RAIL_W;
     if (hasInspector) return room >= MIN_LIST + MIN_MAIN + MIN_INSPECTOR ? "full" : room >= MIN_LIST + MIN_MAIN ? "inspector" : "editor";
@@ -186,8 +190,13 @@
   function panes(app, width, opts) {
     app.removeAttribute("data-tier"); app.removeAttribute("data-side");
     app.querySelectorAll(".o-sidebar, .o-side-scrim, .o-side-close").forEach(function (e) { e.remove(); });
-    app.querySelectorAll(".o-side-l.is-open, .o-side-r.is-open").forEach(function (e) { e.classList.remove("is-open"); });
-    var host = app.querySelector(".o-body .pl-panes, .o-body .sg-panes, .o-body .sh-edpanes");
+    app.querySelectorAll(".o-side-l.is-open, .o-side-r.is-open").forEach(function (e) {
+      e.classList.remove("is-open"); e.removeAttribute("aria-modal");
+      restore(e, "role", e.dataset.sideRole); restore(e, "aria-label", e.dataset.sideLabel);
+    });
+    app.querySelectorAll(".o-side-main[inert]").forEach(function (e) { e.removeAttribute("inert"); });
+    if (opts) app.__sideClose = opts.onClose;
+    var host = app.querySelector(".o-body .pl-panes, .o-body .sg-panes");
     var list = host ? [].filter.call(host.children, function (c) { return c.classList.contains("o-pane"); }) : [];
     if (list.length < 2) { app.__side = null; return "full"; }
     var left = list[0], right = list.length > 2 ? list[list.length - 1] : null, scale = parseFloat(app.style.getPropertyValue("--o-scale")) || 1;
@@ -206,7 +215,10 @@
     var open = app.__side === "left" ? left : app.__side === "right" ? right : null;
     if (open) {
       app.dataset.side = app.__side; open.classList.add("is-open");
-      var label = "Close " + name(open);
+      var title = name(open), label = "Close " + title;
+      open.dataset.sideRole = open.getAttribute("role") || ""; open.dataset.sideLabel = open.getAttribute("aria-label") || "";
+      open.setAttribute("role", "dialog"); open.setAttribute("aria-modal", "true"); open.setAttribute("aria-label", title);
+      list[1].setAttribute("inert", "");
       open.insertAdjacentHTML("afterbegin", '<button class="pl-close-tab o-side-close" data-side-close aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(app.__side === "left" ? "chevron-left" : "chevron-right") + "</button>");
       host.insertAdjacentHTML("afterbegin", '<div class="o-scrim pl-scrim--light o-side-scrim" data-side-close></div>');
     }
@@ -214,19 +226,31 @@
     if (!app.__sideBound) {
       app.__sideBound = true;
       var setSide = function (id, focusOn) {
-        app.__side = id; panes(app, app.__paneW);
+        app.__side = id;
+        if (!id && app.__sideClose) app.__sideClose();
+        panes(app, app.__paneW);
         var f = app.querySelector(focusOn); if (f) f.focus({ preventScroll: true });
       };
       app.addEventListener("click", function (e) {
         var t = e.target.closest && e.target.closest("[data-side-toggle], [data-side-close]");
         if (t && t.dataset.sideToggle) { var id = t.dataset.sideToggle; if (app.__side === id) setSide(null, '[data-side-toggle="' + id + '"]'); else setSide(id, ".o-side-close"); }
         else if (t) { var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]'); }
-        else if (app.__side === "left" && e.target.closest && e.target.closest(".o-side-l .o-row")) setSide(null, '[data-side-toggle="left"]');
+        else if (app.__side === "left" && e.target.closest && e.target.closest(".o-side-l :is(" + SIDE_PICK + ")")) setSide(null, '[data-side-toggle="left"]');
       });
+      // Capture phase: the slideover must see that a menu is open before the menu's own handler closes it.
       app.addEventListener("keydown", function (e) {
-        if (e.key !== "Escape" || !app.__side || e.defaultPrevented) return;
-        e.preventDefault(); var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]');
-      });
+        if (!app.__side || e.defaultPrevented || app.querySelector(SIDE_ABOVE)) return;
+        if (e.key === "Escape") {
+          if (e.target.dataset && e.target.dataset.in === "draft") return;   // Escape cancels the rename first
+          e.preventDefault(); var was = app.__side; setSide(null, '[data-side-toggle="' + was + '"]');
+        } else if (e.key === "Tab") {
+          var pane = app.querySelector(".o-side-l.is-open, .o-side-r.is-open");
+          var all = [].filter.call(pane.querySelectorAll(FOCUSABLE), function (x) { return x.getClientRects().length; });
+          if (!all.length) return;
+          var at = all.indexOf(document.activeElement), next = at < 0 ? all[0] : e.shiftKey && at === 0 ? all[all.length - 1] : !e.shiftKey && at === all.length - 1 ? all[0] : null;
+          if (next) { e.preventDefault(); next.focus(); }
+        }
+      }, true);
     }
     return tier;
   }
@@ -278,12 +302,13 @@
       return l === "wide";                               // 1920 pinned, 1366 collapsed
     }
     // Frames keep a 270px floor (scaled with the chrome); drop a column before shrinking below it.
+    // A cell is the frame plus the 2px Cue padding on each side; the timeline's scrollbar takes its own width.
     function maxCols() {
       var s = S.scale, l = layout(), w = W;
       if (l !== "constrained") w -= (railPinned() ? 200 : 28) * s + (l === "wide" ? 520 : 360) * s;
       else w -= 28 * s;
-      w -= (32 + 16) * s;                                  // timeline padding and group indent
-      var n = Math.floor((w + 12 * s) / ((270 + 12) * s));
+      w -= (32 + 16) * s + 15;                             // timeline padding, group indent, scrollbar
+      var n = Math.floor((w + 12 * s) / ((270 + 4 + 12) * s));
       return Math.max(1, Math.min(l === "wide" ? 4 : 3, n));
     }
 
@@ -472,7 +497,7 @@
       // Program (live or held) and Preview each get a ring and a word; linked Live shows both on one Cue
       var air = c.i === S.program && S.output === "enabled" && !S.blackout ? (S.frozen ? "held" : "live") : "";
       var onAir = (air || cur) ? '<span class="pr-onair">' + (air ? statusLabel(air === "held" ? "freeze" : "live", air === "held" ? "Held" : "Program", air === "held" ? "diamond" : null) : "") +
-        (cur ? statusLabel("preview", "Preview", "ring") : "") + "</span>" : "";
+        (cur ? statusLabel("preview", "Preview", "square") : "") + "</span>" : "";
       var airAttr = air ? ' data-onair="' + air + '"' : "";
       if (S.mode === "grid" && (projectable(c) || c.k === "unavailable")) {
         return '<button class="pr-tile" data-cue="' + c.i + '"' + cur + '><div class="o-slide-wrap"' + cur + airAttr + ">" + slide(c) + "</div>" +
@@ -830,6 +855,7 @@
     }
 
     function render() {
+      var had = app.contains(document.activeElement), onCue = had && document.activeElement.dataset.cue != null;
       var l = layout(), pinned = railPinned();
       app.style.setProperty("--o-scale", S.scale);
       app.style.setProperty("--pr-band-mon", Math.floor(H * 0.3 * 16 / 9) + "px");
@@ -876,6 +902,10 @@
         if (want[0] < tl.scrollTop + pad || want[1] > tl.scrollTop + tl.clientHeight) tl.scrollTop = Math.max(0, want[0] - pad);
       }
       S.follow = false;
+      // innerHTML drops the focused element; without this Space, F and B would stop reaching the operator's keys.
+      if (had && !S.ins && !app.contains(document.activeElement)) {
+        ((onCue && tl && tl.querySelector('[data-cue="' + S.preview + '"]')) || app).focus({ preventScroll: true });
+      }
     }
 
     function step(d) { S.follow = true; select(S.preview + d); render(); }
@@ -985,6 +1015,7 @@
   var ITEMS_SEL = "button.pr-tile, button.pr-row, button.pr-rail-row, button.pl-item, button.pl-cue, button.sg-result, button.sg-doc, button.sg-rev";
   var GROUP_SEL = ".pr-timeline, .pr-rail, .pl-outline, .pl-thumbs, .sg-browser, .pl-cues";
   var REGION_SEL = ".o-navrail, .pr-rail, .pr-timeline, .pr-dock, .o-pane";
+  var MODAL_SEL = ".o-dialog, .o-slideover, .pr-ins-panel, .o-side-l.is-open, .o-side-r.is-open";
   function shown(e) { return e.getClientRects().length > 0; }
   function refresh(app) {
     app.querySelectorAll(GROUP_SEL).forEach(function (g) {
@@ -1013,17 +1044,19 @@
     var t = e.target, app = t.closest && t.closest(".o-app");
     if (!app) return;
     if (e.key === "F6") {
+      if ([].some.call(app.querySelectorAll(MODAL_SEL), shown)) { e.preventDefault(); e.stopPropagation(); return; }   // a modal surface keeps focus
       var rs = Array.prototype.filter.call(app.querySelectorAll(REGION_SEL), shown);
       rs = rs.filter(function (r) { return !rs.some(function (o) { return o !== r && o.contains(r); }); });
       if (rs.length < 2) return;
       var at = rs.findIndex(function (r) { return r.contains(t); });
-      var r = rs[(at + (e.shiftKey ? -1 : 1) + rs.length) % rs.length];
+      var r = rs[at < 0 ? (e.shiftKey ? rs.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + rs.length) % rs.length];
       var f = r.querySelector('[tabindex="0"], a[href], button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select, textarea');
       if (f) f.focus();
       e.preventDefault(); e.stopPropagation();
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;   // Alt+arrows belong to the workspace
     if (!t.matches(ITEMS_SEL) || t.closest(".pr-timeline")) return;
     var g = t.closest(GROUP_SEL);
     if (!g) return;
