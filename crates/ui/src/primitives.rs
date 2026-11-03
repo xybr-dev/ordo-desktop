@@ -9,6 +9,8 @@ pub mod button;
 pub mod disclosure;
 pub mod field;
 pub mod list;
+pub mod nav;
+pub mod record;
 pub mod selection;
 
 use gpui::{

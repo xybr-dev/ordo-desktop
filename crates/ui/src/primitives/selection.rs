@@ -68,6 +68,11 @@ struct State {
     /// own outside-press handler. Without it the press dismisses and the
     /// release reopens, so the control that opens the popup cannot close it.
     press_on_trigger: bool,
+    /// Where a tab strip last laid out its tabs, which its underline travels
+    /// between (Decision 301). Unused by the popup kinds.
+    track: crate::motion::Track,
+    /// How many times the popup has opened, which restarts its entrance.
+    opens: u64,
 }
 
 impl State {
@@ -99,6 +104,8 @@ impl State {
             restore_to: SharedString::default(),
             creatable: false,
             press_on_trigger: false,
+            track: crate::motion::Track::default(),
+            opens: 0,
         }
     }
 
@@ -196,6 +203,9 @@ impl State {
     }
 
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.open {
+            self.opens += 1;
+        }
         self.open = true;
         if let Some(field) = self.field.as_ref() {
             self.restore_to = field.value(cx);
@@ -763,25 +773,22 @@ impl Control {
             .when(choice.availability.is_available(), |t| {
                 t.on_click(move |_, w, cx| choose(i, w, cx))
             })
-            .border_b(px(if frame.selected == Some(i) {
-                scale.apply(2.0)
-            } else {
-                0.0
-            }))
-            .border_color(rgb(palette.text))
+            // The selected tab is marked by the strip's travelling underline
+            // and by its full-strength label; the others are muted, and the
+            // pointer brings one up to full strength before it is chosen.
             .child(choice.label.clone())
-            .px(px(scale.apply(12.0)))
-            .py(px(scale.apply(8.0)))
-            .when(frame.selected == Some(i), |t| t.bg(rgb(palette.selection)))
+            .flex_none()
+            .whitespace_nowrap()
+            .py(px(scale.apply(tokens::spacing::RELATED)))
             .when(choice.availability.is_available(), |t| {
                 t.cursor_pointer().when(frame.selected != Some(i), |t| {
-                    t.hover(|style| style.bg(rgb(palette.surface_secondary)))
+                    t.hover(move |style| style.text_color(rgb(palette.text)))
                 })
             })
-            .text_color(rgb(if choice.availability.is_disabled() {
-                palette.text_muted
-            } else {
+            .text_color(rgb(if frame.selected == Some(i) {
                 palette.text
+            } else {
+                palette.text_muted
             }))
             .when_some(choice.availability.reason(), |t, r| {
                 t.aria_description(format!("Unavailable. {r}"))
@@ -1033,6 +1040,7 @@ impl Control {
     fn render(self, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
         let state = self.state.0.read(cx);
         let open = state.open;
+        let opens = state.opens;
         let choice_count = state.choices.len();
         let frame = state.frame(cx);
         let scroll = state.scroll.clone();
@@ -1081,9 +1089,49 @@ impl Control {
                 }
             });
         if kind == Kind::Tabs {
+            // One underline per strip travels to the selected tab and takes
+            // its width (Decision 301). It is placed from where the strip last
+            // laid its tabs out; the first child is an origin probe, so the
+            // recorded bounds carry the strip's own origin first.
+            let track = state.track.clone();
+            let underline = frame.selected.and_then(|selected| {
+                let (strip, tab) = track.get(0).zip(track.get(selected + 1))?;
+                let id = ElementId::from((self.id.clone(), "underline"));
+                let left = crate::motion::travel(
+                    (id.clone(), "left"),
+                    selected,
+                    f32::from(tab.origin.x - strip.origin.x),
+                    window,
+                    cx,
+                );
+                let width = crate::motion::travel(
+                    (id, "width"),
+                    selected,
+                    f32::from(tab.size.width),
+                    window,
+                    cx,
+                );
+                Some(
+                    div()
+                        .debug_selector(|| "tab-underline".into())
+                        .absolute()
+                        .bottom_0()
+                        .left(px(left))
+                        .w(px(width))
+                        .h(px(scale.apply(2.0)))
+                        .bg(rgb(palette.primary_foreground)),
+                )
+            });
+            let mut strip = div()
+                .relative()
+                .flex()
+                .gap(px(scale.apply(tokens::spacing::GROUP)))
+                .on_children_prepainted(track.record())
+                .child(div().absolute().inset_0());
             for i in 0..choice_count {
-                list = list.child(self.tab(i, &frame, cx));
+                strip = strip.child(self.tab(i, &frame, cx));
             }
+            list = list.child(strip.children(underline));
             // Too many local views run off to the side and scroll, rather than
             // wrapping onto a second line: a wrapped strip moves every tab
             // under it the moment one more is added or the window narrows.
@@ -1146,18 +1194,33 @@ impl Control {
         // The indicator is a sibling of the scrolling element, not a child:
         // a child would be translated by the scroll offset and slide away with
         // the content it is reporting on.
-        let list = div().relative().child(list).children(
-            open.then(|| {
-                scroll.indicator(
-                    "selection-list",
-                    tokens::radius::OVERLAY,
-                    window,
-                    cx,
-                    self.environment,
-                )
-            })
-            .flatten(),
+        // A popup fades in while dropping `4px` from its trigger (Decision
+        // 309). Sampled on every render, open or not, so the entrance state
+        // exists before the first open and that one moves too.
+        let entrance = crate::motion::entrance(
+            (self.id.clone(), "popup-entrance"),
+            opens,
+            -scale.apply(4.0),
+            window,
+            cx,
         );
+        let list = div()
+            .relative()
+            .top(px(entrance.offset))
+            .opacity(entrance.opacity)
+            .child(list)
+            .children(
+                open.then(|| {
+                    scroll.indicator(
+                        "selection-list",
+                        tokens::radius::OVERLAY,
+                        window,
+                        cx,
+                        self.environment,
+                    )
+                })
+                .flatten(),
+            );
         let popup = gpui::deferred(
             // `Anchored` is already positioned at the trigger's bottom-left, so
             // this offset is the deliberate gap, not the trigger's own height.

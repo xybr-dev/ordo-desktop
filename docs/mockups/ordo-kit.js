@@ -1286,9 +1286,9 @@
     });
     st.disc = disc;
   }
-  // Floating surfaces. A dialog zooms in from 95% with the overlay timing (400ms in, 200ms out); a menu, popover
+  // Floating surfaces (Decision 309). A dialog fades in while rising 8px with the overlay timing (400ms in, 200ms out); a menu, popover
   // or toast with the standard 160ms. Each keeps its own centring transform underneath the motion.
-  var FLOAT = { dlg: { inMs: OPEN, outMs: CLOSE, from: "scale(0.95)" }, menu: { inMs: STD, outMs: 120, from: "translateY(-4px) scale(0.95)", origin: "top" }, toast: { inMs: STD, outMs: STD, from: "translateY(8px)" } };
+  var FLOAT = { dlg: { inMs: OPEN, outMs: CLOSE, from: "translateY(8px)" }, menu: { inMs: STD, outMs: 120, from: "translateY(-4px)", origin: "top" }, toast: { inMs: STD, outMs: STD, from: "translateY(8px)" } };
   FLOAT.panel = { inMs: OPEN, outMs: CLOSE, fade: false, from: function (el) { return "translateX(" + -(el.offsetWidth + 16) + "px)"; } };
   function frames(f, el, b, shown) {
     var fr = { transform: shown ? b || "none" : b + (typeof f.from === "function" ? f.from(el) : f.from), transformOrigin: f.origin || "center" };

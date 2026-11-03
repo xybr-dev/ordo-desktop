@@ -19,6 +19,7 @@
 //! at the chrome.
 
 pub mod fixtures;
+mod masses;
 pub mod rail;
 
 use std::{mem, rc::Rc, time::Instant};
@@ -39,10 +40,12 @@ use crate::{
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
     accessibility::RegionRegistry,
+    assets,
     environment::{EnvironmentChange, PreparationAppearance, UiEnvironment, UiPreferences},
+    motion::Track,
     overlay::{Overlay, OverlayHost},
     primitives::{
-        button::Button,
+        button::{Button, Tone},
         list::{self, Badge, ListRow},
         selection::{Choice, SelectionState, Tabs},
     },
@@ -69,6 +72,22 @@ actions!(
 const GLOBAL_NAVIGATION: &str = "Global navigation";
 const WORKSPACE_ACTIONS: &str = "Workspace actions";
 const PRIMARY_LIST: &str = "Primary list";
+/// Under this logical workspace width a header's tabs take their own row
+/// (Decision 302).
+const NARROW_WORKSPACE: f32 = 1000.0;
+/// How far a new rail destination rises, and a new tab view slides, as it
+/// enters (Decision 301).
+const PAGE_RISE: f32 = 12.0;
+const PAGE_SLIDE: f32 = 24.0;
+
+/// The last navigation change, which decides how the content enters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PageChange {
+    Destination,
+    /// A tab change: the new index while recording, then `1` for a move
+    /// towards the trailing end and `0` towards the leading one.
+    Tab(usize),
+}
 const MAIN_EDITOR: &str = "Main editor";
 
 /// The list column's own logical width, `DESIGN.md`'s minimum for a primary
@@ -97,6 +116,18 @@ pub struct ShellView {
     /// the operator back a viewer scrolled to a position they never chose.
     editor_scroll: Scroll,
     registry: RegionRegistry,
+    /// Where the rail last laid its entries out, which its pill travels
+    /// between (Decision 301).
+    rail_track: Track,
+    /// Masses → Upcoming's filters and folded groups.
+    masses: masses::MassesIndex,
+    /// The content beneath the header enters after a navigation change
+    /// (Decision 301): this counts the changes, and says which way the last
+    /// one moved.
+    page: (u64, PageChange),
+    /// The local view the last tab change left, for the side the next one
+    /// slides in from.
+    page_tab: Option<usize>,
     overlays: OverlayHost,
     environment: UiEnvironment,
     preferences_restore_pending: bool,
@@ -162,6 +193,10 @@ impl ShellView {
             viewer_scroll: Scroll::new(),
             editor_scroll: Scroll::new(),
             registry: RegionRegistry::default(),
+            rail_track: Track::default(),
+            masses: masses::MassesIndex::new(window, cx),
+            page: (0, PageChange::Destination),
+            page_tab: Some(0),
             overlays: OverlayHost::new(cx),
             environment,
             preferences_restore_pending: save_preferences.is_some(),
@@ -263,6 +298,8 @@ impl ShellView {
             return;
         }
         self.destination = destination;
+        self.change_page(PageChange::Destination);
+        self.page_tab = self.local_views().and_then(|state| state.selected(cx));
         // A destination keeps its own local view, but not another's selection:
         // row 2 of Upcoming means nothing in Songs.
         self.selected_row = None;
@@ -271,6 +308,22 @@ impl ShellView {
             self.sample_memory(cx);
         }
         cx.notify();
+    }
+
+    /// Starts the entrance of the content beneath the header. A tab change
+    /// records which way it moved, so the new view slides in from that side.
+    fn change_page(&mut self, change: PageChange) {
+        let change = match change {
+            PageChange::Tab(to) => {
+                let from = self.page_tab.replace(to).unwrap_or(to);
+                if from == to {
+                    return;
+                }
+                PageChange::Tab(usize::from(to > from))
+            }
+            PageChange::Destination => PageChange::Destination,
+        };
+        self.page = (self.page.0 + 1, change);
     }
 
     /// Samples this process's resident memory on a background task. The panel
@@ -397,31 +450,25 @@ impl ShellView {
         })
     }
 
-    /// The workspace header: the destination's title and actions above its
-    /// local views.
+    /// The workspace header: the destination's title, its local views, and
+    /// its actions (Decision 302).
     ///
-    /// The seam between what the workspace *is* and what it is *showing* is the
-    /// header's own bottom edge, so a destination with no local views is ruled
-    /// like every other one. The tab strip, where there is one, draws only the
-    /// edge above itself — the seam between the title and the views — and the
-    /// header's edge finishes it below. That keeps the pair of rules the tabs
-    /// sit between without either surface doubling the other's border.
-    fn header(&mut self, gutter: f32, cx: &mut Context<Self>) -> AnyElement {
+    /// Its height depends on the workspace width only: the row is always tall
+    /// enough for a full-height control whether or not it holds one, and the
+    /// title takes one line and ellipsizes. A wide workspace keeps its tabs on
+    /// the title's row, sitting on the header's bottom edge; under `1000px`
+    /// they always take their own row, whatever is beside the title.
+    fn header(&mut self, gutter: f32, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let view = cx.entity().downgrade();
-        let overlays = self.overlays.clone();
         let tabs = self.local_views().map(|state| {
             div()
                 .debug_selector(|| "workspace-tabs".into())
                 .flex_none()
-                .w_full()
-                // No gutter: the strip rules the workspace edge to edge, and
-                // the first local view starts on that edge rather than floating
-                // in from it.
-                .border_t(px(tokens::border::SEPARATOR))
-                .border_color(rgb(palette.border))
+                .min_w_0()
+                .when(narrow, |tabs| tabs.w_full().px(px(gutter)))
                 .child(
                     Tabs::new(
                         "local-views",
@@ -429,17 +476,44 @@ impl ShellView {
                         state,
                         environment,
                     )
-                    .on_surface(palette.background)
+                    .on_surface(palette.surface)
                     // The state is authoritative and notifies on its own; this
                     // is the redraw seam for what the local view *shows*.
-                    .on_select(move |_, _, cx| {
+                    .on_select(move |selected, _, cx| {
                         let _ = view.update(cx, |view, cx| {
                             view.selected_row = None;
+                            if let Some(selected) = selected {
+                                view.change_page(PageChange::Tab(selected));
+                            }
                             cx.notify();
                         });
                     }),
                 )
         });
+        let control = scale.apply(tokens::density::DEFAULT_CONTROL);
+        let top = scale.apply(tokens::spacing::RELATED + tokens::spacing::UNIT);
+        let action_gap = scale.apply(tokens::spacing::RELATED);
+        let title = ui::primitives::truncated(
+            div()
+                .id("workspace-title")
+                .debug_selector(|| "workspace-title".into())
+                .min_w_0()
+                .flex_shrink(1.0)
+                .truncate()
+                .pb(px(top))
+                .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                .child(self.destination.label()),
+            self.destination.label(),
+            environment,
+        );
+        let actions = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(action_gap))
+            .pb(px(action_gap))
+            .children(self.header_actions(cx));
+        let (inline_tabs, own_row) = if narrow { (None, tabs) } else { (tabs, None) };
         // A short window scrolls its panes; it does not compress the header.
         // `DESIGN.md` puts the current entity and the primary workspace action
         // among the things that are never truncated, and a flex child gives up
@@ -449,49 +523,95 @@ impl ShellView {
             .flex_none()
             .flex()
             .flex_col()
+            .bg(rgb(palette.surface))
             .border_b(px(tokens::border::SEPARATOR))
             .border_color(rgb(palette.border))
             .child(
                 div()
+                    .debug_selector(|| "workspace-header-row".into())
                     .flex_none()
                     .flex()
-                    .items_center()
-                    .justify_between()
+                    .items_end()
                     .gap(px(scale.apply(tokens::spacing::GROUP)))
                     .px(px(gutter))
-                    .py(px(scale.apply(tokens::spacing::GROUP)))
-                    .child(ui::primitives::truncated(
-                        div()
-                            .id("workspace-title")
-                            .debug_selector(|| "workspace-title".into())
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                            .child(self.destination.label()),
-                        self.destination.label(),
-                        environment,
-                    ))
-                    .child(
-                        // The Inspector `DESIGN.md` puts in a labeled right
-                        // slideover when the workspace is constrained, and the
-                        // shell's one use of the overlay layer it owns.
-                        Button::new("inspector", "Inspector", environment)
-                            .on_surface(palette.background)
-                            .on_activate(move |window, cx| {
-                                overlays.clone().open(
-                                    Overlay::slideover("Inspector")
-                                        .description("Details and readiness")
-                                        .body(|_, _, _| {
-                                            div().child("Nothing is selected.").into_any_element()
-                                        }),
-                                    window,
-                                    cx,
-                                );
-                            }),
-                    ),
+                    .pt(px(top))
+                    // The floor: one full-height control and its padding, so
+                    // an action appearing or leaving never moves what is below.
+                    .min_h(px(top + control + action_gap))
+                    .child(title)
+                    .children(inline_tabs)
+                    .child(div().flex_1())
+                    .child(actions),
             )
-            .children(tabs)
+            .children(own_row)
             .into_any_element()
+    }
+
+    /// The destination's own actions, at the header's trailing end.
+    fn header_actions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let environment = self.environment;
+        let palette = tokens::palette(environment.appearance());
+        let overlays = self.overlays.clone();
+        let slideover =
+            move |title: &'static str, description: &'static str, body: &'static str| {
+                let overlays = overlays.clone();
+                move |window: &mut Window, cx: &mut App| {
+                    overlays.clone().open(
+                        Overlay::slideover(title)
+                            .description(description)
+                            .body(move |_, _, _| div().child(body).into_any_element()),
+                        window,
+                        cx,
+                    );
+                }
+            };
+        if self.destination != Destination::Masses {
+            // The Inspector `DESIGN.md` puts in a labeled right slideover when
+            // the workspace is constrained.
+            return vec![
+                Button::new("inspector", "Inspector", environment)
+                    .on_surface(palette.surface)
+                    .on_activate(slideover(
+                        "Inspector",
+                        "Details and readiness",
+                        "Nothing is selected.",
+                    ))
+                    .into_any_element(),
+            ];
+        }
+        // The backup reminder (Decision 198) opens Transfer & Backup; it is a
+        // standing warning, so it never shrinks.
+        let (days, changes) = fixtures::BACKUP_REMINDER;
+        let view = cx.entity().downgrade();
+        let reminder = Button::new(
+            "backup-reminder",
+            format!("No backup in {days} days \u{b7} {changes} changes"),
+            environment,
+        )
+        .icon(assets::icon::TRIANGLE_ALERT)
+        .tone(Tone::Warning)
+        .tooltip("Open Transfer & Backup")
+        .on_surface(palette.surface)
+        .on_activate(move |_, cx| {
+            let _ = view.update(cx, |view, cx| view.open(Destination::TransferAndBackup, cx));
+        });
+        let primary = if self.local_view(cx) == Some("Templates") {
+            Button::new("new-template", "New template", environment).on_activate(slideover(
+                "New template",
+                "The slots a new Mass plan starts with",
+                "Templates arrive with the Mass plan editor.",
+            ))
+        } else {
+            Button::new("new-celebration", "New Celebration", environment).on_activate(slideover(
+                "New Celebration",
+                "The Celebration comes first; its Masses hang under it",
+                "Celebrations are created once the parish database is in place.",
+            ))
+        }
+        .icon(assets::icon::PLUS)
+        .tone(Tone::Primary)
+        .on_surface(palette.surface);
+        vec![reminder.into_any_element(), primary.into_any_element()]
     }
 
     /// The primary list: one ruled column of rows. It is a bounded scrolling
@@ -642,9 +762,11 @@ impl ShellView {
         let gutter = self.gutter(window);
 
         let view = cx.entity().downgrade();
+        let track = self.rail_track.clone();
         let rail = rail::render(
             self.destination,
             collapsed,
+            &track,
             environment,
             move |destination| {
                 let view = view.clone();
@@ -652,8 +774,32 @@ impl ShellView {
                     let _ = view.update(cx, |view, cx| view.open(destination, cx));
                 })
             },
+            window,
+            cx,
         );
-        let header = self.header(gutter, cx);
+        let rail_width = if collapsed {
+            rail::collapsed_width(scale)
+        } else {
+            scale.apply(rail::EXPANDED_WIDTH) + tokens::border::SEPARATOR
+        };
+        let narrow = f32::from(window.viewport_size().width) - rail_width < NARROW_WORKSPACE;
+        let header = self.header(gutter, narrow, cx);
+        if self.destination == Destination::Masses && self.local_view(cx) == Some("Upcoming") {
+            let index = self.masses_upcoming(gutter, window, cx);
+            let index = self
+                .registry
+                .region(PRIMARY_LIST, window, cx)
+                .debug_selector(|| "shell-primary-list".into())
+                .size_full()
+                .child(index);
+            return self.frame(
+                rail.into_any_element(),
+                header,
+                index.into_any_element(),
+                window,
+                cx,
+            );
+        }
         let list = self
             .destination
             .has_primary_list()
@@ -662,16 +808,7 @@ impl ShellView {
 
         // Reading order: rail, header, list, viewer. Layout nests them; the
         // registry only needs to be their ancestor.
-        let rail = self
-            .registry
-            .region(GLOBAL_NAVIGATION, window, cx)
-            .flex_none()
-            .child(rail);
-        let header = self
-            .registry
-            .region(WORKSPACE_ACTIONS, window, cx)
-            .flex_none()
-            .child(header);
+        let rail = rail.into_any_element();
         let list = list.map(|list| {
             self.registry
                 .region(PRIMARY_LIST, window, cx)
@@ -706,6 +843,48 @@ impl ShellView {
             )
             .children(scroll.indicator("viewer", 0.0, window, cx, environment));
 
+        let body = div()
+            .size_full()
+            .flex()
+            .children(list)
+            .child(viewer)
+            .into_any_element();
+        self.frame(rail, header, body, window, cx)
+    }
+
+    /// The rail beside the header and the content beneath it. Only the content
+    /// moves on a navigation change (Decision 301): the rail, the header, and
+    /// the tab strip stay still.
+    fn frame(
+        &mut self,
+        rail: AnyElement,
+        header: AnyElement,
+        body: AnyElement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rail = self
+            .registry
+            .region(GLOBAL_NAVIGATION, window, cx)
+            .flex_none()
+            .child(rail);
+        let header = self
+            .registry
+            .region(WORKSPACE_ACTIONS, window, cx)
+            .flex_none()
+            .child(header);
+        let scale = self.environment.preferences().scale;
+        let (generation, change) = self.page;
+        let (dx, dy) = match change {
+            // A new destination rises about 12px; a new tab view slides about
+            // 24px in from the side the operator moved towards.
+            PageChange::Destination => (0.0, scale.apply(PAGE_RISE)),
+            PageChange::Tab(towards) => (
+                if towards == 1 { 1.0 } else { -1.0 } * scale.apply(PAGE_SLIDE),
+                0.0,
+            ),
+        };
+        let entrance = ui::motion::entrance("workspace-page", generation, 1.0, window, cx);
         self.registry
             .root(window, cx)
             .track_focus(&self.focus_handle)
@@ -721,9 +900,86 @@ impl ShellView {
                     .flex()
                     .flex_col()
                     .child(header)
-                    .child(div().flex_1().min_h_0().flex().children(list).child(viewer)),
+                    .child(
+                        div().flex_1().min_h_0().overflow_hidden().child(
+                            div()
+                                .debug_selector(|| "workspace-page".into())
+                                .relative()
+                                .size_full()
+                                .left(px(dx * entrance.offset))
+                                .top(px(dy * entrance.offset))
+                                .opacity(entrance.opacity)
+                                .child(body),
+                        ),
+                    ),
             )
             .into_any_element()
+    }
+
+    /// Masses → Upcoming beneath the header.
+    fn masses_upcoming(
+        &mut self,
+        gutter: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity().downgrade();
+        let toggle = {
+            let view = view.clone();
+            move |at: usize| -> masses::Activate {
+                let view = view.clone();
+                Box::new(move |_, cx| {
+                    let _ = view.update(cx, |view, cx| {
+                        view.masses.toggle(at);
+                        cx.notify();
+                    });
+                })
+            }
+        };
+        let open = {
+            let view = view.clone();
+            move |name: SharedString| -> masses::Activate {
+                let view = view.clone();
+                Box::new(move |_, cx| {
+                    let _ = view.update(cx, |view, cx| {
+                        view.editing = Some(name.clone());
+                        view.registry.focus_region(WORKSPACE_ACTIONS);
+                        cx.notify();
+                    });
+                })
+            }
+        };
+        let overlays = self.overlays.clone();
+        let add_mass = move |title: &'static str| -> masses::Activate {
+            let overlays = overlays.clone();
+            Box::new(move |window, cx| {
+                overlays.clone().open(
+                    Overlay::slideover("Add a Mass")
+                        .description(title)
+                        .body(|_, _, _| {
+                            div()
+                                .child(
+                                    "Mass plans are created once the parish database is in place.",
+                                )
+                                .into_any_element()
+                        }),
+                    window,
+                    cx,
+                );
+            })
+        };
+        masses::upcoming(
+            &self.masses,
+            gutter,
+            masses::Actions {
+                toggle: Box::new(toggle),
+                add_mass: Box::new(add_mass),
+                open: Box::new(open),
+            },
+            self.environment,
+            window,
+            cx,
+        )
     }
 
     /// A focused editor takes the whole screen, rail included: the operator is
@@ -1160,7 +1416,7 @@ mod tests {
                 let reserved = px(if collapsed {
                     rail::collapsed_width(scale)
                 } else {
-                    scale.apply(rail::EXPANDED_RESERVE)
+                    scale.apply(rail::EXPANDED_WIDTH) + tokens::border::SEPARATOR
                 });
                 assert!(
                     rail.size.width <= reserved,
@@ -1209,45 +1465,36 @@ mod tests {
                     "the rail rows measure {widths:?} at {width} and {}%",
                     scale.percent()
                 );
-                // The marker is the row's own leading edge, inside its fill and
-                // on the rail's inset, in both widths — `MILESTONES.md` asks
-                // for a cue that is not the fill alone, and a collapsed rail is
-                // no exception. Collapsed it is out of flow, which is what
-                // leaves the icon centred above.
-                let marker = cx
-                    .debug_bounds(sel(format!(
-                        "rail-active-{}",
-                        Destination::default().label()
-                    )))
+                // The pill marks the current entry in both widths —
+                // `MILESTONES.md` asks for a cue that is not the fill alone,
+                // and a collapsed rail is no exception. It sits on the entry's
+                // leading edge, centred on it, and is out of flow, which is
+                // what leaves the icon centred above (Decision 300).
+                let current = Destination::default().label();
+                let pill = cx
+                    .debug_bounds(sel(format!("rail-active-{current}")))
                     .unwrap_or_else(|| {
                         panic!(
                             "the rail marks where it is at {width} and {}%",
                             scale.percent()
                         )
                     });
+                let entry = cx.debug_bounds(sel(format!("button-{current}"))).unwrap();
                 assert_eq!(
-                    marker.left(),
-                    rail.left() + px(scale.apply(tokens::spacing::RELATED)),
-                    "the marker is off the rail's inset at {width} and {}%",
+                    pill.left(),
+                    entry.left(),
+                    "the pill is off the entry's edge at {width} and {}%",
                     scale.percent()
                 );
-                // The marker's curve is its quad's own corner, and GPUI clamps
-                // a corner radius to half the quad's smaller side. A quad the
-                // width of the bar alone would be given half the radius the
-                // control beside it draws, so the marker has to stay at least
-                // the full corner across.
-                let corner = px(scale.apply(tokens::radius::CONTROL));
                 assert!(
-                    marker.size.width >= corner * 2.0 && marker.size.height >= corner * 2.0,
-                    "the marker measures {:?} at {width} and {}%, too small to hold \
-                     the control corner it has to match",
-                    marker.size,
+                    f32::from(pill.center().y - entry.center().y).abs() <= 1.0,
+                    "the pill is not centred on its entry at {width} and {}%",
                     scale.percent()
                 );
-                // The list is a bounded scrolling surface like every other, so
+                // The landing index is a bounded scrolling surface like every other, so
                 // it reports its position when it overflows and says nothing
                 // when it does not — the shared indicator, not one of its own.
-                let indicator = cx.debug_bounds("scroll-indicator-primary-list").is_some();
+                let indicator = cx.debug_bounds("scroll-indicator-masses-scroll").is_some();
                 if (width, scale) == (1366.0, InterfaceScale::Percent200) {
                     assert!(indicator, "a list past the end of its column reports so");
                 } else if (width, scale) == (1920.0, InterfaceScale::Percent100) {
@@ -1275,10 +1522,12 @@ mod tests {
                         "the local views wrapped at {width} and {}%",
                         scale.percent()
                     );
+                    // One group gap apart, as the mockup's strip is: the
+                    // underline, not a shared fill, says which one is open.
                     assert_eq!(
-                        pair[0].right(),
-                        pair[1].left(),
-                        "the local views are spaced apart at {width} and {}%",
+                        pair[1].left() - pair[0].right(),
+                        px(scale.apply(tokens::spacing::GROUP)),
+                        "the local views are not a group gap apart at {width} and {}%",
                         scale.percent()
                     );
                 }
@@ -1306,10 +1555,12 @@ mod tests {
     #[gpui::test]
     fn the_arrows_move_between_list_rows(cx: &mut TestAppContext) {
         let (shell, cx) = open(cx);
+        // Upcoming is the grouped Masses index; History keeps the list.
+        click(cx, "tab-1");
         let focused = |cx: &mut VisualTestContext| cx.update(|window, cx| window.focused(cx));
-        click(cx, "row-Upcoming \u{b7} entry 3");
+        click(cx, "row-History \u{b7} entry 3");
         let third = focused(cx);
-        click(cx, "row-Upcoming \u{b7} entry 1");
+        click(cx, "row-History \u{b7} entry 1");
         let first = focused(cx);
         assert!(
             first.is_some() && first != third,
@@ -1335,7 +1586,7 @@ mod tests {
         keys(cx, "up");
         assert_ne!(focused(cx), first, "Up past the first row leaves the list");
         shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
-        click(cx, "row-Upcoming \u{b7} entry 1");
+        click(cx, "row-History \u{b7} entry 1");
         let mut prev = focused(cx);
         for _ in 0..7 {
             keys(cx, "down");
@@ -1374,14 +1625,16 @@ mod tests {
         }
 
         let (_, cx) = open(cx);
-        click(cx, "row-Upcoming \u{b7} entry 1");
+        // Upcoming is the grouped Masses index; History keeps the list.
+        click(cx, "tab-1");
+        click(cx, "row-History \u{b7} entry 1");
         // A value that does not truncate says nothing, which is also what says
         // the reveals below are `truncated`'s doing rather than something the
         // shell shows everywhere.
         let mut previous = rest_on(cx, "connection-status");
         assert!(previous.is_none(), "an untruncated value offers no tooltip");
         for selector in [
-            "row-Upcoming \u{b7} entry 1",
+            "row-History \u{b7} entry 1",
             "workspace-title",
             "viewer-title",
         ] {
@@ -1526,6 +1779,242 @@ mod tests {
     /// lands on a row that is not the active one, and clicking the active one
     /// asserts nothing, because opening the destination it is already on is a
     /// no-op either way.
+    /// Decision 301: one pill per rail travels to the new destination in
+    /// `160ms` rather than jumping, while the destination itself changes at
+    /// once. The current entry shows its icon alone and keeps its label as
+    /// its name, so its label fades out but stays in the layout.
+    #[gpui::test]
+    fn the_rail_pill_travels_to_the_new_destination(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        let masses = cx.debug_bounds("button-Masses").unwrap();
+        let library = cx.debug_bounds("button-Library").unwrap();
+        click(cx, "button-Library");
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(
+                shell.destination(),
+                Destination::Library,
+                "input is never delayed"
+            );
+        });
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        let flying = cx.debug_bounds("rail-active-Library").unwrap();
+        assert!(
+            flying.center().y > masses.center().y && flying.center().y < library.center().y,
+            "the pill is between the two entries a quarter of the way through"
+        );
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        let landed = cx.debug_bounds("rail-active-Library").unwrap();
+        assert!(f32::from(landed.center().y - library.center().y).abs() <= 1.0);
+        // The entry keeps its height: its label is still laid out under the
+        // icon, only transparent.
+        assert_eq!(
+            cx.debug_bounds("button-Library").unwrap().size,
+            library.size
+        );
+        assert!(cx.debug_bounds("rail-label-Library").is_some());
+    }
+
+    /// Decision 302: a header's height depends on the workspace width only.
+    /// Masses carries two actions and Library one, Settings has no tabs, and
+    /// all of their header rows are the same height; the selected tab's
+    /// underline sits on the header's bottom edge and travels to a new tab.
+    #[gpui::test]
+    fn headers_keep_their_height_and_the_underline_sits_on_the_edge(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        let row = |cx: &mut VisualTestContext| cx.debug_bounds("workspace-header-row").unwrap();
+        let masses = row(cx);
+        let header = cx.debug_bounds("workspace-header").unwrap();
+        let underline = cx.debug_bounds("tab-underline").unwrap();
+        assert_eq!(
+            underline.bottom(),
+            header.bottom() - px(tokens::border::SEPARATOR),
+            "the underline sits on the header's edge"
+        );
+        let first = cx.debug_bounds("tab-0").unwrap();
+        assert_eq!(
+            (underline.left(), underline.size.width),
+            (first.left(), first.size.width)
+        );
+
+        click(cx, "tab-2");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        let flying = cx.debug_bounds("tab-underline").unwrap();
+        let third = cx.debug_bounds("tab-2").unwrap();
+        assert!(
+            flying.left() > first.left() && flying.left() < third.left(),
+            "the underline travels rather than jumping"
+        );
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        let landed = cx.debug_bounds("tab-underline").unwrap();
+        assert_eq!(
+            (landed.left(), landed.size.width),
+            (third.left(), third.size.width)
+        );
+
+        for destination in ["Library", "Settings"] {
+            click(cx, sel(format!("button-{destination}")));
+            assert_eq!(
+                row(cx).size.height,
+                masses.size.height,
+                "{destination}'s header row is not the height of Masses'"
+            );
+        }
+    }
+
+    /// Masses → Upcoming is the grouped index of the `masses-index` mockup:
+    /// Celebrations with their readiness roll-up, Mass plans under them with
+    /// their own readiness, and a row that opens its plan.
+    #[gpui::test]
+    fn masses_opens_on_celebrations_grouped_with_their_mass_plans(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        assert!(cx.debug_bounds("masses-index").is_some());
+        assert!(cx.debug_bounds("masses-filters").is_some());
+        for status in [
+            "2 of 4 ready",
+            "0 of 2 ready",
+            "All 2 ready",
+            "No Mass plans",
+        ] {
+            assert!(
+                cx.debug_bounds(sel(format!("status-{status}"))).is_some(),
+                "the roll-up {status} is shown"
+            );
+        }
+        assert!(
+            cx.debug_bounds("status-1 incomplete \u{b7} 2 warnings")
+                .is_some()
+        );
+        assert!(cx.debug_bounds("chip-Anticipated").is_some());
+        assert!(cx.debug_bounds("chip-Installed package").is_some());
+        // The header carries the backup reminder and the primary action.
+        assert!(cx.debug_bounds("button-New Celebration").is_some());
+        click(cx, "button-No backup in 9 days \u{b7} 46 changes");
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(shell.destination(), Destination::TransferAndBackup);
+        });
+        click(cx, "button-Masses");
+
+        click(
+            cx,
+            "record-Sun 1 Nov \u{b7} 06:00, Cebuano, Koro Sta. Cecilia, Fr. Ramon Abellana",
+        );
+        shell.read_with(cx, |shell, _| {
+            assert_eq!(
+                shell.editing().map(|name| name.as_ref()),
+                Some("All Saints \u{b7} Sun 1 Nov \u{b7} 06:00")
+            );
+        });
+    }
+
+    /// The filter bar narrows the plans, and a Celebration with no matching
+    /// plans says so instead of disappearing.
+    #[gpui::test]
+    fn the_filters_narrow_the_mass_plans(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        let row = "record-Sun 1 Nov \u{b7} 06:00, Cebuano, Koro Sta. Cecilia, Fr. Ramon Abellana";
+        assert!(cx.debug_bounds(row).is_some());
+        click(cx, "button-Language: All");
+        click(cx, "choice-2"); // English
+        assert!(cx.debug_bounds("button-Language: English").is_some());
+        assert!(
+            cx.debug_bounds(row).is_none(),
+            "a Cebuano plan is filtered out"
+        );
+        assert!(
+            cx.debug_bounds("record-Sun 1 Nov \u{b7} 09:00, English, Youth Choir, Fr. Jun Tabada")
+                .is_some()
+        );
+        assert!(
+            cx.debug_bounds("celebration-group-All Souls").is_some(),
+            "a Celebration with no matching plans stays, saying so"
+        );
+    }
+
+    /// Decision 309: a popup fades in while dropping `4px` from its trigger,
+    /// rather than zooming.
+    #[gpui::test]
+    fn a_popup_drops_into_place_from_its_trigger(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        click(cx, "button-Language: All");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        let dropping = cx.debug_bounds("selection-list").unwrap();
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        let resting = cx.debug_bounds("selection-list").unwrap();
+        assert!(
+            dropping.top() < resting.top(),
+            "it starts above where it rests"
+        );
+        assert!(resting.top() - dropping.top() <= px(4.0));
+        assert_eq!(dropping.size, resting.size, "nothing grows or rewraps");
+    }
+
+    /// A Celebration folds its plans away by shrinking them up into its
+    /// header over `160ms`, and grows them back the same way (`DESIGN.md`).
+    #[gpui::test]
+    fn a_celebration_folds_its_plans_with_motion(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        let group =
+            |cx: &mut VisualTestContext| cx.debug_bounds("celebration-group-All Saints").unwrap();
+        let open_height = group(cx).size.height;
+        click(cx, "button-Collapse All Saints");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        let folding = group(cx).size.height;
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        let shut = group(cx).size.height;
+        assert!(
+            shut < folding && folding < open_height,
+            "{open_height:?} -> {folding:?} -> {shut:?}"
+        );
+        assert!(
+            cx.debug_bounds("record-Sat 31 Oct \u{b7} 18:00, Anticipated, Cebuano, Koro San Roque, Fr. Ramon Abellana")
+                .is_none(),
+            "a folded group's plans are gone, not merely hidden"
+        );
+        click(cx, "button-Expand All Saints");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS * 2);
+        assert_eq!(group(cx).size.height, open_height);
+    }
+
+    /// Decision 301: the content beneath the header enters after a change, a
+    /// new destination rising and a new tab sliding in from the side moved
+    /// towards, while the header itself stays still.
+    #[gpui::test]
+    fn the_page_enters_beneath_a_header_that_stays_still(cx: &mut TestAppContext) {
+        let (_shell, cx) = open(cx);
+        let page = |cx: &mut VisualTestContext| cx.debug_bounds("workspace-page").unwrap();
+        let rest = page(cx);
+        let header = cx.debug_bounds("workspace-header").unwrap();
+
+        click(cx, "button-Library");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        assert!(
+            page(cx).top() > rest.top(),
+            "a new destination rises into place"
+        );
+        assert_eq!(
+            cx.debug_bounds("workspace-header").unwrap().top(),
+            header.top()
+        );
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        assert_eq!(page(cx).origin, rest.origin);
+
+        click(cx, "tab-2");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        assert!(
+            page(cx).left() > rest.left(),
+            "moving right, the view comes in from the right"
+        );
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        click(cx, "tab-0");
+        settle(cx, tokens::motion::STANDARD_DURATION_MS / 4);
+        assert!(
+            page(cx).left() < rest.left(),
+            "moving left, it comes in from the left"
+        );
+        settle(cx, tokens::motion::STANDARD_DURATION_MS);
+        assert_eq!(page(cx).origin, rest.origin);
+    }
+
     #[gpui::test]
     fn the_active_rails_marker_does_not_take_the_pointer(cx: &mut TestAppContext) {
         let (shell, cx) = open(cx);

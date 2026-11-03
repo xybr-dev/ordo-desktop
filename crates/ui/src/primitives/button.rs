@@ -21,6 +21,19 @@ use crate::{
 /// exactly this far and see the tooltip the operator would see.
 pub const TOOLTIP_SHOW_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// How much a button says about itself before it is pressed.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Tone {
+    #[default]
+    Standard,
+    /// The one primary action of a workspace or surface: filled in the
+    /// primary color.
+    Primary,
+    /// An action that is also a standing warning, such as the backup reminder:
+    /// warning-colored label, icon, and edge.
+    Warning,
+}
+
 /// A labeled action.
 ///
 /// The label is always the accessible name, including for an icon-only button,
@@ -35,10 +48,12 @@ pub struct Button {
     truncate: bool,
     icon: Option<&'static str>,
     icon_trailing: bool,
+    icon_turn: f32,
     icon_only: bool,
     quiet: bool,
     stretch: bool,
     current: bool,
+    tone: Tone,
     tooltip: Option<SharedString>,
     availability: Availability,
     environment: UiEnvironment,
@@ -59,8 +74,10 @@ impl Button {
             truncate: false,
             icon: None,
             icon_trailing: false,
+            icon_turn: 0.0,
             icon_only: false,
             current: false,
+            tone: Tone::Standard,
             quiet: false,
             stretch: false,
             tooltip: None,
@@ -103,6 +120,13 @@ impl Button {
         self
     }
 
+    /// Turns the icon by `quarters` of a full turn, clockwise: a disclosure's
+    /// chevron turning from closed to open as its content grows.
+    pub fn icon_turn(mut self, quarters: f32) -> Self {
+        self.icon_turn = quarters;
+        self
+    }
+
     /// Renders the icon alone. The label stays the accessible name and becomes
     /// the tooltip, so the control is never nameless.
     pub fn icon_only(mut self) -> Self {
@@ -135,6 +159,12 @@ impl Button {
     /// gets, so the state is never carried by a fill alone.
     pub fn current(mut self, current: bool) -> Self {
         self.current = current;
+        self
+    }
+
+    /// The button's [`Tone`]. A disabled button is neutral whatever its tone.
+    pub fn tone(mut self, tone: Tone) -> Self {
+        self.tone = tone;
         self
     }
 
@@ -172,6 +202,13 @@ impl Button {
         // glyph nor a label is a named empty box. The label wins.
         let icon_only = self.icon_only && self.icon.is_some();
         let height = scale.apply(tokens::density::DEFAULT_CONTROL);
+        let tone = if disabled { Tone::Standard } else { self.tone };
+        let ink = match tone {
+            _ if disabled => palette.text_muted,
+            Tone::Standard => palette.text,
+            Tone::Primary => tokens::color::ON_PRIMARY,
+            Tone::Warning => palette.warning,
+        };
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
         let name = self.name.clone().unwrap_or_else(|| label.clone());
@@ -209,12 +246,13 @@ impl Button {
                 })
                 .flex_none()
                 .size(px(icon_size))
-                .text_color(rgb(if disabled {
-                    palette.text_muted
-                } else {
-                    palette.text
-                }))
+                .text_color(rgb(ink))
                 .data(icon.as_bytes())
+                .when(self.icon_turn != 0.0, |glyph| {
+                    glyph.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                        self.icon_turn * std::f32::consts::FRAC_PI_2,
+                    )))
+                })
                 .into_any_element()
         });
         let text = (!icon_only).then({
@@ -276,10 +314,15 @@ impl Button {
             })
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .when(!self.quiet, |control| {
+                let (edge, fill) = match tone {
+                    Tone::Standard => (palette.border, palette.surface_secondary),
+                    Tone::Primary => (tokens::color::PRIMARY, tokens::color::PRIMARY),
+                    Tone::Warning => (palette.warning, palette.surface),
+                };
                 control
                     .border(px(tokens::border::SEPARATOR))
-                    .border_color(rgb(palette.border))
-                    .bg(rgb(palette.surface_secondary))
+                    .border_color(rgb(edge))
+                    .bg(rgb(fill))
             })
             // Only a usable control reacts to the pointer, so hover is itself
             // the cheapest signal that an action is live. Hover strengthens the
@@ -296,28 +339,29 @@ impl Button {
                     .cursor_pointer()
                     // A quiet control has no border to strengthen, so the fill
                     // it does not otherwise have is what answers the pointer.
-                    .hover(move |style| {
-                        if quiet {
-                            style.bg(rgb(palette.surface_secondary))
-                        } else {
-                            style.border_color(rgb(palette.border_strong))
-                        }
+                    .hover(move |style| match tone {
+                        // A filled or colored edge has nothing stronger to
+                        // step to, so the fill answers instead.
+                        Tone::Primary => style.opacity(0.9),
+                        Tone::Warning => style.bg(rgb(palette.surface_secondary)),
+                        Tone::Standard if quiet => style.bg(rgb(palette.surface_secondary)),
+                        Tone::Standard => style.border_color(rgb(palette.border_strong)),
                     })
-                    .active(move |style| {
-                        let style = style.bg(rgb(palette.border));
-                        if quiet {
-                            style
-                        } else {
-                            style.border_color(rgb(palette.border_strong))
+                    .active(move |style| match tone {
+                        Tone::Primary => style.opacity(0.8),
+                        Tone::Warning => style.bg(rgb(palette.border)),
+                        Tone::Standard => {
+                            let style = style.bg(rgb(palette.border));
+                            if quiet {
+                                style
+                            } else {
+                                style.border_color(rgb(palette.border_strong))
+                            }
                         }
                     })
             })
             // Disabled is neutral and subdued: never warning or danger color.
-            .text_color(rgb(if disabled {
-                palette.text_muted
-            } else {
-                palette.text
-            }))
+            .text_color(rgb(ink))
             .text_size(px(scale.apply(tokens::typography::LABEL.size)))
             .when(self.truncate, |control| control.overflow_hidden())
             .children(icon_and_label.into_iter().flatten())

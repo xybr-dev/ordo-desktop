@@ -79,6 +79,12 @@ pub struct Palette {
     pub selection: u32,
     pub focus: u32,
     pub warning: u32,
+    /// Primary as text, an icon, or an edge, such as a selected tab's
+    /// underline. Presenter lightens it, because `PRIMARY` itself does not
+    /// read on its dark ground.
+    pub primary_foreground: u32,
+    pub live: u32,
+    pub danger: u32,
 }
 
 pub const fn palette(appearance: ResolvedAppearance) -> Palette {
@@ -94,6 +100,9 @@ pub const fn palette(appearance: ResolvedAppearance) -> Palette {
             selection: color::SELECTION_PREPARATION,
             focus: color::FOCUS_PREPARATION,
             warning: color::WARNING_PREPARATION,
+            primary_foreground: color::PRIMARY,
+            live: color::LIVE_PREPARATION,
+            danger: color::DANGER_PREPARATION,
         },
         ResolvedAppearance::Dark => Palette {
             background: color::PRESENTER_BACKGROUND,
@@ -106,6 +115,9 @@ pub const fn palette(appearance: ResolvedAppearance) -> Palette {
             selection: color::SELECTION_PRESENTER,
             focus: color::FOCUS_PRESENTER,
             warning: color::WARNING_PRESENTER,
+            primary_foreground: color::PRIMARY_FOREGROUND_PRESENTER,
+            live: color::LIVE_PRESENTER,
+            danger: color::DANGER_PRESENTER,
         },
     }
 }

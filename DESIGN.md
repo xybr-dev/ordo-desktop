@@ -729,12 +729,13 @@ towards the new state. Closing reverses it with smooth acceleration. Both take
 `160ms`; the content below moves with it, and nothing is clipped once open.
 Under reduced motion the content only fades.
 
-Floating surfaces settle in place rather than travel. A dialog (a confirmation,
-a name prompt such as Duplicate Theme) fades in while zooming from `95%` in
-place, over `400ms` with its scrim, and zooms back out while fading in `200ms`.
-A menu or popover fades in while zooming from `95%` and dropping `4px` from its
-trigger in `160ms`, and reverses in `120ms`; a toast rises `8px` in `160ms`.
-Under reduced motion each only fades.
+Floating surfaces settle in place rather than travel, and none of them zooms:
+GPUI has no element transform to scale one with (Decision 309). A dialog (a
+confirmation, a name prompt such as Duplicate Theme) fades in while rising `8px`
+into place, over `400ms` with its scrim, and falls back while fading out in
+`200ms`. A menu or popover fades in while dropping `4px` from its trigger in
+`160ms`, and reverses in `120ms`; a toast rises `8px` in `160ms`. Under reduced
+motion each only fades.
 
 All motion remains interruptible and may never delay accepting the next input.
 Content-to-content Preview and Program changes remain immediate cuts. Content
