@@ -713,6 +713,12 @@ effect immediately, and Presenter never uses page motion. A full-workspace view
 (Review Song import, a Theme opened for editing) rises from the bottom over the
 workspace it covers with the slideover timing, and sinks back when it closes.
 
+A disclosure (a Diagnostics detail row, a package's contents) opens by growing
+its content from the header down while fading it in, and its chevron turns
+towards the new state. Closing reverses it with smooth acceleration. Both take
+`160ms`; the content below moves with it, and nothing is clipped once open.
+Under reduced motion the content only fades.
+
 All motion remains interruptible and may never delay accepting the next input.
 Content-to-content Preview and Program changes remain immediate cuts. Content
 to Blackout/Hold and Blackout/Hold to content use a `500ms` opacity fade,

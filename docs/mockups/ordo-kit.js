@@ -1253,7 +1253,55 @@
     st.open = now;
     var ws = app.querySelector(".o-body > .o-grow");
     st.kids = ws ? [].filter.call(ws.children, function (c) { return !c.classList.contains("o-ghost"); }) : null;
+    // Disclosure rows (Diagnostics details): the body opens and shuts in 160ms and the chevron turns.
+    var disc = {};
+    app.querySelectorAll(".sh-drow").forEach(function (row) {
+      var h = row.querySelector(":scope > [aria-expanded]"); if (!h) return;
+      var b = h.nextElementSibling;
+      disc[h.dataset.id || h.textContent] = { row: row, head: h, open: h.getAttribute("aria-expanded") === "true", body: b && !b.classList.contains("o-ghost") ? b : null };
+    });
+    if (!first && st.disc) Object.keys(disc).forEach(function (id) {
+      var was = st.disc[id], d = disc[id];
+      if (!was || was.open === d.open) return;
+      turn(d.head.querySelector(":scope > svg"), d.open);
+      if (d.open && d.body) fold(d.body, true);
+      else if (!d.open && was.body) { var g = ghost(was.body, d.row); fold(g, false, function () { g.remove(); }); }
+    });
+    st.disc = disc;
   }
+  function fold(el, open, done) {
+    var h = el.offsetHeight, cs = getComputedStyle(el), a;
+    if (still()) a = play(el, open ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], 100, "linear");
+    else {
+      var shut = { height: "0px", paddingTop: "0px", paddingBottom: "0px", marginTop: "0px", marginBottom: "0px", opacity: 0 };
+      var full = { height: h + "px", paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom, opacity: 1 };
+      el.style.overflow = "hidden";
+      a = play(el, open ? [shut, full] : [full, shut], STD, open ? EASE : EXIT);
+    }
+    var end = function () { el.style.overflow = ""; if (done) done(); };
+    if (a) a.onfinish = end; else end();
+  }
+  function turn(svg, open) {
+    if (!svg || still()) return;
+    play(svg, [{ transform: "rotate(" + (open ? -90 : 90) + "deg)" }, { transform: "none" }], STD, EASE);
+  }
+  // Native disclosures (<details>): the same motion. Closing waits for the content to shut.
+  document.addEventListener("toggle", function (e) {
+    var d = e.target;
+    if (!d.matches || !d.matches("details") || !d.open || d.closest(".o-presenter")) return;
+    [].slice.call(d.children).forEach(function (c) { if (c.tagName !== "SUMMARY") fold(c, true); });
+  }, true);
+  document.addEventListener("click", function (e) {
+    var s = e.target.closest && e.target.closest("details[open] > summary");
+    if (!s || still() || s.closest(".o-presenter")) return;
+    var d = s.parentElement;
+    e.preventDefault();
+    if (d.dataset.shutting) return;
+    d.dataset.shutting = "1";
+    var kids = [].slice.call(d.children).filter(function (c) { return c.tagName !== "SUMMARY"; }), left = kids.length;
+    if (!left) { d.open = false; delete d.dataset.shutting; return; }
+    kids.forEach(function (c) { fold(c, false, function () { if (--left === 0) { d.open = false; delete d.dataset.shutting; } }); });
+  });
   var busy = false;
   function scanAll() { if (busy) return; busy = true; try { document.querySelectorAll(".o-app").forEach(scan); } finally { busy = false; } }
 
