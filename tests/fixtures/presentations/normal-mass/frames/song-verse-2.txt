@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Bersikulo 2
+body-lines:2
+Bisan pa sa hataas ug lisud nga dalan nga among giagian sa tibuok semana
+wala kami mawala sa imong paggiya
+footer-absent
+image-absent

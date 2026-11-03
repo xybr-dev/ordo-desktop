@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:CelebrationTitle
+header:Sanitized qualification fixture
+body-lines:1
+Ika-32 nga Domingo
+footer-lines:1
+Nobyembre 8, 2026
+image-absent

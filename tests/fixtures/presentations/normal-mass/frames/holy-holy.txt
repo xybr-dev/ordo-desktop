@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:Response
+header:BALAAN
+body-lines:3
+Balaan, balaan, balaan ang Ginoong Dios
+nga makagagahom sa tanang butang
+napuno ang langit ug ang yuta sa imong himaya
+footer-absent
+image-absent

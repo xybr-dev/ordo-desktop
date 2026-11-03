@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:Pag-abiabi
+body-lines:1
+Ug sa imong espiritu.
+footer-absent
+image-absent

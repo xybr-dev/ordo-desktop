@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:Psalm
+header:SALMO RESPONSORYO:
+body-lines:2
+Siya nagpahulay kanako sa lunhaw nga sabsabanan
+ug gitultolan ako sa tul-id nga dalan
+footer-lines:1
+Salmo 23:2-3
+image-absent

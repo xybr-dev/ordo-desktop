@@ -1,0 +1,269 @@
+ordo-presentation-snapshot/1
+snapshot a0000000-0000-4000-8000-000000000000
+title Normal Mass (sanitized)
+fingerprint 7b4b3e9451035090c67c6f252e1e14601480d8adc3f66ebef14fbc6b8df3dc10
+theme a1000000-0000-4000-8000-000000000001
+theme-name Parish Paschal
+theme-kind Custom
+theme a1000000-0000-4000-8000-000000000002
+theme-name Ordo fallback
+theme-kind Fallback
+mass-theme a1000000-0000-4000-8000-000000000001
+frame a5000000-0000-4000-8000-000000000001
+frame-path frames/celebration-title.txt
+frame-sha256 a0893855d69773c07e63bea5facfa752bf8714b4ea62d2cf321758f66b11a78e
+frame a5000000-0000-4000-8000-000000000002
+frame-path frames/announcements.txt
+frame-sha256 7b8bfe5c99befaf2eb797fa3e0f3423ed67555fd149978303825d75fc5df9658
+frame a5000000-0000-4000-8000-000000000003
+frame-path frames/announcements-image.txt
+frame-sha256 bae6915114b59794d03ed313d15f7db1bc939d5cedf1b48e6becda6b4c3b9700
+frame a5000000-0000-4000-8000-000000000004
+frame-path frames/song-identification.txt
+frame-sha256 5de111fe93d1578893ef5d06b330bcebe6a3ecb8d30e0f4a611612a46d55fe08
+frame a5000000-0000-4000-8000-000000000005
+frame-path frames/song-verse-1.txt
+frame-sha256 649ed86e466e9f75efd46336732fac046fd490a7d9c3f92b6ace46669a0c31c3
+frame a5000000-0000-4000-8000-000000000006
+frame-path frames/song-chorus.txt
+frame-sha256 3271467fc6a6b22f740a1301fd4d7981068dcc79bc290990cbb59c7dee4fcf91
+frame a5000000-0000-4000-8000-000000000007
+frame-path frames/song-verse-2.txt
+frame-sha256 71891489614c9f482897ab150b6556c428ccd948b6cdd3bfbe4f4648e432c7c9
+frame a5000000-0000-4000-8000-000000000008
+frame-path frames/greeting-invitation.txt
+frame-sha256 b999b3eb9ce6c47cfa9f2921589cc35aae6016e32f145343b059807c99e445e1
+frame a5000000-0000-4000-8000-000000000009
+frame-path frames/greeting-reply.txt
+frame-sha256 13edd73e153de10e6bc6b91e68a56671f1f195f63b714287aa77ca5181fc9e89
+frame a5000000-0000-4000-8000-00000000000a
+frame-path frames/reading-identification.txt
+frame-sha256 ceee0316457efd547e59142653d80e92f9ed1556f01af1e91ce2b5073f8184dd
+frame a5000000-0000-4000-8000-00000000000b
+frame-path frames/reading-passage.txt
+frame-sha256 e131e77924d0b6a6317c80db400d821f2f134bf28e68b6d2bd839ca53c0e979e
+frame a5000000-0000-4000-8000-00000000000c
+frame-path frames/psalm-refrain.txt
+frame-sha256 9728f22b709dbb43e4745e6462d69eae1f6ed448be0ee2e96b3086bbf0df818c
+frame a5000000-0000-4000-8000-00000000000d
+frame-path frames/psalm-verse.txt
+frame-sha256 80687106a3e5f4338f5bcc07a29244bdf049ffea4f70a67e44aca39066dc122c
+frame a5000000-0000-4000-8000-00000000000e
+frame-path frames/gospel-acclamation.txt
+frame-sha256 a3fcaea5abe650215cb0457f1efe88dd09b7dadce6703cc1bf0a669035610f7c
+frame a5000000-0000-4000-8000-00000000000f
+frame-path frames/holy-holy.txt
+frame-sha256 45695454618e6b15914a53f36d7c5a07a072e690540c340b789965c762bf6972
+frame a5000000-0000-4000-8000-000000000010
+frame-path frames/black-slide.txt
+frame-sha256 662a0141c348cb333d9f1e7f86a9e133a494e992154ec0dde1fccb7c32f50e94
+frame a5000000-0000-4000-8000-000000000011
+frame-path frames/communion-verse.txt
+frame-sha256 f3c52b549e8a0b0ed90f4138879ace34bd15cf9d902e543e340d6c02568eaa44
+frame a5000000-0000-4000-8000-000000000012
+frame-path frames/dismissal.txt
+frame-sha256 430e7c648de94506884da7be01174e08a00157047856a98497dc11259577930e
+frame a5000000-0000-4000-8000-000000000013
+frame-path frames/thanksgiving.txt
+frame-sha256 d369b42e4e308126db6d9d81adeaa9ae80dd1738e3811b2cce33f4bc01208cae
+frame a5000000-0000-4000-8000-000000000014
+frame-path frames/closing-notice.txt
+frame-sha256 ff5f35716bdce29db9bd5ec6278bf32cffdf8bcd007ad2ea5f296d4cc5332508
+asset a6000000-0000-4000-8000-000000000001
+asset-path assets/parish-life.png
+asset-size 79
+asset-sha256 010772f21685d07137dc4d24b5334af28ac5795852325d99253073aa396b79de
+section a2000000-0000-4000-8000-000000000001
+section-title Before Mass
+item a3000000-0000-4000-8000-000000000001
+item-title Celebration title
+item-kind Rite
+cue a4000000-0000-4000-8000-000000000001
+cue-label Celebration title
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000001
+item a3000000-0000-4000-8000-000000000002
+item-title Announcements
+item-kind GeneralPresentation
+item-auto-play 8
+cue a4000000-0000-4000-8000-000000000002
+cue-label Announcement text
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000002
+cue a4000000-0000-4000-8000-000000000003
+cue-label Parish life image
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000003
+cue-duration 4
+cue a4000000-0000-4000-8000-000000000004
+cue-label Announcement text again
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000002
+section a2000000-0000-4000-8000-000000000002
+section-title Introductory Rites
+item a3000000-0000-4000-8000-000000000003
+item-title Entrance song
+item-kind Song
+cue a4000000-0000-4000-8000-000000000005
+cue-label Song identification
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000004
+cue a4000000-0000-4000-8000-000000000006
+cue-label Verse 1
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000005
+cue a4000000-0000-4000-8000-000000000007
+cue-label Chorus
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000006
+cue a4000000-0000-4000-8000-000000000008
+cue-label Verse 2
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000007
+cue a4000000-0000-4000-8000-000000000009
+cue-label Chorus again
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000006
+item a3000000-0000-4000-8000-000000000004
+item-title Greeting
+item-kind ResponseSequence
+cue a4000000-0000-4000-8000-00000000000a
+cue-label Presider invitation
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000008
+cue a4000000-0000-4000-8000-00000000000b
+cue-label Presider greets the assembly
+cue-private-context Presider: Ang Ginoo maanaa kaninyo.
+cue-behavior OperatorTrigger
+cue a4000000-0000-4000-8000-00000000000c
+cue-label Assembly reply
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000009
+item a3000000-0000-4000-8000-000000000005
+item-title Silence before the Collect
+item-kind Rite
+cue a4000000-0000-4000-8000-00000000000d
+cue-label Hold for the invitation to pray
+cue-private-context Hold until the presider says: Mag-ampo kita.
+cue-behavior Hold
+section a2000000-0000-4000-8000-000000000003
+section-title Liturgy of the Word
+item a3000000-0000-4000-8000-000000000006
+item-title First reading
+item-kind Reading
+cue a4000000-0000-4000-8000-00000000000e
+cue-label Reading identification
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000a
+cue a4000000-0000-4000-8000-00000000000f
+cue-label Reading passage
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000b
+item a3000000-0000-4000-8000-000000000007
+item-title Responsorial Psalm
+item-kind Psalm
+cue a4000000-0000-4000-8000-000000000010
+cue-label Psalm refrain
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000c
+cue a4000000-0000-4000-8000-000000000011
+cue-label Psalm verse
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000d
+cue a4000000-0000-4000-8000-000000000012
+cue-label Cantor sings the verse
+cue-private-context Cantor sings the verse unprojected.
+cue-behavior Wait
+cue a4000000-0000-4000-8000-000000000013
+cue-label Psalm refrain again
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000c
+item a3000000-0000-4000-8000-000000000008
+item-title Gospel acclamation
+item-kind Rite
+cue a4000000-0000-4000-8000-000000000014
+cue-label Alleluia
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000e
+section a2000000-0000-4000-8000-000000000004
+section-title Liturgy of the Eucharist
+item a3000000-0000-4000-8000-000000000009
+item-title Preparation of the gifts
+item-kind Rite
+cue a4000000-0000-4000-8000-000000000015
+cue-label Hold while the gifts are brought forward
+cue-private-context Hold until the presider raises the gifts.
+cue-behavior Hold
+item a3000000-0000-4000-8000-00000000000a
+item-title Holy
+item-kind ResponseSequence
+cue a4000000-0000-4000-8000-000000000016
+cue-label Presider invites the Holy
+cue-private-context Presider: Ibayaw ang inyong mga kasingkasing.
+cue-behavior OperatorTrigger
+cue a4000000-0000-4000-8000-000000000017
+cue-label Holy, holy, holy
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-00000000000f
+item a3000000-0000-4000-8000-00000000000b
+item-title Eucharistic Prayer
+item-kind Rite
+cue a4000000-0000-4000-8000-000000000018
+cue-label Silent prayer
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000010
+cue a4000000-0000-4000-8000-000000000019
+cue-label Cantor sings the acclamation unprojected
+cue-private-context Cantor sings: Dying you destroyed our death.
+cue-behavior Wait
+item a3000000-0000-4000-8000-00000000000c
+item-title Communion song
+item-kind Song
+cue a4000000-0000-4000-8000-00000000001a
+cue-label Song identification
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000004
+cue a4000000-0000-4000-8000-00000000001b
+cue-label Communion verse
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000011
+section a2000000-0000-4000-8000-000000000005
+section-title Concluding Rites
+item a3000000-0000-4000-8000-00000000000d
+item-title Dismissal
+item-kind ResponseSequence
+item-theme a1000000-0000-4000-8000-000000000002
+cue a4000000-0000-4000-8000-00000000001c
+cue-label Presider dismisses the assembly
+cue-private-context Presider: Lakaw kamo sa kalinaw.
+cue-behavior OperatorTrigger
+cue a4000000-0000-4000-8000-00000000001d
+cue-label Go in peace
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000012
+item a3000000-0000-4000-8000-00000000000e
+item-title Recessional song
+item-kind Song
+cue a4000000-0000-4000-8000-00000000001e
+cue-label Song identification
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000004
+cue a4000000-0000-4000-8000-00000000001f
+cue-label Chorus again
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000006
+section a2000000-0000-4000-8000-000000000006
+section-title After Mass
+item a3000000-0000-4000-8000-00000000000f
+item-title Quiet thanksgiving
+item-kind GeneralPresentation
+item-auto-play 8
+cue a4000000-0000-4000-8000-000000000020
+cue-label Quiet thanksgiving
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000013
+cue-duration 5
+cue a4000000-0000-4000-8000-000000000021
+cue-label Next gathering
+cue-behavior Project
+cue-frame a5000000-0000-4000-8000-000000000014

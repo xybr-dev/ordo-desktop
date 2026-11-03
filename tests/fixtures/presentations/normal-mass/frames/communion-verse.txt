@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header-absent
+body-lines:2
+Sa tanang kahanginan sa kalibotan ug sa tanang kahilom sa among mga balay, ang among kasingkasing nag-awit sa imong gugma nga walay katapusan, Ginoo, ug nagpabilin kami nga nagpasalamat.
+Hinaot nga ang among pagtapok mahimong ilhanan sa imong kalinaw.
+footer-absent
+image-absent

@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:ALELUYA
+body-lines:1
+Aleluya, aleluya!
+footer-absent
+image-absent

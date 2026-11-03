@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:CelebrationTitle
+header:Recovery drill
+body-lines:1
+Sanitized qualification fixture
+footer-absent
+image-absent

@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Koro
+body-lines:2
+Ikaw ang among kasiguroan, Ginoo
+gipahimutang mo ang among kasingkasing
+footer-absent
+image-absent

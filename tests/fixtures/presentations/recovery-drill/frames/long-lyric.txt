@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header-absent
+body-lines:2
+A single drill lyric line that is deliberately far longer than the congregation display can hold in one row so the composer must wrap it
+Short closing line.
+footer-absent
+image-absent

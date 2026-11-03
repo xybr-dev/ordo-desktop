@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:Response
+body-lines:1
+Drill response line.
+footer-absent
+image-absent

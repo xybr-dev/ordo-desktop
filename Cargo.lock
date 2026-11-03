@@ -4750,7 +4750,9 @@ dependencies = [
 name = "presentation-tests"
 version = "0.1.0"
 dependencies = [
+ "domain",
  "presentation",
+ "tempfile",
 ]
 
 [[package]]
