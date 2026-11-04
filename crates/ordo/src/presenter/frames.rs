@@ -54,7 +54,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use domain::presentation::{AssetId, FrameId};
-use gpui::{App, AppContext, Context, RenderImage, SvgRenderer, Task, Window};
+use gpui::{App, AppContext, Context, ImageId, RenderImage, SvgRenderer, Task, Window};
 use presentation::snapshot_reader::LoadedSnapshot;
 use rendering::{
     Completion, FRAME_CAPACITY, Frame, FrameCache, FrameEntry, FrameScheduler, FrameSlot,
@@ -115,23 +115,33 @@ pub struct PresenterFrames {
     /// Thumbnail-sized decoded images, under the same rule. An asset has a
     /// thumbnail only until its full image arrives.
     thumb: HashMap<AssetId, Arc<RenderImage>>,
-    /// Released images some monitor may still be painting; their atlas copy
-    /// is dropped once this is the last holder.
-    retiring: Vec<Arc<RenderImage>>,
+    /// Released images some monitor may still be painting, keyed by the
+    /// image's own id so one image is never listed twice; their atlas copy is
+    /// dropped once this is the last holder. An image is never in here and in
+    /// `full`/`thumb` at once: every insert into those maps removes it from
+    /// here first, so a re-inserted image cannot keep a stale extra `Arc`.
+    retiring: HashMap<ImageId, Arc<RenderImage>>,
     /// The frames Program, Preview and Preload want now, which need the full
     /// image.
     full_wanted: Vec<FrameId>,
-    /// Dropping a task cancels its job.
-    in_flight: HashMap<FrameId, Task<()>>,
+    /// Dropping a task cancels its job. The quality says which decode the
+    /// job makes, so an upgrade is not started over a full compose job.
+    in_flight: HashMap<FrameId, (Quality, Task<()>)>,
     /// Full-size decodes that promote a thumbnail-only asset, one per asset.
     upgrades: HashMap<AssetId, Task<()>>,
     /// Assets whose full decode failed; their wanted frames become
-    /// Unavailable instead of retrying in a loop.
+    /// Unavailable instead of retrying in a loop. Never cleared: a snapshot
+    /// is immutable and a decode of the same bytes is deterministic, so a
+    /// retry could only fail again, and a new snapshot gets a new store.
     failed_assets: HashSet<AssetId>,
     /// The one-shot hop that drops released images from the atlas.
     flush: Option<Task<()>>,
     composed_count: usize,
     failures: Vec<(FrameId, UnavailableReason)>,
+    /// Test seam: atlas drops issued, so a test can see each image dropped
+    /// exactly once.
+    #[cfg(test)]
+    dropped: usize,
     /// Test seam: a verified snapshot never lacks or corrupts an asset, so
     /// this is the only way to reach those paths.
     #[cfg(test)]
@@ -153,6 +163,16 @@ enum AssetFault {
     Corrupt,
 }
 
+/// Frames wanted only as thumbnails decode small; every other slot decodes
+/// in full.
+fn quality_of(ticket: &Ticket<FrameId>) -> Quality {
+    if ticket.slot() == FrameSlot::Visible {
+        Quality::Thumb
+    } else {
+        Quality::Full
+    }
+}
+
 /// The asset a frame places, if any.
 fn asset_of(snapshot: &LoadedSnapshot, id: FrameId) -> Option<AssetId> {
     let content = snapshot.frame(id)?;
@@ -167,7 +187,7 @@ impl PresenterFrames {
             scheduler: FrameScheduler::new(),
             full: HashMap::new(),
             thumb: HashMap::new(),
-            retiring: Vec::new(),
+            retiring: HashMap::new(),
             full_wanted: Vec::new(),
             in_flight: HashMap::new(),
             upgrades: HashMap::new(),
@@ -175,6 +195,8 @@ impl PresenterFrames {
             flush: None,
             composed_count: 0,
             failures: Vec::new(),
+            #[cfg(test)]
+            dropped: 0,
             #[cfg(test)]
             fault: AssetFault::None,
             #[cfg(test)]
@@ -212,7 +234,17 @@ impl PresenterFrames {
         self.cache.pin(FrameSlot::Program, program);
         self.cache.pin(FrameSlot::Preview, preview);
 
-        let preload: Vec<FrameId> = preload.into_iter().take(2 * PRELOAD_RADIUS).collect();
+        // The same set the scheduler takes: distinct keys, in order, capped.
+        let mut preload_set: Vec<FrameId> = Vec::new();
+        for id in preload {
+            if preload_set.len() == 2 * PRELOAD_RADIUS {
+                break;
+            }
+            if !preload_set.contains(&id) {
+                preload_set.push(id);
+            }
+        }
+        let preload = preload_set;
         self.full_wanted = program
             .into_iter()
             .chain(preview)
@@ -232,7 +264,8 @@ impl PresenterFrames {
         let started = !tickets.is_empty();
         for ticket in tickets {
             let task = self.start_job(ticket, access, cx);
-            self.in_flight.insert(ticket.key(), task);
+            self.in_flight
+                .insert(ticket.key(), (quality_of(&ticket), task));
         }
         let changed = self.after_change(access, cx);
         if started || abandoned || changed {
@@ -258,7 +291,8 @@ impl PresenterFrames {
         let started = !tickets.is_empty();
         for ticket in tickets {
             let task = self.start_job(ticket, access, cx);
-            self.in_flight.insert(ticket.key(), task);
+            self.in_flight
+                .insert(ticket.key(), (quality_of(&ticket), task));
         }
         let changed = self.after_change(access, cx);
         if started || abandoned || changed {
@@ -301,11 +335,7 @@ impl PresenterFrames {
     ) -> Task<()> {
         let key = ticket.key();
         let snapshot = self.snapshot.clone();
-        let quality = if ticket.slot() == FrameSlot::Visible {
-            Quality::Thumb
-        } else {
-            Quality::Full
-        };
+        let quality = quality_of(&ticket);
         let known = self.known_image(key, quality);
         #[cfg(test)]
         let fault = self.fault;
@@ -386,17 +416,25 @@ impl PresenterFrames {
     fn store_image(&mut self, asset: AssetId, quality: Quality, image: Arc<RenderImage>) {
         match quality {
             Quality::Full => {
+                self.retiring.remove(&image.id);
                 self.full.insert(asset, image);
                 if let Some(thumb) = self.thumb.remove(&asset) {
-                    self.retiring.push(thumb);
+                    self.retire(thumb);
                 }
             }
             Quality::Thumb => {
                 if !self.full.contains_key(&asset) {
+                    self.retiring.remove(&image.id);
                     self.thumb.insert(asset, image);
                 }
             }
         }
+    }
+
+    /// List `image` for its atlas drop. Listing is by image id, so an image
+    /// that is retired twice is still one entry.
+    fn retire(&mut self, image: Arc<RenderImage>) {
+        self.retiring.insert(image.id, image);
     }
 
     /// The assets placed by Ready cached frames.
@@ -433,7 +471,7 @@ impl PresenterFrames {
                 .collect();
             for asset in stale {
                 if let Some(image) = map.remove(&asset) {
-                    self.retiring.push(image);
+                    self.retiring.insert(image.id, image);
                 }
             }
         }
@@ -454,12 +492,28 @@ impl PresenterFrames {
         if let Some(done) = self.flush.take() {
             done.detach();
         }
-        let (idle, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retiring)
-            .into_iter()
-            .partition(|image| Arc::strong_count(image) == 1);
-        self.retiring = held;
-        for image in idle {
-            cx.drop_image(image, None);
+        // An image that came back into use is not retired any more.
+        let live: HashSet<ImageId> = self
+            .full
+            .values()
+            .chain(self.thumb.values())
+            .map(|image| image.id)
+            .collect();
+        self.retiring.retain(|id, _| !live.contains(id));
+        let idle: Vec<ImageId> = self
+            .retiring
+            .iter()
+            .filter(|(_, image)| Arc::strong_count(image) == 1)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in idle {
+            if let Some(image) = self.retiring.remove(&id) {
+                #[cfg(test)]
+                {
+                    self.dropped += 1;
+                }
+                cx.drop_image(image, None);
+            }
         }
     }
 
@@ -492,7 +546,13 @@ impl PresenterFrames {
                 continue;
             }
             needed.insert(asset);
-            if !self.upgrades.contains_key(&asset) {
+            // A full compose job for a frame placing this asset decodes it
+            // anyway; finishing it re-runs this pass, so no second decode
+            // overlaps it.
+            let decoding = self.in_flight.iter().any(|(job, (quality, _))| {
+                *quality == Quality::Full && asset_of(&self.snapshot, *job) == Some(asset)
+            });
+            if !decoding && !self.upgrades.contains_key(&asset) {
                 let task = self.start_upgrade(asset, access, cx);
                 self.upgrades.insert(asset, task);
             }
@@ -658,16 +718,22 @@ impl PresenterFrames {
         (self.full.len(), self.thumb.len())
     }
 
+    /// Full-size upgrade decodes running now (one per asset at most).
+    pub fn upgrading(&self) -> usize {
+        self.upgrades.len()
+    }
+
     /// Distinct assets placed by Ready cached frames: the bound on both
     /// [`PresenterFrames::image_counts`] entries.
     pub fn referenced_image_count(&self) -> usize {
         self.referenced_assets().len()
     }
 
-    /// Drop every decoded image and release its GPU atlas tile. Call when
-    /// the Presenter stops showing this snapshot's images (for example when
-    /// the view closes); frames stay cached, but a ready image frame drawn
-    /// afterwards has no image, so only call it when idle.
+    /// Drop every decoded image and release its GPU atlas tile. The owning
+    /// `PresenterView` calls it when it is released, which is also the end of
+    /// this snapshot's store (a new snapshot gets a new view and store). Frames
+    /// stay cached, but a ready image frame drawn afterwards has no image, so
+    /// only call it when idle.
     pub fn release(&mut self, window: Option<&mut Window>, cx: &mut App) {
         let mut window = window;
         let images = self
@@ -675,8 +741,12 @@ impl PresenterFrames {
             .drain()
             .chain(self.thumb.drain())
             .map(|(_, image)| image)
-            .chain(self.retiring.drain(..));
+            .chain(self.retiring.drain().map(|(_, image)| image));
         for image in images {
+            #[cfg(test)]
+            {
+                self.dropped += 1;
+            }
             cx.drop_image(image, window.as_deref_mut());
         }
         self.upgrades.clear();
@@ -1049,7 +1119,7 @@ mod tests {
         sync(&host, cx, Some(image_frame), None);
         cx.run_until_parked();
         assert_eq!(image_counts(&host, cx), (0, 1), "still only the thumbnail");
-        assert_eq!(host.read_with(cx, |h, _| h.frames.upgrades.len()), 1);
+        assert_eq!(host.read_with(cx, |h, _| h.frames.upgrading()), 1);
         assert!(
             matches!(view(&host, cx, image_frame), FrameView::Ready { .. }),
             "the timeline keeps its thumbnail meanwhile"
@@ -1067,7 +1137,7 @@ mod tests {
         assert_eq!(image_counts(&host, cx), (1, 0), "the thumbnail is retired");
         let full = ready_image(host.update(cx, |h, _| h.frames.get_full(image_frame))).unwrap();
         assert_ne!(full.id, thumb.id, "the full image is a separate decode");
-        assert!(host.read_with(cx, |h, _| h.frames.upgrades.is_empty()));
+        assert!(host.read_with(cx, |h, _| h.frames.upgrading() == 0));
     }
 
     #[gpui::test]
@@ -1090,7 +1160,7 @@ mod tests {
             vec![(image_frame, UnavailableReason::DecodeFailed)]
         );
         // No retry loop: nothing is decoding any more.
-        assert!(host.read_with(cx, |h, _| h.frames.upgrades.is_empty()));
+        assert!(host.read_with(cx, |h, _| h.frames.upgrading() == 0));
     }
 
     #[gpui::test]
@@ -1149,6 +1219,56 @@ mod tests {
         drop(held);
         sync(&host, cx, Some(plain[0]), None);
         cx.run_until_parked();
+        assert!(host.read_with(cx, |h, _| h.frames.retiring.is_empty()));
+    }
+
+    #[gpui::test]
+    fn an_image_retired_twice_is_one_entry_and_dropped_once(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let asset = asset_of(&snapshot, image_frame).unwrap();
+        let plain = frame_ids(&snapshot, false);
+        let (host, cx) = open_sized(cx, snapshot, AssetFault::None, 0);
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        let held = ready_image(host.update(cx, |h, _| h.frames.get_full(image_frame))).unwrap();
+
+        // Evict while the image is held: it waits in `retiring`.
+        for id in &plain {
+            sync(&host, cx, Some(*id), None);
+            cx.run_until_parked();
+        }
+        assert_eq!(host.read_with(cx, |h, _| h.frames.retiring.len()), 1);
+
+        // A job that carried the image finishes and stores the same `Arc`:
+        // it leaves `retiring`, and evicting again lists it once.
+        host.update(cx, |h, cx| {
+            h.frames.store_image(asset, Quality::Full, held.clone());
+            assert!(h.frames.retiring.is_empty(), "a live image is not retired");
+            h.frames.after_change(access, cx);
+            assert_eq!(h.frames.retiring.len(), 1, "one entry, not two");
+        });
+        cx.run_until_parked();
+        assert_eq!(host.read_with(cx, |h, _| h.frames.dropped), 0, "still held");
+
+        drop(held);
+        sync(&host, cx, Some(plain[0]), None);
+        cx.run_until_parked();
+        assert!(host.read_with(cx, |h, _| h.frames.retiring.is_empty()));
+        assert_eq!(host.read_with(cx, |h, _| h.frames.dropped), 1);
+    }
+
+    #[gpui::test]
+    fn release_drops_every_image_once(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (1, 0));
+        host.update(cx, |h, cx| h.frames.release(None, cx));
+        assert_eq!(image_counts(&host, cx), (0, 0));
+        assert_eq!(host.read_with(cx, |h, _| h.frames.dropped), 1);
         assert!(host.read_with(cx, |h, _| h.frames.retiring.is_empty()));
     }
 }

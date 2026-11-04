@@ -85,10 +85,7 @@ pub fn check_images(
     snapshot: &LoadedSnapshot,
     renderer: &SvgRenderer,
 ) -> Vec<(AssetId, ImageCheckError)> {
-    check_with(snapshot, |asset| {
-        let bytes = snapshot.asset(asset).ok_or(ImageCheckError::Missing)?;
-        decode_full(bytes, renderer).map(drop)
-    })
+    check_with(snapshot, |asset| snapshot.asset(asset), renderer)
 }
 
 /// How many assets `snapshot` holds, for "N checked".
@@ -96,13 +93,22 @@ pub fn image_count(snapshot: &LoadedSnapshot) -> usize {
     snapshot.asset_ids().count()
 }
 
-fn check_with(
+/// The check itself, with the byte source injected. A verified snapshot holds
+/// bytes for every asset it lists, so `Missing` is defensive (and tested
+/// through the injected source).
+fn check_with<'a>(
     snapshot: &LoadedSnapshot,
-    mut check: impl FnMut(AssetId) -> Result<(), ImageCheckError>,
+    bytes: impl Fn(AssetId) -> Option<&'a [u8]>,
+    renderer: &SvgRenderer,
 ) -> Vec<(AssetId, ImageCheckError)> {
     snapshot
         .asset_ids()
-        .filter_map(|asset| check(asset).err().map(|error| (asset, error)))
+        .filter_map(|asset| {
+            let result = bytes(asset)
+                .ok_or(ImageCheckError::Missing)
+                .and_then(|bytes| decode_full(bytes, renderer).map(drop));
+            result.err().map(|error| (asset, error))
+        })
         .collect()
 }
 
@@ -123,15 +129,32 @@ mod tests {
     fn corrupt_bytes_are_one_failure_naming_the_asset() {
         let snapshot = fixture_snapshot();
         let bad = snapshot.asset_ids().next().expect("fixture has assets");
-        let failures = check_with(&snapshot, |asset| {
-            let bytes: &[u8] = if asset == bad {
-                b"not a png"
-            } else {
-                snapshot.asset(asset).expect("asset present")
-            };
-            decode_full(bytes, &SvgRenderer::new(Arc::new(()))).map(drop)
-        });
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let failures = check_with(
+            &snapshot,
+            |asset| {
+                if asset == bad {
+                    Some(b"not a png".as_slice())
+                } else {
+                    snapshot.asset(asset)
+                }
+            },
+            &renderer,
+        );
         assert_eq!(failures, vec![(bad, ImageCheckError::Undecodable)]);
+    }
+
+    #[test]
+    fn an_asset_without_bytes_is_reported_missing() {
+        let snapshot = fixture_snapshot();
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let failures = check_with(&snapshot, |_| None, &renderer);
+        let expected: Vec<_> = snapshot
+            .asset_ids()
+            .map(|asset| (asset, ImageCheckError::Missing))
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(failures, expected);
     }
 
     #[test]
