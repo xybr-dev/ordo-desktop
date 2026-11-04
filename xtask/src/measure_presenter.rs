@@ -45,26 +45,65 @@ const CEILING_BYTES: u64 = GIB;
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 
-/// `value` plus the 10 % run-to-run noise tolerance the Phase 0 envelope allows.
+/// The documented run-to-run noise tolerance, in percent: the envelope is the
+/// same-run Phase 0 figure times 1.10.
+const ENVELOPE_TOLERANCE_PERCENT: u64 = 10;
+
+/// `value` plus [`ENVELOPE_TOLERANCE_PERCENT`].
 const fn with_tolerance(value: u64) -> u64 {
-    value + value / 10
+    value + value * ENVELOPE_TOLERANCE_PERCENT / 100
 }
 
-/// The Phase 0 envelope for the Presenter at 500 Cues, from
-/// `docs/plans/T0.6-implementation-plan.md` (the "Baselines, private MiB (peak
-/// private), three fresh processes" entry): the old probe's
-/// presenter baseline measured private 198.5 / 198.5 / 198.5 MiB. The real
-/// Presenter (`PresenterView`, frame store, timeline, dock) must stay within
-/// that plus a 10 % tolerance for run-to-run noise (218.35 MiB). This is the
-/// T1.3 acceptance "A 500-Cue fixture remains within the Phase 0 measured
-/// memory envelope"; a run over it fails the measurement, and the bound is
+/// The same-run Phase 0 envelope for the real Presenter at 500 Cues.
+///
+/// The origin of the Phase 0 probe is `docs/plans/T0.6-implementation-plan.md`
+/// (the old `presenter` baseline). Owner decision, 2026-11-04: the T1.3
+/// acceptance "A 500-Cue fixture remains within the Phase 0 measured memory
+/// envelope" compares against that same probe measured in the same report, not
+/// the fixed T0.6 numbers, because they come from another day and setup (the
+/// probe read 273.5 MiB on the owner's machine and about 194.5 MiB on the CI
+/// runner with the software renderer, against 198.5 MiB recorded). The
+/// envelope is the highest `private_bytes` and the highest `peak_private_bytes`
+/// across the `presenter` baseline runs, each times 1.10. A report without
+/// every presenter baseline sampled has no envelope and fails; the bound is
 /// never loosened to fit a run.
-const PHASE0_PRESENTER_PRIVATE_BYTES: u64 = with_tolerance(397 * MIB / 2);
-/// The Phase 0 peak private bound: the same plan lists peaks 329.7 / 329.9 /
-/// 330.3 MiB, so the highest, 330.3 MiB, plus the same 10 % (363.33 MiB). The
-/// peak is OS-recorded since process start, so it includes the snapshot load
-/// and the frame cache filling.
-const PHASE0_PRESENTER_PEAK_BYTES: u64 = with_tolerance(3303 * MIB / 10);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Envelope {
+    private: u64,
+    peak: u64,
+}
+
+const NO_BASELINE_MESSAGE: &str = "no same-run Phase-0 presenter baseline to compare against";
+
+/// Derives the [`Envelope`] from the `presenter` baseline runs of `native`.
+/// `Err` carries the failure message when any run is missing, errored or
+/// unsampled.
+fn same_run_envelope(native: &Value) -> Result<Envelope, String> {
+    let runs = native["baselines"]
+        .as_array()
+        .filter(|runs| runs.len() >= BASELINE_RUNS)
+        .ok_or_else(|| NO_BASELINE_MESSAGE.to_owned())?;
+    let (mut private, mut peak) = (0, 0);
+    for run in runs {
+        let sample = &run["presenter"];
+        if error_message(sample).is_some() {
+            return Err(NO_BASELINE_MESSAGE.to_owned());
+        }
+        let (Some(run_private), Some(run_peak)) = (
+            sample[LIVE_PRIVATE_KEY].as_u64(),
+            sample[LIVE_PEAK_KEY].as_u64(),
+        ) else {
+            return Err(NO_BASELINE_MESSAGE.to_owned());
+        };
+        private = private.max(run_private);
+        peak = peak.max(run_peak);
+    }
+    Ok(Envelope {
+        private: with_tolerance(private),
+        peak: with_tolerance(peak),
+    })
+}
+
 /// Each live-presenter run is its own process, like the baselines.
 const LIVE_PRESENTER_RUNS: usize = 3;
 /// Memory fields the live-presenter runs are judged on.
@@ -445,8 +484,8 @@ pub fn native_failures(native: &Value) -> Vec<String> {
 
 /// Failures for the real Presenter at 500 Cues (T1.3d). Each run is judged
 /// in private bytes against the 512 MiB qualification budget and the Phase 0
-/// envelope, at every phase sample (not just the last), and its peak private
-/// bytes against the budget and the Phase 0 peak envelope. The envelope is a
+/// same-run Phase 0 envelope, at every phase sample (not just the last), and
+/// its peak private bytes against the budget and the same-run peak envelope. The envelope is a
 /// private-memory figure, so a missing figure fails rather than falling back
 /// to RSS. The run must also prove it did the work: live-presenter mode, 500
 /// Cues, three phases of at least 500 commands each, every phase settled, and
@@ -459,6 +498,13 @@ fn live_presenter_failures(native: &Value) -> Vec<String> {
         return vec!["live presenter: no runs were recorded".to_owned()];
     }
     let mut failures = Vec::new();
+    let envelope = match same_run_envelope(native) {
+        Ok(envelope) => Some(envelope),
+        Err(message) => {
+            failures.push(format!("live presenter: {message}"));
+            None
+        }
+    };
     for run in runs {
         let label = format!("live presenter run {}", run["run"].as_u64().unwrap_or(0));
         if let Some(message) = error_message(run) {
@@ -479,13 +525,13 @@ fn live_presenter_failures(native: &Value) -> Vec<String> {
         for (key, envelope, name) in [
             (
                 LIVE_PRIVATE_KEY,
-                PHASE0_PRESENTER_PRIVATE_BYTES,
-                "Phase 0 private envelope",
+                envelope.map(|envelope| envelope.private),
+                "same-run Phase 0 private envelope",
             ),
             (
                 LIVE_PEAK_KEY,
-                PHASE0_PRESENTER_PEAK_BYTES,
-                "Phase 0 peak private envelope",
+                envelope.map(|envelope| envelope.peak),
+                "same-run Phase 0 peak private envelope",
             ),
         ] {
             failures.extend(bound_failures(&label, run.get(key), key, envelope, name));
@@ -507,8 +553,8 @@ fn live_presenter_failures(native: &Value) -> Vec<String> {
                         &phase_label,
                         phase.get(LIVE_PRIVATE_KEY),
                         LIVE_PRIVATE_KEY,
-                        PHASE0_PRESENTER_PRIVATE_BYTES,
-                        "Phase 0 private envelope",
+                        envelope.map(|envelope| envelope.private),
+                        "same-run Phase 0 private envelope",
                     ));
                 }
             }
@@ -526,7 +572,7 @@ fn bound_failures(
     label: &str,
     value: Option<&Value>,
     key: &str,
-    envelope: u64,
+    envelope: Option<u64>,
     name: &str,
 ) -> Vec<String> {
     let Some(bytes) = value.and_then(Value::as_u64) else {
@@ -539,7 +585,7 @@ fn bound_failures(
             bytes as f64 / MIB as f64
         ));
     }
-    if bytes > envelope {
+    if let Some(envelope) = envelope.filter(|envelope| bytes > *envelope) {
         failures.push(format!(
             "{label}: {:.1} MiB ({key}) is over the {name} of {:.1} MiB",
             bytes as f64 / MIB as f64,
@@ -686,11 +732,19 @@ fn summary_lines(native: &Value) -> Vec<String> {
         }
     }
     if let Some(runs) = native["live_presenter"].as_array() {
+        let limits = match same_run_envelope(native) {
+            Ok(envelope) => format!(
+                "envelope {:.1} / {:.1} MiB = same-run Phase-0 presenter \u{d7} 1.10",
+                envelope.private as f64 / MIB as f64,
+                envelope.peak as f64 / MIB as f64
+            ),
+            Err(message) => message,
+        };
         for run in runs {
             lines.push(match error_message(run) {
                 Some(message) => format!("live presenter run {}: {message}", run["run"]),
                 None => format!(
-                    "live presenter run {}: private {}, peak private {}, {} Cues, {} frames composed, max cache {}, max images {} full / {} thumbnail (limits {:.1} / {:.1} MiB)",
+                    "live presenter run {}: private {}, peak private {}, {} Cues, {} frames composed, max cache {}, max images {} full / {} thumbnail ({limits})",
                     run["run"],
                     memory_text(run, &[LIVE_PRIVATE_KEY]),
                     memory_text(run, &[LIVE_PEAK_KEY]),
@@ -699,8 +753,6 @@ fn summary_lines(native: &Value) -> Vec<String> {
                     run["max_cache_len"],
                     run["max_full_images"],
                     run["max_thumb_images"],
-                    PHASE0_PRESENTER_PRIVATE_BYTES as f64 / MIB as f64,
-                    PHASE0_PRESENTER_PEAK_BYTES as f64 / MIB as f64,
                 ),
             });
         }
@@ -800,13 +852,16 @@ mod tests {
 
     fn passing_native() -> Value {
         let sample = |rss: u64| json!({"mode": "x", "rss_bytes": rss, "virtual_bytes": 1});
+        // The same-run Phase 0 presenter: private 180 / 190 / 200 MiB and peak
+        // 300 / 310 / 320 MiB, so the envelope is 220 / 352 MiB.
+        let presenter = |private: u64, peak: u64| json!({"mode": "x", "rss_bytes": 90 * MIB, "private_bytes": private, "peak_private_bytes": peak, "virtual_bytes": 1});
         json!({
             "measure": passing_measure(),
             "display_path": {"passes": 30, "cpu": {"median_ms": 50.0, "held_bytes": 8}, "retained": {"median_ms": 12.0, "held_bytes": 4}},
             "baselines": [
-                {"run": 1, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
-                {"run": 2, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
-                {"run": 3, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
+                {"run": 1, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": presenter(180 * MIB, 300 * MIB)},
+                {"run": 2, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": presenter(190 * MIB, 310 * MIB)},
+                {"run": 3, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": presenter(200 * MIB, 320 * MIB)},
             ],
             "live_presenter": [
                 live_run(1, 190 * MIB, 330 * MIB),
@@ -991,9 +1046,11 @@ mod tests {
         let mut native = passing_native();
         native["baselines"][2]["presenter"] = json!({"rss_bytes": 600 * MIB, "virtual_bytes": 1});
         let failures = native_failures(&native);
-        assert_eq!(failures.len(), 1, "{failures:?}");
+        // The unsampled private figure also leaves no same-run envelope.
+        assert_eq!(failures.len(), 2, "{failures:?}");
         assert!(failures[0].starts_with("baseline presenter run 3:"));
         assert!(failures[0].contains("qualification budget"));
+        assert!(failures[1].contains("no same-run Phase-0 presenter baseline"));
     }
 
     #[test]
@@ -1115,47 +1172,86 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line == "baseline run 1: empty 40.0 MiB (rss_bytes), preparation 120.0 MiB (rss_bytes), presenter 90.0 MiB (rss_bytes)")
+                .any(|line| line == "baseline run 1: empty 40.0 MiB (rss_bytes), preparation 120.0 MiB (rss_bytes), presenter 180.0 MiB (private_bytes)")
         );
     }
 
+    const ENVELOPE_PRIVATE: u64 = 220 * MIB;
+    const ENVELOPE_PEAK: u64 = 352 * MIB;
+
     #[test]
-    fn the_phase_0_envelope_is_the_measured_value_plus_ten_percent() {
-        // 198.5 MiB and 330.3 MiB, each plus 10 %.
-        assert!((218..219).contains(&(PHASE0_PRESENTER_PRIVATE_BYTES / MIB)));
-        assert!((363..364).contains(&(PHASE0_PRESENTER_PEAK_BYTES / MIB)));
+    fn the_envelope_is_the_highest_same_run_presenter_baseline_plus_ten_percent() {
+        let envelope = same_run_envelope(&passing_native()).unwrap();
+        assert_eq!(
+            envelope,
+            Envelope {
+                private: ENVELOPE_PRIVATE,
+                peak: ENVELOPE_PEAK
+            }
+        );
     }
 
     #[test]
     fn live_presenter_runs_at_the_envelope_pass() {
         let mut native = passing_native();
-        native["live_presenter"][0] = live_run(
-            1,
-            PHASE0_PRESENTER_PRIVATE_BYTES,
-            PHASE0_PRESENTER_PEAK_BYTES,
-        );
+        native["live_presenter"][0] = live_run(1, ENVELOPE_PRIVATE, ENVELOPE_PEAK);
+        native["live_presenter"][0]["phases"][1]["private_bytes"] = json!(ENVELOPE_PRIVATE);
         assert_eq!(native_failures(&native), Vec::<String>::new());
     }
 
     #[test]
     fn a_live_presenter_run_over_the_private_envelope_fails() {
         let mut native = passing_native();
-        native["live_presenter"][1] = live_run(2, PHASE0_PRESENTER_PRIVATE_BYTES + 1, 300 * MIB);
+        native["live_presenter"][1] = live_run(2, ENVELOPE_PRIVATE + 1, 300 * MIB);
         let failures = native_failures(&native);
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert!(failures[0].starts_with("live presenter run 2:"));
         assert!(failures[0].contains("(private_bytes)"));
-        assert!(failures[0].contains("Phase 0 private envelope"));
+        assert!(failures[0].contains("same-run Phase 0 private envelope"));
     }
 
     #[test]
     fn a_live_presenter_peak_over_the_peak_envelope_fails() {
         let mut native = passing_native();
-        native["live_presenter"][2] = live_run(3, 190 * MIB, PHASE0_PRESENTER_PEAK_BYTES + 1);
+        native["live_presenter"][2] = live_run(3, 190 * MIB, ENVELOPE_PEAK + 1);
         let failures = native_failures(&native);
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert!(failures[0].contains("(peak_private_bytes)"));
-        assert!(failures[0].contains("Phase 0 peak private envelope"));
+        assert!(failures[0].contains("same-run Phase 0 peak private envelope"));
+    }
+
+    #[test]
+    fn a_missing_errored_or_unsampled_presenter_baseline_fails() {
+        let message = "live presenter: no same-run Phase-0 presenter baseline to compare against";
+        let mutations: [fn(&mut Value); 4] = [
+            |native| {
+                native["baselines"].as_array_mut().unwrap().pop();
+            },
+            |native| native["baselines"][1]["presenter"] = json!({"error": "timed out"}),
+            |native| {
+                native["baselines"][2]["presenter"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("peak_private_bytes");
+            },
+            |native| {
+                native["baselines"][0]["presenter"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("private_bytes");
+            },
+        ];
+        for mutate in mutations {
+            let mut native = passing_native();
+            mutate(&mut native);
+            assert!(
+                native_failures(&native)
+                    .iter()
+                    .any(|failure| failure == message),
+                "{:?}",
+                native_failures(&native)
+            );
+        }
     }
 
     #[test]
@@ -1166,23 +1262,22 @@ mod tests {
         // Private and peak each miss the budget and their envelope.
         assert_eq!(failures.len(), 4, "{failures:?}");
         assert!(failures[0].contains("qualification budget"));
-        assert!(failures[1].contains("Phase 0 private envelope"));
+        assert!(failures[1].contains("same-run Phase 0 private envelope"));
         assert!(failures[2].contains("qualification budget"));
-        assert!(failures[3].contains("Phase 0 peak private envelope"));
+        assert!(failures[3].contains("same-run Phase 0 peak private envelope"));
     }
 
     #[test]
     fn a_mid_phase_sample_over_the_bound_fails_even_when_the_last_is_fine() {
         let mut native = passing_native();
-        native["live_presenter"][0]["phases"][1]["private_bytes"] =
-            json!(PHASE0_PRESENTER_PRIVATE_BYTES + 1);
+        native["live_presenter"][0]["phases"][1]["private_bytes"] = json!(ENVELOPE_PRIVATE + 1);
         let failures = native_failures(&native);
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert!(
             failures[0].contains("run 1, phase 2 (reverse)"),
             "{failures:?}"
         );
-        assert!(failures[0].contains("Phase 0 private envelope"));
+        assert!(failures[0].contains("same-run Phase 0 private envelope"));
     }
 
     fn one_live_failure(mutate: impl FnOnce(&mut Value), expected: &str) {
@@ -1267,7 +1362,7 @@ mod tests {
     fn the_summary_names_each_live_presenter_run() {
         let lines = summary_lines(&passing_native());
         assert!(lines.iter().any(|line| line
-            == "live presenter run 1: private 190.0 MiB (private_bytes), peak private 330.0 MiB (peak_private_bytes), 500 Cues, 120 frames composed, max cache 40, max images 2 full / 3 thumbnail (limits 218.3 / 363.3 MiB)"));
+            == "live presenter run 1: private 190.0 MiB (private_bytes), peak private 330.0 MiB (peak_private_bytes), 500 Cues, 120 frames composed, max cache 40, max images 2 full / 3 thumbnail (envelope 220.0 / 352.0 MiB = same-run Phase-0 presenter \u{d7} 1.10)"));
     }
 
     #[test]
