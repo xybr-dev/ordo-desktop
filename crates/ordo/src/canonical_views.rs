@@ -8,8 +8,15 @@
 //! Preview-to-Program behavior lives here. The congregation window never
 //! mounts any of these; it stays passive, square, and edge-to-edge.
 
-use gpui::{AnyElement, IntoElement, ParentElement, div, prelude::*};
-use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment};
+use std::{rc::Rc, sync::Arc};
+
+use gpui::{
+    AnyElement, IntoElement, ObjectFit, ParentElement, RenderImage, StyledImage, div, img,
+    prelude::*, px,
+};
+use ui::{canonical_frame::FinishedFrame, environment::UiEnvironment, tokens};
+
+use crate::performance::display_path::{PaintTally, retained_glyphs};
 
 /// Finish a completed raster into the shared pixels every viewport shows.
 ///
@@ -127,6 +134,66 @@ pub fn program_frame(frame: &FinishedFrame, environment: UiEnvironment) -> AnyEl
             environment,
         ))
         .into_any_element()
+}
+
+/// The live viewport: one retained canonical [`rendering::Frame`] drawn
+/// straight into the GPUI scene at any width (Decision 310). This is the
+/// path every live surface uses; the raster-based viewports above remain for
+/// export only, and this function never calls `rasterize`.
+///
+/// `width` is already Interface-scaled by the caller; only the corner radius
+/// is scaled here. `image` is the eagerly decoded foreground, so the first
+/// paint is never a frame without its image.
+///
+/// The box is black, exactly `16:9` (`height = width * 9 / 16`), clipped to
+/// the operator-only slide-viewport radius. `None` for `frame` is the black
+/// box: no frame has arrived yet, or Program is black. Paint order matches
+/// `rendering::rasterize`: black, then the foreground image (when `frame`
+/// places one and `image` carries its decoded asset), then the glyphs. The
+/// image sits at `placed.bounds` scaled by `width / logical_width`, so the
+/// same frame lays out identically at every size; resizing only rescales
+/// this element tree and never recomposes the frame.
+///
+/// `tally` records the glyph paint for tests and diagnostics; production
+/// passes `None`.
+///
+/// Fades are out of scope here: the black overlay for a Program fade is a
+/// later package (T1.4 WP4) layered over this box.
+pub fn live_viewport(
+    frame: Option<Arc<rendering::Frame>>,
+    image: Option<Arc<RenderImage>>,
+    width: f32,
+    tally: Option<Rc<PaintTally>>,
+    environment: UiEnvironment,
+) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let height = width * 9.0 / 16.0;
+    let mut viewport = div()
+        .relative()
+        .w(px(width))
+        .h(px(height))
+        .overflow_hidden()
+        .rounded(px(scale.apply(tokens::radius::SLIDE_VIEWPORT)))
+        .bg(gpui::rgb(tokens::color::PROJECTION_BACKGROUND));
+    if let Some(frame) = frame {
+        if let (Some(placed), Some(image)) = (frame.image(), image) {
+            let (logical_width, _) = frame.logical_size();
+            let factor = width / logical_width as f32;
+            viewport = viewport.child(
+                img(image)
+                    .debug_selector(|| "live-viewport-image".into())
+                    .absolute()
+                    .left(px(placed.bounds.x as f32 * factor))
+                    .top(px(placed.bounds.y as f32 * factor))
+                    .w(px(placed.bounds.width as f32 * factor))
+                    .h(px(placed.bounds.height as f32 * factor))
+                    .object_fit(ObjectFit::Contain),
+            );
+        }
+        let tally = tally.unwrap_or_default();
+        viewport = viewport.child(retained_glyphs(frame, tally));
+    }
+    viewport.into_any_element()
 }
 
 #[cfg(test)]
@@ -794,5 +861,176 @@ mod tests {
             raster_bytes.as_slice(),
             "congregation backing bytes must still equal the one rasterization"
         );
+    }
+}
+
+#[cfg(test)]
+mod live_viewport_tests {
+    use super::*;
+    use crate::performance::display_path::glyph_count;
+    use crate::presenter::frames::test_support::{fixture_snapshot, frame_ids};
+    use gpui::{Context, Render, TestAppContext, Window, size};
+    use ui::environment::{ResolvedAppearance, UiPreferences};
+
+    /// Thumbnail, mini, and monitor widths in logical px.
+    const WIDTHS: [f32; 3] = [270.0, 360.0, 488.0];
+
+    fn environment() -> UiEnvironment {
+        UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light)
+    }
+
+    struct Host {
+        frame: Option<Arc<rendering::Frame>>,
+        image: Option<Arc<RenderImage>>,
+        tallies: Vec<Rc<PaintTally>>,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let mut column = div().flex().flex_col().items_start();
+            for (index, width) in WIDTHS.into_iter().enumerate() {
+                column = column.child(
+                    div()
+                        .debug_selector(move || format!("viewport-{index}"))
+                        .child(live_viewport(
+                            self.frame.clone(),
+                            self.image.clone(),
+                            width,
+                            Some(self.tallies[index].clone()),
+                            environment(),
+                        )),
+                );
+            }
+            column
+        }
+    }
+
+    fn open(
+        cx: &mut TestAppContext,
+        frame: Option<Arc<rendering::Frame>>,
+        image: Option<Arc<RenderImage>>,
+    ) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
+        cx.update(ui::init).unwrap();
+        let (host, cx) = cx.add_window_view(|_, _| Host {
+            frame,
+            image,
+            tallies: WIDTHS.iter().map(|_| Rc::default()).collect(),
+        });
+        cx.simulate_resize(size(px(900.0), px(900.0)));
+        cx.run_until_parked();
+        (host, cx)
+    }
+
+    fn compose_fixture(
+        cx: &TestAppContext,
+        with_image: bool,
+    ) -> (Arc<rendering::Frame>, Option<Arc<RenderImage>>) {
+        let snapshot = fixture_snapshot();
+        let id = frame_ids(&snapshot, with_image)[0];
+        let content = snapshot.frame(id).expect("fixture frame");
+        let frame = Arc::new(rendering::compose(content).expect("fixture composes"));
+        let image = content.image.as_ref().map(|foreground| {
+            let asset = domain::presentation::AssetId::parse(&foreground.id).unwrap();
+            let bytes = snapshot.asset(asset).expect("fixture asset").to_vec();
+            let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes);
+            cx.update(|app| image.to_image_data(app.svg_renderer()))
+                .expect("fixture asset decodes")
+        });
+        (frame, image)
+    }
+
+    #[gpui::test]
+    fn one_frame_paints_the_same_glyphs_at_every_width_in_16_by_9(cx: &mut TestAppContext) {
+        let (frame, _) = compose_fixture(cx, false);
+        let expected = glyph_count(&frame);
+        assert!(expected > 0, "the fixture frame must place glyphs");
+        let (host, cx) = open(cx, Some(frame), None);
+
+        for (index, width) in WIDTHS.into_iter().enumerate() {
+            let selector: &'static str = Box::leak(format!("viewport-{index}").into_boxed_str());
+            let bounds = cx.debug_bounds(selector).expect("viewport is on screen");
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            assert!((w - width).abs() < 0.5, "width {w} != {width}");
+            assert!(
+                (h - width * 9.0 / 16.0).abs() < 0.5,
+                "height {h} is not 16:9"
+            );
+
+            let tally = host.read_with(cx, |host, _| host.tallies[index].clone());
+            // The GPUI test platform has a fake text system. Every glyph
+            // placement still succeeds there (the display-path tests rely on
+            // the same), so the tally counts successes; the attempts check
+            // below is the weaker form that would still hold if a platform
+            // refused glyphs.
+            assert_eq!(
+                tally.glyphs() + tally.failed(),
+                expected,
+                "attempts at {width}"
+            );
+            assert_eq!(tally.failed(), 0, "failed glyphs at {width}");
+            // No opaque quad may sit over a foreground image.
+            assert_eq!(tally.quads(), 0, "background quads at {width}");
+            assert_eq!(tally.glyphs(), expected, "glyphs at {width}");
+        }
+    }
+
+    #[gpui::test]
+    fn the_placed_image_scales_with_the_viewport(cx: &mut TestAppContext) {
+        let (frame, image) = compose_fixture(cx, true);
+        let placed = frame.image().expect("image frame places an image").bounds;
+        let (logical_width, _) = frame.logical_size();
+        let (_host, cx) = open(cx, Some(frame), image);
+
+        // Every viewport holds an image element under one shared selector,
+        // and the lookup returns one of them: derive which viewport it
+        // belongs to from its width, then check the whole placement there.
+        let image = cx
+            .debug_bounds("live-viewport-image")
+            .expect("image element");
+        let close = |a: gpui::Pixels, b: f32| (f32::from(a) - b).abs() < 0.5;
+        let index = WIDTHS
+            .iter()
+            .position(|width| {
+                close(
+                    image.size.width,
+                    placed.width as f32 * width / logical_width as f32,
+                )
+            })
+            .expect("the image width matches one viewport's scale");
+        let factor = WIDTHS[index] / logical_width as f32;
+        let selector: &'static str = Box::leak(format!("viewport-{index}").into_boxed_str());
+        let viewport = cx.debug_bounds(selector).expect("viewport");
+        assert!(close(image.size.height, placed.height as f32 * factor));
+        assert!(close(
+            image.origin.x - viewport.origin.x,
+            placed.x as f32 * factor
+        ));
+        assert!(close(
+            image.origin.y - viewport.origin.y,
+            placed.y as f32 * factor
+        ));
+    }
+
+    #[gpui::test]
+    fn no_frame_is_a_black_box_that_paints_nothing(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, None, None);
+        let bounds = cx.debug_bounds("viewport-2").expect("viewport");
+        assert!((f32::from(bounds.size.height) - WIDTHS[2] * 9.0 / 16.0).abs() < 0.5);
+        host.read_with(cx, |host, _| {
+            assert!(host.tallies.iter().all(|tally| tally.draws() == 0));
+        });
+    }
+
+    /// The live path draws the retained frame; only export rasterizes.
+    #[test]
+    fn live_viewport_never_rasterizes() {
+        // The repo checks out with CRLF on Windows (`core.autocrlf`).
+        let source = include_str!("canonical_views.rs").replace(['\r'], "");
+        let start = source.find("pub fn live_viewport(").expect("live_viewport");
+        let body = &source[start..];
+        let end = body.find("\n}\n").expect("end of live_viewport");
+        let body = &body[..end];
+        assert!(!body.contains("rasterize"));
+        assert!(!body.contains("finish_frame"));
     }
 }
