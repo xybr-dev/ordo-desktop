@@ -340,5 +340,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
 | [0309](0309-floating-surfaces-fade-and-rise-instead-of-zooming.md) | Floating surfaces fade and rise instead of zooming | accepted | 2026-11-03 | design, motion, gpui |
 | [0310](0310-live-output-draws-the-retained-frame-rasterize-only-for.md) | Live output draws the retained Frame; rasterize only for pixels | accepted | 2026-11-04 | rendering, presenter, performance |
+| [0311](0311-presentation-snapshot-manifest-v2-in-json.md) | Presentation snapshot manifest v2 in JSON | accepted | 2026-11-04 | presentation, contracts, snapshot |
 
 <!-- adr-index:end -->
