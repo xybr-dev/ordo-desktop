@@ -108,7 +108,7 @@ fn idle_status(engine: &Engine) -> &'static str {
 }
 
 /// How long a wanted frame may stay pending before the operator sees a
-/// "Preparing..." badge. The owner's decision (PR #91 review, 2026-11-04): the
+/// "Preparing…" badge. The owner's decision (PR #91 review, 2026-11-04): the
 /// congregation output always keeps the previous complete frame, so this only
 /// tells the operator that the next slide is slower than expected.
 pub const PREPARING_THRESHOLD_MS: u64 = 250;
@@ -118,13 +118,26 @@ pub const PREPARING_THRESHOLD_MS: u64 = 250;
 struct Wanted {
     id: Option<FrameId>,
     since: Millis,
+    /// Whether the frame was pending when last observed.
+    pending: bool,
 }
 
 impl Wanted {
-    /// Follow the Engine: a different frame restarts the clock.
-    fn follow(&mut self, id: Option<FrameId>, now: Millis) {
+    /// Follow the Engine: a different frame restarts the clock, and so does
+    /// the same frame going from Ready back to Pending (evicted, then
+    /// composed again).
+    fn follow(&mut self, id: Option<FrameId>, now: Millis, pending: bool) {
         if self.id != id {
-            *self = Self { id, since: now };
+            *self = Self {
+                id,
+                since: now,
+                pending,
+            };
+        } else {
+            if pending && !self.pending {
+                self.since = now;
+            }
+            self.pending = pending;
         }
     }
 }
@@ -317,10 +330,15 @@ impl PresenterView {
         let program = self.engine.program_view(now).shown;
         let preview = self.engine.preview_view(now).shown;
         let preload = self.preload_frames();
-        self.program_wanted.follow(program, now);
-        self.preview_wanted.follow(preview, now);
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
+        let pending = |frames: &PresenterFrames, id: Option<FrameId>| {
+            id.is_some_and(|id| matches!(frames.peek(id), FrameView::Pending))
+        };
+        let program_pending = pending(&self.frames, program);
+        let preview_pending = pending(&self.frames, preview);
+        self.program_wanted.follow(program, now, program_pending);
+        self.preview_wanted.follow(preview, now, preview_pending);
         self.request_visible(cx);
         self.reschedule(cx);
         self.reschedule_preparing(cx);
@@ -809,6 +827,9 @@ impl PresenterView {
 impl Render for PresenterView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.absorb_failures(cx);
+        // A held frame may have become Ready since the last paint: drop a
+        // timer that has nothing left to announce.
+        self.reschedule_preparing(cx);
         let now = (self.clock)();
         let environment = self.environment;
         let scale = environment.preferences().scale;
@@ -2289,7 +2310,8 @@ mod tests {
         settle(&open, cx, 1000);
         let before = open
             .view
-            .read_with(cx, |view, _| view.last_program.frame.clone());
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program drew a frame after Take");
 
         hold_jobs(&open, cx, 1000);
         assert!(run(&open, cx, Command::GoTo(far)).is_ok());
@@ -2303,31 +2325,47 @@ mod tests {
         );
         let during = open
             .view
-            .read_with(cx, |view, _| view.last_program.frame.clone());
-        match (&before, &during) {
-            (Some(a), Some(b)) => assert!(Arc::ptr_eq(a, b), "the previous frame stays"),
-            (None, None) => {}
-            _ => panic!("Program must keep what it showed"),
-        }
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program still draws a frame");
+        assert!(Arc::ptr_eq(&before, &during), "the previous frame stays");
 
-        advance_to(&open, cx, 2000);
+        advance_to(&open, cx, 2250);
         assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        let after = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program draws the new frame");
+        assert!(!Arc::ptr_eq(&before, &after), "the new frame shows");
     }
 
     #[gpui::test]
     fn fast_navigation_never_shows_the_badge(cx: &mut TestAppContext) {
-        let (open, cx) = open(cx, SIZES[0]);
+        let (open, cx, far) = open_for_slow_frames(cx);
         assert!(run(&open, cx, Command::EnableOutput).is_ok());
         assert!(run(&open, cx, Command::Take).is_ok());
+        // Jobs take 200 ms: slow enough to be pending, under the threshold.
+        hold_jobs(&open, cx, 200);
+        let middle = far / 2;
         let mut at = 0;
-        for flat in [1, 2, 3, 2, 1] {
+        for flat in [far, middle] {
             assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
-            for _ in 0..3 {
-                at += 400;
+            let started = at;
+            for step in [100, 199, 200, 300] {
+                at = started + step;
                 advance_to(&open, cx, at);
                 assert!(cx.debug_bounds("monitor-preview-preparing").is_none());
                 assert!(cx.debug_bounds("monitor-program-preparing").is_none());
             }
+        }
+    }
+
+    /// A view that draws the live viewport alone, as the congregation output
+    /// does.
+    struct BareViewport(UiEnvironment);
+
+    impl Render for BareViewport {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            crate::canonical_views::live_viewport_fading(None, None, 320.0, None, 1.0, self.0)
         }
     }
 
@@ -2346,9 +2384,17 @@ mod tests {
                 && bottom(badge) <= bottom(monitor) + 0.5,
             "{badge:?} inside {monitor:?}"
         );
-        // The viewport the congregation output reuses knows nothing of it.
-        let viewport = include_str!("../canonical_views.rs").replace(['\r'], "");
-        assert!(!viewport.contains("Preparing"));
-        assert!(!viewport.contains("preparing"));
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+    }
+
+    #[gpui::test]
+    fn the_live_viewport_alone_draws_no_badge(cx: &mut TestAppContext) {
+        cx.update(ui::init).unwrap();
+        let (_, cx) =
+            cx.add_window_view(|_, _| BareViewport(environment(InterfaceScale::Percent100)));
+        cx.run_until_parked();
+        for selector in ["monitor-program-preparing", "monitor-preview-preparing"] {
+            assert!(cx.debug_bounds(selector).is_none(), "{selector}");
+        }
     }
 }

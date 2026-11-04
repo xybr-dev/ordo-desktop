@@ -119,7 +119,7 @@ pub struct ProgramModel {
     pub unavailable_black: bool,
     pub shown: Shown,
     /// The wanted frame has been pending past the slow-frame threshold.
-    /// Operator-only: it adds the "Preparing..." badge to this monitor.
+    /// Operator-only: it adds the "Preparing…" badge to this monitor.
     pub preparing: bool,
 }
 
@@ -241,7 +241,7 @@ fn viewport_box(
         ))
 }
 
-/// The operator-only "Preparing..." badge for a slow frame.
+/// The operator-only "Preparing…" badge for a slow frame.
 ///
 /// It is a child of the operator's monitor box, beside the live viewport and
 /// never inside it, so it can never reach anything the congregation output
