@@ -1064,6 +1064,8 @@ impl Render for PresenterView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[path = "../e2e.rs"]
+    mod e2e;
     use crate::presenter::frames::test_support::fixture_snapshot;
     use domain::presentation::CueId;
     use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, size};
