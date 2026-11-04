@@ -82,6 +82,11 @@ pub struct PresenterFrames {
     /// this is the only way to reach those paths.
     #[cfg(test)]
     fault: AssetFault,
+    /// Test seam: how long a finished job waits (on the executor clock)
+    /// before its result is handed back, so a test can hold a frame in
+    /// `Pending` and release it by advancing the clock.
+    #[cfg(test)]
+    hold: std::time::Duration,
 }
 
 /// Where a test injects an asset fault. Production is always `None`.
@@ -106,6 +111,8 @@ impl PresenterFrames {
             failures: Vec::new(),
             #[cfg(test)]
             fault: AssetFault::None,
+            #[cfg(test)]
+            hold: std::time::Duration::ZERO,
         }
     }
 
@@ -198,11 +205,17 @@ impl PresenterFrames {
         let fault = self.fault;
         #[cfg(not(test))]
         let fault = AssetFault::None;
+        #[cfg(test)]
+        let hold = self.hold;
         let renderer = cx.svg_renderer();
         let job =
             cx.background_spawn(async move { prepare(&snapshot, key, known, &renderer, fault) });
         cx.spawn(async move |this, cx| {
             let prepared = job.await;
+            #[cfg(test)]
+            if !hold.is_zero() {
+                cx.background_executor().timer(hold).await;
+            }
             this.update(cx, |view, cx| {
                 access(view).finish(ticket, prepared);
                 cx.notify();
@@ -310,6 +323,13 @@ impl PresenterFrames {
     #[cfg(test)]
     fn scheduler_in_flight(&self) -> usize {
         self.scheduler.in_flight()
+    }
+
+    /// Hold every job started from now on for `hold` of executor time before
+    /// its result lands. Test seam for the slow-frame indicator.
+    #[cfg(test)]
+    pub(super) fn set_hold(&mut self, hold: std::time::Duration) {
+        self.hold = hold;
     }
 
     /// Jobs started and not yet finished or dropped.

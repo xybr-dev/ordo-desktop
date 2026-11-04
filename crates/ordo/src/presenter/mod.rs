@@ -14,6 +14,8 @@
 //!
 //! * `timer`: one sleep until `Engine::next_deadline`, replaced whenever the
 //!   deadline changes and cleared when it fires;
+//! * `preparing_timer`: one sleep until the slow-frame badge is due,
+//!   replaced when the due time changes and cleared when it fires;
 //! * `frames`: the compose jobs, held by [`PresenterFrames`] (see its docs).
 //!
 //! The timeline and rail start no task. Their scroll handles, focus handles
@@ -105,6 +107,28 @@ fn idle_status(engine: &Engine) -> &'static str {
     }
 }
 
+/// How long a wanted frame may stay pending before the operator sees a
+/// "Preparing..." badge. The owner's decision (PR #91 review, 2026-11-04): the
+/// congregation output always keeps the previous complete frame, so this only
+/// tells the operator that the next slide is slower than expected.
+pub const PREPARING_THRESHOLD_MS: u64 = 250;
+
+/// The frame a monitor wants, and when it began to want it (injected clock).
+#[derive(Clone, Copy, Default)]
+struct Wanted {
+    id: Option<FrameId>,
+    since: Millis,
+}
+
+impl Wanted {
+    /// Follow the Engine: a different frame restarts the clock.
+    fn follow(&mut self, id: Option<FrameId>, now: Millis) {
+        if self.id != id {
+            *self = Self { id, since: now };
+        }
+    }
+}
+
 /// The Presenter: header, rail, Cue timeline and Output Dock over one Engine.
 pub struct PresenterView {
     snapshot: Arc<LoadedSnapshot>,
@@ -144,6 +168,12 @@ pub struct PresenterView {
     /// The deadline the sleeping task waits for, and the task. Dropped with
     /// the view.
     timer: Option<(Millis, Task<()>)>,
+    /// The frame Program and Preview want, for the slow-frame badge.
+    program_wanted: Wanted,
+    preview_wanted: Wanted,
+    /// When the next badge becomes due (a time on the injected clock), and
+    /// the task sleeping until then. Dropped with the view.
+    preparing_timer: Option<(u64, Task<()>)>,
     /// The last frame each monitor finished drawing, kept while its
     /// replacement is still composing (the consumer rule in
     /// `rendering::frame_cache`).
@@ -180,6 +210,9 @@ impl PresenterView {
             status: None,
             save_preferences: None,
             timer: None,
+            program_wanted: Wanted::default(),
+            preview_wanted: Wanted::default(),
+            preparing_timer: None,
             last_program: Shown::default(),
             last_preview: Shown::default(),
         };
@@ -284,10 +317,13 @@ impl PresenterView {
         let program = self.engine.program_view(now).shown;
         let preview = self.engine.preview_view(now).shown;
         let preload = self.preload_frames();
+        self.program_wanted.follow(program, now);
+        self.preview_wanted.follow(preview, now);
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
         self.request_visible(cx);
         self.reschedule(cx);
+        self.reschedule_preparing(cx);
         cx.notify();
     }
 
@@ -414,6 +450,60 @@ impl PresenterView {
         self.timer = Some((deadline, task));
     }
 
+    /// True when `wanted` has been pending for at least the threshold.
+    fn is_preparing(&self, wanted: Wanted, now: Millis) -> bool {
+        wanted.id.is_some_and(|id| {
+            now.0.saturating_sub(wanted.since.0) >= PREPARING_THRESHOLD_MS
+                && matches!(self.frames.peek(id), FrameView::Pending)
+        })
+    }
+
+    /// Keep one sleeping task aimed at the earliest moment a still-pending
+    /// wanted frame crosses the threshold, so the badge appears without any
+    /// other input. A frame that is ready, failed or already past the
+    /// threshold needs no timer.
+    fn reschedule_preparing(&mut self, cx: &mut Context<Self>) {
+        let now = (self.clock)().0;
+        let due = [self.program_wanted, self.preview_wanted]
+            .into_iter()
+            .filter(|wanted| {
+                wanted
+                    .id
+                    .is_some_and(|id| matches!(self.frames.peek(id), FrameView::Pending))
+            })
+            .map(|wanted| wanted.since.0 + PREPARING_THRESHOLD_MS)
+            .filter(|due| *due > now)
+            .min();
+        let Some(due) = due else {
+            self.preparing_timer = None;
+            return;
+        };
+        if self
+            .preparing_timer
+            .as_ref()
+            .is_some_and(|(waiting_for, _)| *waiting_for == due)
+        {
+            return;
+        }
+        let wait = Duration::from_millis(due - now);
+        let task = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            this.update(cx, |view, cx| view.preparing_due(cx)).ok();
+        });
+        self.preparing_timer = Some((due, task));
+    }
+
+    fn preparing_due(&mut self, cx: &mut Context<Self>) {
+        // The running task ends as soon as this returns, so it is detached
+        // rather than dropped from inside itself.
+        if let Some((_, finished)) = self.preparing_timer.take() {
+            finished.detach();
+        }
+        // Another monitor may cross the threshold later.
+        self.reschedule_preparing(cx);
+        cx.notify();
+    }
+
     fn timer_fired(&mut self, cx: &mut Context<Self>) {
         // This task is the one running; it ends as soon as this returns, so
         // it is detached rather than dropped from inside itself.
@@ -479,7 +569,7 @@ impl PresenterView {
             status: self
                 .status
                 .clone()
-                .unwrap_or_else(|| idle_status(&self.engine).into()),
+                .unwrap_or_else(|| self.standing_status(now)),
             can_freeze: allowed(Command::ToggleFreeze),
             can_blackout: allowed(Command::ToggleBlackout),
             can_primary: match dock::primary_for(live) {
@@ -489,7 +579,27 @@ impl PresenterView {
         }
     }
 
-    fn preview_model(&self, shown: Shown) -> PreviewModel {
+    /// The status line when no refusal is showing. A slow frame is told only
+    /// while output is working normally: a disabled or disconnected output
+    /// is the more important thing to say.
+    fn standing_status(&self, now: Millis) -> SharedString {
+        let idle = idle_status(&self.engine);
+        if matches!(
+            self.engine.state().live(),
+            LiveState::OutputDisabled | LiveState::Disconnected { .. }
+        ) {
+            return idle.into();
+        }
+        if self.is_preparing(self.program_wanted, now) {
+            "Program is preparing the next slide".into()
+        } else if self.is_preparing(self.preview_wanted, now) {
+            "Preview is preparing".into()
+        } else {
+            idle.into()
+        }
+    }
+
+    fn preview_model(&self, shown: Shown, preparing: bool) -> PreviewModel {
         let state = self.engine.state();
         let unavailable = match self.engine.preview_availability() {
             Availability::Presentable => None,
@@ -514,6 +624,7 @@ impl PresenterView {
                 .map(|context| context.to_owned().into()),
             unavailable,
             shown,
+            preparing,
         }
     }
 
@@ -724,8 +835,10 @@ impl Render for PresenterView {
             live: state.live(),
             unavailable_black: state.unavailable_black(),
             shown: program_shown,
+            preparing: self.is_preparing(self.program_wanted, now),
         };
-        let preview = self.preview_model(preview_shown);
+        let preview =
+            self.preview_model(preview_shown, self.is_preparing(self.preview_wanted, now));
         let controls = self.controls(now);
 
         let view = cx.entity().downgrade();
@@ -2078,5 +2191,164 @@ mod tests {
             last_group_frames[..],
             "the group on screen comes first"
         );
+    }
+
+    /// Hold every compose job started from now on for `ms` of executor time.
+    fn hold_jobs(open: &Open, cx: &mut VisualTestContext, ms: u64) {
+        open.view.update(cx, |view, _| {
+            view.frames.set_hold(Duration::from_millis(ms));
+        });
+    }
+
+    /// Move both the injected clock and the executor clock to `at`, which
+    /// must be later than the last call, and let everything that woke run.
+    fn advance_to(open: &Open, cx: &mut VisualTestContext, at: u64) {
+        let step = at - open.now.get();
+        open.now.set(at);
+        cx.executor().advance_clock(Duration::from_millis(step));
+        cx.run_until_parked();
+    }
+
+    /// A slow-frame fixture: List view (no thumbnails are composed ahead) and
+    /// a Cue far from the start (outside the preload radius), whose frame is
+    /// therefore still to be composed when Preview goes there.
+    fn open_for_slow_frames(cx: &mut TestAppContext) -> (Open, &mut VisualTestContext, usize) {
+        let (open, cx) = open_with(
+            cx,
+            SIZES[0],
+            UiPreferences {
+                cue_view: CueView::List,
+                ..UiPreferences::default()
+            },
+        );
+        let far = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count() - 1);
+        (open, cx, far)
+    }
+
+    fn status_line(open: &Open, cx: &VisualTestContext) -> String {
+        open.view.read_with(cx, |view, _| {
+            view.controls(Millis(open.now.get())).status.to_string()
+        })
+    }
+
+    #[gpui::test]
+    fn a_slow_preview_frame_shows_the_badge_at_250_ms_and_keeps_the_old_frame(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        let before = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview drew a frame");
+
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        assert_eq!(open.now.get(), 0);
+        assert!(cx.debug_bounds("monitor-preview-preparing").is_none());
+
+        advance_to(&open, cx, 249);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_none(),
+            "no badge at 249 ms"
+        );
+
+        advance_to(&open, cx, 250);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_some(),
+            "the timer woke the view and the badge is up at 250 ms"
+        );
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        assert_eq!(status_line(&open, cx), "Preview is preparing");
+        let during = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview still draws a frame");
+        assert!(Arc::ptr_eq(&before, &during), "the previous frame stays");
+
+        advance_to(&open, cx, 1000);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_none(),
+            "the badge goes when the frame is ready"
+        );
+        assert_eq!(status_line(&open, cx), "Output enabled");
+        let after = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview draws the new frame");
+        assert!(!Arc::ptr_eq(&before, &after), "the new frame shows");
+    }
+
+    #[gpui::test]
+    fn a_slow_program_frame_shows_its_own_badge_and_status(cx: &mut TestAppContext) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        assert!(run(&open, cx, Command::Take).is_ok());
+        settle(&open, cx, 1000);
+        let before = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone());
+
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        advance_to(&open, cx, 1249);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        advance_to(&open, cx, 1250);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_some());
+        assert_eq!(
+            status_line(&open, cx),
+            "Program is preparing the next slide"
+        );
+        let during = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone());
+        match (&before, &during) {
+            (Some(a), Some(b)) => assert!(Arc::ptr_eq(a, b), "the previous frame stays"),
+            (None, None) => {}
+            _ => panic!("Program must keep what it showed"),
+        }
+
+        advance_to(&open, cx, 2000);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+    }
+
+    #[gpui::test]
+    fn fast_navigation_never_shows_the_badge(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        assert!(run(&open, cx, Command::Take).is_ok());
+        let mut at = 0;
+        for flat in [1, 2, 3, 2, 1] {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            for _ in 0..3 {
+                at += 400;
+                advance_to(&open, cx, at);
+                assert!(cx.debug_bounds("monitor-preview-preparing").is_none());
+                assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn the_badge_belongs_to_the_operator_monitor_and_not_the_viewport(cx: &mut TestAppContext) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        advance_to(&open, cx, 250);
+        let badge = bounds(cx, "monitor-preview-preparing");
+        let monitor = bounds(cx, "monitor-preview");
+        assert!(
+            left(badge) >= left(monitor) - 0.5
+                && right(badge) <= right(monitor) + 0.5
+                && top(badge) >= top(monitor) - 0.5
+                && bottom(badge) <= bottom(monitor) + 0.5,
+            "{badge:?} inside {monitor:?}"
+        );
+        // The viewport the congregation output reuses knows nothing of it.
+        let viewport = include_str!("../canonical_views.rs").replace(['\r'], "");
+        assert!(!viewport.contains("Preparing"));
+        assert!(!viewport.contains("preparing"));
     }
 }
