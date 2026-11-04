@@ -66,7 +66,7 @@ use self::{
     frames::{FrameView, PresenterFrames},
     header::{DisplayHealth, HeaderModel, OnCueView},
     layout::{
-        BAND_GAP, BAND_GUTTER, DOCK_GAP, DOCK_PADDING, DockLayout, LayoutInput, PresenterLayout,
+        BAND_GAP, BAND_GUTTER, BAND_TOP_PADDING, DockLayout, LayoutInput, PresenterLayout,
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
     rail::{PinControl, RailItem, RailModel, RailSection},
@@ -84,8 +84,8 @@ pub type SavePreferences = Rc<dyn Fn(UiPreferences)>;
 /// Engine's developer-facing `Display` text.
 pub fn refusal_text(refusal: Refusal) -> &'static str {
     match refusal {
-        Refusal::UnavailablePreview { .. } => "Preview is unavailable â€” choose another Cue",
-        Refusal::OutputDisabled => "Output is off â€” choose Enable Output first",
+        Refusal::UnavailablePreview { .. } => "Preview is unavailable — choose another Cue",
+        Refusal::OutputDisabled => "Output is off — choose Enable Output first",
         Refusal::DisplayNotBack => "The congregation display is not back yet",
         Refusal::OutputDisconnected => "The congregation display is disconnected",
         Refusal::FreezeDuringBlackout => "End Blackout before freezing",
@@ -104,9 +104,9 @@ fn idle_status(engine: &Engine) -> &'static str {
         LiveState::Disconnected {
             display_back: false,
         } => "Congregation output disconnected",
-        LiveState::Disconnected { display_back: true } => "Display back Â· output not resumed",
+        LiveState::Disconnected { display_back: true } => "Display back · output not resumed",
         _ => match engine.preview_availability() {
-            Availability::Unavailable(_) => "Preview is unavailable â€” choose another Cue",
+            Availability::Unavailable(_) => "Preview is unavailable — choose another Cue",
             Availability::Presentable => "Output enabled",
         },
     }
@@ -955,11 +955,11 @@ impl Render for PresenterView {
                     .w(px(width))
                     .h_full()
                     .overflow_hidden()
-                    .p(px(scale.apply(DOCK_PADDING)))
+                    .p(px(scale.apply(layout::dock_padding(layout.regime))))
                     .flex()
                     .flex_col()
                     .items_center()
-                    .gap(px(scale.apply(DOCK_GAP)))
+                    .gap(px(scale.apply(layout::dock_gap(layout.regime))))
                     .bg(rgb(palette.surface))
                     .child(dock::program_monitor(&program, monitor_width, environment))
                     .child(dock::preview_monitor(&preview, monitor_width, environment))
@@ -989,7 +989,7 @@ impl Render for PresenterView {
                     .justify_center()
                     .gap(px(scale.apply(BAND_GAP)))
                     .px(px(scale.apply(BAND_GUTTER)))
-                    .pt(px(scale.apply(DOCK_GAP)))
+                    .pt(px(scale.apply(BAND_TOP_PADDING)))
                     .child(dock::program_monitor(&program, monitor_width, environment))
                     .child(dock::preview_monitor(&preview, monitor_width, environment));
                 let controls_row = div()
