@@ -17,17 +17,19 @@ use domain::presentation::{
     SnapshotId, ThemeId, ThemeKind, ThemeRef,
 };
 use serde::de::value::MapAccessDeserializer;
-use serde::de::{MapAccess, Visitor};
+use serde::de::{Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::marker::PhantomData;
 
 use super::{
-    ASSET_DIRECTORY, FRAME_DIRECTORY, MANIFEST_SCHEMA_VERSION, ManifestReason, is_snapshot_relative,
+    ASSET_DIRECTORY, CapturedAt, FRAME_DIRECTORY, MANIFEST_SCHEMA_VERSION, ManifestReason,
+    SnapshotProvenance, is_snapshot_relative,
 };
 
 /// One manifest as parsed, before any file is opened.
 pub(super) struct Manifest {
     pub(super) snapshot: SnapshotId,
+    pub(super) provenance: SnapshotProvenance,
     pub(super) title: String,
     pub(super) fingerprint: ContentHash,
     pub(super) themes: Vec<ThemeRef>,
@@ -85,17 +87,45 @@ struct CueDecl {
 /// be unknown to this build) are judged.
 #[derive(Deserialize)]
 struct VersionProbe {
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "present_schema_version")]
     schema_version: Option<u64>,
 }
 
-/// A member that is either absent or has a value; `null` is a type error.
-fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+/// A member that is either absent or has a value; `null` is an error that
+/// names the member and says to omit it, so one fact has one spelling.
+fn present_named<'de, D, T>(deserializer: D, member: &'static str) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    T::deserialize(deserializer).map(Some)
+    match Option::<T>::deserialize(deserializer)? {
+        Some(value) => Ok(Some(value)),
+        None => Err(D::Error::custom(format!(
+            "`{member}` is null; omit the member instead of writing null"
+        ))),
+    }
+}
+
+/// One `deserialize_with` function per optional member, because serde passes
+/// the function no member name and the error must name it.
+macro_rules! omit_only {
+    ($($function:ident => $member:literal: $value:ty),+ $(,)?) => {
+        $(
+            fn $function<'de, D: Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Option<$value>, D::Error> {
+                present_named(deserializer, $member)
+            }
+        )+
+    };
+}
+
+omit_only! {
+    present_schema_version => "schema_version": u64,
+    present_theme_id => "theme_id": String,
+    present_auto_play_seconds => "auto_play_seconds": u32,
+    present_private_context => "private_context": String,
+    present_duration_seconds => "duration_seconds": u32,
 }
 
 /// A JSON object and nothing else.
@@ -134,10 +164,8 @@ struct ManifestWire {
     _schema_version: u64,
     id: String,
     mass_plan_id: String,
-    #[serde(default, deserialize_with = "present")]
-    celebration_id: Option<String>,
-    #[serde(default, deserialize_with = "present")]
-    captured_at: Option<String>,
+    celebration_id: String,
+    captured_at: String,
     title: String,
     themes: Vec<Obj<ThemeWire>>,
     mass_theme_id: String,
@@ -176,9 +204,9 @@ struct ItemWire {
     id: String,
     title: String,
     kind: ItemKindWire,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "present_theme_id")]
     theme_id: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "present_auto_play_seconds")]
     auto_play_seconds: Option<u32>,
     cues: Vec<Obj<CueWire>>,
 }
@@ -199,7 +227,7 @@ enum ItemKindWire {
 struct CueWire {
     id: String,
     label: String,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "present_private_context")]
     private_context: Option<String>,
     behavior: Obj<BehaviorWire>,
 }
@@ -212,7 +240,7 @@ struct CueWire {
 enum BehaviorWire {
     Project {
         frame_id: String,
-        #[serde(default, deserialize_with = "present")]
+        #[serde(default, deserialize_with = "present_duration_seconds")]
         duration_seconds: Option<u32>,
     },
     OperatorTrigger {},
@@ -307,21 +335,26 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
     let mut seen = BTreeSet::new();
     let snapshot = id::<SnapshotId>(&wire.id, || "/id".to_owned())?;
     claim(&mut seen, &wire.id, || "/id".to_owned())?;
-    // The Mass plan and Celebration identities and the capture time describe
-    // where the snapshot came from. The domain snapshot does not carry them, so
-    // they are validated for shape and then dropped.
+    // The Mass plan and Celebration identities and the capture time say where
+    // the snapshot came from. The domain snapshot does not carry them, so the
+    // reader hands them back beside it as `SnapshotProvenance`.
+    let mass_plan = id::<EntityId>(&wire.mass_plan_id, || "/mass_plan_id".to_owned())?;
     claim(&mut seen, &wire.mass_plan_id, || "/mass_plan_id".to_owned())?;
-    if let Some(celebration) = &wire.celebration_id {
-        claim(&mut seen, celebration, || "/celebration_id".to_owned())?;
-    }
-    if let Some(captured) = wire.captured_at
-        && !is_utc_timestamp(&captured)
-    {
+    let celebration = id::<EntityId>(&wire.celebration_id, || "/celebration_id".to_owned())?;
+    claim(&mut seen, &wire.celebration_id, || {
+        "/celebration_id".to_owned()
+    })?;
+    if !is_utc_timestamp(&wire.captured_at) {
         return Err(ManifestReason::InvalidTimestamp {
             at: "/captured_at".to_owned(),
-            value: captured,
+            value: wire.captured_at,
         });
     }
+    let provenance = SnapshotProvenance {
+        mass_plan_id: mass_plan,
+        celebration_id: celebration,
+        captured_at: CapturedAt(wire.captured_at),
+    };
     let title = text(wire.title, || "/title".to_owned())?;
     let fingerprint = hash(&wire.dependencies_fingerprint, || {
         "/dependencies_fingerprint".to_owned()
@@ -433,6 +466,7 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
 
     Ok(Manifest {
         snapshot,
+        provenance,
         title,
         fingerprint,
         themes,

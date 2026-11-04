@@ -77,12 +77,12 @@ T1.1c converted `snapshot.txt` (`ordo-presentation-snapshot/1`) to `snapshot.jso
 lowercase UUIDv4 (`a...` and `b...` prefixes for Normal Mass and Recovery Drill),
 so the mapping is the identity function and `commands.txt`, `commands.expect`, and
 the frame and asset files are unchanged. The only new values are the two
-`mass_plan_id`s that v2 requires and the line format never had:
+`mass_plan_id`s and `celebration_id`s that v2 requires (and `captured_at`, `2026-11-01T09:30:00Z` in both), none of which the line format had:
 
-| Fixture | `mass_plan_id` |
-|---|---|
-| normal-mass | `a7000000-0000-4000-8000-000000000000` |
-| recovery-drill | `b7000000-0000-4000-8000-000000000000` |
+| Fixture | `mass_plan_id` | `celebration_id` |
+|---|---|---|
+| normal-mass | `a7000000-0000-4000-8000-000000000000` | `a8000000-0000-4000-8000-000000000000` |
+| recovery-drill | `b7000000-0000-4000-8000-000000000000` | `b8000000-0000-4000-8000-000000000000` |
 
 The fingerprints did not change (same frames and assets); the manifest hashes did,
 because the manifest bytes are now JSON.

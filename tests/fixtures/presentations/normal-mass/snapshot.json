@@ -2,6 +2,8 @@
   "schema_version": 2,
   "id": "a0000000-0000-4000-8000-000000000000",
   "mass_plan_id": "a7000000-0000-4000-8000-000000000000",
+  "celebration_id": "a8000000-0000-4000-8000-000000000000",
+  "captured_at": "2026-11-01T09:30:00Z",
   "title": "Normal Mass (sanitized)",
   "themes": [
     {
