@@ -62,12 +62,12 @@ not exist.
 |---|---|---|
 | `song-import` | `song-import` | one Song work with Arrangements (decision 40) |
 | `liturgy-import` | `liturgy-import` | readings and responses for one Celebration |
-| `celebration-package` | `celebration-package` | embeds `snapshot-manifest` objects |
+| `celebration-package` | `celebration-package` | embeds `snapshot-manifest` v1 objects; embedding v2 is a later `celebration-package` bump |
 | `parish-backup` | `parish-backup` | database file plus assets |
 | `diagnostic-report` | `diagnostic-report` | always opened read-only |
 
 `snapshot-manifest` and `recovery-journal` have schemas but are not container
-kinds: the first is embedded in a Celebration Package, the second is a local file.
+kinds (`snapshot-manifest` v1 and v2 are separate frozen schemas, see section 5): the first is embedded in a Celebration Package, the second is a local file.
 
 ## 5. Versioning and unknown versions
 
@@ -84,6 +84,13 @@ kinds: the first is embedded in a Celebration Package, the second is a local fil
   style: `requires an Ordo version supporting container v2; this build supports v1`.
 - A `format_version` that is not an integer, or is `0`, a wrong `format` string,
   or an unknown or missing manifest member is a bad manifest (`Invalid`).
+- `snapshot-manifest` has two frozen versions. v1 (`schema_version` 1) is the T0.8
+  spike shape and stays as recorded. v2 (`schema_version` 2, Decision 311,
+  `contracts/snapshot-manifest/v2.schema.json`) is the on-disk `snapshot.json` of a
+  Presentation snapshot: Themes, Mass sections, items, Cues, frames and assets. A
+  v2 reader refuses a v1 document (and any other version) with the compatible-version
+  message, for example `requires an Ordo version supporting snapshot-manifest v1;
+  this build supports v2`; it never reads it as a v2 document.
 
 ## 6. Payload contracts: shape and references
 
@@ -96,13 +103,14 @@ checks beyond shape.
 |---|---|---|
 | `song-import` | each Arrangement `sequence` entry names a slide of the same Arrangement | `arrangements[].content_sha256` = SHA-256 of every slide line in slide order, each followed by a single LF |
 | `liturgy-import` | a response `follows` names a reading | `readings[].text_sha256` and `responses[].text_sha256` = SHA-256 of that text's exact UTF-8 bytes |
-| `snapshot-manifest` | each item `asset_ids` entry names an asset of the same snapshot | `assets_fingerprint` = fingerprint of all `assets[].sha256` |
+| `snapshot-manifest` v1 | each item `asset_ids` entry names an asset of the same snapshot | `assets_fingerprint` = fingerprint of all `assets[].sha256` |
+| `snapshot-manifest` v2 | each Project Cue `behavior.frame_id` names a frame, every frame is shown by a Project Cue, every frame image names an asset, every asset is used, and ids are unique (checked by the Presentation snapshot reader, not by the spike validators) | `dependencies_fingerprint` = fingerprint of all `frames[].sha256` and `assets[].sha256` |
 | `celebration-package` | every snapshot asset is listed in the package `assets` with identical path, size, and sha256 (a missing id is `missing-reference`, a difference is `hash-mismatch`) | `package_version.fingerprint` = fingerprint of the snapshot `id`s |
 | `parish-backup` | `parish.logo_asset_id`, when present, names an asset | `assets_fingerprint` = fingerprint of `database.sha256` and all `assets[].sha256` |
 | `diagnostic-report` | each log `asset_id` names an asset of the report | `assets_fingerprint` = fingerprint of all `assets[].sha256` |
 | `recovery-journal` | `cue_position.last_entry_seq` equals the last entry `seq` (0 when there are none) | `entries_fingerprint` = SHA-256 of one line per entry, in order: `seq`, TAB, `kind`, TAB, `cue_index`, LF |
 
-**Fingerprint rule.** Used by `snapshot-manifest`, `celebration-package`,
+**Fingerprint rule.** Used by `snapshot-manifest` (v1 and v2), `celebration-package`,
 `parish-backup`, and `diagnostic-report`: take the listed values, sort them by
 their bytes, write each followed by a single LF, and take the SHA-256 of that text
 (lowercase hex). An empty list hashes the empty string

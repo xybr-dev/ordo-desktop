@@ -30,12 +30,12 @@ const RECOVERY_DRILL_FINGERPRINT: &str =
     "0a8b2474c81b7b466a321916c7af0058b0244ad7907ba5ee2fb82aa780b39cc4";
 
 // The fingerprint covers frame and asset bytes only. The manifest hash is the
-// SHA-256 of the exact `snapshot.txt` bytes, so these pin every identity, title,
+// SHA-256 of the exact `snapshot.json` bytes, so these pin every identity, title,
 // Cue behavior, and the order of sections, items, and Cues as well.
 const NORMAL_MASS_MANIFEST_HASH: &str =
-    "ca423010dd11422b1e6004d60aebf90eb85853a8c4bfc16f79c364ab0529801a";
+    "522dc9e5a53d6327c66e4763393a6f317d1d392e3dda870d29a6bf15ec6a88ec";
 const RECOVERY_DRILL_MANIFEST_HASH: &str =
-    "9485fc11711203807013980b1e574887258e2a042656ea853609e96b70861718";
+    "79124c7bd4ae9766478d8aebabff93234e037d8e181f95313df508afe03d5c8b";
 
 fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -533,7 +533,7 @@ fn operator_only_cues_carry_their_private_context() {
 fn no_fixture_text_has_carriage_returns_or_a_missing_final_lf() {
     for name in ["normal-mass", "recovery-drill"] {
         let dir = fixture_dir(name);
-        let mut files = vec![dir.join("snapshot.txt")];
+        let mut files = vec![dir.join("snapshot.json")];
         for entry in fs::read_dir(dir.join("frames")).unwrap() {
             files.push(entry.unwrap().path());
         }

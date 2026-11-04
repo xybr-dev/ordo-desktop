@@ -1,0 +1,309 @@
+{
+  "schema_version": 2,
+  "id": "b0000000-0000-4000-8000-000000000000",
+  "mass_plan_id": "b7000000-0000-4000-8000-000000000000",
+  "title": "Recovery Drill (sanitized)",
+  "themes": [
+    {
+      "id": "b1000000-0000-4000-8000-000000000001",
+      "name": "Parish Paschal",
+      "kind": "custom"
+    },
+    {
+      "id": "b1000000-0000-4000-8000-000000000002",
+      "name": "Ordo fallback",
+      "kind": "fallback"
+    }
+  ],
+  "mass_theme_id": "b1000000-0000-4000-8000-000000000001",
+  "sections": [
+    {
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "title": "Before Mass",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000001",
+          "title": "Drill opening",
+          "kind": "general_presentation",
+          "auto_play_seconds": 6,
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-000000000001",
+              "label": "Title",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000001"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000002",
+              "label": "Text A",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000002",
+                "duration_seconds": 3
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000003",
+              "label": "Unavailable slide",
+              "behavior": {
+                "type": "unavailable",
+                "reason": "The captured image for this Cue could not be read"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000004",
+              "label": "Text B",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000003"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "title": "Introductory Rites",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000002",
+          "title": "Drill responses",
+          "kind": "response_sequence",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-000000000005",
+              "label": "Operator trigger",
+              "private_context": "Presider: Maayong adlaw kaninyo, mga higala.",
+              "behavior": {
+                "type": "operator_trigger"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000006",
+              "label": "Response",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000004"
+              }
+            }
+          ]
+        },
+        {
+          "id": "b3000000-0000-4000-8000-000000000003",
+          "title": "Drill operator-only",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-000000000007",
+              "label": "Second trigger",
+              "private_context": "Presider: Magpahulay kita sa hilom.",
+              "behavior": {
+                "type": "operator_trigger"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000008",
+              "label": "Hold for silence",
+              "private_context": "Hold until the presider continues.",
+              "behavior": {
+                "type": "hold"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "title": "Liturgy of the Word",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000004",
+          "title": "Drill psalm",
+          "kind": "psalm",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-000000000009",
+              "label": "Psalm refrain",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000005"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-00000000000a",
+              "label": "Wait for the cantor",
+              "private_context": "Cantor sings the verse unprojected.",
+              "behavior": {
+                "type": "wait"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-00000000000b",
+              "label": "Psalm refrain again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000005"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "title": "Liturgy of the Eucharist",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000005",
+          "title": "Drill silent prayer",
+          "kind": "rite",
+          "theme_id": "b1000000-0000-4000-8000-000000000002",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-00000000000c",
+              "label": "Long wrapping lyric",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000006"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-00000000000d",
+              "label": "Black slide",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000007"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "title": "Concluding Rites",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000006",
+          "title": "Drill display checks",
+          "kind": "general_presentation",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-00000000000e",
+              "label": "Image slide",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000008"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-00000000000f",
+              "label": "Response again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000004"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "title": "After Mass",
+      "items": [
+        {
+          "id": "b3000000-0000-4000-8000-000000000007",
+          "title": "Drill closing",
+          "kind": "song",
+          "cues": [
+            {
+              "id": "b4000000-0000-4000-8000-000000000010",
+              "label": "Closing lyric",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000009"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000011",
+              "label": "Title again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000001"
+              }
+            },
+            {
+              "id": "b4000000-0000-4000-8000-000000000012",
+              "label": "Text B again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "b5000000-0000-4000-8000-000000000003"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "id": "b5000000-0000-4000-8000-000000000001",
+      "path": "frames/title.txt",
+      "sha256": "9462c3c6e8279f87886c4d9a50f0646d99f27b51f4a46d09f50758bf0909574f"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000002",
+      "path": "frames/text-a.txt",
+      "sha256": "fe0e3776a3f04facd756ec427d186be9c786cd5fe8d470cb21115a94f0943eea"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000003",
+      "path": "frames/text-b.txt",
+      "sha256": "3d95eaccaaa6819b52a1aaf246afd2bb05ad182260624c4d1e5985cc972aab89"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000004",
+      "path": "frames/response.txt",
+      "sha256": "a670036fc80f0eed08e9be2c954bece1e026f9df71c08891d44591a2bf3dc4f6"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000005",
+      "path": "frames/psalm.txt",
+      "sha256": "16dd92e08d1abd69c7ff3e31c4d1a0470986ae0117fa589d266841c5522a9182"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000006",
+      "path": "frames/long-lyric.txt",
+      "sha256": "de460268781781137b48918f6145e0cd73cdb731844f1b2800e13becea55b3eb"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000007",
+      "path": "frames/black.txt",
+      "sha256": "d9aff73f30a99e49d2cc69ca8c161691627b7c48cf80905ae2a81aae31d303c2"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000008",
+      "path": "frames/image.txt",
+      "sha256": "145dedf9f04f92a1280d0fb460dfa3ecd9ea3c9afb18bd6440306229bb45e55b"
+    },
+    {
+      "id": "b5000000-0000-4000-8000-000000000009",
+      "path": "frames/lyrics.txt",
+      "sha256": "d7daf1af43cada29bcb7ab4c9736caa197786a69f0ba41830d5d98e7d189c30b"
+    }
+  ],
+  "assets": [
+    {
+      "id": "b6000000-0000-4000-8000-000000000001",
+      "path": "assets/drill-image.png",
+      "size": 79,
+      "sha256": "877a3c4794dfc0253c6116a4b8f4cd463b2c88927af61e76f440456551ea1907"
+    }
+  ],
+  "dependencies_fingerprint": "0a8b2474c81b7b466a321916c7af0058b0244ad7907ba5ee2fb82aa780b39cc4"
+}

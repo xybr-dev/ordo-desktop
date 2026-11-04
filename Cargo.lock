@@ -4744,6 +4744,8 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "rendering",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 

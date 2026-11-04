@@ -7,12 +7,13 @@ or hymn text in any language: every verse, response, citation (for example
 "Pananglitan 2:1"), and prose line is an invented placeholder (English with
 Cebuano-looking words). Never paste a real Mass text into a fixture.
 
-Each directory is one snapshot: `snapshot.txt` (the manifest; its grammar is
-the module doc of the reader), `frames/<name>.txt` (`ordo-fixture/1` frames),
-and `assets/<name>` (raw bytes). Bytes are SHA-256 hashed exactly as stored, so
+Each directory is one snapshot: `snapshot.json` (the manifest: `snapshot-manifest`
+v2, `contracts/snapshot-manifest/v2.schema.json`, Decision 311; the reader's module
+doc lists every rule), `frames/<name>.txt` (`ordo-fixture/1` frames), and
+`assets/<name>` (raw bytes). Bytes are SHA-256 hashed exactly as stored, so
 `.gitattributes` marks this tree `-text`: never let an editor or checkout
 convert line endings. All text files are LF-only with a final LF; the reader
-rejects a carriage return or a missing final LF.
+rejects a carriage return or a missing final LF. The manifests use two-space indentation and the schema's member order.
 
 ## normal-mass
 
@@ -47,23 +48,41 @@ change regenerate it and review the diff by hand.
 
 1. Edit the frame, asset, or manifest. Keep LF endings, end the file with
    exactly one LF, and leave no trailing whitespace on a manifest text value
-   (the frame and manifest parsers are strict).
+   (the frame and manifest parsers are strict, and a manifest with an unknown
+   or repeated member is refused).
 2. For every changed file, set its digest: `sha256sum <file>` into the
-   manifest's `frame-sha256` or `asset-sha256` (and `asset-size` for an asset).
-3. Recompute `fingerprint`: the SHA-256 of every frame and asset digest (hex),
-   sorted ascending, each followed by LF. It covers dependency bytes only, not
-   the manifest:
+   manifest's `frames[].sha256` or `assets[].sha256` (and `assets[].size` for
+   an asset).
+3. Recompute `dependencies_fingerprint`: the SHA-256 of every frame and asset
+   digest (hex), sorted ascending, each followed by LF. It covers dependency
+   bytes only, not the manifest:
 
-       grep -h -e '^frame-sha256 ' -e '^asset-sha256 ' snapshot.txt \
-         | cut -d' ' -f2 | sort | sha256sum
+       grep -h '"sha256"' snapshot.json | cut -d'"' -f4 | sort | sha256sum
 
    (or run the example below and copy the actual fingerprint from the error).
 4. Check it loads and read the flattened order:
    `cargo run -p presentation --example snapshot-inspect -- tests/fixtures/presentations/<name>`
-5. Update the hard-coded fingerprint, manifest hash (`sha256sum snapshot.txt`,
+5. Update the hard-coded fingerprint, manifest hash (`sha256sum snapshot.json`,
    also printed by the example as `manifest-hash`), frame hashes, and order
    table in `tests/presentation/tests/snapshot.rs`. The manifest hash is what
    pins every identity and the Cue order. These constants are intentionally
    duplicated so an accidental fixture edit cannot pass by agreement.
 
 Identities (UUIDs) are stable forever: never reuse one for different content.
+
+## Identity mapping from the v1 line manifests
+
+T1.1c converted `snapshot.txt` (`ordo-presentation-snapshot/1`) to `snapshot.json`
+(v2) with the same structure, order, and text. Every identity was already a
+lowercase UUIDv4 (`a...` and `b...` prefixes for Normal Mass and Recovery Drill),
+so the mapping is the identity function and `commands.txt`, `commands.expect`, and
+the frame and asset files are unchanged. The only new values are the two
+`mass_plan_id`s that v2 requires and the line format never had:
+
+| Fixture | `mass_plan_id` |
+|---|---|
+| normal-mass | `a7000000-0000-4000-8000-000000000000` |
+| recovery-drill | `b7000000-0000-4000-8000-000000000000` |
+
+The fingerprints did not change (same frames and assets); the manifest hashes did,
+because the manifest bytes are now JSON.

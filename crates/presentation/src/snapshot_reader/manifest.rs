@@ -1,21 +1,25 @@
-//! The manifest grammar: `snapshot.txt` parsed into declarations, and the
-//! declarations assembled into the domain snapshot.
+//! The manifest grammar: `snapshot.json` (`snapshot-manifest` v2) parsed into
+//! declarations, and the declarations assembled into the domain snapshot.
+//!
+//! Parsing is two-stage. The wire structs mirror the JSON exactly, keep every
+//! identity and digest as the raw string, and refuse unknown fields (and, by
+//! serde's derive, a field that appears twice). The conversion stage then
+//! checks each value against its domain rule and names the JSON Pointer of the
+//! first one that fails, so a message points at the spot to repair.
 
 use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
 use domain::presentation::{
-    AssetId, AutoPlay, ContentHash, Cue, CueBehavior, CueId, FrameId, IdError, MassItem,
+    AssetId, AutoPlay, ContentHash, Cue, CueBehavior, CueId, EntityId, FrameId, IdError, MassItem,
     MassItemId, MassItemKind, MassSection, MassSectionId, PresentationSnapshot, SnapshotError,
     SnapshotId, ThemeId, ThemeKind, ThemeRef,
 };
+use serde::{Deserialize, Deserializer};
 
-use super::lines::{
-    Cursor, LexError, LineError, ManifestError, key_of, strict_u32, take_prefixed, take_raw,
-};
 use super::{
-    ASSET_DIRECTORY, FRAME_DIRECTORY, MANIFEST_FORMAT, ManifestReason, is_snapshot_relative,
+    ASSET_DIRECTORY, FRAME_DIRECTORY, MANIFEST_SCHEMA_VERSION, ManifestReason, is_snapshot_relative,
 };
 
 /// One manifest as parsed, before any file is opened.
@@ -64,86 +68,300 @@ struct CueDecl {
     id: CueId,
     label: String,
     private_context: Option<String>,
-    behavior: BehaviorDecl,
+    behavior: CueBehavior,
 }
 
-enum BehaviorDecl {
+// ---------------------------------------------------------------------------
+// Wire shape. Every struct denies unknown fields; a duplicated key is a serde
+// "duplicate field" error for the same reason. Optional members are absent or
+// present with a value, never `null`, so one fact has one spelling.
+// ---------------------------------------------------------------------------
+
+/// Reads only `schema_version`, ignoring every other member, so a manifest
+/// from another version is refused as such before its other fields (which may
+/// be unknown to this build) are judged.
+#[derive(Deserialize)]
+struct VersionProbe {
+    #[serde(default, deserialize_with = "present")]
+    schema_version: Option<u64>,
+}
+
+/// A member that is either absent or has a value; `null` is a type error.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestWire {
+    #[serde(rename = "schema_version")]
+    _schema_version: u64,
+    id: String,
+    mass_plan_id: String,
+    #[serde(default, deserialize_with = "present")]
+    celebration_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    captured_at: Option<String>,
+    title: String,
+    themes: Vec<ThemeWire>,
+    mass_theme_id: String,
+    sections: Vec<SectionWire>,
+    frames: Vec<FrameWire>,
+    assets: Vec<AssetWire>,
+    dependencies_fingerprint: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThemeWire {
+    id: String,
+    name: String,
+    kind: ThemeKindWire,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ThemeKindWire {
+    Custom,
+    Fallback,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SectionWire {
+    id: String,
+    title: String,
+    items: Vec<ItemWire>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ItemWire {
+    id: String,
+    title: String,
+    kind: ItemKindWire,
+    #[serde(default, deserialize_with = "present")]
+    theme_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    auto_play_seconds: Option<u32>,
+    cues: Vec<CueWire>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ItemKindWire {
+    Song,
+    Reading,
+    Psalm,
+    ResponseSequence,
+    GeneralPresentation,
+    Rite,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CueWire {
+    id: String,
+    label: String,
+    #[serde(default, deserialize_with = "present")]
+    private_context: Option<String>,
+    behavior: BehaviorWire,
+}
+
+/// Every variant is a struct variant, even the empty ones: serde ignores
+/// extra members on a unit variant of an internally tagged enum, but it
+/// enforces `deny_unknown_fields` on a struct variant.
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum BehaviorWire {
     Project {
-        frame: FrameId,
-        duration: Option<u32>,
+        frame_id: String,
+        #[serde(default, deserialize_with = "present")]
+        duration_seconds: Option<u32>,
     },
-    OperatorTrigger,
-    Hold,
-    Wait,
+    OperatorTrigger {},
+    Hold {},
+    Wait {},
     Unavailable {
         reason: String,
     },
 }
 
-pub(super) fn parse_manifest(text: &str) -> Result<Manifest, ManifestError> {
-    let mut cursor = Cursor::new(text).map_err(LexError::into_manifest)?;
-    let (line, format) =
-        take_raw(&mut cursor, MANIFEST_FORMAT).map_err(LineError::into_manifest)?;
-    if format != MANIFEST_FORMAT {
-        return Err(ManifestError {
-            line,
-            reason: ManifestReason::UnknownFormat {
-                found: format.to_owned(),
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FrameWire {
+    id: String,
+    path: String,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssetWire {
+    id: String,
+    path: String,
+    size: u32,
+    sha256: String,
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+/// Parse one `snapshot.json`. The caller has already enforced the size cap
+/// and UTF-8; this checks the byte-level rules that keep one snapshot to one
+/// byte sequence, then the version, then the structure.
+pub(super) fn parse_manifest(text: &str) -> Result<Manifest, ManifestReason> {
+    if text.starts_with('\u{feff}') {
+        return Err(ManifestReason::ByteOrderMark);
+    }
+    if let Some(offset) = text.find('\r') {
+        return Err(ManifestReason::CarriageReturn {
+            line: text[..offset].matches('\n').count() + 1,
+        });
+    }
+    if !text.ends_with('\n') {
+        return Err(ManifestReason::MissingFinalNewline);
+    }
+
+    let probe: VersionProbe = serde_json::from_str(text).map_err(malformed)?;
+    if let Some(found) = probe.schema_version
+        && found != MANIFEST_SCHEMA_VERSION
+    {
+        return Err(ManifestReason::UnsupportedVersion { found });
+    }
+
+    let wire: ManifestWire = serde_json::from_str(text).map_err(malformed)?;
+    convert(wire)
+}
+
+fn malformed(error: serde_json::Error) -> ManifestReason {
+    // serde_json appends " at line L column C"; the position is carried as
+    // fields instead, so the message is only the cause.
+    let full = error.to_string();
+    let suffix = format!(" at line {} column {}", error.line(), error.column());
+    let message = full.strip_suffix(&suffix).unwrap_or(&full).to_owned();
+    ManifestReason::Malformed {
+        line: error.line(),
+        column: error.column(),
+        message,
+    }
+}
+
+fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
+    let snapshot = id::<SnapshotId>(&wire.id, || "/id".to_owned())?;
+    // The Mass plan and Celebration identities and the capture time describe
+    // where the snapshot came from. The domain snapshot does not carry them, so
+    // they are validated for shape and then dropped.
+    id::<EntityId>(&wire.mass_plan_id, || "/mass_plan_id".to_owned())?;
+    if let Some(celebration) = &wire.celebration_id {
+        id::<EntityId>(celebration, || "/celebration_id".to_owned())?;
+    }
+    if let Some(captured) = wire.captured_at
+        && !is_utc_timestamp(&captured)
+    {
+        return Err(ManifestReason::InvalidTimestamp {
+            at: "/captured_at".to_owned(),
+            value: captured,
+        });
+    }
+    let title = text(wire.title, || "/title".to_owned())?;
+    let fingerprint = hash(&wire.dependencies_fingerprint, || {
+        "/dependencies_fingerprint".to_owned()
+    })?;
+
+    let mut themes = Vec::with_capacity(wire.themes.len());
+    for (index, theme) in wire.themes.into_iter().enumerate() {
+        themes.push(ThemeRef {
+            id: id(&theme.id, || format!("/themes/{index}/id"))?,
+            name: text(theme.name, || format!("/themes/{index}/name"))?,
+            kind: match theme.kind {
+                ThemeKindWire::Custom => ThemeKind::Custom,
+                ThemeKindWire::Fallback => ThemeKind::Fallback,
             },
         });
     }
-
-    let (_, snapshot) = take_id::<SnapshotId>(&mut cursor, "snapshot")?;
-    let (_, title) = take_text(&mut cursor, "title", "title")?;
-    let (_, fingerprint) = take_hash(&mut cursor, "fingerprint")?;
-
-    let mut themes = Vec::new();
-    while cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "theme")
-    {
-        themes.push(parse_theme(&mut cursor)?);
-    }
-    let (_, mass_theme) = take_id::<ThemeId>(&mut cursor, "mass-theme")?;
+    let mass_theme = id::<ThemeId>(&wire.mass_theme_id, || "/mass_theme_id".to_owned())?;
 
     let mut paths = BTreeSet::new();
-    let frames = parse_dependencies::<FrameId, ()>(
-        &mut cursor,
-        &mut paths,
-        &DependencyKeys {
-            record: "frame",
-            path: "frame-path",
-            hash: "frame-sha256",
-            directory: FRAME_DIRECTORY,
-        },
-        |_| Ok(()),
-    )?;
-    let assets = parse_dependencies::<AssetId, u32>(
-        &mut cursor,
-        &mut paths,
-        &DependencyKeys {
-            record: "asset",
-            path: "asset-path",
-            hash: "asset-sha256",
-            directory: ASSET_DIRECTORY,
-        },
-        |cursor| Ok(take_number(cursor, "asset-size")?.1),
-    )?;
-
-    let mut sections = Vec::new();
-    while cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "section")
-    {
-        sections.push(parse_section(&mut cursor)?);
-    }
-    if let Some((at, line)) = cursor.peek() {
-        return Err(ManifestError {
-            line: at,
-            reason: ManifestReason::Unexpected {
-                expected: "end of manifest",
-                found: line.to_owned(),
+    let mut frame_ids = BTreeSet::new();
+    let mut frames = Vec::with_capacity(wire.frames.len());
+    for (index, frame) in wire.frames.into_iter().enumerate() {
+        frames.push(dependency(
+            DependencyWire {
+                id: &frame.id,
+                path: frame.path,
+                sha256: &frame.sha256,
+                size: (),
             },
+            &DependencyKind {
+                list: "frames",
+                directory: FRAME_DIRECTORY,
+                index,
+            },
+            &mut frame_ids,
+            &mut paths,
+        )?);
+    }
+    let mut asset_ids = BTreeSet::new();
+    let mut assets = Vec::with_capacity(wire.assets.len());
+    for (index, asset) in wire.assets.into_iter().enumerate() {
+        assets.push(dependency(
+            DependencyWire {
+                id: &asset.id,
+                path: asset.path,
+                sha256: &asset.sha256,
+                size: asset.size,
+            },
+            &DependencyKind {
+                list: "assets",
+                directory: ASSET_DIRECTORY,
+                index,
+            },
+            &mut asset_ids,
+            &mut paths,
+        )?);
+    }
+
+    let mut sections = Vec::with_capacity(wire.sections.len());
+    for (s, section) in wire.sections.into_iter().enumerate() {
+        let mut items = Vec::with_capacity(section.items.len());
+        for (i, item) in section.items.into_iter().enumerate() {
+            let at = |tail: &str| format!("/sections/{s}/items/{i}/{tail}");
+            let mut cues = Vec::with_capacity(item.cues.len());
+            for (c, cue) in item.cues.into_iter().enumerate() {
+                cues.push(convert_cue(cue, |tail| {
+                    format!("/sections/{s}/items/{i}/cues/{c}/{tail}")
+                })?);
+            }
+            items.push(ItemDecl {
+                id: id(&item.id, || at("id"))?,
+                title: text(item.title, || at("title"))?,
+                kind: match item.kind {
+                    ItemKindWire::Song => MassItemKind::Song,
+                    ItemKindWire::Reading => MassItemKind::Reading,
+                    ItemKindWire::Psalm => MassItemKind::Psalm,
+                    ItemKindWire::ResponseSequence => MassItemKind::ResponseSequence,
+                    ItemKindWire::GeneralPresentation => MassItemKind::GeneralPresentation,
+                    ItemKindWire::Rite => MassItemKind::Rite,
+                },
+                theme: item
+                    .theme_id
+                    .as_deref()
+                    .map(|theme| id(theme, || at("theme_id")))
+                    .transpose()?,
+                auto_play: item.auto_play_seconds,
+                cues,
+            });
+        }
+        sections.push(SectionDecl {
+            id: id(&section.id, || format!("/sections/{s}/id"))?,
+            title: text(section.title, || format!("/sections/{s}/title"))?,
+            items,
         });
     }
 
@@ -159,282 +377,138 @@ pub(super) fn parse_manifest(text: &str) -> Result<Manifest, ManifestError> {
     })
 }
 
-fn parse_theme(cursor: &mut Cursor<'_>) -> Result<ThemeRef, ManifestError> {
-    let (_, id) = take_id::<ThemeId>(cursor, "theme")?;
-    let (_, name) = take_text(cursor, "theme-name", "Theme name")?;
-    let (at, kind) = take_text(cursor, "theme-kind", "Theme kind")?;
-    let kind = match kind.as_str() {
-        "Custom" => ThemeKind::Custom,
-        "Fallback" => ThemeKind::Fallback,
-        _ => {
-            return Err(ManifestError {
-                line: at,
-                reason: ManifestReason::InvalidChoice {
-                    field: "Theme kind",
-                    value: kind,
-                },
-            });
-        }
-    };
-    Ok(ThemeRef { id, name, kind })
-}
-
-/// The record keys and path directory of one dependency kind.
-struct DependencyKeys {
-    record: &'static str,
-    path: &'static str,
-    hash: &'static str,
-    directory: &'static str,
-}
-
-/// Parse every consecutive record of one dependency kind, rejecting a repeated
-/// identity or a path any earlier dependency (of either kind) already names.
-/// Paths are compared ASCII-lowercased, because the snapshot must also open on
-/// a case-insensitive filesystem where `Frames/A.txt` and `frames/a.txt` are
-/// one file. `read_size` parses the record some kinds carry between the path
-/// and the digest.
-fn parse_dependencies<T, S>(
-    cursor: &mut Cursor<'_>,
-    paths: &mut BTreeSet<String>,
-    keys: &DependencyKeys,
-    read_size: impl Fn(&mut Cursor<'_>) -> Result<S, ManifestError>,
-) -> Result<Vec<DependencyDecl<T, S>>, ManifestError>
-where
-    T: FromStr<Err = IdError> + fmt::Display + Ord + Copy,
-{
-    let mut declared = Vec::new();
-    let mut ids = BTreeSet::new();
-    while cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == keys.record)
-    {
-        let (at, id) = take_id::<T>(cursor, keys.record)?;
-        let (path_at, path) = take_text(cursor, keys.path, "Dependency path")?;
-        let under_directory = path
-            .strip_prefix(keys.directory)
-            .is_some_and(|rest| rest.starts_with('/'));
-        if !under_directory || !is_snapshot_relative(&path) {
-            return Err(ManifestError {
-                line: path_at,
-                reason: ManifestReason::UnsafePath { path },
-            });
-        }
-        let size = read_size(cursor)?;
-        let (_, hash) = take_hash(cursor, keys.hash)?;
-        if !ids.insert(id) {
-            return Err(ManifestError {
-                line: at,
-                reason: ManifestReason::Duplicate {
-                    field: keys.record,
-                    value: id.to_string(),
-                },
-            });
-        }
-        if !paths.insert(path.to_ascii_lowercase()) {
-            return Err(ManifestError {
-                line: path_at,
-                reason: ManifestReason::DuplicatePath { path },
-            });
-        }
-        declared.push(DependencyDecl {
-            id,
-            path,
-            size,
-            hash,
-        });
-    }
-    Ok(declared)
-}
-
-fn parse_section(cursor: &mut Cursor<'_>) -> Result<SectionDecl, ManifestError> {
-    let (_, id) = take_id::<MassSectionId>(cursor, "section")?;
-    let (_, title) = take_text(cursor, "section-title", "Section title")?;
-    let mut items = Vec::new();
-    while cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "item")
-    {
-        items.push(parse_item(cursor)?);
-    }
-    if items.is_empty() {
-        // The domain rejects an empty section too, but naming the missing
-        // record here points at the line the author must add.
-        return Err(ManifestError {
-            line: cursor.peek().map_or(cursor.eof_line(), |(line, _)| line),
-            reason: ManifestReason::Missing { expected: "item" },
-        });
-    }
-    Ok(SectionDecl { id, title, items })
-}
-
-fn parse_item(cursor: &mut Cursor<'_>) -> Result<ItemDecl, ManifestError> {
-    let (_, id) = take_id::<MassItemId>(cursor, "item")?;
-    let (_, title) = take_text(cursor, "item-title", "Mass item title")?;
-    let (at, kind) = take_text(cursor, "item-kind", "Mass item kind")?;
-    let kind = match kind.as_str() {
-        "Song" => MassItemKind::Song,
-        "Reading" => MassItemKind::Reading,
-        "Psalm" => MassItemKind::Psalm,
-        "ResponseSequence" => MassItemKind::ResponseSequence,
-        "GeneralPresentation" => MassItemKind::GeneralPresentation,
-        "Rite" => MassItemKind::Rite,
-        _ => {
-            return Err(ManifestError {
-                line: at,
-                reason: ManifestReason::InvalidChoice {
-                    field: "Mass item kind",
-                    value: kind,
-                },
-            });
-        }
-    };
-    let theme = if cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "item-theme")
-    {
-        Some(take_id::<ThemeId>(cursor, "item-theme")?.1)
-    } else {
-        None
-    };
-    let auto_play = if cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "item-auto-play")
-    {
-        Some(take_number(cursor, "item-auto-play")?.1)
-    } else {
-        None
-    };
-    let mut cues = Vec::new();
-    while cursor.peek().is_some_and(|(_, line)| key_of(line) == "cue") {
-        cues.push(parse_cue(cursor)?);
-    }
-    if cues.is_empty() {
-        return Err(ManifestError {
-            line: cursor.peek().map_or(cursor.eof_line(), |(line, _)| line),
-            reason: ManifestReason::Missing { expected: "cue" },
-        });
-    }
-    Ok(ItemDecl {
-        id,
-        title,
-        kind,
-        theme,
-        auto_play,
-        cues,
-    })
-}
-
-fn parse_cue(cursor: &mut Cursor<'_>) -> Result<CueDecl, ManifestError> {
-    let (_, id) = take_id::<CueId>(cursor, "cue")?;
-    let (_, label) = take_text(cursor, "cue-label", "Cue label")?;
-    let private_context = if cursor
-        .peek()
-        .is_some_and(|(_, line)| key_of(line) == "cue-private-context")
-    {
-        Some(take_text(cursor, "cue-private-context", "Cue private context")?.1)
-    } else {
-        None
-    };
-    let (at, behavior) = take_text(cursor, "cue-behavior", "Cue behavior")?;
-    let behavior = match behavior.as_str() {
-        "Project" => {
-            let frame = take_id::<FrameId>(cursor, "cue-frame")?.1;
-            let duration = if cursor
-                .peek()
-                .is_some_and(|(_, line)| key_of(line) == "cue-duration")
-            {
-                Some(take_number(cursor, "cue-duration")?.1)
-            } else {
-                None
-            };
-            BehaviorDecl::Project { frame, duration }
-        }
-        "OperatorTrigger" => BehaviorDecl::OperatorTrigger,
-        "Hold" => BehaviorDecl::Hold,
-        "Wait" => BehaviorDecl::Wait,
-        "Unavailable" => BehaviorDecl::Unavailable {
-            reason: take_text(cursor, "cue-reason", "Unavailable reason")?.1,
+fn convert_cue(cue: CueWire, at: impl Fn(&str) -> String) -> Result<CueDecl, ManifestReason> {
+    let behavior = match cue.behavior {
+        BehaviorWire::Project {
+            frame_id,
+            duration_seconds,
+        } => CueBehavior::Project {
+            frame: id(&frame_id, || at("behavior/frame_id"))?,
+            duration_seconds,
         },
-        _ => {
-            return Err(ManifestError {
-                line: at,
-                reason: ManifestReason::InvalidChoice {
-                    field: "Cue behavior",
-                    value: behavior,
-                },
-            });
-        }
+        BehaviorWire::OperatorTrigger {} => CueBehavior::OperatorTrigger,
+        BehaviorWire::Hold {} => CueBehavior::Hold,
+        BehaviorWire::Wait {} => CueBehavior::Wait,
+        BehaviorWire::Unavailable { reason } => CueBehavior::Unavailable {
+            reason: text(reason, || at("behavior/reason"))?,
+        },
     };
     Ok(CueDecl {
-        id,
-        label,
-        private_context,
+        id: id(&cue.id, || at("id"))?,
+        label: text(cue.label, || at("label"))?,
+        private_context: cue
+            .private_context
+            .map(|context| text(context, || at("private_context")))
+            .transpose()?,
         behavior,
     })
 }
 
-fn take_id<T>(cursor: &mut Cursor<'_>, key: &'static str) -> Result<(usize, T), ManifestError>
+/// A wire dependency with its identity and digest still raw.
+struct DependencyWire<'a, S> {
+    id: &'a str,
+    path: String,
+    sha256: &'a str,
+    size: S,
+}
+
+/// Where one dependency sits: its list name, required directory, and index.
+struct DependencyKind {
+    list: &'static str,
+    directory: &'static str,
+    index: usize,
+}
+
+/// Convert one dependency, rejecting a repeated identity or a path any earlier
+/// dependency (of either kind) already names. Paths are compared
+/// ASCII-lowercased, because the snapshot must also open on a case-insensitive
+/// filesystem where `Frames/A.txt` and `frames/a.txt` are one file.
+fn dependency<T, S>(
+    wire: DependencyWire<'_, S>,
+    kind: &DependencyKind,
+    ids: &mut BTreeSet<T>,
+    paths: &mut BTreeSet<String>,
+) -> Result<DependencyDecl<T, S>, ManifestReason>
+where
+    T: FromStr<Err = IdError> + fmt::Display + Ord + Copy,
+{
+    let DependencyKind {
+        list,
+        directory,
+        index,
+    } = *kind;
+    let id = id::<T>(wire.id, || format!("/{list}/{index}/id"))?;
+    let under_directory = wire
+        .path
+        .strip_prefix(directory)
+        .is_some_and(|rest| rest.starts_with('/'));
+    if !under_directory || !is_snapshot_relative(&wire.path) {
+        return Err(ManifestReason::UnsafePath { path: wire.path });
+    }
+    let hash = hash(wire.sha256, || format!("/{list}/{index}/sha256"))?;
+    if !ids.insert(id) {
+        return Err(ManifestReason::Duplicate {
+            field: list,
+            value: id.to_string(),
+        });
+    }
+    if !paths.insert(wire.path.to_ascii_lowercase()) {
+        return Err(ManifestReason::DuplicatePath { path: wire.path });
+    }
+    Ok(DependencyDecl {
+        id,
+        path: wire.path,
+        size: wire.size,
+        hash,
+    })
+}
+
+fn id<T>(value: &str, at: impl FnOnce() -> String) -> Result<T, ManifestReason>
 where
     T: FromStr<Err = IdError>,
 {
-    let (at, value) = take_prefixed(cursor, key).map_err(LineError::into_manifest)?;
-    let id = T::from_str(value).map_err(|error| ManifestError {
-        line: at,
-        reason: ManifestReason::InvalidId {
-            value: value.to_owned(),
-            error,
-        },
-    })?;
-    Ok((at, id))
+    T::from_str(value).map_err(|error| ManifestReason::InvalidId {
+        at: at(),
+        value: value.to_owned(),
+        error,
+    })
 }
 
-fn take_hash(
-    cursor: &mut Cursor<'_>,
-    key: &'static str,
-) -> Result<(usize, ContentHash), ManifestError> {
-    let (at, value) = take_prefixed(cursor, key).map_err(LineError::into_manifest)?;
-    let hash = ContentHash::parse(value).map_err(|error| ManifestError {
-        line: at,
-        reason: ManifestReason::InvalidHash {
-            value: value.to_owned(),
-            error,
-        },
-    })?;
-    Ok((at, hash))
+fn hash(value: &str, at: impl FnOnce() -> String) -> Result<ContentHash, ManifestReason> {
+    ContentHash::parse(value).map_err(|error| ManifestReason::InvalidHash {
+        at: at(),
+        value: value.to_owned(),
+        error,
+    })
 }
 
-fn take_text(
-    cursor: &mut Cursor<'_>,
-    key: &'static str,
-    field: &'static str,
-) -> Result<(usize, String), ManifestError> {
-    let (at, value) = take_prefixed(cursor, key).map_err(LineError::into_manifest)?;
+/// A non-blank text value on one line, with no trailing whitespace: JSON could
+/// carry a trailing space or a line break, but two texts that look identical
+/// would hash differently, so the format refuses both as v1's line format did.
+fn text(value: String, at: impl FnOnce() -> String) -> Result<String, ManifestReason> {
     if value.trim().is_empty() {
-        return Err(ManifestError {
-            line: at,
-            reason: ManifestReason::Blank { field },
-        });
+        return Err(ManifestReason::Blank { at: at() });
     }
-    // An LF-only line format cannot show trailing whitespace, so two texts that
-    // look identical would hash differently; refuse it rather than keep it.
+    if value.contains(['\n', '\r']) {
+        return Err(ManifestReason::LineBreak { at: at() });
+    }
     if value.ends_with(char::is_whitespace) {
-        return Err(ManifestError {
-            line: at,
-            reason: ManifestReason::TrailingWhitespace { field },
-        });
+        return Err(ManifestReason::TrailingWhitespace { at: at() });
     }
-    Ok((at, value.to_owned()))
+    Ok(value)
 }
 
-fn take_number(cursor: &mut Cursor<'_>, key: &'static str) -> Result<(usize, u32), ManifestError> {
-    let (at, value) = take_prefixed(cursor, key).map_err(LineError::into_manifest)?;
-    strict_u32(value)
-        .map(|number| (at, number))
-        .ok_or_else(|| ManifestError {
-            line: at,
-            reason: ManifestReason::InvalidNumber {
-                value: value.to_owned(),
-            },
+/// The shape `YYYY-MM-DDTHH:MM:SSZ` the contract schema pins; calendar ranges
+/// are the container layer's concern, as they are for v1.
+fn is_utc_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 20
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            4 | 7 => *byte == b'-',
+            10 => *byte == b'T',
+            13 | 16 => *byte == b':',
+            19 => *byte == b'Z',
+            _ => byte.is_ascii_digit(),
         })
 }
 
@@ -453,17 +527,12 @@ pub(super) fn build_snapshot(
         for item in section.items {
             let mut cues = Vec::with_capacity(item.cues.len());
             for cue in item.cues {
-                let behavior = match cue.behavior {
-                    BehaviorDecl::Project { frame, duration } => CueBehavior::Project {
-                        frame,
-                        duration_seconds: duration,
-                    },
-                    BehaviorDecl::OperatorTrigger => CueBehavior::OperatorTrigger,
-                    BehaviorDecl::Hold => CueBehavior::Hold,
-                    BehaviorDecl::Wait => CueBehavior::Wait,
-                    BehaviorDecl::Unavailable { reason } => CueBehavior::Unavailable { reason },
-                };
-                cues.push(Cue::new(cue.id, cue.label, cue.private_context, behavior)?);
+                cues.push(Cue::new(
+                    cue.id,
+                    cue.label,
+                    cue.private_context,
+                    cue.behavior,
+                )?);
             }
             items.push(MassItem::new(
                 item.id,

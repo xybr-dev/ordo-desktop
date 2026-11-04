@@ -1,0 +1,542 @@
+{
+  "schema_version": 2,
+  "id": "a0000000-0000-4000-8000-000000000000",
+  "mass_plan_id": "a7000000-0000-4000-8000-000000000000",
+  "title": "Normal Mass (sanitized)",
+  "themes": [
+    {
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Parish Paschal",
+      "kind": "custom"
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Ordo fallback",
+      "kind": "fallback"
+    }
+  ],
+  "mass_theme_id": "a1000000-0000-4000-8000-000000000001",
+  "sections": [
+    {
+      "id": "a2000000-0000-4000-8000-000000000001",
+      "title": "Before Mass",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-000000000001",
+          "title": "Celebration title",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000001",
+              "label": "Celebration title",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000001"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-000000000002",
+          "title": "Announcements",
+          "kind": "general_presentation",
+          "auto_play_seconds": 8,
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000002",
+              "label": "Announcement text",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000002"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000003",
+              "label": "Parish life image",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000003",
+                "duration_seconds": 4
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000004",
+              "label": "Announcement text again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000002"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000002",
+      "title": "Introductory Rites",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-000000000003",
+          "title": "Entrance song",
+          "kind": "song",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000005",
+              "label": "Song identification",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000004"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000006",
+              "label": "Verse 1",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000005"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000007",
+              "label": "Chorus",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000006"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000008",
+              "label": "Verse 2",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000007"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000009",
+              "label": "Chorus again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000006"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-000000000004",
+          "title": "Greeting",
+          "kind": "response_sequence",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000000a",
+              "label": "Presider invitation",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000008"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000000b",
+              "label": "Presider greets the assembly",
+              "private_context": "Presider: Maayong adlaw kaninyo, mga higala.",
+              "behavior": {
+                "type": "operator_trigger"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000000c",
+              "label": "Assembly reply",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000009"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-000000000005",
+          "title": "Silence before the Collect",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000000d",
+              "label": "Hold for the invitation to pray",
+              "private_context": "Hold until the presider says: Magpahulay kita sa hilom.",
+              "behavior": {
+                "type": "hold"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000003",
+      "title": "Liturgy of the Word",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-000000000006",
+          "title": "First reading",
+          "kind": "reading",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000000e",
+              "label": "Reading identification",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000a"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000000f",
+              "label": "Reading passage",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000b"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-000000000007",
+          "title": "Responsorial Psalm",
+          "kind": "psalm",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000010",
+              "label": "Psalm refrain",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000c"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000011",
+              "label": "Psalm verse",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000d"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000012",
+              "label": "Cantor sings the verse",
+              "private_context": "Cantor sings the verse unprojected.",
+              "behavior": {
+                "type": "wait"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000013",
+              "label": "Psalm refrain again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000c"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-000000000008",
+          "title": "Gospel acclamation",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000014",
+              "label": "Acclamation",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000e"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000004",
+      "title": "Liturgy of the Eucharist",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-000000000009",
+          "title": "Preparation of the gifts",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000015",
+              "label": "Hold while the gifts are brought forward",
+              "private_context": "Hold until the presider raises the gifts.",
+              "behavior": {
+                "type": "hold"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-00000000000a",
+          "title": "Acclamation of praise",
+          "kind": "response_sequence",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000016",
+              "label": "Presider invites the acclamation",
+              "private_context": "Presider: Ipataas ang atong mga tingog.",
+              "behavior": {
+                "type": "operator_trigger"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000017",
+              "label": "Acclamation text",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-00000000000f"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-00000000000b",
+          "title": "Eucharistic Prayer",
+          "kind": "rite",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000018",
+              "label": "Silent prayer",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000010"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000019",
+              "label": "Cantor sings the acclamation unprojected",
+              "private_context": "Cantor sings: Ang lamparahan nagalutaw sa kagabhion.",
+              "behavior": {
+                "type": "wait"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-00000000000c",
+          "title": "Communion song",
+          "kind": "song",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000001a",
+              "label": "Song identification",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000004"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000001b",
+              "label": "Communion verse",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000011"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000005",
+      "title": "Concluding Rites",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-00000000000d",
+          "title": "Dismissal",
+          "kind": "response_sequence",
+          "theme_id": "a1000000-0000-4000-8000-000000000002",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000001c",
+              "label": "Presider dismisses the assembly",
+              "private_context": "Presider: Pauli na kamo nga malipayon.",
+              "behavior": {
+                "type": "operator_trigger"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000001d",
+              "label": "Dismissal text",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000012"
+              }
+            }
+          ]
+        },
+        {
+          "id": "a3000000-0000-4000-8000-00000000000e",
+          "title": "Recessional song",
+          "kind": "song",
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-00000000001e",
+              "label": "Song identification",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000004"
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-00000000001f",
+              "label": "Chorus again",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000006"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000006",
+      "title": "After Mass",
+      "items": [
+        {
+          "id": "a3000000-0000-4000-8000-00000000000f",
+          "title": "Quiet thanksgiving",
+          "kind": "general_presentation",
+          "auto_play_seconds": 8,
+          "cues": [
+            {
+              "id": "a4000000-0000-4000-8000-000000000020",
+              "label": "Quiet thanksgiving",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000013",
+                "duration_seconds": 5
+              }
+            },
+            {
+              "id": "a4000000-0000-4000-8000-000000000021",
+              "label": "Next gathering",
+              "behavior": {
+                "type": "project",
+                "frame_id": "a5000000-0000-4000-8000-000000000014"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "id": "a5000000-0000-4000-8000-000000000001",
+      "path": "frames/celebration-title.txt",
+      "sha256": "2c86d94edde06f4c7bca782611c82e5c8d91f4ab6bdcfc07e3a0bb393d311ef5"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000002",
+      "path": "frames/announcements.txt",
+      "sha256": "9b91ad13cb386dbd1e709ea8f14d456a27a24a3bed985415a317cb624a164b80"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000003",
+      "path": "frames/announcements-image.txt",
+      "sha256": "31ccec5332ad2d82301e6e487807d89bd087c676fcec9842ac1d288175d2f8a2"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000004",
+      "path": "frames/song-identification.txt",
+      "sha256": "04a86e98267cf90777d5f7bcfd4c2227d7c37929d2ad0e54915857854efcc2c9"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000005",
+      "path": "frames/song-verse-1.txt",
+      "sha256": "c761a1a3511e3cce35689caeeff6d556a9731b5c7f44ce6a43301d201af3a907"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000006",
+      "path": "frames/song-chorus.txt",
+      "sha256": "f5979c3601b09219f5132ed3111df5185ba9933e4893989d40f6390a3cec5e34"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000007",
+      "path": "frames/song-verse-2.txt",
+      "sha256": "c6397d9798b546d5aa011b74b1932d23f5754b163545e9bb532729edf5ed1ab2"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000008",
+      "path": "frames/greeting-invitation.txt",
+      "sha256": "d60b319e9605febafc2151786daa9c86c677f8fd165b2aa7637227e8d62a0f50"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000009",
+      "path": "frames/greeting-reply.txt",
+      "sha256": "383aec4e7164e5836ef442384f8064b9000ccab87354101cccb478779a5dc858"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000a",
+      "path": "frames/reading-identification.txt",
+      "sha256": "52d9379f77ede9eab2221f3769760a39826bc6375296bbb0a780e7eaae4be836"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000b",
+      "path": "frames/reading-passage.txt",
+      "sha256": "9273add6c626cc0110c4817c254822ae3f15a03423dd12eee1f564db09110d1a"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000c",
+      "path": "frames/psalm-refrain.txt",
+      "sha256": "9c6e0def06712d93827fd38a389232f7182f2508187d6aaee60282650f2b581c"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000d",
+      "path": "frames/psalm-verse.txt",
+      "sha256": "36b5bfdbb20d3e466becfbac19b47e659e559ec962a2c4c416972e81860df1c7"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000e",
+      "path": "frames/gospel-acclamation.txt",
+      "sha256": "bdcfa1c9301b011473014a1093c1196028cc407023fb9a0feca5366599653e9c"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000f",
+      "path": "frames/holy-holy.txt",
+      "sha256": "22570d6a8b69611c77bf27437e4180dd1aeca2cc3cd34b7f9d4c0f4866d2e58d"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000010",
+      "path": "frames/black-slide.txt",
+      "sha256": "d9aff73f30a99e49d2cc69ca8c161691627b7c48cf80905ae2a81aae31d303c2"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000011",
+      "path": "frames/communion-verse.txt",
+      "sha256": "219971d9b50793096112b5027d66143ab4ee8e15d5fb6d4f9c3cb72afeb381cc"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000012",
+      "path": "frames/dismissal.txt",
+      "sha256": "2c3b5075b1dc5fcd295967f2e229306e1a378c65755477975ce5313d009b20b2"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000013",
+      "path": "frames/thanksgiving.txt",
+      "sha256": "1a937880b9699092def1d98a45cef958f667b3ff99b30d3d971ba2d70efb38c1"
+    },
+    {
+      "id": "a5000000-0000-4000-8000-000000000014",
+      "path": "frames/closing-notice.txt",
+      "sha256": "ff5f35716bdce29db9bd5ec6278bf32cffdf8bcd007ad2ea5f296d4cc5332508"
+    }
+  ],
+  "assets": [
+    {
+      "id": "a6000000-0000-4000-8000-000000000001",
+      "path": "assets/parish-life.png",
+      "size": 79,
+      "sha256": "010772f21685d07137dc4d24b5334af28ac5795852325d99253073aa396b79de"
+    }
+  ],
+  "dependencies_fingerprint": "349081bb45f7adf2c66ad22cf3071fe3afcf598e67d99cf422cf4bcc14c1c233"
+}
