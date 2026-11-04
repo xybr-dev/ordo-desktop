@@ -94,6 +94,8 @@ const LUCIDE_ICONS: &[&str] = &[
     "list.svg",
     "package.svg",
     "palette.svg",
+    "pin-off.svg",
+    "pin.svg",
     "plus.svg",
     "settings.svg",
     "triangle-alert.svg",
