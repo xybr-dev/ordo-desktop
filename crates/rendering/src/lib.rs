@@ -4,11 +4,17 @@
 //! must not acquire GPUI operator-layout behavior.
 
 pub mod fonts;
+pub mod frame_cache;
+pub mod frame_scheduler;
 pub mod interface;
 pub mod raster;
 pub mod shaping;
 pub mod templates;
 
+pub use frame_cache::{FRAME_CAPACITY, FrameCache, FrameEntry, MIN_CAPACITY};
+pub use frame_scheduler::{
+    Completion, FrameScheduler, FrameSlot, PRELOAD_RADIUS, Ticket, UnavailableReason, compose,
+};
 pub use interface::{
     Diagnostics, ForegroundImage, Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X,
     MIN_SAFE_INSET_Y, PlacedImage, Rect, RenderError, SemanticContent, SlideBackground,

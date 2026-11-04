@@ -777,7 +777,7 @@ T0.6 result before starting it; do not implement both designs.
 
 **AC**
 
-- [ ] `[AUTO]` Program and Preview frames are pinned while in use; nearby-Cue
+- [x] `[AUTO]` Program and Preview frames are pinned while in use; nearby-Cue
       preloading has a measured fixed bound.
 - [ ] `[AUTO]` Thumbnail generation uses a separate low-resolution cache and
       never retains a full-size frame solely for an offscreen timeline item.
@@ -788,9 +788,9 @@ T0.6 result before starting it; do not implement both designs.
       active Program frame.
       Under Decision 310 the cache holds logical `Frame` values by frame
       identity, count-bounded and pinned; there is no decoded raster to release.
-- [ ] `[AUTO]` Obsolete render requests are cancelled or ignored without
+- [x] `[AUTO]` Obsolete render requests are cancelled or ignored without
       replacing a newer Preview.
-- [ ] `[AUTO]` Decode/render failure becomes the same structured Unavailable Cue
+- [x] `[AUTO]` Decode/render failure becomes the same structured Unavailable Cue
       result consumed by the Engine and Preflight.
 - [ ] `[AUTO]` A 500-Cue fixture remains within the Phase 0 measured memory
       envelope during forward, reverse, and random navigation.

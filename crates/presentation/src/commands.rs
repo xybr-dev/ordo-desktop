@@ -1,5 +1,8 @@
 //! The operator and platform commands the Presentation Engine accepts.
 
+use domain::presentation::FrameId;
+use rendering::UnavailableReason;
+
 /// One input to [`crate::engine::Engine::apply`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Command {
@@ -49,6 +52,18 @@ pub enum Command {
     /// Recovery or session restore: stops auto-play and changes nothing else.
     /// Restored sessions never resume auto-play silently.
     Recover,
+    /// A frame failed at runtime (render, asset, or decode failure reported by
+    /// the frame scheduler). Every Cue projecting it becomes unavailable.
+    /// Idempotent: the first reason for a frame is kept; a frame no Project
+    /// Cue uses changes nothing. Nothing from a failed render reaches Program
+    /// (Decision 274): a frame already on Program was never drawn, so linked
+    /// Live goes black with the unavailable flag and Frozen goes black.
+    FrameUnavailable {
+        /// The failed frame.
+        frame: FrameId,
+        /// Why it cannot be produced.
+        reason: UnavailableReason,
+    },
 }
 
 impl Command {
