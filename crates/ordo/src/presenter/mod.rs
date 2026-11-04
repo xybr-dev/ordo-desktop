@@ -14,8 +14,6 @@
 //!
 //! * `timer`: one sleep until `Engine::next_deadline`, replaced whenever the
 //!   deadline changes and cleared when it fires;
-//! * `wall_clock`: the minute ticker for the header clock, started only by
-//!   [`PresenterView::start_wall_clock`];
 //! * `frames`: the compose jobs, held by [`PresenterFrames`] (see its docs).
 //!
 //! The timeline and rail start no task. Their scroll handles, focus handles
@@ -36,12 +34,7 @@ pub mod layout;
 pub mod rail;
 pub mod timeline;
 
-use std::{
-    collections::BTreeSet,
-    rc::Rc,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeSet, rc::Rc, sync::Arc, time::Duration};
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
@@ -84,8 +77,8 @@ pub type SavePreferences = Rc<dyn Fn(UiPreferences)>;
 /// Engine's developer-facing `Display` text.
 pub fn refusal_text(refusal: Refusal) -> &'static str {
     match refusal {
-        Refusal::UnavailablePreview { .. } => "Preview is unavailable — choose another Cue",
-        Refusal::OutputDisabled => "Output is off — choose Enable Output first",
+        Refusal::UnavailablePreview { .. } => "Preview is unavailable â€” choose another Cue",
+        Refusal::OutputDisabled => "Output is off â€” choose Enable Output first",
         Refusal::DisplayNotBack => "The congregation display is not back yet",
         Refusal::OutputDisconnected => "The congregation display is disconnected",
         Refusal::FreezeDuringBlackout => "End Blackout before freezing",
@@ -104,9 +97,9 @@ fn idle_status(engine: &Engine) -> &'static str {
         LiveState::Disconnected {
             display_back: false,
         } => "Congregation output disconnected",
-        LiveState::Disconnected { display_back: true } => "Display back · output not resumed",
+        LiveState::Disconnected { display_back: true } => "Display back Â· output not resumed",
         _ => match engine.preview_availability() {
-            Availability::Unavailable(_) => "Preview is unavailable — choose another Cue",
+            Availability::Unavailable(_) => "Preview is unavailable â€” choose another Cue",
             Availability::Presentable => "Output enabled",
         },
     }
@@ -151,8 +144,6 @@ pub struct PresenterView {
     /// The deadline the sleeping task waits for, and the task. Dropped with
     /// the view.
     timer: Option<(Millis, Task<()>)>,
-    wall_clock: Option<Task<()>>,
-    clock_text: Option<SharedString>,
     /// The last frame each monitor finished drawing, kept while its
     /// replacement is still composing (the consumer rule in
     /// `rendering::frame_cache`).
@@ -189,8 +180,6 @@ impl PresenterView {
             status: None,
             save_preferences: None,
             timer: None,
-            wall_clock: None,
-            clock_text: None,
             last_program: Shown::default(),
             last_preview: Shown::default(),
         };
@@ -285,34 +274,6 @@ impl PresenterView {
         }
         self.request_visible(cx);
         cx.notify();
-    }
-
-    /// Start the header clock: the time now, refreshed on every minute.
-    ///
-    /// The clock is UTC and says so. Local time needs a Windows API behind an
-    /// unsafe platform module, which is out of scope here; that seam is
-    /// deferred to T1.6. Labelling the zone means it never misleads. The
-    /// ticker is owned by the view and stops with it.
-    pub fn start_wall_clock(&mut self, cx: &mut Context<Self>) {
-        self.wall_clock = Some(cx.spawn(async move |this, cx| {
-            loop {
-                let seconds = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_or(0, |elapsed| elapsed.as_secs());
-                let text: SharedString = header::format_clock(seconds).into();
-                let alive = this
-                    .update(cx, |view, cx| {
-                        view.clock_text = Some(text);
-                        cx.notify();
-                    })
-                    .is_ok();
-                if !alive {
-                    break;
-                }
-                let wait = Duration::from_secs(60 - seconds % 60);
-                cx.background_executor().timer(wait).await;
-            }
-        }));
     }
 
     /// Bring everything that follows the Engine in line with it: the frame
@@ -934,7 +895,6 @@ impl Render for PresenterView {
         let header = header::header(
             HeaderModel {
                 title: self.snapshot.snapshot().title().to_owned().into(),
-                clock: self.clock_text.clone(),
                 health: DisplayHealth::of(state.live()),
                 cue_view: self.cue_view,
                 icon_only: layout.regime == Regime::Constrained,
