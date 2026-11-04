@@ -1,7 +1,7 @@
 ---
 id: 310
 title: Live output draws the retained Frame; rasterize only for pixels
-status: proposed
+status: accepted
 date: 2026-11-04
 recorded: 2026-11-04
 tags: [rendering, presenter, performance]

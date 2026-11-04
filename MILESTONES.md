@@ -781,7 +781,7 @@ T0.6 result before starting it; do not implement both designs.
       preloading has a measured fixed bound.
 - [ ] `[AUTO]` Thumbnail generation uses a separate low-resolution cache and
       never retains a full-size frame solely for an offscreen timeline item.
-      Not applicable under Decision 310 (proposed; retained display path):
+      Not applicable under Decision 310 (accepted; retained display path):
       thumbnails draw the same logical `Frame` at a smaller fit scale, so no
       full-size raster exists to retain. Left unticked for the owner.
 - [ ] `[AUTO]` Cache eviction releases decoded resources and never evicts the
