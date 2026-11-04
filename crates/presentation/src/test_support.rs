@@ -240,6 +240,8 @@ pub fn write_synthetic_snapshot(dir: &Path) -> io::Result<SyntheticSnapshot> {
         "schema_version": 2,
         "id": uuid(1),
         "mass_plan_id": uuid(2),
+        "celebration_id": uuid(3),
+        "captured_at": "2026-11-01T09:30:00Z",
         "title": "Synthetic 500-Cue Mass",
         "themes": [{"id": theme, "name": "Fallback", "kind": "fallback"}],
         "mass_theme_id": theme,
