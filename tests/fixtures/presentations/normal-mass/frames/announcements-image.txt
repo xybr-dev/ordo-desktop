@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralImage
+header:Kinabuhi sa Parokya
+body-lines:0
+footer-lines:1
+Sanitized qualification image
+image:a6000000-0000-4000-8000-000000000001
+image-size:2x2

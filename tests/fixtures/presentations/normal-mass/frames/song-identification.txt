@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:SongIdentification
+header-absent
+body-lines:1
+Pagsalig sa Ginoo
+footer-lines:2
+Orihinal nga teksto alang sa pagsulay
+Dili kini awit sa parokya
+image-absent

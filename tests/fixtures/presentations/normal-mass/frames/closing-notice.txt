@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralText
+header:Hangyo
+body-lines:2
+Ang sunod nga pagtigom magsugod sa sama nga takna.
+Daghang salamat sa matag usa.
+footer-absent
+image-absent

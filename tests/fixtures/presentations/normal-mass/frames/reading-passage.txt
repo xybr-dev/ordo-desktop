@@ -1,0 +1,10 @@
+ordo-fixture/1
+kind:ReadingPassage
+header-absent
+body-lines:3
+Kaniadto adunay usa ka magtutudlo nga nagpundok sa iyang mga estudyante sa daplin sa dagat.
+Giingnan niya sila: ang gagmay nga butang nga gibuhat sa gugma mas dako pa kay sa dagkong buhat.
+Ang tanan nga nakadungog nagpabilin nga hilom ug naghunahuna.
+footer-lines:1
+Pananglitan 1:1-8
+image-absent

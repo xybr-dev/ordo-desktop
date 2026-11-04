@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralText
+header:Salamat sa pag-uban
+body-lines:1
+Among gipabilhan ang matag pag-ampo nga giuban kanamo.
+footer-lines:1
+Padayon kita sa pag-alagad sa usag usa.
+image-absent

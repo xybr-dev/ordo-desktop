@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:Psalm
+header:TUGON SA AWIT:
+body-lines:2
+Ang tubig nagadan-ag sa buntag
+ug ang balud mipauli sa baybayon
+footer-lines:1
+Pananglitan 2:2-3
+image-absent

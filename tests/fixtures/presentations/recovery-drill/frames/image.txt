@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:GeneralImage
+header:Image
+body-lines:0
+footer-lines:1
+Drill image caption
+image:b6000000-0000-4000-8000-000000000001
+image-size:2x2

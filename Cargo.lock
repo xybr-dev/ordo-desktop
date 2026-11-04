@@ -4743,13 +4743,17 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "rendering",
+ "sha2",
 ]
 
 [[package]]
 name = "presentation-tests"
 version = "0.1.0"
 dependencies = [
+ "domain",
  "presentation",
+ "rendering",
+ "tempfile",
 ]
 
 [[package]]

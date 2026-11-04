@@ -1,0 +1,10 @@
+ordo-fixture/1
+kind:GeneralText
+header:Mga Pahibalo
+body-lines:3
+Ang mga klase sa katesismo magsugod sa sunod nga Domingo.
+Palihog dad-a ang inyong mga libro ug notebook.
+Ang pagpangolekta alang sa mga kabus mahitabo human sa Misa.
+footer-lines:1
+Palihog lingkod human sa pag-ampo.
+image-absent

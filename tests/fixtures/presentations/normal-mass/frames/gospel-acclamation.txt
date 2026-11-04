@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Response
+header:PAGDAYEG
+body-lines:1
+Dayega, dayega ang bag-ong adlaw!
+footer-absent
+image-absent

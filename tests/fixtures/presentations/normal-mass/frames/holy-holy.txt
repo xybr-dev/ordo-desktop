@@ -1,0 +1,9 @@
+ordo-fixture/1
+kind:Response
+header:AWIT SA KAHAYAG
+body-lines:3
+Hayag ang bituon sa kabuntagon
+mituybo ang kalipay sa among balay
+awita ang ngalan sa kahayag
+footer-absent
+image-absent

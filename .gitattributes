@@ -21,3 +21,8 @@ MILESTONES.md text eol=lf
 docs/decisions/** text eol=lf
 # Vendored mockup files stay byte-identical to upstream on every checkout.
 docs/mockups/vendor/** -text
+# Presentation snapshot fixtures are LF-only text and are SHA-256 hashed byte
+# for byte: frames and assets by the manifest's per-file digests, and the
+# manifest itself by the hash the E2E test pins. A CRLF checkout would break
+# those digests and the reader rejects carriage returns outright.
+tests/fixtures/presentations/** -text

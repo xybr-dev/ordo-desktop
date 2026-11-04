@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header-absent
+body-lines:2
+Sa kahilom sa among balay, nag-awit ang among kasingkasing, Ginoo.
+Hinaot nga magdala og kalinaw ang among pagtapok.
+footer-absent
+image-absent

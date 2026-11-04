@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:ReadingIdentification
+header-absent
+body-lines:1
+Unang Pagbasa
+footer-lines:1
+Pananglitan 1:1-8
+image-absent

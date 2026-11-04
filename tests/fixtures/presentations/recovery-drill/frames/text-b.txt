@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:GeneralText
+header:Text B
+body-lines:1
+Second drill text frame.
+footer-absent
+image-absent

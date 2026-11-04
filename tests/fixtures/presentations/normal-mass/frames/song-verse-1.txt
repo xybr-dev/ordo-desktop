@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Bersikulo 1
+body-lines:2
+Sa buntag sa among kinabuhi
+among gialsa ang among tingog
+footer-absent
+image-absent

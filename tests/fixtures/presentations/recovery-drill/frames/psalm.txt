@@ -1,0 +1,7 @@
+ordo-fixture/1
+kind:Psalm
+header:Psalm
+body-lines:1
+Drill psalm refrain.
+footer-absent
+image-absent

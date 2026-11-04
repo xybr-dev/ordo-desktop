@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Psalm
+header:TUGON SA AWIT:
+body-lines:1
+Ang suba nagdagan ug ako nagpasalamat.
+footer-lines:1
+Pananglitan 2:1-3
+image-absent

@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header-absent
+body-lines:2
+Drill lyric one.
+Drill lyric two.
+footer-absent
+image-absent
