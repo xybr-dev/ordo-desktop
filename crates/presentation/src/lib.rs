@@ -21,6 +21,7 @@ pub mod engine;
 pub mod presenter;
 pub mod snapshot_reader;
 pub mod state;
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub mod test_support;
 

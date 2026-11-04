@@ -490,6 +490,7 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(args.width), px(args.height)), cx);
         let snapshot = args.snapshot.clone();
         let mut measure = None;
+        let measure_out = args.measure_memory.clone();
         if let Some(out) = args.measure_memory.clone() {
             // Started before the window opens, so the peak covers the load.
             match MemoryWatch::start(cx) {
@@ -524,6 +525,12 @@ fn main() {
         );
         if let Err(error) = opened {
             eprintln!("live-control-lab: cannot open the window: {error:?}");
+            if let Some(out) = &measure_out {
+                // The watch was dropped with the closure; the document says why.
+                let message = format!("cannot open the window: {error:?}");
+                measure::finish(cx, out, &measure::error_json(&message), false);
+                return;
+            }
             cx.quit();
             return;
         }
@@ -855,6 +862,8 @@ mod measure {
     ) -> Result<Phase, String> {
         let background = cx.background_executor().clone();
         let (mut commands, mut jumps) = (0, 0);
+        // Every checkpoint settle counts: a phase is settled only if all were.
+        let mut checkpoints_settled = true;
         for (index, step) in plan.iter().enumerate() {
             view.update_in(cx, |view, _, cx| match step {
                 Step::Command(command) => {
@@ -872,10 +881,10 @@ mod measure {
             background.timer(STEP).await;
             maxima.observe(stats(view, cx)?);
             if (index + 1) % CHECKPOINT_EVERY == 0 {
-                settle(view, cx, maxima).await?;
+                checkpoints_settled &= settle(view, cx, maxima).await?;
             }
         }
-        let settled = settle(view, cx, maxima).await?;
+        let settled = settle(view, cx, maxima).await? && checkpoints_settled;
         background.timer(SETTLE_BEFORE_SAMPLE).await;
         let at = stats(view, cx)?;
         maxima.observe(at);
@@ -934,7 +943,7 @@ mod measure {
         let jumps: usize = phases.iter().map(|phase| phase.jumps).sum();
         let phase_json: Vec<String> = phases.iter().map(Phase::json).collect();
         Ok(format!(
-            "{{\"mode\":\"live-presenter\",\"description\":{},\"rss_bytes\":{},\"private_bytes\":{},\"private_bytes_note\":{},\"virtual_bytes\":{},\"peak_rss_bytes\":{},\"peak_private_bytes\":{},\"cue_count\":{cues},\"window\":{},\"commands\":{commands},\"rail_jumps\":{jumps},\"frames_composed\":{},\"max_cache_len\":{},\"max_full_images\":{},\"max_thumb_images\":{},\"max_jobs_in_flight\":{},\"phases\":[{}]}}",
+            "{{\"mode\":\"live-presenter\",\"description\":{},\"rss_bytes\":{},\"private_bytes\":{},\"private_bytes_note\":{},\"virtual_bytes\":{},\"peak_rss_bytes\":{},\"peak_private_bytes\":{},\"seed\":{SEED},\"cue_count\":{cues},\"window\":{},\"commands\":{commands},\"rail_jumps\":{jumps},\"frames_composed\":{},\"max_cache_len\":{},\"max_full_images\":{},\"max_thumb_images\":{},\"max_jobs_in_flight\":{},\"phases\":[{}]}}",
             json_string(
                 "the real PresenterView (timeline, rail, dock, frame store) over a synthetic 500-Cue snapshot; figures are after the random phase"
             ),

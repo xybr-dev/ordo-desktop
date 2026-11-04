@@ -34,6 +34,8 @@ sysinfo = { version = "=0.31.4", default-features = false, features = ["system"]
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 [dev-dependencies]
+# The live-control-lab example writes a synthetic 500-Cue snapshot.
+presentation = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 # Fault hooks (injected panic) for the supervision tests only.
 storage = { workspace = true, features = ["fault-injection"] }
