@@ -4,11 +4,12 @@
 //! Every function here is pure apart from decoding and runs off the GPUI
 //! thread; the caller spawns it on the background executor.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 use std::sync::Arc;
 
-use domain::presentation::AssetId;
+use domain::presentation::{AssetId, ContentHash};
 use gpui::{Image, ImageFormat, RenderImage, SvgRenderer};
 use image::{DynamicImage, ImageDecoder, ImageReader};
 use presentation::snapshot_reader::LoadedSnapshot;
@@ -73,12 +74,15 @@ pub(super) fn decode_thumbnail(bytes: &[u8]) -> Result<Arc<RenderImage>, ImageCh
     Ok(Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])))
 }
 
-/// Decode-check every asset of `snapshot` once and return each failure.
+/// Decode-check every distinct image of `snapshot` once and return each
+/// failure.
 ///
 /// The building block for Preflight's image check (T1.6): it proves, before
-/// Mass, that every image a frame can place will decode. Each asset is
-/// decoded in full and the result is dropped before the next asset, so at
-/// most one decoded image is alive at a time. The order follows
+/// Mass, that every image a frame can place will decode. Assets are checked
+/// by content hash, like the frame store's decodes (owner decision,
+/// 2026-11-04): assets with the same bytes are decoded once and a failure is
+/// reported against every one of them. Each decode is dropped before the
+/// next, so at most one decoded image is alive at a time. The order follows
 /// [`LoadedSnapshot::asset_ids`]. Pure apart from decoding; it blocks for
 /// the whole decode, so the caller must run it off the GPUI thread.
 pub fn check_images(
@@ -88,7 +92,8 @@ pub fn check_images(
     check_with(snapshot, |asset| snapshot.asset(asset), renderer)
 }
 
-/// How many assets `snapshot` holds, for "N checked".
+/// How many assets `snapshot` holds, for "N checked". Assets that share bytes
+/// each count, although [`check_images`] decodes them once.
 pub fn image_count(snapshot: &LoadedSnapshot) -> usize {
     snapshot.asset_ids().count()
 }
@@ -101,21 +106,31 @@ fn check_with<'a>(
     bytes: impl Fn(AssetId) -> Option<&'a [u8]>,
     renderer: &SvgRenderer,
 ) -> Vec<(AssetId, ImageCheckError)> {
-    snapshot
-        .asset_ids()
-        .filter_map(|asset| {
-            let result = bytes(asset)
-                .ok_or(ImageCheckError::Missing)
-                .and_then(|bytes| decode_full(bytes, renderer).map(drop));
-            result.err().map(|error| (asset, error))
-        })
-        .collect()
+    // One outcome per distinct content: the first asset with a hash supplies
+    // the bytes, later ones reuse its result. `None` means it decoded.
+    let mut outcomes: HashMap<ContentHash, Option<ImageCheckError>> = HashMap::new();
+    let mut failures = Vec::new();
+    for asset in snapshot.asset_ids() {
+        let error = match snapshot.asset_hash(asset) {
+            Some(hash) => *outcomes.entry(hash).or_insert_with(|| {
+                bytes(asset)
+                    .ok_or(ImageCheckError::Missing)
+                    .and_then(|bytes| decode_full(bytes, renderer).map(drop))
+                    .err()
+            }),
+            None => Some(ImageCheckError::Missing),
+        };
+        if let Some(error) = error {
+            failures.push((asset, error));
+        }
+    }
+    failures
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presenter::frames::test_support::fixture_snapshot;
+    use crate::presenter::frames::test_support::{duplicate_image_snapshot, fixture_snapshot};
 
     #[test]
     fn a_good_snapshot_has_no_image_failures() {
@@ -142,6 +157,36 @@ mod tests {
             &renderer,
         );
         assert_eq!(failures, vec![(bad, ImageCheckError::Undecodable)]);
+    }
+
+    #[test]
+    fn assets_with_the_same_bytes_are_decoded_once_and_pass_together() {
+        let snapshot = duplicate_image_snapshot();
+        assert_eq!(image_count(&snapshot), 2);
+        let renderer = SvgRenderer::new(Arc::new(()));
+        assert_eq!(check_images(&snapshot, &renderer), Vec::new());
+    }
+
+    #[test]
+    fn corrupt_duplicated_bytes_report_every_asset_from_one_decode() {
+        let snapshot = duplicate_image_snapshot();
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let reads = std::cell::Cell::new(0);
+        let failures = check_with(
+            &snapshot,
+            |_| {
+                reads.set(reads.get() + 1);
+                Some(b"not a png".as_slice())
+            },
+            &renderer,
+        );
+        assert_eq!(reads.get(), 1, "the shared bytes are decoded once");
+        let expected: Vec<_> = snapshot
+            .asset_ids()
+            .map(|asset| (asset, ImageCheckError::Undecodable))
+            .collect();
+        assert_eq!(expected.len(), 2);
+        assert_eq!(failures, expected);
     }
 
     #[test]

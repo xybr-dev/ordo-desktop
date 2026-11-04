@@ -26,9 +26,16 @@
 //! paint), so a frame is only ever Ready with its image, and a corrupt asset
 //! becomes [`UnavailableReason::DecodeFailed`] instead of a silent gap.
 //!
+//! Decodes are keyed by the asset's SHA-256 ([`ContentHash`]), not by
+//! `AssetId` (owner decision, 2026-11-04): two asset ids that carry the same
+//! bytes (one background captured twice, one photo on slides of different
+//! items) share one decode, one `Arc<RenderImage>` and one GPU atlas tile per
+//! quality, and a decode failure is recorded for every asset with those
+//! bytes. The snapshot supplies the hash ([`LoadedSnapshot::asset_hash`]).
+//!
 //! Memory is bounded like frames. A decoded image is kept only while a Ready
-//! frame in the cache places its asset, so the decoded images never outnumber
-//! the cache's [`FRAME_CAPACITY`]. After every completion, `sync` and
+//! frame in the cache places an asset with its hash, so the decoded images
+//! never outnumber the cache's [`FRAME_CAPACITY`]. After every completion, `sync` and
 //! `request_visible` the store releases the rest. A released image is dropped
 //! from GPUI's sprite atlas only once nothing else holds it (a monitor that is
 //! still painting it keeps its `Arc`); until then it waits in `retiring` and
@@ -53,7 +60,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use domain::presentation::{AssetId, FrameId};
+use domain::presentation::{AssetId, ContentHash, FrameId};
 use gpui::{App, AppContext, Context, ImageId, RenderImage, SvgRenderer, Task, Window};
 use presentation::snapshot_reader::LoadedSnapshot;
 use rendering::{
@@ -97,7 +104,7 @@ struct Prepared {
     result: Result<Frame, UnavailableReason>,
     /// True when `compose` actually ran.
     composed: bool,
-    image: Option<(AssetId, Quality, Arc<RenderImage>)>,
+    image: Option<(ContentHash, Quality, Arc<RenderImage>)>,
 }
 
 /// Owner of composed frames, decoded images and in-flight jobs for one
@@ -106,15 +113,14 @@ pub struct PresenterFrames {
     snapshot: Arc<LoadedSnapshot>,
     cache: FrameCache<FrameId>,
     scheduler: FrameScheduler<FrameId>,
-    /// Full-size decoded images, keyed by `AssetId` rather than by asset hash
-    /// (Decision 310): within one snapshot an `AssetId` names exactly one
-    /// verified byte string, so the two keys select the same entries, and a
-    /// new snapshot gets a new store. Only assets placed by a Ready cached
-    /// frame are kept.
-    full: HashMap<AssetId, Arc<RenderImage>>,
-    /// Thumbnail-sized decoded images, under the same rule. An asset has a
+    /// Full-size decoded images, keyed by the SHA-256 of the asset's bytes:
+    /// one decode per distinct content, however many asset ids carry it
+    /// (owner decision, 2026-11-04). Only contents placed by a Ready cached
+    /// frame are kept, and a new snapshot gets a new store.
+    full: HashMap<ContentHash, Arc<RenderImage>>,
+    /// Thumbnail-sized decoded images, under the same rule. A content has a
     /// thumbnail only until its full image arrives.
-    thumb: HashMap<AssetId, Arc<RenderImage>>,
+    thumb: HashMap<ContentHash, Arc<RenderImage>>,
     /// Released images some monitor may still be painting, keyed by the
     /// image's own id so one image is never listed twice; their atlas copy is
     /// dropped once this is the last holder. An image is never in here and in
@@ -127,13 +133,14 @@ pub struct PresenterFrames {
     /// Dropping a task cancels its job. The quality says which decode the
     /// job makes, so an upgrade is not started over a full compose job.
     in_flight: HashMap<FrameId, (Quality, Task<()>)>,
-    /// Full-size decodes that promote a thumbnail-only asset, one per asset.
-    upgrades: HashMap<AssetId, Task<()>>,
-    /// Assets whose full decode failed; their wanted frames become
-    /// Unavailable instead of retrying in a loop. Never cleared: a snapshot
-    /// is immutable and a decode of the same bytes is deterministic, so a
-    /// retry could only fail again, and a new snapshot gets a new store.
-    failed_assets: HashSet<AssetId>,
+    /// Full-size decodes that promote a thumbnail-only image, one per content.
+    upgrades: HashMap<ContentHash, Task<()>>,
+    /// Contents whose full decode failed, so every asset with those bytes is
+    /// Unavailable; their wanted frames become Unavailable instead of
+    /// retrying in a loop. Never cleared: a snapshot is immutable and a
+    /// decode of the same bytes is deterministic, so a retry could only fail
+    /// again, and a new snapshot gets a new store.
+    failed_images: HashSet<ContentHash>,
     /// The one-shot hop that drops released images from the atlas.
     flush: Option<Task<()>>,
     composed_count: usize,
@@ -173,10 +180,18 @@ fn quality_of(ticket: &Ticket<FrameId>) -> Quality {
     }
 }
 
-/// The asset a frame places, if any.
-fn asset_of(snapshot: &LoadedSnapshot, id: FrameId) -> Option<AssetId> {
+/// The asset a frame places and the SHA-256 of its bytes, if it places one
+/// the snapshot holds. The hash is the cache key; the asset id is only the
+/// way to reach the bytes.
+fn image_of(snapshot: &LoadedSnapshot, id: FrameId) -> Option<(AssetId, ContentHash)> {
     let content = snapshot.frame(id)?;
-    AssetId::parse(&content.image.as_ref()?.id).ok()
+    let asset = AssetId::parse(&content.image.as_ref()?.id).ok()?;
+    Some((asset, snapshot.asset_hash(asset)?))
+}
+
+/// The content hash of the image a frame places, if any.
+fn hash_of(snapshot: &LoadedSnapshot, id: FrameId) -> Option<ContentHash> {
+    image_of(snapshot, id).map(|(_, hash)| hash)
 }
 
 impl PresenterFrames {
@@ -191,7 +206,7 @@ impl PresenterFrames {
             full_wanted: Vec::new(),
             in_flight: HashMap::new(),
             upgrades: HashMap::new(),
-            failed_assets: HashSet::new(),
+            failed_images: HashSet::new(),
             flush: None,
             composed_count: 0,
             failures: Vec::new(),
@@ -361,21 +376,21 @@ impl PresenterFrames {
         })
     }
 
-    /// The image already decoded for the asset `key`'s frame uses and good
+    /// The image already decoded for the content `key`'s frame places and good
     /// enough for `quality`, so a job does not decode a second copy. A full
     /// image serves both qualities; a thumbnail serves only `Thumb`. The job
     /// hands it back with its result, so the image is still held if the frame
     /// that owned it was evicted while the job ran.
     fn known_image(&self, key: FrameId, quality: Quality) -> Option<(Quality, Arc<RenderImage>)> {
-        let asset = asset_of(&self.snapshot, key)?;
-        if let Some(full) = self.full.get(&asset) {
+        let hash = hash_of(&self.snapshot, key)?;
+        if let Some(full) = self.full.get(&hash) {
             return Some((Quality::Full, Arc::clone(full)));
         }
         match quality {
             Quality::Full => None,
             Quality::Thumb => self
                 .thumb
-                .get(&asset)
+                .get(&hash)
                 .map(|thumb| (Quality::Thumb, Arc::clone(thumb))),
         }
     }
@@ -402,7 +417,7 @@ impl PresenterFrames {
         if completion == Completion::Accepted {
             match (failure, prepared.image) {
                 (Some(reason), _) => self.failures.push((ticket.key(), reason)),
-                (None, Some((asset, quality, image))) => self.store_image(asset, quality, image),
+                (None, Some((hash, quality, image))) => self.store_image(hash, quality, image),
                 (None, None) => {}
             }
         }
@@ -412,20 +427,26 @@ impl PresenterFrames {
     }
 
     /// Keep a freshly decoded image. A thumbnail never replaces or outlives a
-    /// full image of the same asset; a full image retires the thumbnail.
-    fn store_image(&mut self, asset: AssetId, quality: Quality, image: Arc<RenderImage>) {
+    /// full image of the same content; a full image retires the thumbnail.
+    /// Two jobs that raced on the same content (two asset ids with the same
+    /// bytes started together) leave one winner: the held image stays, since
+    /// a monitor may already be painting it, and the late duplicate, never
+    /// painted, is simply dropped.
+    fn store_image(&mut self, hash: ContentHash, quality: Quality, image: Arc<RenderImage>) {
         match quality {
             Quality::Full => {
-                self.retiring.remove(&image.id);
-                self.full.insert(asset, image);
-                if let Some(thumb) = self.thumb.remove(&asset) {
+                if !self.full.contains_key(&hash) {
+                    self.retiring.remove(&image.id);
+                    self.full.insert(hash, image);
+                }
+                if let Some(thumb) = self.thumb.remove(&hash) {
                     self.retire(thumb);
                 }
             }
             Quality::Thumb => {
-                if !self.full.contains_key(&asset) {
+                if !self.full.contains_key(&hash) && !self.thumb.contains_key(&hash) {
                     self.retiring.remove(&image.id);
-                    self.thumb.insert(asset, image);
+                    self.thumb.insert(hash, image);
                 }
             }
         }
@@ -437,12 +458,12 @@ impl PresenterFrames {
         self.retiring.insert(image.id, image);
     }
 
-    /// The assets placed by Ready cached frames.
-    fn referenced_assets(&self) -> HashSet<AssetId> {
+    /// The distinct image contents placed by Ready cached frames.
+    fn referenced_hashes(&self) -> HashSet<ContentHash> {
         self.cache
             .keys()
             .filter(|id| matches!(self.cache.peek(id), Some(FrameEntry::Ready(_))))
-            .filter_map(|id| asset_of(&self.snapshot, *id))
+            .filter_map(|id| hash_of(&self.snapshot, *id))
             .collect()
     }
 
@@ -462,15 +483,15 @@ impl PresenterFrames {
     /// Move every decoded image no Ready cached frame places into `retiring`
     /// and schedule the atlas drop.
     fn prune<V: 'static>(&mut self, access: fn(&mut V) -> &mut Self, cx: &mut Context<V>) {
-        let referenced = self.referenced_assets();
+        let referenced = self.referenced_hashes();
         for map in [&mut self.full, &mut self.thumb] {
-            let stale: Vec<AssetId> = map
+            let stale: Vec<ContentHash> = map
                 .keys()
-                .filter(|asset| !referenced.contains(asset))
+                .filter(|hash| !referenced.contains(hash))
                 .copied()
                 .collect();
-            for asset in stale {
-                if let Some(image) = map.remove(&asset) {
+            for hash in stale {
+                if let Some(image) = map.remove(&hash) {
                     self.retiring.insert(image.id, image);
                 }
             }
@@ -517,9 +538,9 @@ impl PresenterFrames {
         }
     }
 
-    /// Start a full-size decode for every wanted Ready frame whose asset has
+    /// Start a full-size decode for every wanted Ready frame whose content has
     /// none (the promotion of a thumbnail), cancel upgrades nobody wants, and
-    /// turn the frames of an asset that failed to decode into Unavailable.
+    /// turn the frames of a content that failed to decode into Unavailable.
     /// Returns true when a frame changed state.
     fn reconcile<V: 'static>(
         &mut self,
@@ -532,38 +553,39 @@ impl PresenterFrames {
             if !matches!(self.cache.peek(&id), Some(FrameEntry::Ready(_))) {
                 continue;
             }
-            let Some(asset) = asset_of(&self.snapshot, id) else {
+            let Some((asset, hash)) = image_of(&self.snapshot, id) else {
                 continue;
             };
-            if self.full.contains_key(&asset) {
+            if self.full.contains_key(&hash) {
                 continue;
             }
-            if self.failed_assets.contains(&asset) {
+            if self.failed_images.contains(&hash) {
                 let reason = UnavailableReason::DecodeFailed;
                 self.cache.insert(id, Err(reason));
                 self.failures.push((id, reason));
                 changed = true;
                 continue;
             }
-            needed.insert(asset);
-            // A full compose job for a frame placing this asset decodes it
+            needed.insert(hash);
+            // A full compose job for a frame placing this content decodes it
             // anyway; finishing it re-runs this pass, so no second decode
             // overlaps it.
             let decoding = self.in_flight.iter().any(|(job, (quality, _))| {
-                *quality == Quality::Full && asset_of(&self.snapshot, *job) == Some(asset)
+                *quality == Quality::Full && hash_of(&self.snapshot, *job) == Some(hash)
             });
-            if !decoding && !self.upgrades.contains_key(&asset) {
-                let task = self.start_upgrade(asset, access, cx);
-                self.upgrades.insert(asset, task);
+            if !decoding && !self.upgrades.contains_key(&hash) {
+                let task = self.start_upgrade(asset, hash, access, cx);
+                self.upgrades.insert(hash, task);
             }
         }
-        self.upgrades.retain(|asset, _| needed.contains(asset));
+        self.upgrades.retain(|hash, _| needed.contains(hash));
         changed
     }
 
     fn start_upgrade<V: 'static>(
         &self,
         asset: AssetId,
+        hash: ContentHash,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
     ) -> Task<()> {
@@ -586,7 +608,7 @@ impl PresenterFrames {
                 cx.background_executor().timer(hold).await;
             }
             this.update(cx, |view, cx| {
-                access(view).finish_upgrade(asset, decoded, access, cx);
+                access(view).finish_upgrade(hash, decoded, access, cx);
                 cx.notify();
             })
             .ok();
@@ -595,20 +617,20 @@ impl PresenterFrames {
 
     fn finish_upgrade<V: 'static>(
         &mut self,
-        asset: AssetId,
+        hash: ContentHash,
         decoded: Option<Arc<RenderImage>>,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
     ) {
-        self.upgrades.remove(&asset);
+        self.upgrades.remove(&hash);
         match decoded {
-            // Only keep it while a cached frame still places the asset.
-            Some(image) if self.referenced_assets().contains(&asset) => {
-                self.store_image(asset, Quality::Full, image);
+            // Only keep it while a cached frame still places the content.
+            Some(image) if self.referenced_hashes().contains(&hash) => {
+                self.store_image(hash, Quality::Full, image);
             }
             Some(_) => {}
             None => {
-                self.failed_assets.insert(asset);
+                self.failed_images.insert(hash);
             }
         }
         self.after_change(access, cx);
@@ -676,11 +698,12 @@ impl PresenterFrames {
         let image = match asset {
             None => None,
             Some(asset) => {
-                let full = self.full.get(&asset);
+                let hash = self.snapshot.asset_hash(asset);
+                let full = hash.and_then(|hash| self.full.get(&hash));
                 let found = if full_only {
                     full
                 } else {
-                    full.or_else(|| self.thumb.get(&asset))
+                    full.or_else(|| hash.and_then(|hash| self.thumb.get(&hash)))
                 };
                 match found {
                     Some(image) => Some(Arc::clone(image)),
@@ -712,21 +735,22 @@ impl PresenterFrames {
         self.cache.len()
     }
 
-    /// Decoded images held, as `(full, thumbnail)`. Released images waiting
-    /// for a monitor to let go are not counted.
+    /// Distinct decoded contents held, as `(full, thumbnail)`: assets that
+    /// share bytes count once. Released images waiting for a monitor to let
+    /// go are not counted.
     pub fn image_counts(&self) -> (usize, usize) {
         (self.full.len(), self.thumb.len())
     }
 
-    /// Full-size upgrade decodes running now (one per asset at most).
+    /// Full-size upgrade decodes running now (one per content at most).
     pub fn upgrading(&self) -> usize {
         self.upgrades.len()
     }
 
-    /// Distinct assets placed by Ready cached frames: the bound on both
-    /// [`PresenterFrames::image_counts`] entries.
+    /// Distinct image contents placed by Ready cached frames: the bound on
+    /// both [`PresenterFrames::image_counts`] entries.
     pub fn referenced_image_count(&self) -> usize {
-        self.referenced_assets().len()
+        self.referenced_hashes().len()
     }
 
     /// Drop every decoded image and release its GPU atlas tile. The owning
@@ -792,8 +816,11 @@ fn prepare(
         let Ok(asset) = AssetId::parse(&foreground.id) else {
             return failed(UnavailableReason::DecodeFailed);
         };
+        let Some(hash) = snapshot.asset_hash(asset) else {
+            return failed(UnavailableReason::DecodeFailed);
+        };
         if let Some((held, decoded)) = known {
-            image = Some((asset, held, decoded));
+            image = Some((hash, held, decoded));
         } else {
             let Some(bytes) = PresenterFrames::asset_bytes(snapshot, asset, fault) else {
                 return failed(UnavailableReason::DecodeFailed);
@@ -805,7 +832,7 @@ fn prepare(
             let Ok(decoded) = decoded else {
                 return failed(UnavailableReason::DecodeFailed);
             };
-            image = Some((asset, quality, decoded));
+            image = Some((hash, quality, decoded));
         }
     }
     Prepared {
@@ -825,11 +852,14 @@ fn failed(reason: UnavailableReason) -> Prepared {
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
 
     use domain::presentation::FrameId;
-    use presentation::snapshot_reader::{DirectorySource, LoadedSnapshot, read_snapshot};
+    use presentation::snapshot_reader::{
+        DirectorySource, LoadedSnapshot, SnapshotSource, SourceError, read_snapshot,
+    };
 
     /// The committed, sanitized `normal-mass` fixture, read from the source
     /// tree (read-only).
@@ -837,6 +867,101 @@ pub(crate) mod test_support {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/presentations/normal-mass");
         Arc::new(read_snapshot(&DirectorySource::new(dir)).expect("fixture snapshot loads"))
+    }
+
+    /// An in-memory snapshot source over the committed `normal-mass`
+    /// fixture, with one more image frame and one more asset id whose bytes
+    /// are identical to the fixture's own image. The fixture is only read.
+    struct DuplicateSource {
+        files: HashMap<String, Vec<u8>>,
+    }
+
+    impl SnapshotSource for DuplicateSource {
+        fn read(&self, path: &str) -> Result<Vec<u8>, SourceError> {
+            self.files.get(path).cloned().ok_or(SourceError::NotFound)
+        }
+    }
+
+    /// The fixture plus a second image frame placing a second asset id that
+    /// carries the same bytes as the first (a different file path and id,
+    /// the same SHA-256). The second image frame replaces the third Cue of
+    /// "Announcements", so the snapshot stays fully referenced.
+    pub fn duplicate_image_snapshot() -> Arc<LoadedSnapshot> {
+        const ASSET_1: &str = "a6000000-0000-4000-8000-000000000001";
+        const ASSET_2: &str = "a6000000-0000-4000-8000-000000000002";
+        const IMAGE_SHA: &str = "010772f21685d07137dc4d24b5334af28ac5795852325d99253073aa396b79de";
+        // Digests of the new frame text and of the fixture's dependency set
+        // plus the two additions, under the manifest's fingerprint rule.
+        const NEW_FRAME_SHA: &str =
+            "b6a321371cc87a0ff8715603d1c224ff75688211d55341bea00bb6cb5ee80c19";
+        const NEW_FINGERPRINT: &str =
+            "bbeea79d3cd331d4c33a9f49efd1d5cb89506b0c8a17ccc931fb5c55e0da77c1";
+        const OLD_FINGERPRINT: &str =
+            "349081bb45f7adf2c66ad22cf3071fe3afcf598e67d99cf422cf4bcc14c1c233";
+
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/presentations/normal-mass");
+        let read = |relative: &str| std::fs::read(dir.join(relative)).expect("fixture file reads");
+        let mut manifest = String::from_utf8(read("snapshot.json")).expect("manifest is UTF-8");
+        let frame_text = String::from_utf8(read("frames/announcements-image.txt"))
+            .expect("frame is UTF-8")
+            .replace(ASSET_1, ASSET_2);
+
+        let mut replace_once = |from: &str, to: &str| {
+            assert_eq!(manifest.matches(from).count(), 1, "{from:?} must be unique");
+            manifest = manifest.replace(from, to);
+        };
+        replace_once(
+            "\n  ],\n  \"assets\": [",
+            &format!(
+                ",\n    {{\n      \"id\": \"a5000000-0000-4000-8000-000000000015\",\n      \"path\": \"frames/announcements-image-again.txt\",\n      \"sha256\": \"{NEW_FRAME_SHA}\"\n    }}\n  ],\n  \"assets\": ["
+            ),
+        );
+        replace_once(
+            "\n  ],\n  \"dependencies_fingerprint\"",
+            &format!(
+                ",\n    {{\n      \"id\": \"{ASSET_2}\",\n      \"path\": \"assets/parish-life-again.png\",\n      \"size\": 79,\n      \"sha256\": \"{IMAGE_SHA}\"\n    }}\n  ],\n  \"dependencies_fingerprint\""
+            ),
+        );
+        replace_once(OLD_FINGERPRINT, NEW_FINGERPRINT);
+        // The third Cue of "Announcements" re-shows the text frame; point it
+        // at the new image frame instead.
+        let cue = manifest
+            .find("a4000000-0000-4000-8000-000000000004")
+            .expect("the cue exists");
+        let old_frame = "a5000000-0000-4000-8000-000000000002";
+        let at = cue
+            + manifest[cue..]
+                .find(old_frame)
+                .expect("the cue shows a frame");
+        manifest.replace_range(
+            at..at + old_frame.len(),
+            "a5000000-0000-4000-8000-000000000015",
+        );
+
+        let mut files = HashMap::new();
+        files.insert("snapshot.json".to_owned(), manifest.into_bytes());
+        files.insert(
+            "frames/announcements-image-again.txt".to_owned(),
+            frame_text.into_bytes(),
+        );
+        files.insert(
+            "assets/parish-life-again.png".to_owned(),
+            read("assets/parish-life.png"),
+        );
+        files.insert(
+            "assets/parish-life.png".to_owned(),
+            read("assets/parish-life.png"),
+        );
+        for entry in std::fs::read_dir(dir.join("frames")).expect("frames dir reads") {
+            let name = entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("UTF-8 name");
+            files.insert(format!("frames/{name}"), read(&format!("frames/{name}")));
+        }
+        Arc::new(read_snapshot(&DuplicateSource { files }).expect("duplicate-image snapshot loads"))
     }
 
     /// Frame identities in stable order; `with_image` picks those that do
@@ -857,7 +982,7 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{fixture_snapshot, frame_ids};
+    use super::test_support::{duplicate_image_snapshot, fixture_snapshot, frame_ids};
     use super::*;
     use gpui::{Render, TestAppContext, Window, div, prelude::*, px, size};
     use std::time::Duration;
@@ -1226,7 +1351,7 @@ mod tests {
     fn an_image_retired_twice_is_one_entry_and_dropped_once(cx: &mut TestAppContext) {
         let snapshot = fixture_snapshot();
         let image_frame = frame_ids(&snapshot, true)[0];
-        let asset = asset_of(&snapshot, image_frame).unwrap();
+        let hash = hash_of(&snapshot, image_frame).unwrap();
         let plain = frame_ids(&snapshot, false);
         let (host, cx) = open_sized(cx, snapshot, AssetFault::None, 0);
         sync(&host, cx, Some(image_frame), None);
@@ -1243,7 +1368,7 @@ mod tests {
         // A job that carried the image finishes and stores the same `Arc`:
         // it leaves `retiring`, and evicting again lists it once.
         host.update(cx, |h, cx| {
-            h.frames.store_image(asset, Quality::Full, held.clone());
+            h.frames.store_image(hash, Quality::Full, held.clone());
             assert!(h.frames.retiring.is_empty(), "a live image is not retired");
             h.frames.after_change(access, cx);
             assert_eq!(h.frames.retiring.len(), 1, "one entry, not two");
@@ -1256,6 +1381,108 @@ mod tests {
         cx.run_until_parked();
         assert!(host.read_with(cx, |h, _| h.frames.retiring.is_empty()));
         assert_eq!(host.read_with(cx, |h, _| h.frames.dropped), 1);
+    }
+
+    fn two_image_frames() -> (Arc<LoadedSnapshot>, FrameId, FrameId) {
+        let snapshot = duplicate_image_snapshot();
+        let images = frame_ids(&snapshot, true);
+        assert_eq!(images.len(), 2, "the snapshot has two image frames");
+        let placed: Vec<_> = images
+            .iter()
+            .map(|id| image_of(&snapshot, *id).expect("an image frame places an asset"))
+            .collect();
+        assert_ne!(placed[0].0, placed[1].0, "two different asset ids");
+        assert_eq!(placed[0].1, placed[1].1, "with the same bytes");
+        (snapshot, images[0], images[1])
+    }
+
+    fn is_cached(
+        host: &gpui::Entity<Host>,
+        cx: &mut gpui::VisualTestContext,
+        frame: FrameId,
+    ) -> bool {
+        host.read_with(cx, |h, _| h.frames.cache.peek(&frame).is_some())
+    }
+
+    #[gpui::test]
+    fn two_assets_with_the_same_bytes_share_one_decoded_image(cx: &mut TestAppContext) {
+        let (snapshot, first, second) = two_image_frames();
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+
+        sync(&host, cx, Some(first), Some(second));
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (1, 0), "one decode for both");
+        assert_eq!(
+            host.read_with(cx, |h, _| h.frames.referenced_image_count()),
+            1
+        );
+        let a = ready_image(host.update(cx, |h, _| h.frames.get_full(first))).unwrap();
+        let b = ready_image(host.update(cx, |h, _| h.frames.get_full(second))).unwrap();
+        assert!(Arc::ptr_eq(&a, &b), "both frames hold the same image");
+    }
+
+    #[gpui::test]
+    fn a_shared_image_is_released_once_after_the_last_frame_using_it_is_evicted(
+        cx: &mut TestAppContext,
+    ) {
+        let (snapshot, first, second) = two_image_frames();
+        let plain = frame_ids(&snapshot, false);
+        let (host, cx) = open_sized(cx, snapshot, AssetFault::None, 0);
+        sync(&host, cx, Some(first), Some(second));
+        cx.run_until_parked();
+        let shared = ready_image(host.update(cx, |h, _| h.frames.get_full(first))).unwrap();
+        let weak = Arc::downgrade(&shared);
+        drop(shared);
+
+        // Evict the first frame only: `second` stays pinned as Preview.
+        for id in &plain {
+            sync(&host, cx, Some(*id), Some(second));
+            cx.run_until_parked();
+        }
+        assert!(!is_cached(&host, cx, first), "the first frame is evicted");
+        assert!(is_cached(&host, cx, second), "the second frame is kept");
+        assert_eq!(image_counts(&host, cx), (1, 0), "the image stays in use");
+        assert_eq!(host.read_with(cx, |h, _| h.frames.dropped), 0);
+        assert!(weak.upgrade().is_some());
+
+        // Now evict the second as well.
+        for id in &plain {
+            sync(&host, cx, Some(*id), None);
+            cx.run_until_parked();
+        }
+        assert!(!is_cached(&host, cx, second));
+        assert_eq!(image_counts(&host, cx), (0, 0));
+        assert_eq!(
+            host.read_with(cx, |h, _| h.frames.dropped),
+            1,
+            "released once"
+        );
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[gpui::test]
+    fn a_failed_decode_makes_every_asset_with_those_bytes_unavailable(cx: &mut TestAppContext) {
+        let (snapshot, first, second) = two_image_frames();
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+        visible(&host, cx, vec![first, second]);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (0, 1), "one shared thumbnail");
+
+        host.update(cx, |h, _| h.frames.fault = AssetFault::Corrupt);
+        sync(&host, cx, Some(first), Some(second));
+        assert_eq!(
+            host.read_with(cx, |h, _| h.frames.upgrading()),
+            1,
+            "one upgrade decode serves both assets"
+        );
+        cx.run_until_parked();
+        for frame in [first, second] {
+            assert!(matches!(
+                view(&host, cx, frame),
+                FrameView::Unavailable(UnavailableReason::DecodeFailed)
+            ));
+        }
+        assert_eq!(host.update(cx, |h, _| h.frames.take_failures()).len(), 2);
     }
 
     #[gpui::test]
