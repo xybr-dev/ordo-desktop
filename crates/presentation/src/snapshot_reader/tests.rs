@@ -302,6 +302,8 @@ impl Spec {
             "schema_version": 2,
             "id": self.snapshot.to_string(),
             "mass_plan_id": uuid(0x701),
+            "celebration_id": uuid(0x702),
+            "captured_at": "2026-11-04T09:30:00Z",
             "title": self.title,
             "themes": themes,
             "mass_theme_id": self.mass_theme.to_string(),
@@ -620,6 +622,8 @@ fn a_missing_required_member_is_named() {
     for member in [
         "id",
         "mass_plan_id",
+        "celebration_id",
+        "captured_at",
         "title",
         "themes",
         "mass_theme_id",
@@ -786,8 +790,6 @@ fn null_is_not_a_way_to_spell_an_absent_optional_member() {
             vec!["sections", "0", "items", "0", "cues", "0", "behavior"],
             "duration_seconds",
         ),
-        (vec![], "celebration_id"),
-        (vec![], "captured_at"),
     ] {
         let source = spec.source_with(|value| {
             let mut at = value;
@@ -799,24 +801,34 @@ fn null_is_not_a_way_to_spell_an_absent_optional_member() {
             }
             at[member] = Value::Null;
         });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
         assert!(
-            matches!(
-                manifest_reason(read_snapshot(&source).unwrap_err()),
-                ManifestReason::Malformed { .. }
-            ),
-            "{member}: null must be refused"
+            message.contains(&format!("`{member}` is null; omit the member")),
+            "{member}: {message}"
         );
     }
 }
 
 #[test]
-fn optional_provenance_members_are_validated_and_accepted() {
+fn provenance_is_validated_and_carried() {
     let spec = Spec::minimal();
-    let source = spec.source_with(|value| {
-        value["celebration_id"] = json!(uuid(0x702));
-        value["captured_at"] = json!("2026-11-04T09:30:00Z");
-    });
-    assert!(read_snapshot(&source).is_ok());
+    let loaded = spec.load().unwrap();
+    let provenance = loaded.provenance();
+    assert_eq!(provenance.mass_plan_id().to_string(), uuid(0x701));
+    assert_eq!(provenance.celebration_id().to_string(), uuid(0x702));
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-04T09:30:00Z");
+    assert_eq!(provenance.captured_at().to_string(), "2026-11-04T09:30:00Z");
+
+    for member in ["celebration_id", "captured_at"] {
+        let source = spec.source_with(|value| {
+            value.as_object_mut().unwrap().remove(member);
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains(&format!("missing field `{member}`")),
+            "{member}: {message}"
+        );
+    }
 
     let source = spec.source_with(|value| value["mass_plan_id"] = json!("nope"));
     assert!(matches!(
@@ -1842,6 +1854,8 @@ fn the_committed_schema_pins_the_same_version_and_members() {
                 "schema_version",
                 "id",
                 "mass_plan_id",
+                "celebration_id",
+                "captured_at",
                 "title",
                 "themes",
                 "mass_theme_id",
@@ -1950,4 +1964,22 @@ fn the_committed_schema_pins_the_same_version_and_members() {
     for member in manifest.as_object().unwrap().keys() {
         assert!(required.contains(member), "{member}");
     }
+}
+
+#[test]
+fn captured_at_orders_chronologically_as_text() {
+    let spec = Spec::minimal();
+    let at = |text: &str| {
+        let source = spec.source_with(|value| value["captured_at"] = json!(text));
+        read_snapshot(&source)
+            .unwrap()
+            .provenance()
+            .captured_at()
+            .clone()
+    };
+    let earlier = at("2026-11-04T09:30:00Z");
+    let later = at("2026-11-04T10:00:00Z");
+    let next_year = at("2027-01-01T00:00:00Z");
+    assert!(earlier < later && later < next_year);
+    assert_eq!(earlier, at("2026-11-04T09:30:00Z"));
 }

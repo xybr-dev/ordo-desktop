@@ -107,8 +107,8 @@ use std::io::{ErrorKind, Read as _};
 use std::path::PathBuf;
 
 use domain::presentation::{
-    AssetId, ContentHash, ContentHashError, CueBehavior, CueId, FrameId, IdError, MassItem,
-    MassSection, PresentationSnapshot, SnapshotError,
+    AssetId, ContentHash, ContentHashError, CueBehavior, CueId, EntityId, FrameId, IdError,
+    MassItem, MassSection, PresentationSnapshot, SnapshotError,
 };
 use rendering::{RenderError, TargetDensity, TemplateContent, Theme, render_template};
 use sha2::{Digest, Sha256};
@@ -289,10 +289,68 @@ pub struct Dependency {
 /// a missing dependency.
 pub struct LoadedSnapshot {
     snapshot: PresentationSnapshot,
+    provenance: SnapshotProvenance,
     frames: BTreeMap<FrameId, LoadedFrame>,
     assets: BTreeMap<AssetId, LoadedAsset>,
     fingerprint: ContentHash,
     manifest_hash: ContentHash,
+}
+
+/// Where a snapshot came from: the Mass plan it captured, the Celebration that
+/// plan sits under, and when it was captured.
+///
+/// All three are required in `snapshot-manifest` v2 and are carried, not
+/// discarded, because later features key on them: interrupted-Mass recovery
+/// (Decision 14), reuse of the latest snapshot of a plan (Decision 178), and
+/// grouping snapshots under their Celebration (Decision 180). The domain
+/// snapshot does not hold them, so the storage format's identities stay out of
+/// `domain`. The Mass plan and Celebration are plain [`EntityId`]s because no
+/// typed identity for them exists yet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotProvenance {
+    mass_plan_id: EntityId,
+    celebration_id: EntityId,
+    captured_at: CapturedAt,
+}
+
+impl SnapshotProvenance {
+    /// The Mass plan this snapshot captured.
+    pub fn mass_plan_id(&self) -> EntityId {
+        self.mass_plan_id
+    }
+
+    /// The Celebration the Mass plan sits under.
+    pub fn celebration_id(&self) -> EntityId {
+        self.celebration_id
+    }
+
+    /// When the snapshot was captured.
+    pub fn captured_at(&self) -> &CapturedAt {
+        &self.captured_at
+    }
+}
+
+/// A UTC capture time in the fixed shape `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// The reader checks the shape (digits and separators), not calendar ranges.
+/// Because the width and field order are fixed and the zone is always `Z`,
+/// the derived ordering is plain string order, which is chronological order
+/// for well-formed values with in-range fields. There is no time library
+/// behind it.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedAt(String);
+
+impl CapturedAt {
+    /// The validated text, exactly as written in the manifest.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CapturedAt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 struct LoadedFrame {
@@ -309,6 +367,11 @@ impl LoadedSnapshot {
     /// The domain model: sections, Mass items, Cues, and Themes.
     pub fn snapshot(&self) -> &PresentationSnapshot {
         &self.snapshot
+    }
+
+    /// Where this snapshot came from: Mass plan, Celebration, capture time.
+    pub fn provenance(&self) -> &SnapshotProvenance {
+        &self.provenance
     }
 
     /// The parsed frame file a Project Cue shows.
@@ -364,6 +427,7 @@ impl fmt::Debug for LoadedSnapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LoadedSnapshot")
             .field("snapshot", &self.snapshot)
+            .field("provenance", &self.provenance)
             .field(
                 "frames",
                 &self.frames.keys().copied().collect::<Vec<FrameId>>(),
@@ -408,6 +472,7 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
     // must not make the reader open files.
     let Manifest {
         snapshot: snapshot_id,
+        provenance,
         title,
         fingerprint: declared_fingerprint,
         themes,
@@ -480,6 +545,7 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
 
     Ok(LoadedSnapshot {
         snapshot,
+        provenance,
         frames,
         assets,
         fingerprint,

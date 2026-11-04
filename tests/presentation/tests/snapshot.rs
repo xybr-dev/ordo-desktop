@@ -34,9 +34,9 @@ const RECOVERY_DRILL_FINGERPRINT: &str =
 // SHA-256 of the exact `snapshot.json` bytes, so these pin every identity, title,
 // Cue behavior, and the order of sections, items, and Cues as well.
 const NORMAL_MASS_MANIFEST_HASH: &str =
-    "522dc9e5a53d6327c66e4763393a6f317d1d392e3dda870d29a6bf15ec6a88ec";
+    "d0ad8264abed710e33156a73e4c72ab603426a9ec9141469b42daee6dc606ca4";
 const RECOVERY_DRILL_MANIFEST_HASH: &str =
-    "79124c7bd4ae9766478d8aebabff93234e037d8e181f95313df508afe03d5c8b";
+    "8e6ec6ec19f2cecf6dd3cd87cfc57bfd7027bbf698bd818eb6dac53833350483";
 
 fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -331,6 +331,16 @@ fn recovery_drill_covers_every_cue_behavior_and_its_adversarial_controls() {
 #[test]
 fn recovery_drill_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("recovery-drill");
+    let provenance = loaded.provenance();
+    assert_eq!(
+        provenance.mass_plan_id().to_string(),
+        "b7000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(
+        provenance.celebration_id().to_string(),
+        "b8000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-01T09:30:00Z");
     assert_eq!(loaded.fingerprint(), hash(RECOVERY_DRILL_FINGERPRINT));
     assert_eq!(loaded.manifest_hash(), hash(RECOVERY_DRILL_MANIFEST_HASH));
     assert_eq!(
@@ -399,6 +409,16 @@ fn normal_mass_has_the_sunday_structure() {
 #[test]
 fn normal_mass_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("normal-mass");
+    let provenance = loaded.provenance();
+    assert_eq!(
+        provenance.mass_plan_id().to_string(),
+        "a7000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(
+        provenance.celebration_id().to_string(),
+        "a8000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-01T09:30:00Z");
     assert_eq!(loaded.fingerprint(), hash(NORMAL_MASS_FINGERPRINT));
     assert_eq!(loaded.manifest_hash(), hash(NORMAL_MASS_MANIFEST_HASH));
     assert_eq!(
