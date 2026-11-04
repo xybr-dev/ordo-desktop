@@ -37,6 +37,8 @@ pub mod icon {
         LIST => "list.svg",
         PACKAGE => "package.svg",
         PALETTE => "palette.svg",
+        PIN => "pin.svg",
+        PIN_OFF => "pin-off.svg",
         PLUS => "plus.svg",
         SETTINGS => "settings.svg",
         TRIANGLE_ALERT => "triangle-alert.svg",

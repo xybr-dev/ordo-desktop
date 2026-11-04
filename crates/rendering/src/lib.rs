@@ -13,7 +13,8 @@ pub mod templates;
 
 pub use frame_cache::{FRAME_CAPACITY, FrameCache, FrameEntry, MIN_CAPACITY};
 pub use frame_scheduler::{
-    Completion, FrameScheduler, FrameSlot, PRELOAD_RADIUS, Ticket, UnavailableReason, compose,
+    Completion, FrameScheduler, FrameSlot, MAX_VISIBLE, PRELOAD_RADIUS, Ticket, UnavailableReason,
+    compose,
 };
 pub use interface::{
     Diagnostics, ForegroundImage, Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH, MIN_SAFE_INSET_X,

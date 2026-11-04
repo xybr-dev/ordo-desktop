@@ -30,6 +30,12 @@ use crate::{Frame, RenderError, TargetDensity, TemplateContent, Theme, render_te
 /// are; the scheduler only bounds the set to `2 * PRELOAD_RADIUS` keys.
 pub const PRELOAD_RADIUS: usize = 2;
 
+/// Visible-frame keys the scheduler takes: what is left of
+/// [`FRAME_CAPACITY`](crate::frame_cache::FRAME_CAPACITY) after the two pins
+/// and a full preload set, so wanting every one of them at once still fits the
+/// cache.
+pub const MAX_VISIBLE: usize = crate::frame_cache::FRAME_CAPACITY - 2 - 2 * PRELOAD_RADIUS;
+
 /// Which consumer a request serves.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum FrameSlot {
@@ -39,6 +45,9 @@ pub enum FrameSlot {
     Preview,
     /// Frames composed ahead of navigation.
     Preload,
+    /// Frames the operator can see (timeline thumbnails): the lowest priority,
+    /// never pinned, and evictable like any other entry.
+    Visible,
 }
 
 /// Why a frame could not be produced. One type for every producer, so the
@@ -131,6 +140,8 @@ pub struct FrameScheduler<K> {
     preview: SlotWant<K>,
     preload_generation: u64,
     preload: Vec<K>,
+    visible_generation: u64,
+    visible: Vec<K>,
     in_flight: BTreeSet<Ticket<K>>,
 }
 
@@ -154,6 +165,8 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
             },
             preload_generation: 0,
             preload: Vec::new(),
+            visible_generation: 0,
+            visible: Vec::new(),
             in_flight: BTreeSet::new(),
         }
     }
@@ -170,7 +183,7 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
         let want = match slot {
             FrameSlot::Program => &mut self.program,
             FrameSlot::Preview => &mut self.preview,
-            FrameSlot::Preload => return None,
+            FrameSlot::Preload | FrameSlot::Visible => return None,
         };
         want.generation += 1;
         want.key = Some(key);
@@ -224,16 +237,60 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
         tickets
     }
 
+    /// Replaces the whole visible set (the frames of the thumbnails on or near
+    /// the screen, most important first) and returns tickets for the keys not
+    /// yet composed and without a job in flight (from any slot).
+    ///
+    /// At most [`MAX_VISIBLE`] distinct keys are taken, in order; the rest are
+    /// ignored. A key that Program, Preview or the preload set also names is
+    /// one job, shared by key. Visible keys are wanted, so their jobs are not
+    /// obsolete while listed and become obsolete once a later set drops them;
+    /// they are never pinned.
+    pub fn request_visible(
+        &mut self,
+        keys: impl IntoIterator<Item = K>,
+        cache: &FrameCache<K>,
+    ) -> Vec<Ticket<K>> {
+        let mut set: Vec<K> = Vec::new();
+        for key in keys {
+            if set.len() == MAX_VISIBLE {
+                break;
+            }
+            if !set.contains(&key) {
+                set.push(key);
+            }
+        }
+        self.visible_generation += 1;
+        self.visible = set;
+        let mut tickets = Vec::new();
+        for index in 0..self.visible.len() {
+            let key = self.visible[index];
+            if cache.peek(&key).is_some() || self.has_job(&key) {
+                continue;
+            }
+            let ticket = Ticket {
+                slot: FrameSlot::Visible,
+                generation: self.visible_generation,
+                key,
+            };
+            self.in_flight.insert(ticket);
+            tickets.push(ticket);
+        }
+        tickets
+    }
+
     fn has_job(&self, key: &K) -> bool {
         self.in_flight.iter().any(|ticket| ticket.key == *key)
     }
 
-    /// A key is wanted while Program, Preview or the preload set names it. A
+    /// A key is wanted while Program, Preview, the preload set or the visible
+    /// set names it. A
     /// ticket's slot and generation are only its identity.
     fn wanted(&self, key: &K) -> bool {
         self.program.key.as_ref() == Some(key)
             || self.preview.key.as_ref() == Some(key)
             || self.preload.contains(key)
+            || self.visible.contains(key)
     }
 
     /// Tickets the executor may abandon: in flight but whose key no slot wants
@@ -241,7 +298,7 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
     ///
     /// Executor contract: run `obsolete()` and [`FrameScheduler::abandon`]
     /// after every request pass, which keeps [`FrameScheduler::in_flight`]
-    /// within `2 + 2 * PRELOAD_RADIUS` jobs.
+    /// within `2 + 2 * PRELOAD_RADIUS + MAX_VISIBLE` jobs.
     pub fn obsolete(&self) -> Vec<Ticket<K>> {
         self.in_flight
             .iter()
@@ -294,6 +351,53 @@ impl<K: Copy + Eq + Hash + Ord> FrameScheduler<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_visible_set_is_bounded_replaced_deduped_and_obsolete_when_dropped() {
+        let cache = FrameCache::new(crate::frame_cache::FRAME_CAPACITY);
+        let mut scheduler = FrameScheduler::new();
+        assert_eq!(MAX_VISIBLE, 26);
+
+        // Bounded: extras past the cap are ignored; duplicates count once.
+        let keys = (0..100u32).chain([0, 1]);
+        let tickets = scheduler.request_visible(keys, &cache);
+        assert_eq!(tickets.len(), MAX_VISIBLE);
+        assert_eq!(scheduler.in_flight(), MAX_VISIBLE);
+        assert!(tickets.iter().all(|t| t.slot() == FrameSlot::Visible));
+        assert!(tickets.iter().all(|t| t.key() < MAX_VISIBLE as u32));
+        assert!(scheduler.obsolete().is_empty(), "listed keys are wanted");
+
+        // Deduped with Preview and the preload set: one job per key.
+        let mut scheduler = FrameScheduler::new();
+        let preview = scheduler.request(FrameSlot::Preview, 5u32, &cache);
+        assert!(preview.is_some());
+        let preload = scheduler.request_preload([6u32], &cache);
+        assert_eq!(preload.len(), 1);
+        let tickets = scheduler.request_visible([5u32, 6, 7], &cache);
+        assert_eq!(
+            tickets.iter().map(|t| t.key()).collect::<Vec<_>>(),
+            vec![7],
+            "5 and 6 already have jobs"
+        );
+        assert_eq!(scheduler.in_flight(), 3);
+
+        // Replaced: a new set wants new keys and drops the old ones.
+        let tickets = scheduler.request_visible([8u32], &cache);
+        assert_eq!(tickets.len(), 1);
+        let obsolete: Vec<u32> = scheduler.obsolete().iter().map(|t| t.key()).collect();
+        assert_eq!(
+            obsolete,
+            vec![7],
+            "only the dropped visible key is obsolete"
+        );
+        for ticket in scheduler.obsolete() {
+            assert!(scheduler.abandon(&ticket));
+        }
+        // Preview and preload keys stay wanted without being visible.
+        assert_eq!(scheduler.in_flight(), 3);
+        assert!(scheduler.request_visible([], &cache).is_empty());
+        assert_eq!(scheduler.obsolete().len(), 1, "8 is obsolete once dropped");
+    }
     use crate::TemplateKind;
     use crate::frame_cache::{FRAME_CAPACITY, FrameEntry};
 

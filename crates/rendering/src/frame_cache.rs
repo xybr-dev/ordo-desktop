@@ -129,7 +129,7 @@ impl<K: Clone + Eq + Hash> FrameCache<K> {
         match slot {
             FrameSlot::Program => self.program = key,
             FrameSlot::Preview => self.preview = key,
-            FrameSlot::Preload => return,
+            FrameSlot::Preload | FrameSlot::Visible => return,
         }
         // The old pin may have been the only thing keeping the store over its
         // capacity.

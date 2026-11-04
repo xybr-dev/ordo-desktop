@@ -1,5 +1,6 @@
-//! Presenter surface: the pure layout model (T1.4a), the frame store (T1.4b)
-//! and the GPUI view over the Engine (T1.4 WP4).
+//! Presenter surface: the pure layout model (T1.4a), the frame store (T1.4b),
+//! the GPUI view over the Engine (T1.4 WP4), the grouped Cue timeline (WP6)
+//! and the Ordo rail (WP7).
 //!
 //! [`PresenterView`] owns the Engine and reads it; the Engine never reads the
 //! view. Layout, Interface scale, Grid/List and rail choices are view state and
@@ -17,6 +18,10 @@
 //!   [`PresenterView::start_wall_clock`];
 //! * `frames`: the compose jobs, held by [`PresenterFrames`] (see its docs).
 //!
+//! The timeline and rail start no task. Their scroll handles, focus handles
+//! and the fold and slide transitions are owned by the view (or by GPUI's
+//! keyed window state) and end with it.
+//!
 //! The only detached work is the one-shot hop that re-syncs frames after a
 //! compose failure was reported; it finishes on the next executor turn and
 //! holds only a weak handle to the view.
@@ -28,8 +33,11 @@ pub mod dock;
 pub mod frames;
 pub mod header;
 pub mod layout;
+pub mod rail;
+pub mod timeline;
 
 use std::{
+    collections::BTreeSet,
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -37,8 +45,8 @@ use std::{
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
-    Context, IntoElement, ParentElement, Render, SharedString, Styled, Task, Window, div,
-    prelude::*, px, rgb,
+    Context, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task, Window,
+    div, prelude::*, px, rgb,
 };
 use presentation::{
     commands::Command,
@@ -49,6 +57,7 @@ use presentation::{
 use rendering::PRELOAD_RADIUS;
 use ui::{
     environment::{CueView, EnvironmentChange, UiEnvironment, UiPreferences},
+    scroll::Scroll,
     tokens,
 };
 
@@ -58,8 +67,10 @@ use self::{
     header::{DisplayHealth, HeaderModel, OnCueView},
     layout::{
         BAND_GAP, BAND_GUTTER, DOCK_GAP, DOCK_PADDING, DockLayout, LayoutInput, PresenterLayout,
-        RailChoice, RailLayout, Regime, TIMELINE_INSET, presenter_layout,
+        RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
+    rail::{PinControl, RailItem, RailModel, RailSection},
+    timeline::{CueKind, CueModel, GroupModel, TimelineModel},
 };
 use crate::commands::dispatch;
 
@@ -112,6 +123,27 @@ pub struct PresenterView {
     environment: UiEnvironment,
     /// Session only (Decision 237); never reaches the Engine or the disk.
     rail_choice: RailChoice,
+    /// Whether the rail overlay is open, and how many times it has opened
+    /// (the slide restarts on each opening). Session only, like the choice.
+    rail_open: bool,
+    rail_generation: u64,
+    /// Which groups are folded. View state: folding never reaches the Engine.
+    collapsed: BTreeSet<usize>,
+    /// The timeline's scroll surface. The groups are its only children, so a
+    /// group's index is its child index for `scroll_to_top_of_item`.
+    timeline_scroll: Scroll,
+    /// The groups (first, last) the timeline showed when the visible-frame
+    /// set was last requested. A different range after a scroll or a resize
+    /// asks for a new set, outside `render`.
+    visible_range: (usize, usize),
+    /// Whether the rail was drawn pinned on the last frame, so a pin toggle
+    /// flips what the operator saw.
+    rail_is_pinned: bool,
+    rail_scroll: Scroll,
+    /// Where focus goes when the rail overlay closes (the timeline, which
+    /// holds the Cues), and where it goes while the overlay is open.
+    timeline_focus: FocusHandle,
+    rail_focus: FocusHandle,
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
@@ -144,6 +176,15 @@ impl PresenterView {
             clock,
             environment,
             rail_choice: RailChoice::Auto,
+            rail_open: false,
+            rail_generation: 0,
+            collapsed: BTreeSet::new(),
+            timeline_scroll: Scroll::new(),
+            visible_range: (0, 0),
+            rail_is_pinned: false,
+            rail_scroll: Scroll::new(),
+            timeline_focus: cx.focus_handle(),
+            rail_focus: cx.focus_handle(),
             cue_view: environment.preferences().cue_view,
             status: None,
             save_preferences: None,
@@ -242,6 +283,7 @@ impl PresenterView {
         if let Some(save) = &self.save_preferences {
             save(preferences);
         }
+        self.request_visible(cx);
         cx.notify();
     }
 
@@ -283,12 +325,85 @@ impl PresenterView {
         let preload = self.preload_frames();
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
+        self.request_visible(cx);
         self.reschedule(cx);
         cx.notify();
     }
 
+    /// The groups the timeline shows now, from where it was last laid out:
+    /// the first and last group touching its viewport. Before the first
+    /// layout this is the first group.
+    fn visible_groups(&self) -> (usize, usize) {
+        let handle = self.timeline_scroll.handle();
+        let last = self.engine.snapshot().item_count().saturating_sub(1);
+        (handle.top_item().min(last), handle.bottom_item().min(last))
+    }
+
+    /// Ask the frame store for the thumbnails the timeline wants: the Project
+    /// frames of the groups on screen, then of their neighbours, nearest
+    /// first. The store takes the first `MAX_VISIBLE` distinct ones, never
+    /// pins them and keeps the cache within `FRAME_CAPACITY`. List mode shows
+    /// no thumbnail, so it wants none. Called when something that changes the
+    /// set changed (the Engine, Grid/List, a fold, a jump) and from the
+    /// one-shot hop `render` schedules after a scroll or resize; never from
+    /// `render` itself.
+    fn request_visible(&mut self, cx: &mut Context<Self>) {
+        self.visible_range = self.visible_groups();
+        let ids = self.visible_frames(self.visible_range);
+        self.frames
+            .request_visible(ids, |view| &mut view.frames, cx);
+    }
+
+    /// Frames for `(first, last)` and then each step outward, skipping folded
+    /// groups and Cues that cannot be shown.
+    fn visible_frames(&self, (first, last): (usize, usize)) -> Vec<FrameId> {
+        if self.cue_view == CueView::List {
+            return Vec::new();
+        }
+        let snapshot = self.engine.snapshot();
+        let items: Vec<_> = snapshot
+            .sections()
+            .iter()
+            .flat_map(|section| section.items())
+            .collect();
+        let mut order: Vec<usize> = (first..=last).collect();
+        for step in 1..items.len() {
+            order.extend((last + step < items.len()).then_some(last + step));
+            order.extend(first.checked_sub(step));
+        }
+        let mut frames = Vec::new();
+        for group in order {
+            if self.collapsed.contains(&group) {
+                continue;
+            }
+            let (Some(item), Some(start)) = (items.get(group), snapshot.item_start(group)) else {
+                continue;
+            };
+            for (at, cue) in item.cues().iter().enumerate() {
+                if let CueBehavior::Project { frame, .. } = cue.behavior()
+                    && matches!(
+                        self.engine.cue_availability(start + at),
+                        Some(Availability::Presentable)
+                    )
+                    && !frames.contains(frame)
+                {
+                    frames.push(*frame);
+                }
+            }
+            if frames.len() >= rendering::MAX_VISIBLE {
+                break;
+            }
+        }
+        frames
+    }
+
     /// Project frames of the Cues around Preview, nearest first, Preview's
     /// own excluded.
+    ///
+    /// The scheduler bounds this set to `2 * PRELOAD_RADIUS` keys. The
+    /// timeline's thumbnails are a separate, lower-priority set
+    /// (`request_visible`), so together with the two pins they stay within
+    /// `FRAME_CAPACITY`.
     fn preload_frames(&self) -> Vec<FrameId> {
         let snapshot = self.engine.snapshot();
         let preview = self.engine.state().preview();
@@ -441,79 +556,181 @@ impl PresenterView {
         }
     }
 
-    /// The rail's place until T1.4c builds it: the pinned column, or the
-    /// narrow ORDO tab. Both carry the ids later work fills.
-    fn rail_placeholder(&self, layout: &PresenterLayout) -> gpui::AnyElement {
-        let scale = self.environment.preferences().scale;
-        let palette = tokens::palette(self.environment.appearance());
-        match layout.rail {
-            RailLayout::Pinned { width } => div()
-                .id("presenter-rail")
-                .debug_selector(|| "presenter-rail".into())
-                .flex_none()
-                .w(px(width))
-                .h_full()
-                .overflow_hidden()
-                .p(px(scale.apply(tokens::spacing::RELATED)))
-                .bg(rgb(palette.surface))
-                .text_size(px(scale.apply(tokens::typography::META.size)))
-                .children(
-                    self.snapshot
-                        .snapshot()
-                        .sections()
-                        .iter()
-                        .flat_map(|section| section.items())
-                        .map(|item| div().truncate().child(item.title().to_owned())),
-                )
-                .into_any_element(),
-            RailLayout::Tab { width } | RailLayout::OverlayOnly { tab_width: width } => div()
-                .id("ordo-tab")
-                .debug_selector(|| "ordo-tab".into())
-                .flex_none()
-                .w(px(width))
-                .h_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .pt(px(scale.apply(tokens::spacing::GROUP)))
-                .bg(rgb(palette.surface))
-                .text_color(rgb(palette.text_muted))
-                .text_size(px(scale.apply(tokens::typography::CAPTION.size)))
-                .children(["O", "R", "D", "O"].map(|letter| div().child(letter)))
-                .into_any_element(),
+    /// Choose where the rail lives (Decision 237). Session only. Pinning it
+    /// closes the overlay, because the rail is then already on screen.
+    pub fn set_rail_choice(&mut self, choice: RailChoice, cx: &mut Context<Self>) {
+        if self.rail_choice == choice {
+            return;
         }
+        self.rail_choice = choice;
+        if choice == RailChoice::Pinned {
+            self.rail_open = false;
+        }
+        cx.notify();
     }
 
-    /// The Cue timeline's place until T1.4c: the Mass-item titles as plain
-    /// text in a column sized to the layout's timeline width.
-    fn timeline_placeholder(&self, layout: &PresenterLayout) -> gpui::AnyElement {
-        let scale = self.environment.preferences().scale;
-        div()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .h_full()
-            .overflow_hidden()
-            .pl(px(scale.apply(TIMELINE_INSET / 2.0)))
-            .child(
-                div()
-                    .id("cue-timeline")
-                    .debug_selector(|| "cue-timeline".into())
-                    .w(px(layout.timeline_width))
-                    .h_full()
-                    .overflow_hidden()
-                    .py(px(scale.apply(tokens::spacing::GROUP)))
-                    .text_size(px(scale.apply(tokens::typography::BODY.size)))
-                    .children(
-                        self.snapshot
-                            .snapshot()
-                            .sections()
-                            .iter()
-                            .flat_map(|section| section.items())
-                            .map(|item| div().truncate().child(item.title().to_owned())),
-                    ),
-            )
-            .into_any_element()
+    /// Whether the rail overlay is open.
+    pub fn rail_open(&self) -> bool {
+        self.rail_open
+    }
+
+    /// Open the rail overlay (the ORDO tab was pressed) and move focus into
+    /// it. Hover never calls this.
+    pub fn open_rail(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.rail_open {
+            return;
+        }
+        self.rail_open = true;
+        self.rail_generation += 1;
+        self.rail_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Close the rail overlay and give focus back to the timeline, which
+    /// holds the Cues. The timeline has one focus handle for the whole list
+    /// (a Cue is not a focus target of its own until T1.5 maps the keyboard),
+    /// so "the active Cue" is the timeline.
+    pub fn close_rail(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.rail_open {
+            return;
+        }
+        self.rail_open = false;
+        self.timeline_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Bring a group to the top of the timeline. The Engine, the Preview and
+    /// every other group are unchanged, so the rail never filters.
+    pub fn jump_to_group(&mut self, group: usize, cx: &mut Context<Self>) {
+        self.timeline_scroll.handle().scroll_to_top_of_item(group);
+        // The scroll is applied at the next layout, so ask for the target
+        // group's frames now; `render` corrects the set once it has moved.
+        self.visible_range = (group, group);
+        let ids = self.visible_frames((group, group));
+        self.frames
+            .request_visible(ids, |view| &mut view.frames, cx);
+        cx.notify();
+    }
+
+    /// Fold or unfold a group. View state only.
+    pub fn toggle_group(&mut self, group: usize, cx: &mut Context<Self>) {
+        if !self.collapsed.remove(&group) {
+            self.collapsed.insert(group);
+        }
+        self.request_visible(cx);
+        cx.notify();
+    }
+
+    /// The Mass-item sections of the rail, with the item that owns Preview
+    /// marked.
+    fn rail_model(&self, pin: PinControl) -> RailModel {
+        let snapshot = self.engine.snapshot();
+        let current = snapshot
+            .positions()
+            .get(self.engine.state().preview())
+            .map(|position| position.item_flat);
+        let mut index = 0;
+        let sections = snapshot
+            .sections()
+            .iter()
+            .map(|section| RailSection {
+                title: section.title().to_owned().into(),
+                items: section
+                    .items()
+                    .iter()
+                    .map(|item| {
+                        let row = RailItem {
+                            index,
+                            number: (index + 1).to_string().into(),
+                            title: item.title().to_owned().into(),
+                            current: current == Some(index),
+                        };
+                        index += 1;
+                        row
+                    })
+                    .collect(),
+            })
+            .collect();
+        RailModel { sections, pin }
+    }
+
+    /// One group per Mass item, with each Cue's frame, marks and caption. It
+    /// reads the frame store with `peek`, so a paint never changes what the
+    /// cache would evict, and composing follows state changes
+    /// (`engine_changed`, `request_visible`), never a paint.
+    fn timeline_model(&self, layout: &PresenterLayout) -> TimelineModel {
+        let engine = &self.engine;
+        let frames = &self.frames;
+        let snapshot = engine.snapshot();
+        let state = engine.state();
+        let preview = state.preview();
+        let mut groups = Vec::new();
+        let mut flat = 0;
+        for section in snapshot.sections() {
+            for item in section.items() {
+                let index = groups.len();
+                let mut cues = Vec::with_capacity(item.cues().len());
+                for (at, cue) in item.cues().iter().enumerate() {
+                    let (kind, mut frame, mut image) = match cue.behavior() {
+                        CueBehavior::Project { frame: id, .. } => match frames.peek(*id) {
+                            FrameView::Ready { frame, image } => {
+                                (CueKind::Slide, Some(frame), image)
+                            }
+                            FrameView::Pending | FrameView::Unavailable(_) => {
+                                (CueKind::Slide, None, None)
+                            }
+                        },
+                        CueBehavior::OperatorTrigger => (CueKind::Trigger, None, None),
+                        CueBehavior::Hold => (CueKind::Hold, None, None),
+                        CueBehavior::Wait => (CueKind::Wait, None, None),
+                        CueBehavior::Unavailable { .. } => (CueKind::Unavailable, None, None),
+                    };
+                    let unavailable = match engine.cue_availability(flat) {
+                        Some(Availability::Unavailable(UnavailableSource::Snapshot { reason })) => {
+                            Some(SharedString::from(reason.to_owned()))
+                        }
+                        Some(Availability::Unavailable(UnavailableSource::Runtime(_))) => {
+                            Some(SharedString::from("the frame could not be prepared"))
+                        }
+                        _ => None,
+                    };
+                    if unavailable.is_some() {
+                        // An unavailable Cue is black, never a stale frame.
+                        (frame, image) = (None, None);
+                    }
+                    cues.push(CueModel {
+                        flat,
+                        number: format!("{}.{}", index + 1, at + 1).into(),
+                        label: cue.label().to_owned().into(),
+                        kind: if unavailable.is_some() {
+                            CueKind::Unavailable
+                        } else {
+                            kind
+                        },
+                        frame,
+                        image,
+                        unavailable,
+                        air: timeline::air(state, flat),
+                        preview: flat == preview,
+                    });
+                    flat += 1;
+                }
+                groups.push(GroupModel {
+                    index,
+                    number: index + 1,
+                    section: section.title().to_owned().into(),
+                    title: item.title().to_owned().into(),
+                    collapsed: self.collapsed.contains(&index),
+                    cues,
+                });
+            }
+        }
+        TimelineModel {
+            groups,
+            mode: self.cue_view,
+            columns: layout.grid_columns as usize,
+            cell_width: layout.cell_width,
+        }
     }
 }
 
@@ -532,6 +749,7 @@ impl Render for PresenterView {
             rail: self.rail_choice,
         });
 
+        let timeline_model = self.timeline_model(&layout);
         let program_view = self.engine.program_view(now);
         let preview_view = self.engine.preview_view(now);
         if program_view.fading || preview_view.fading {
@@ -559,10 +777,162 @@ impl Render for PresenterView {
                 .ok();
             })
         };
-        let on_cue_view: OnCueView = Rc::new(move |chosen, _, cx| {
-            view.update(cx, |view, cx| view.set_cue_view(chosen, cx))
-                .ok();
-        });
+        let on_cue_view: OnCueView = {
+            let view = view.clone();
+            Rc::new(move |chosen, _, cx| {
+                view.update(cx, |view, cx| view.set_cue_view(chosen, cx))
+                    .ok();
+            })
+        };
+
+        // The rail is on screen already when pinned, so a stale open overlay
+        // (the window grew, or the rail was pinned) is dropped, not kept for
+        // the next unpin to resurrect.
+        self.rail_is_pinned = matches!(layout.rail, RailLayout::Pinned { .. });
+        if self.rail_is_pinned && self.rail_open {
+            self.rail_open = false;
+            // The overlay held focus; the Cues get it back, as on any close.
+            self.timeline_focus.focus(window, cx);
+        }
+        // A scroll or a resize moved the groups on screen: ask for their
+        // thumbnails on the next turn, because the store is not synced from
+        // `render`. The hop holds only a weak handle and ends at once.
+        if self.cue_view == CueView::Grid && self.visible_groups() != self.visible_range {
+            self.visible_range = self.visible_groups();
+            cx.spawn(async move |this, cx| {
+                this.update(cx, |view, cx| view.request_visible(cx)).ok();
+            })
+            .detach();
+        }
+        let timeline_handlers = timeline::Handlers {
+            go_to: {
+                let view = view.clone();
+                Rc::new(move |flat, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.command(Command::GoTo(flat), cx).ok();
+                    })
+                    .ok();
+                })
+            },
+            toggle_group: {
+                let view = view.clone();
+                Rc::new(move |group, _, cx| {
+                    view.update(cx, |view, cx| view.toggle_group(group, cx))
+                        .ok();
+                })
+            },
+        };
+        let rail_handlers = rail::Handlers {
+            jump: {
+                let view = view.clone();
+                Rc::new(move |group, window, cx| {
+                    view.update(cx, |view, cx| {
+                        view.jump_to_group(group, cx);
+                        // An overlay has done its job once the group is
+                        // where the operator asked for it.
+                        view.close_rail(window, cx);
+                    })
+                    .ok();
+                })
+            },
+            toggle_pin: {
+                let view = view.clone();
+                Rc::new(move |_, cx| {
+                    view.update(cx, |view, cx| {
+                        // Flip what was on screen: `Auto` can be either.
+                        let choice = if view.rail_is_pinned {
+                            RailChoice::Unpinned
+                        } else {
+                            RailChoice::Pinned
+                        };
+                        view.set_rail_choice(choice, cx);
+                    })
+                    .ok();
+                })
+            },
+            close: {
+                let view = view.clone();
+                Rc::new(move |window, cx| {
+                    view.update(cx, |view, cx| view.close_rail(window, cx)).ok();
+                })
+            },
+        };
+        let on_open_rail: rail::OnPress = {
+            let view = view.clone();
+            Rc::new(move |window, cx| {
+                view.update(cx, |view, cx| view.open_rail(window, cx)).ok();
+            })
+        };
+
+        // Every frame, so the slide state outlives the overlay being closed.
+        let slide = rail::entrance(
+            self.rail_generation,
+            scale.apply(RAIL_PINNED_WIDTH),
+            window,
+            cx,
+        );
+        let (rail_element, rail_overlay) = match layout.rail {
+            RailLayout::Pinned { width } => (
+                rail::panel(
+                    self.rail_model(PinControl::Unpin),
+                    rail::Placement {
+                        width,
+                        overlay: false,
+                        focus: None,
+                    },
+                    &self.rail_scroll,
+                    &rail_handlers,
+                    environment,
+                    window,
+                    cx,
+                ),
+                None,
+            ),
+            RailLayout::Tab { width } | RailLayout::OverlayOnly { tab_width: width } => {
+                let pin = if matches!(layout.rail, RailLayout::Tab { .. }) {
+                    PinControl::Pin
+                } else {
+                    PinControl::Hidden
+                };
+                let overlay = self.rail_open.then(|| {
+                    let panel_width = scale.apply(RAIL_PINNED_WIDTH);
+                    let panel = rail::panel(
+                        self.rail_model(pin),
+                        rail::Placement {
+                            width: panel_width,
+                            overlay: true,
+                            focus: Some(&self.rail_focus),
+                        },
+                        &self.rail_scroll,
+                        &rail_handlers,
+                        environment,
+                        window,
+                        cx,
+                    );
+                    rail::overlay(
+                        panel,
+                        panel_width,
+                        scale.apply(layout::HEADER_HEIGHT),
+                        slide,
+                        rail_handlers.close.clone(),
+                        environment,
+                    )
+                });
+                (
+                    rail::tab(width, on_open_rail, environment, window, cx),
+                    overlay,
+                )
+            }
+        };
+        let timeline_element = timeline::timeline(
+            timeline_model,
+            &self.timeline_scroll,
+            &self.timeline_focus,
+            &timeline_handlers,
+            environment,
+            window,
+            cx,
+        );
 
         let header = header::header(
             HeaderModel {
@@ -605,8 +975,8 @@ impl Render for PresenterView {
                     .w_full()
                     .flex()
                     .flex_row()
-                    .child(self.rail_placeholder(&layout))
-                    .child(self.timeline_placeholder(&layout))
+                    .child(rail_element)
+                    .child(timeline_element)
                     .child(dock)
                     .into_any_element()
             }
@@ -658,7 +1028,7 @@ impl Render for PresenterView {
                     .w_full()
                     .flex()
                     .flex_row()
-                    .child(self.rail_placeholder(&layout))
+                    .child(rail_element)
                     .child(
                         div()
                             .flex_1()
@@ -668,7 +1038,7 @@ impl Render for PresenterView {
                             .flex_col()
                             .child(band)
                             .child(controls_row)
-                            .child(self.timeline_placeholder(&layout)),
+                            .child(timeline_element),
                     )
                     .into_any_element()
             }
@@ -676,6 +1046,7 @@ impl Render for PresenterView {
 
         div()
             .id("presenter")
+            .relative()
             .size_full()
             .overflow_hidden()
             .flex()
@@ -686,6 +1057,7 @@ impl Render for PresenterView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .child(header)
             .child(body)
+            .children(rail_overlay)
     }
 }
 
@@ -719,13 +1091,14 @@ mod tests {
     ];
 
     fn environment(scale: InterfaceScale) -> UiEnvironment {
-        let mut environment = UiEnvironment::new(
-            UiPreferences {
-                scale,
-                ..UiPreferences::default()
-            },
-            ResolvedAppearance::Dark,
-        );
+        environment_with(UiPreferences {
+            scale,
+            ..UiPreferences::default()
+        })
+    }
+
+    fn environment_with(preferences: UiPreferences) -> UiEnvironment {
+        let mut environment = UiEnvironment::new(preferences, ResolvedAppearance::Dark);
         environment.apply(EnvironmentChange::EnterPresenter);
         environment
     }
@@ -738,7 +1111,22 @@ mod tests {
 
     fn open(
         cx: &mut TestAppContext,
-        (width, height, scale): (f32, f32, InterfaceScale),
+        case: (f32, f32, InterfaceScale),
+    ) -> (Open, &mut VisualTestContext) {
+        open_with(
+            cx,
+            case,
+            UiPreferences {
+                scale: case.2,
+                ..UiPreferences::default()
+            },
+        )
+    }
+
+    fn open_with(
+        cx: &mut TestAppContext,
+        (width, height, _): (f32, f32, InterfaceScale),
+        preferences: UiPreferences,
     ) -> (Open, &mut VisualTestContext) {
         cx.update(ui::init).unwrap();
         let now = Rc::new(Cell::new(0_u64));
@@ -748,8 +1136,13 @@ mod tests {
             let saved = saved.clone();
             move |window, cx| {
                 let clock: Rc<dyn Fn() -> Millis> = Rc::new(move || Millis(now.get()));
-                let mut view =
-                    PresenterView::new(fixture_snapshot(), clock, environment(scale), window, cx);
+                let mut view = PresenterView::new(
+                    fixture_snapshot(),
+                    clock,
+                    environment_with(preferences),
+                    window,
+                    cx,
+                );
                 view.set_save_preferences(Rc::new(move |preferences| {
                     saved.borrow_mut().push(preferences);
                 }));
@@ -1087,5 +1480,732 @@ mod tests {
             let height = f32::from(bounds(cx, "button-Freeze").size.height);
             assert!((height - expected).abs() < 0.5, "{height} != {expected}");
         }
+    }
+
+    // ---- Timeline and rail (T1.4 WP6, WP7) -------------------------------
+
+    /// A selector built at run time. Leaking a few short strings in a test is
+    /// the price of `debug_bounds` taking `&'static str`.
+    fn sel(text: String) -> &'static str {
+        Box::leak(text.into_boxed_str())
+    }
+
+    fn cue(flat: usize) -> &'static str {
+        sel(format!("cue-{flat}"))
+    }
+
+    fn layout_at((width, height, scale): (f32, f32, InterfaceScale)) -> PresenterLayout {
+        presenter_layout(LayoutInput {
+            width,
+            height,
+            scale,
+            rail: RailChoice::Auto,
+        })
+    }
+
+    fn present(cx: &mut VisualTestContext, selector: &'static str) -> bool {
+        cx.debug_bounds(selector).is_some()
+    }
+
+    /// Click `selector` a few pixels inside its top-left corner, for a target
+    /// taller than the window (a tile at 200%).
+    fn click_corner(cx: &mut VisualTestContext, selector: &'static str) {
+        let origin = bounds(cx, selector).origin;
+        cx.simulate_click(origin + gpui::point(px(6.0), px(6.0)), Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    /// Let `millis` of animation pass and draw again, as the frames a real
+    /// window delivers would.
+    fn animate(open: &Open, cx: &mut VisualTestContext, millis: u64) {
+        cx.executor().advance_clock(Duration::from_millis(millis));
+        open.view.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+    }
+
+    /// Press the ORDO tab and let the overlay finish sliding in, so its
+    /// controls are on screen to be pressed.
+    fn open_overlay(open: &Open, cx: &mut VisualTestContext) {
+        click(cx, "ordo-tab");
+        animate(open, cx, 400);
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+    }
+
+    fn timeline_offset(open: &Open, cx: &VisualTestContext) -> f32 {
+        open.view.read_with(cx, |view, _| {
+            f32::from(view.timeline_scroll.handle().offset().y)
+        })
+    }
+
+    #[gpui::test]
+    fn wide_pins_the_rail_and_compact_and_constrained_open_it_from_the_tab(
+        cx: &mut TestAppContext,
+    ) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            if case.0 == 1920.0 {
+                assert!(present(cx, "presenter-rail"), "pinned at Wide");
+                assert!(!present(cx, "ordo-tab"));
+                assert!(!present(cx, "rail-overlay"));
+                continue;
+            }
+            assert!(present(cx, "ordo-tab"), "{case:?}");
+            assert!(
+                !present(cx, "presenter-rail"),
+                "no rail until the tab is pressed"
+            );
+            // Hover never opens it.
+            let at = bounds(cx, "ordo-tab").center();
+            cx.simulate_mouse_move(at, None, Modifiers::default());
+            cx.run_until_parked();
+            assert!(
+                !present(cx, "presenter-rail"),
+                "hover must not open the rail"
+            );
+            click(cx, "ordo-tab");
+            assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+            assert!(present(cx, "presenter-rail"), "{case:?}");
+            assert!(present(cx, "rail-scrim"));
+            assert!(
+                present(cx, "ordo-tab"),
+                "the tab column stays under the overlay"
+            );
+        }
+    }
+
+    fn tab_width(cx: &mut VisualTestContext) -> f32 {
+        f32::from(bounds(cx, "ordo-tab").size.width)
+    }
+
+    fn hover_tab(cx: &mut VisualTestContext) {
+        let at = bounds(cx, "ordo-tab").center();
+        cx.simulate_mouse_move(at, None, Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    fn leave_tab(cx: &mut VisualTestContext) {
+        cx.simulate_mouse_move(
+            gpui::point(px(700.0), px(500.0)),
+            None,
+            Modifiers::default(),
+        );
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn hovering_the_tab_grows_it_over_the_grid_without_moving_anything(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let timeline = bounds(cx, "cue-timeline");
+        let slot = bounds(cx, "ordo-tab-slot");
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        animate(&open, cx, 30);
+        let midway = tab_width(cx);
+        assert!(midway > rest + 0.5 && midway < rest + 6.0 - 0.5, "{midway}");
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - (rest + 6.0)).abs() < 0.5);
+        assert_eq!(
+            bounds(cx, "cue-timeline"),
+            timeline,
+            "the grid does not move"
+        );
+        assert_eq!(bounds(cx, "ordo-tab-slot"), slot, "the layout width stays");
+        let tab = bounds(cx, "ordo-tab");
+        let centre = left(tab) + f32::from(tab.size.width) / 2.0;
+        assert!((centre - (left(tab) + (rest + 6.0) / 2.0)).abs() < 0.5);
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+
+        leave_tab(cx);
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.5, "unhover gives it back");
+        assert_eq!(bounds(cx, "cue-timeline"), timeline);
+    }
+
+    #[gpui::test]
+    fn an_unhover_mid_grow_reverses_from_the_current_width(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        animate(&open, cx, 80);
+        let grown = tab_width(cx);
+        leave_tab(cx);
+        animate(&open, cx, 20);
+        let shrinking = tab_width(cx);
+        assert!(shrinking < grown && shrinking > rest + 0.1, "{shrinking}");
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.5);
+    }
+
+    #[gpui::test]
+    fn reduced_motion_never_changes_the_tab_width(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        for millis in [0, 30, 200] {
+            animate(&open, cx, millis);
+            assert!((tab_width(cx) - rest).abs() < 0.01);
+        }
+        leave_tab(cx);
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.01);
+    }
+
+    #[gpui::test]
+    fn a_click_on_the_grown_tab_still_opens_the_rail(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        hover_tab(cx);
+        animate(&open, cx, 200);
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        click(cx, "ordo-tab");
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+    }
+
+    #[gpui::test]
+    fn grid_makes_tiles_and_list_makes_rows_and_the_choice_is_saved_and_restored(
+        cx: &mut TestAppContext,
+    ) {
+        for case in SIZES {
+            let s = case.2.apply(1.0);
+            let layout = layout_at(case);
+            let (open, vcx) = open(cx, case);
+            let before = engine_state(&open, vcx);
+            // Cue 1 is a Project Cue.
+            let tile = bounds(vcx, cue(1));
+            let frame = bounds(vcx, "cue-1-frame");
+            assert!(
+                (f32::from(frame.size.width) - layout.cell_width).abs() < 0.5,
+                "{case:?}: frame {frame:?} at cell {}",
+                layout.cell_width
+            );
+            assert!(
+                (f32::from(frame.size.height) - layout.cell_width * 9.0 / 16.0).abs() < 0.5,
+                "{case:?}: 16:9 frame"
+            );
+            assert!(f32::from(tile.size.height) > f32::from(frame.size.height));
+            assert!(
+                (f32::from(tile.size.width) - (layout.cell_width + 4.0 * s)).abs() < 0.5,
+                "{case:?}: a tile is the cell plus its padding"
+            );
+
+            click(vcx, "button-List");
+            let row = bounds(vcx, cue(1));
+            assert!(
+                (f32::from(row.size.height) - 32.0 * s).abs() < 0.5,
+                "{case:?}: row height {row:?}"
+            );
+            assert!(!present(vcx, "cue-1-frame"), "no thumbnails in List");
+            assert!(
+                (right(row) - left(row) - layout.timeline_width).abs() < 1.0,
+                "{case:?}: a row spans the group"
+            );
+            assert_eq!(engine_state(&open, vcx), before, "Grid/List is view state");
+            assert_eq!(
+                engine_state(&open, vcx).revision(),
+                before.revision(),
+                "the revision does not move"
+            );
+            let saved = *open.saved.borrow().last().expect("List is saved");
+            assert_eq!(saved.cue_view, CueView::List);
+
+            // A new view over the saved preferences opens in List.
+            let (_, vcx) = open_with(cx, case, saved);
+            let row = bounds(vcx, cue(1));
+            assert!(
+                (f32::from(row.size.height) - 32.0 * s).abs() < 0.5,
+                "{case:?}"
+            );
+            assert!(!present(vcx, "cue-1-frame"));
+        }
+    }
+
+    #[gpui::test]
+    fn only_slides_are_tiles_and_trigger_wait_and_hold_stay_rows_in_grid(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, SIZES[0]);
+        let layout = layout_at(SIZES[0]);
+        // Cue 10 is the greeting trigger, cue 12 the Hold; cue 4 a slide.
+        for flat in [10, 12] {
+            let row = bounds(cx, cue(flat));
+            assert!(
+                (f32::from(row.size.height) - 32.0).abs() < 0.5,
+                "cue {flat} is a compact row in Grid"
+            );
+            assert!(!present(cx, sel(format!("cue-{flat}-frame"))));
+            assert!((right(row) - left(row) - layout.timeline_width).abs() < 1.0);
+        }
+        assert!(present(cx, "cue-4-frame"));
+    }
+
+    #[gpui::test]
+    fn the_270_floor_and_sparse_rows_hold_while_the_window_narrows(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, SIZES[0]);
+        for (width, height) in [(1920.0, 1080.0), (1500.0, 1000.0), (1200.0, 900.0)] {
+            let case = (width, height, InterfaceScale::Percent100);
+            cx.simulate_resize(size(px(width), px(height)));
+            cx.run_until_parked();
+            let layout = layout_at(case);
+            // Entrance song: five slides in flat order 4..=8.
+            let first = bounds(cx, cue(4));
+            let on_first_row = (4..=8)
+                .filter(|flat| (top(bounds(cx, cue(*flat))) - top(first)).abs() < 0.5)
+                .count();
+            assert_eq!(
+                on_first_row,
+                (layout.grid_columns as usize).min(5),
+                "{width}: columns follow the layout model"
+            );
+            let full = f32::from(first.size.width);
+            if layout.grid_columns > 1 {
+                assert!(full >= 270.0, "{width}: tile {full} is under the floor");
+            }
+            // The last slide sits alone or in a short row; same width.
+            let last = bounds(cx, cue(8));
+            assert!(
+                (f32::from(last.size.width) - full).abs() < 0.5,
+                "{width}: a sparse row keeps the full-row width"
+            );
+            // Cue 1 opens a row of three: its width is the reference too.
+            let reference = f32::from(bounds(cx, cue(1)).size.width);
+            assert!(
+                (f32::from(last.size.width) - reference).abs() < 0.5,
+                "{width}: the last tile of a sparse row matches cue 1"
+            );
+            // A group of one Cue.
+            let single = bounds(cx, cue(0));
+            assert!(
+                (f32::from(single.size.width) - reference).abs() < 0.5,
+                "{width}: a one-Cue group matches cue 1"
+            );
+            assert!(
+                (f32::from(single.size.width) - full).abs() < 0.5,
+                "{width}: a one-Cue group keeps the full-row width"
+            );
+            assert!(right(single) <= width + 0.5);
+        }
+    }
+
+    #[gpui::test]
+    fn the_rail_lists_every_item_under_its_section_and_a_click_brings_a_group_to_the_top(
+        cx: &mut TestAppContext,
+    ) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            let snapshot = fixture_snapshot();
+            let titles: Vec<String> = snapshot
+                .snapshot()
+                .sections()
+                .iter()
+                .flat_map(|section| section.items())
+                .map(|item| item.title().to_owned())
+                .collect();
+            let model = open
+                .view
+                .read_with(cx, |view, _| view.rail_model(PinControl::Pin));
+            assert_eq!(model.sections.len(), 6, "six sections (Decision 171)");
+            let shown: Vec<String> = model
+                .sections
+                .iter()
+                .flat_map(|section| &section.items)
+                .map(|item| item.title.to_string())
+                .collect();
+            assert_eq!(shown, titles, "titles only, in order");
+
+            if case.0 != 1920.0 {
+                open_overlay(&open, cx);
+            }
+            let mut last = f32::MIN;
+            for k in 0..titles.len() {
+                let row = bounds(cx, sel(format!("rail-item-{k}")));
+                assert!(top(row) > last, "{case:?}: rail row {k} follows the last");
+                last = top(row);
+            }
+
+            let before = engine_state(&open, cx);
+            // A late group, still inside the rail's first screenful at 200%.
+            let target = 4;
+            click(cx, sel(format!("rail-item-{target}")));
+            animate(&open, cx, 0);
+            let timeline = bounds(cx, "cue-timeline");
+            let group = bounds(cx, sel(format!("group-{target}")));
+            assert!(
+                (top(group) - top(timeline)).abs() <= 1.0,
+                "{case:?}: group {target} at {} under timeline top {}",
+                top(group),
+                top(timeline)
+            );
+            for k in 0..titles.len() {
+                assert!(
+                    present(cx, sel(format!("group-{k}"))),
+                    "group {k} is still present"
+                );
+            }
+            assert_eq!(
+                engine_state(&open, cx),
+                before,
+                "the rail never reaches the Engine"
+            );
+            assert!(
+                !open.view.read_with(cx, |view, _| view.rail_open()),
+                "an overlay closes once the group is in place"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn the_last_group_comes_to_the_top_after_the_first_four_are_folded(cx: &mut TestAppContext) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            for group in 0..4 {
+                open.view
+                    .update(cx, |view, cx| view.toggle_group(group, cx));
+            }
+            animate(&open, cx, 400);
+            animate(&open, cx, 0);
+            let last = open
+                .view
+                .read_with(cx, |view, _| view.engine.snapshot().item_count() - 1);
+            let before = engine_state(&open, cx);
+            open.view
+                .update(cx, |view, cx| view.jump_to_group(last, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            let timeline = bounds(cx, "cue-timeline");
+            let group = bounds(cx, sel(format!("group-{last}")));
+            assert!(
+                (top(group) - top(timeline)).abs() <= 1.0,
+                "{case:?}: last group at {} under timeline top {}",
+                top(group),
+                top(timeline)
+            );
+            assert!(timeline_offset(&open, cx) < -1.0, "{case:?}: it scrolled");
+            assert_eq!(engine_state(&open, cx), before);
+        }
+    }
+
+    #[gpui::test]
+    fn pinning_and_unpinning_swap_the_rail_and_the_tab(cx: &mut TestAppContext) {
+        // Wide: pinned by default; Unpin gives the tab, the tab opens the
+        // overlay, and Pin there pins it again.
+        let (open, cx) = open(cx, SIZES[0]);
+        click(cx, "button-Unpin Ordo");
+        assert!(!present(cx, "presenter-rail"));
+        assert!(present(cx, "ordo-tab"));
+        assert_eq!(
+            open.view.read_with(cx, |view, _| view.rail_choice()),
+            RailChoice::Unpinned
+        );
+        open_overlay(&open, cx);
+        assert!(present(cx, "presenter-rail"));
+        assert!(present(cx, "button-Pin Ordo"));
+        assert!(!present(cx, "button-Unpin Ordo"));
+        click(cx, "button-Pin Ordo");
+        assert!(present(cx, "presenter-rail"));
+        assert!(!present(cx, "ordo-tab"));
+        assert!(!present(cx, "rail-overlay"), "pinning closes the overlay");
+        assert!(present(cx, "button-Unpin Ordo"));
+    }
+
+    #[gpui::test]
+    fn compact_can_pin_the_rail_for_the_session(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        open_overlay(&open, cx);
+        click(cx, "button-Pin Ordo");
+        assert!(present(cx, "presenter-rail"));
+        assert!(!present(cx, "ordo-tab"));
+        let rail = bounds(cx, "presenter-rail");
+        assert!((f32::from(rail.size.width) - 200.0).abs() < 0.5);
+        assert!(left(bounds(cx, "cue-timeline")) >= right(rail) - 0.5);
+        assert_eq!(
+            open.view.read_with(cx, |view, _| view.rail_choice()),
+            RailChoice::Pinned
+        );
+        click(cx, "button-Unpin Ordo");
+        assert!(present(cx, "ordo-tab"));
+        assert!(!present(cx, "presenter-rail"));
+    }
+
+    #[gpui::test]
+    fn constrained_overlay_has_no_pin_and_a_scrim_press_closes_it_without_going_through(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[2]);
+        // Bring a Cue tile under where the scrim will be, so a press that
+        // went through would choose that Cue.
+        open.view.update(cx, |view, cx| view.jump_to_group(1, cx));
+        cx.run_until_parked();
+        open_overlay(&open, cx);
+        assert!(present(cx, "presenter-rail"));
+        assert!(!present(cx, "button-Pin Ordo"));
+        assert!(!present(cx, "button-Unpin Ordo"));
+        assert!(present(cx, "button-Close Ordo"));
+        let before = engine_state(&open, cx);
+        let panel = bounds(cx, "presenter-rail");
+        let tile = bounds(cx, "cue-1");
+        let at = gpui::point(px(right(panel) + 20.0), tile.origin.y + px(6.0));
+        assert!(
+            tile.contains(&at),
+            "the press lands on a tile: {at:?} in {tile:?}"
+        );
+        cx.simulate_click(at, Modifiers::default());
+        cx.run_until_parked();
+        assert!(
+            !present(cx, "presenter-rail"),
+            "the scrim closes the overlay"
+        );
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(engine_state(&open, cx), before, "the press was consumed");
+        cx.update(|window, cx| {
+            open.view.read_with(cx, |view, _| {
+                assert!(
+                    view.timeline_focus.is_focused(window),
+                    "focus returns to the timeline"
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn the_close_button_and_escape_both_close_the_overlay(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        open_overlay(&open, cx);
+        click(cx, "button-Close Ordo");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        open_overlay(&open, cx);
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+    }
+
+    #[gpui::test]
+    fn the_overlay_slides_in_and_settles_at_the_left_edge(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        click(cx, "ordo-tab");
+        let start = bounds(cx, "presenter-rail");
+        assert!(left(start) < -1.0, "starts off the edge, found {start:?}");
+        animate(&open, cx, 400);
+        let panel = bounds(cx, "presenter-rail");
+        assert!(left(panel).abs() < 0.5, "settled at x=0, found {panel:?}");
+        assert!((f32::from(panel.size.width) - 200.0).abs() < 0.5);
+    }
+
+    #[gpui::test]
+    fn scrolling_the_timeline_never_moves_the_output_dock(cx: &mut TestAppContext) {
+        for case in SIZES {
+            let (width, height, _) = case;
+            let (open, cx) = open(cx, case);
+            let before: Vec<_> = DOCK_ELEMENTS.iter().map(|id| bounds(cx, id)).collect();
+            open.view.update(cx, |view, cx| {
+                view.timeline_scroll.handle().scroll_to_bottom();
+                cx.notify();
+            });
+            cx.run_until_parked();
+            assert!(
+                timeline_offset(&open, cx) < -1.0,
+                "{case:?}: the timeline did scroll"
+            );
+            for (id, was) in DOCK_ELEMENTS.iter().zip(before) {
+                let now = bounds(cx, id);
+                assert_eq!(now, was, "{case:?}: {id} moved");
+                assert!(inside(now, width, height));
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn program_and_preview_marks_follow_the_engine_in_grid_and_in_list(cx: &mut TestAppContext) {
+        for mode in [CueView::Grid, CueView::List] {
+            let (open, cx) = open(cx, SIZES[0]);
+            open.view.update(cx, |view, cx| view.set_cue_view(mode, cx));
+            cx.run_until_parked();
+            let program_mark = |flat: usize| sel(format!("cue-{flat}-program-mark"));
+            let preview_mark = |flat: usize| sel(format!("cue-{flat}-preview-mark"));
+
+            assert!(!present(cx, program_mark(2)), "nothing is on air yet");
+            assert!(
+                present(cx, preview_mark(0)),
+                "Preview starts on the first Cue"
+            );
+
+            assert!(run(&open, cx, Command::EnableOutput).is_ok());
+            assert!(run(&open, cx, Command::GoTo(2)).is_ok());
+            assert!(run(&open, cx, Command::Take).is_ok());
+            settle(&open, cx, 1000);
+            assert!(
+                present(cx, program_mark(2)),
+                "{mode:?}: Program mark on cue 2"
+            );
+            assert!(
+                present(cx, preview_mark(2)),
+                "linked Live: Preview on the same Cue"
+            );
+            assert!(!present(cx, preview_mark(0)), "the bar left the first Cue");
+
+            // Frozen: Program stays on 2 while Preview moves on.
+            assert!(run(&open, cx, Command::ToggleFreeze).is_ok());
+            assert!(run(&open, cx, Command::GoTo(5)).is_ok());
+            assert!(present(cx, program_mark(2)), "{mode:?}: held on cue 2");
+            assert!(!present(cx, preview_mark(2)));
+            assert!(present(cx, preview_mark(5)), "{mode:?}: Preview on cue 5");
+            assert!(!present(cx, program_mark(5)));
+        }
+    }
+
+    #[gpui::test]
+    fn clicking_a_cue_goes_to_it_through_the_command_seam_without_scrolling(
+        cx: &mut TestAppContext,
+    ) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            let revision = engine_state(&open, cx).revision();
+            // Cue 1 opens group 1. Bring that group to the top so its tile
+            // is on screen at every size, then press near the tile's corner
+            // (at 200% only its upper part fits).
+            open.view.update(cx, |view, cx| view.jump_to_group(1, cx));
+            cx.run_until_parked();
+            let offset = timeline_offset(&open, cx);
+            click_corner(cx, "cue-1");
+            assert_eq!(
+                open.view
+                    .read_with(cx, |view, _| view.engine.state().preview()),
+                1,
+                "{case:?}: the click chose the Cue"
+            );
+            assert!(engine_state(&open, cx).revision() > revision);
+            assert!(
+                (timeline_offset(&open, cx) - offset).abs() < 0.5,
+                "{case:?}: navigation never scrolls the timeline"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn folding_a_group_hides_its_cues_and_leaves_the_engine_alone(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let before = engine_state(&open, cx);
+        assert!(present(cx, "cue-1"));
+        click(cx, "button-Announcements");
+        animate(&open, cx, 400);
+        assert!(!present(cx, "cue-1"), "the folded group shows no Cue");
+        assert!(present(cx, "group-1-head"), "its header stays");
+        assert!(present(cx, "cue-4"), "other groups are untouched");
+        assert_eq!(engine_state(&open, cx), before);
+        click(cx, "button-Announcements");
+        animate(&open, cx, 400);
+        assert!(present(cx, "cue-1"));
+    }
+
+    #[gpui::test]
+    fn walking_the_whole_mass_never_exceeds_the_frame_cache_bound(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let count = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count());
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        for flat in 0..count {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            let held = open.view.read_with(cx, |view, _| view.frames.cache_len());
+            assert!(
+                held <= rendering::FRAME_CAPACITY,
+                "cue {flat}: {held} cached frames"
+            );
+        }
+        // Thumbnails of Cues Preview has visited are composed and kept.
+        assert!(
+            open.view
+                .read_with(cx, |view, _| view.frames.composed_count())
+                > 5
+        );
+        // Visible requests join the walk: scrolling to every group, in Grid,
+        // asks for its thumbnails too, and the bound still holds.
+        let groups = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_count());
+        for group in (0..groups).chain((0..groups).rev()) {
+            open.view
+                .update(cx, |view, cx| view.jump_to_group(group, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            let held = open.view.read_with(cx, |view, _| view.frames.cache_len());
+            assert!(
+                held <= rendering::FRAME_CAPACITY,
+                "group {group}: {held} cached frames"
+            );
+        }
+    }
+
+    /// Every Project Cue's frame, by Cue, with whether it is composed.
+    fn tile_frames(open: &Open, cx: &VisualTestContext, cues: &[usize]) -> Vec<(usize, bool)> {
+        open.view.read_with(cx, |view, _| {
+            cues.iter()
+                .map(|flat| {
+                    let CueBehavior::Project { frame, .. } =
+                        view.engine.snapshot().cue(*flat).unwrap().behavior()
+                    else {
+                        panic!("cue {flat} is not a slide");
+                    };
+                    (
+                        *flat,
+                        matches!(view.frames.peek(*frame), FrameView::Ready { .. }),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[gpui::test]
+    fn grid_thumbnails_are_composed_for_groups_far_from_preview(cx: &mut TestAppContext) {
+        for case in SIZES {
+            let (open, cx) = open(cx, case);
+            // Preview sits on cue 0: the last group's slides (cues 31 and 32)
+            // are nowhere near Program, Preview or the preload radius.
+            let far = [31, 32];
+            open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            cx.run_until_parked();
+            for (flat, ready) in tile_frames(&open, cx, &far) {
+                assert!(ready, "{case:?}: cue {flat} is still black");
+            }
+            let held = open.view.read_with(cx, |view, _| view.frames.cache_len());
+            assert!(
+                held <= rendering::FRAME_CAPACITY + 2,
+                "{held} cached frames"
+            );
+            // The tile paints the thumbnail, not a black box: the viewport
+            // draws glyphs for a ready frame.
+            assert!(present(cx, "cue-31-frame"));
+        }
+    }
+
+    #[gpui::test]
+    fn the_visible_set_follows_the_groups_on_screen_nearest_first_and_is_empty_in_list(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+        cx.run_until_parked();
+        animate(&open, cx, 0);
+        let (first, wanted, list) = open.view.update(cx, |view, cx| {
+            view.set_cue_view(CueView::List, cx);
+            let list = view.visible_frames((14, 14));
+            view.set_cue_view(CueView::Grid, cx);
+            (view.visible_groups(), view.visible_frames((14, 14)), list)
+        });
+        assert!(list.is_empty(), "List shows no thumbnails");
+        assert!(first.1 == 14, "the last group is on screen: {first:?}");
+        let last_group_frames = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            [31, 32]
+                .map(|flat| match snapshot.cue(flat).unwrap().behavior() {
+                    CueBehavior::Project { frame, .. } => *frame,
+                    _ => panic!("slide"),
+                })
+                .to_vec()
+        });
+        assert_eq!(
+            wanted[..2],
+            last_group_frames[..],
+            "the group on screen comes first"
+        );
     }
 }
