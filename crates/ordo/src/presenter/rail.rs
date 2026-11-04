@@ -7,7 +7,7 @@
 //!
 //! * pinned: a column beside the timeline, with a pin toggle that unpins it;
 //! * the `ordo-tab` column, which opens the rail as an overlay on a click
-//!   (hover never opens it);
+//!   (hover grows and highlights it but never opens it, Decision 62);
 //! * overlay-only (Constrained): the same overlay with no pin toggle.
 //!
 //! The overlay is a left-anchored panel over a dim scrim. The scrim consumes
@@ -40,10 +40,6 @@ use ui::{
 pub type OnJump = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 /// Called by a button with no argument.
 pub type OnPress = Rc<dyn Fn(&mut Window, &mut App)>;
-
-/// Lucide `pin` and `pin-off`, which the bundled icon set does not carry yet.
-const PIN_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" /></svg>"#;
-const PIN_OFF_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5" /><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" /><path d="m2 2 20 20" /><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" /></svg>"#;
 
 /// Accessible name and selector word of the pin toggle when the rail is
 /// pinned (pressing it unpins).
@@ -124,8 +120,8 @@ pub fn panel(
     let scale = environment.preferences().scale;
 
     let pin = match model.pin {
-        PinControl::Unpin => Some((UNPIN, PIN_OFF_ICON)),
-        PinControl::Pin => Some((PIN, PIN_ICON)),
+        PinControl::Unpin => Some((UNPIN, ui::assets::icon::PIN_OFF)),
+        PinControl::Pin => Some((PIN, ui::assets::icon::PIN)),
         PinControl::Hidden => None,
     };
     let header = div()
@@ -298,21 +294,50 @@ fn item_row(item: RailItem, handlers: &Handlers, environment: UiEnvironment) -> 
     primitives::truncated(row, name, environment).into_any_element()
 }
 
-/// The collapsed ORDO column. A click opens the rail; hover does nothing.
-pub fn tab(width: f32, on_open: OnPress, environment: UiEnvironment) -> AnyElement {
+/// How far the ORDO tab grows on hover, before the Interface scale.
+const TAB_HOVER_GROWTH: f32 = 6.0;
+
+/// Above the grid beside it, below the overlay.
+const TAB_PRIORITY: usize = 1;
+
+/// The collapsed ORDO column. A click opens the rail. Hover never does
+/// (Decision 62): it only grows the tab 6 px and highlights it, so the pointer
+/// is told the column is live.
+///
+/// The column keeps `width` in the layout whatever the pointer does, so the
+/// timeline and every other box stay where they are. The visible tab is a
+/// deferred layer anchored at the column's left edge that is wider by the
+/// grown amount and paints over the grid's left edge. The letters are centred
+/// in that layer, so they stay centred in what is visible at every frame. The
+/// pointer state is keyed to this element and read back every frame; the
+/// layer itself takes the press, so a click lands wherever the tab is
+/// drawn.
+pub fn tab(
+    width: f32,
+    on_open: OnPress,
+    environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    div()
+    let hovered = window.use_keyed_state("ordo-tab-hover", cx, |_, _| false);
+    let lift = motion::lift("ordo-tab", *hovered.read(cx), window, cx);
+    let visible = width + scale.apply(TAB_HOVER_GROWTH) * lift.grow;
+    let fill = blend(palette.surface, palette.surface_secondary, lift.tint);
+    let layer = div()
         .id("ordo-tab")
         .debug_selector(|| "ordo-tab".into())
-        .flex_none()
-        .w(px(width))
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(px(visible))
         .h_full()
         .flex()
         .flex_col()
         .items_center()
         .pt(px(scale.apply(tokens::spacing::GROUP)))
-        .bg(rgb(palette.surface))
+        .bg(rgb(fill))
         .border_r(px(tokens::border::SEPARATOR))
         .border_color(rgb(palette.border))
         .text_color(rgb(palette.text_muted))
@@ -321,9 +346,35 @@ pub fn tab(width: f32, on_open: OnPress, environment: UiEnvironment) -> AnyEleme
         .cursor_pointer()
         .role(Role::Button)
         .aria_label("Open Ordo")
+        .on_hover(move |over, _, cx| {
+            hovered.update(cx, |state, cx| {
+                if *state != *over {
+                    *state = *over;
+                    cx.notify();
+                }
+            });
+        })
         .on_click(move |_, window, cx| on_open(window, cx))
-        .children(["O", "R", "D", "O"].map(|letter| div().child(letter)))
+        .children(["O", "R", "D", "O"].map(|letter| div().child(letter)));
+    div()
+        .debug_selector(|| "ordo-tab-slot".into())
+        .flex_none()
+        .w(px(width))
+        .h_full()
+        .relative()
+        .child(deferred(layer).with_priority(TAB_PRIORITY))
         .into_any_element()
+}
+
+/// `from` stepped `amount` of the way to `to`, channel by channel.
+fn blend(from: u32, to: u32, amount: f32) -> u32 {
+    let amount = amount.clamp(0.0, 1.0);
+    let channel = |shift: u32| {
+        let a = ((from >> shift) & 0xff) as f32;
+        let b = ((to >> shift) & 0xff) as f32;
+        ((a + (b - a) * amount).round() as u32).min(0xff) << shift
+    };
+    channel(16) | channel(8) | channel(0)
 }
 
 /// The entrance of the overlay for this opening. Keyed state lives only while
