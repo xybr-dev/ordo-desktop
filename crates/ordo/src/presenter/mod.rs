@@ -32,6 +32,7 @@
 pub mod dock;
 pub mod frames;
 pub mod header;
+pub mod images;
 pub mod layout;
 pub mod rail;
 pub mod timeline;
@@ -230,7 +231,17 @@ impl PresenterView {
             last_preview: Shown::default(),
         };
         view.engine_changed(cx);
+        // The store ends with the view: release every decoded image and its
+        // atlas tile. (A new snapshot gets a new view, never a swap.)
+        cx.on_release(|view, cx| view.release_images(cx)).detach();
         view
+    }
+
+    /// Drop every decoded image and its atlas tile. Runs when the view is
+    /// released (see `new`); the window is gone or closing then, so no window
+    /// is passed and GPUI drops the tile from every window that remains.
+    fn release_images(&mut self, cx: &mut gpui::App) {
+        self.frames.release(None, cx);
     }
 
     /// Where a Grid/List change is saved. Without one the choice lasts for
@@ -333,7 +344,7 @@ impl PresenterView {
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
         let pending = |frames: &PresenterFrames, id: Option<FrameId>| {
-            id.is_some_and(|id| matches!(frames.peek(id), FrameView::Pending))
+            id.is_some_and(|id| matches!(frames.peek_full(id), FrameView::Pending))
         };
         let program_pending = pending(&self.frames, program);
         let preview_pending = pending(&self.frames, preview);
@@ -472,7 +483,7 @@ impl PresenterView {
     fn is_preparing(&self, wanted: Wanted, now: Millis) -> bool {
         wanted.id.is_some_and(|id| {
             now.0.saturating_sub(wanted.since.0) >= PREPARING_THRESHOLD_MS
-                && matches!(self.frames.peek(id), FrameView::Pending)
+                && matches!(self.frames.peek_full(id), FrameView::Pending)
         })
     }
 
@@ -487,7 +498,7 @@ impl PresenterView {
             .filter(|wanted| {
                 wanted
                     .id
-                    .is_some_and(|id| matches!(self.frames.peek(id), FrameView::Pending))
+                    .is_some_and(|id| matches!(self.frames.peek_full(id), FrameView::Pending))
             })
             .map(|wanted| wanted.since.0 + PREPARING_THRESHOLD_MS)
             .filter(|due| *due > now)
@@ -562,7 +573,8 @@ impl PresenterView {
                 ..Shown::default()
             };
         };
-        match frames.get(id) {
+        // The monitors and the output only ever show the full image.
+        match frames.get_full(id) {
             FrameView::Ready { frame, image } => {
                 *last = Shown {
                     frame: Some(frame),
@@ -2227,6 +2239,81 @@ mod tests {
                 "group {group}: {held} cached frames"
             );
         }
+    }
+
+    #[gpui::test]
+    fn walking_the_mass_in_grid_keeps_decoded_images_within_the_cached_frames(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let count = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count());
+        let groups = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_count());
+        let mut decoded_some = false;
+        let mut check = |open: &Open, cx: &mut VisualTestContext, step: &str| {
+            let (full, thumb, referenced) = open.view.read_with(cx, |view, _| {
+                let (full, thumb) = view.frames.image_counts();
+                (full, thumb, view.frames.referenced_image_count())
+            });
+            assert!(
+                full + thumb <= referenced,
+                "{step}: {full} full + {thumb} thumbnail images for {referenced} assets"
+            );
+            assert!(full <= rendering::FRAME_CAPACITY, "{step}: {full} full");
+            decoded_some |= full + thumb > 0;
+        };
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        for group in (0..groups).chain((0..groups).rev()) {
+            open.view
+                .update(cx, |view, cx| view.jump_to_group(group, cx));
+            cx.run_until_parked();
+            animate(&open, cx, 0);
+            check(&open, cx, &format!("group {group}"));
+        }
+        for flat in 0..count {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            cx.run_until_parked();
+            check(&open, cx, &format!("cue {flat}"));
+        }
+        assert!(decoded_some, "the walk must decode the fixture's image");
+    }
+
+    #[gpui::test]
+    fn releasing_the_view_images_drops_every_decoded_image(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let snapshot = fixture_snapshot();
+        let image_frame = frames::test_support::frame_ids(&snapshot, true)[0];
+        let count = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count());
+        let flat = (0..count)
+            .find(|flat| {
+                open.view.read_with(cx, |view, _| {
+                    matches!(
+                        view.engine.snapshot().cue(*flat).map(|cue| cue.behavior()),
+                        Some(CueBehavior::Project { frame, .. }) if *frame == image_frame
+                    )
+                })
+            })
+            .expect("the fixture has an image cue");
+        assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+        cx.run_until_parked();
+        let held = open
+            .view
+            .read_with(cx, |view, _| view.frames.image_counts());
+        assert_eq!(held.0 + held.1, 1, "the image cue decoded its image");
+
+        // The on_release hook is `release_images`. The test window's root
+        // keeps the entity alive for the whole test, so the hook itself
+        // cannot be observed firing; its body is what is checked here.
+        open.view.update(cx, |view, cx| view.release_images(cx));
+        let after = open
+            .view
+            .read_with(cx, |view, _| view.frames.image_counts());
+        assert_eq!(after, (0, 0), "every image is released");
     }
 
     /// Every Project Cue's frame, by Cue, with whether it is composed.

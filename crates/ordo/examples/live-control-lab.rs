@@ -42,7 +42,10 @@ use gpui::{
 use gpui_platform::application;
 use ordo::{
     performance::display_path::verify_bundled_faces,
-    presenter::{PresenterView, SavePreferences},
+    presenter::{
+        PresenterView, SavePreferences,
+        images::{check_images, image_count},
+    },
 };
 use platform::preferences::PreferencesFile;
 use presentation::{
@@ -151,6 +154,10 @@ struct LabRoot {
     started: Instant,
     /// Dropped with the root; the load finishes or is cancelled with it.
     _load: Option<Task<()>>,
+    /// The startup image check (the building block of Preflight's, T1.6). Owned
+    /// by the root, so closing the window cancels it; it decodes on the
+    /// background executor and only reports back on the GPUI thread.
+    _images: Option<Task<()>>,
 }
 
 impl LabRoot {
@@ -169,6 +176,7 @@ impl LabRoot {
             save,
             started: Instant::now(),
             _load: None,
+            _images: None,
         };
         match verified {
             Err(error) => {
@@ -204,14 +212,15 @@ impl LabRoot {
                 self.stage = Stage::Failed(format!("The snapshot did not load: {error}").into());
             }
             Ok(snapshot) => {
+                let snapshot = Arc::new(snapshot);
+                self.check_images(snapshot.clone(), window, cx);
                 let started = self.started;
                 let clock: Rc<dyn Fn() -> Millis> =
                     Rc::new(move || Millis(started.elapsed().as_millis() as u64));
                 let environment = self.environment;
                 let save = self.save.clone();
                 let view = cx.new(|cx| {
-                    let mut view =
-                        PresenterView::new(Arc::new(snapshot), clock, environment, window, cx);
+                    let mut view = PresenterView::new(snapshot, clock, environment, window, cx);
                     view.set_save_preferences(save);
                     view
                 });
@@ -220,6 +229,37 @@ impl LabRoot {
         }
         window.focus(&self.focus, cx);
         cx.notify();
+    }
+
+    /// Decode-check every image of the snapshot on the background executor
+    /// and show "Images: N checked, M failed" in the window title; a failure
+    /// also lists its asset id on stderr.
+    fn check_images(
+        &mut self,
+        snapshot: Arc<LoadedSnapshot>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let renderer = cx.svg_renderer();
+        self._images = Some(cx.spawn_in(window, async move |this, cx| {
+            let (checked, failures) = cx
+                .background_executor()
+                .spawn(async move {
+                    let failures = check_images(&snapshot, &renderer);
+                    (image_count(&snapshot), failures)
+                })
+                .await;
+            this.update_in(cx, |_, window, _| {
+                for (asset, error) in &failures {
+                    eprintln!("live-control-lab: image {asset:?} failed: {error}");
+                }
+                window.set_window_title(&format!(
+                    "Ordo live-control lab (development only) · Images: {checked} checked, {} failed · {KEY_HELP}",
+                    failures.len()
+                ));
+            })
+            .ok();
+        }));
     }
 
     fn send(&mut self, command: Command, cx: &mut Context<Self>) {

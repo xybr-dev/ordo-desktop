@@ -149,6 +149,13 @@ impl<K: Clone + Eq + Hash> FrameCache<K> {
         self.preview = None;
     }
 
+    /// The keys of every entry held (ready or Unavailable), in no particular
+    /// order and without touching recency. Lets an owner of data keyed
+    /// alongside the cache (decoded images) release what no entry names.
+    pub fn keys(&self) -> impl Iterator<Item = &K> + '_ {
+        self.entries.keys()
+    }
+
     /// True when nothing is held.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
