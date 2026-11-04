@@ -1,5 +1,8 @@
-//! The Presenter header: Mass title, wall clock, display health, and the
-//! Grid/List control (T1.4 WP4).
+//! The Presenter header: Mass title, display health, and the Grid/List
+//! control (T1.4 WP4).
+//!
+//! There is no clock yet: a local-time clock arrives with the T1.6 platform
+//! module (the owner chose no clock over a UTC one).
 //!
 //! The header only draws what the view hands it. The Grid/List control is the
 //! one thing here that is not Engine state: it changes the operator's
@@ -60,25 +63,9 @@ impl DisplayHealth {
     }
 }
 
-/// `HH:MM` for a time given as seconds since the Unix epoch, in UTC.
-///
-/// Local time needs a platform seam (a Windows API behind an unsafe
-/// platform module), deferred to T1.6. The zone is printed, so the clock
-/// never passes UTC off as local time.
-///
-/// ponytail: the standard library has no local time zone and the workspace
-/// carries no time crate, so the header shows UTC until a platform seam
-/// supplies local time (it is labelled, not passed off as local).
-pub fn format_clock(unix_seconds: u64) -> String {
-    let minutes = unix_seconds / 60;
-    format!("{:02}:{:02} UTC", (minutes / 60) % 24, minutes % 60)
-}
-
 /// Everything the header draws.
 pub struct HeaderModel {
     pub title: SharedString,
-    /// `None` until the wall clock runs, so a test never depends on the time.
-    pub clock: Option<SharedString>,
     pub health: DisplayHealth,
     pub cue_view: CueView,
     /// Constrained layout: the Grid/List buttons show their icon alone.
@@ -126,14 +113,6 @@ pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
                 .text_size(px(scale.apply(tokens::typography::HEADING.size)))
                 .child(model.title),
         )
-        .children(model.clock.map(|clock| {
-            div()
-                .id("presenter-clock")
-                .flex_none()
-                .text_color(rgb(palette.text_muted))
-                .text_size(px(scale.apply(tokens::typography::META.size)))
-                .child(clock)
-        }))
         .child(
             div()
                 .id("display-health")
@@ -235,13 +214,5 @@ mod tests {
         for (live, word) in cases {
             assert_eq!(DisplayHealth::of(live).label(), word, "{live:?}");
         }
-    }
-
-    #[test]
-    fn the_clock_reads_hours_and_minutes_and_wraps_at_midnight() {
-        assert_eq!(format_clock(0), "00:00 UTC");
-        assert_eq!(format_clock(9 * 3600 + 14 * 60 + 59), "09:14 UTC");
-        assert_eq!(format_clock(24 * 3600 + 61), "00:01 UTC");
-        assert_eq!(format_clock(23 * 3600 + 59 * 60), "23:59 UTC");
     }
 }

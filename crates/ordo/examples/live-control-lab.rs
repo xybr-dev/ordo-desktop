@@ -213,7 +213,6 @@ impl LabRoot {
                     let mut view =
                         PresenterView::new(Arc::new(snapshot), clock, environment, window, cx);
                     view.set_save_preferences(save);
-                    view.start_wall_clock(cx);
                     view
                 });
                 self.stage = Stage::Ready(view);

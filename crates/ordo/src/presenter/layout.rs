@@ -31,10 +31,17 @@ pub const RAIL_TAB_WIDTH: f32 = 28.0;
 pub const DOCK_WIDE_WIDTH: f32 = 520.0;
 /// Output Dock width at Compact (kit `[data-layout="compact"] .pr-dock`).
 pub const DOCK_COMPACT_WIDTH: f32 = 360.0;
-/// Dock padding on each side (kit `--o-s4`; spec: dock inner = dock - 2 * 16).
-pub const DOCK_PADDING: f32 = 16.0;
-/// Vertical gap between dock items (kit `--o-s3`).
-pub const DOCK_GAP: f32 = 12.0;
+/// Wide dock padding on each side (kit `--o-s4`; dock inner = dock - 2 * 16).
+pub const DOCK_PADDING_WIDE: f32 = 16.0;
+/// Wide vertical gap between dock items (kit `--o-s3`).
+pub const DOCK_GAP_WIDE: f32 = 12.0;
+/// Compact dock padding on each side (kit `[data-layout="compact"] .pr-dock`,
+/// `padding: var(--o-s3)`; dock inner = 360 - 2 * 12 = 336).
+pub const DOCK_PADDING_COMPACT: f32 = 12.0;
+/// Compact vertical gap between dock items (same kit rule, `gap: var(--o-s2)`).
+pub const DOCK_GAP_COMPACT: f32 = 8.0;
+/// Top padding of the Constrained monitor band (kit `--o-s3`).
+pub const BAND_TOP_PADDING: f32 = 12.0;
 /// Gap between a monitor's label row and its 16:9 slide (kit `--o-s2`).
 pub const MONITOR_LABEL_GAP: f32 = 8.0;
 /// Presenter header height (kit `.pr-header`, `min-height: 48px`).
@@ -63,11 +70,33 @@ pub const DOCK_CONTROLS_HEIGHT: f32 =
 /// gaps between the five dock items and the dock's own top and bottom padding.
 /// The kit measures this overflow in the DOM (`dockEl.scrollHeight`); this
 /// sum approximates it and is not a kit token.
-pub const DOCK_RESERVED_HEIGHT: f32 = HEADER_HEIGHT
-    + DOCK_MONITOR_COUNT * (MONITOR_LABEL_HEIGHT + MONITOR_LABEL_GAP)
-    + DOCK_CONTROLS_HEIGHT
-    + (DOCK_ITEM_COUNT - 1.0) * DOCK_GAP
-    + 2.0 * DOCK_PADDING;
+///
+/// The padding and gap differ per regime (Wide 16 / 12, Compact 12 / 8), so
+/// this is a function of the regime. Constrained has no Side dock and uses the
+/// Wide values.
+pub fn dock_reserved_height(regime: Regime) -> f32 {
+    HEADER_HEIGHT
+        + DOCK_MONITOR_COUNT * (MONITOR_LABEL_HEIGHT + MONITOR_LABEL_GAP)
+        + DOCK_CONTROLS_HEIGHT
+        + (DOCK_ITEM_COUNT - 1.0) * dock_gap(regime)
+        + 2.0 * dock_padding(regime)
+}
+
+/// Unscaled Side dock padding for the regime.
+pub fn dock_padding(regime: Regime) -> f32 {
+    match regime {
+        Regime::Compact => DOCK_PADDING_COMPACT,
+        Regime::Wide | Regime::Constrained => DOCK_PADDING_WIDE,
+    }
+}
+
+/// Unscaled gap between Side dock items for the regime.
+pub fn dock_gap(regime: Regime) -> f32 {
+    match regime {
+        Regime::Compact => DOCK_GAP_COMPACT,
+        Regime::Wide | Regime::Constrained => DOCK_GAP_WIDE,
+    }
+}
 
 /// Band height as a share of window height (kit `H * 0.3`, not scaled).
 pub const BAND_HEIGHT_SHARE: f32 = 0.3;
@@ -199,8 +228,9 @@ pub fn presenter_layout(input: LayoutInput) -> PresenterLayout {
             } else {
                 DOCK_COMPACT_WIDTH
             } * s;
-            let inner = dock_width - 2.0 * DOCK_PADDING * s;
-            let by_height = (height - DOCK_RESERVED_HEIGHT * s) / DOCK_MONITOR_COUNT * SLIDE_ASPECT;
+            let inner = dock_width - 2.0 * dock_padding(regime) * s;
+            let by_height =
+                (height - dock_reserved_height(regime) * s) / DOCK_MONITOR_COUNT * SLIDE_ASPECT;
             DockLayout::Side {
                 width: dock_width,
                 monitor_width: inner.min(by_height).max(0.0),
@@ -287,7 +317,7 @@ mod tests {
         assert_close(layout.timeline_width, 915.0);
         assert_close(layout.cell_width, 293.0);
         assert!(
-            matches!(layout.dock, DockLayout::Side { monitor_width, .. } if (monitor_width - 328.0).abs() < EPS)
+            matches!(layout.dock, DockLayout::Side { monitor_width, .. } if (monitor_width - 336.0).abs() < EPS)
         );
     }
 
@@ -321,7 +351,8 @@ mod tests {
                     );
                 }
                 if let DockLayout::Side { monitor_width, .. } = layout.dock {
-                    let used = DOCK_RESERVED_HEIGHT * s + 2.0 * monitor_width / SLIDE_ASPECT;
+                    let used = dock_reserved_height(layout.regime) * s
+                        + 2.0 * monitor_width / SLIDE_ASPECT;
                     assert!(
                         used <= height + 0.01,
                         "{width}x{height}@{}",
@@ -341,7 +372,7 @@ mod tests {
             DockLayout::Band { .. } => panic!("expected a side dock"),
         };
         assert!(monitor(short) < monitor(tall));
-        let used = DOCK_RESERVED_HEIGHT + 2.0 * monitor(short) / SLIDE_ASPECT;
+        let used = dock_reserved_height(Regime::Compact) + 2.0 * monitor(short) / SLIDE_ASPECT;
         assert!(
             (used - 600.0).abs() < 0.01,
             "controls keep their full height"

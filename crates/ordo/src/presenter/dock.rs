@@ -34,6 +34,9 @@ use super::layout::{
 };
 use crate::canonical_views::live_viewport_fading;
 
+/// The badge text.
+pub const PREPARING_TEXT: &str = "Preparing\u{2026}";
+
 /// Called with the command a control stands for.
 pub type OnCommand = Rc<dyn Fn(Command, &mut Window, &mut App)>;
 
@@ -115,6 +118,9 @@ pub struct ProgramModel {
     pub live: LiveState,
     pub unavailable_black: bool,
     pub shown: Shown,
+    /// The wanted frame has been pending past the slow-frame threshold.
+    /// Operator-only: it adds the "Preparing…" badge to this monitor.
+    pub preparing: bool,
 }
 
 /// Everything the Preview monitor needs.
@@ -124,6 +130,8 @@ pub struct PreviewModel {
     /// Why the Preview Cue cannot be taken live, when it cannot.
     pub unavailable: Option<SharedString>,
     pub shown: Shown,
+    /// As [`ProgramModel::preparing`], for the Preview monitor.
+    pub preparing: bool,
 }
 
 /// Everything the control rows need.
@@ -233,6 +241,29 @@ fn viewport_box(
         ))
 }
 
+/// The operator-only "Preparing…" badge for a slow frame.
+///
+/// It is a child of the operator's monitor box, beside the live viewport and
+/// never inside it, so it can never reach anything the congregation output
+/// draws (that output reuses the viewport alone).
+fn preparing_badge(selector: &'static str, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let c = colors(environment);
+    div()
+        .debug_selector(move || selector.into())
+        .absolute()
+        .top(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .right(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .px(px(scale.apply(tokens::spacing::RELATED)))
+        .py(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .rounded(px(scale.apply(tokens::radius::CONTROL)))
+        .bg(gpui::black().opacity(0.72))
+        .text_color(rgb(c.held))
+        .text_size(px(scale.apply(tokens::typography::META.size)))
+        .child(PREPARING_TEXT)
+        .into_any_element()
+}
+
 /// A centered statement drawn over a monitor's black.
 fn monitor_overlay(
     selector: &'static str,
@@ -278,11 +309,17 @@ pub fn program_monitor(model: &ProgramModel, width: f32, environment: UiEnvironm
         )),
         _ => None,
     };
-    let viewport = viewport_box("monitor-program", &model.shown, width, environment)
-        .id("program-monitor")
-        .children(state_text.map(|(text, color)| {
-            monitor_overlay("program-state", text.into(), color, environment)
-        }));
+    let viewport =
+        viewport_box("monitor-program", &model.shown, width, environment)
+            .id("program-monitor")
+            .children(state_text.map(|(text, color)| {
+                monitor_overlay("program-state", text.into(), color, environment)
+            }))
+            .children(
+                model
+                    .preparing
+                    .then(|| preparing_badge("monitor-program-preparing", environment)),
+            );
     div()
         .id("program")
         .flex_none()
@@ -319,6 +356,9 @@ pub fn preview_monitor(model: &PreviewModel, width: f32, environment: UiEnvironm
             c.held,
             environment,
         ));
+    }
+    if model.preparing {
+        viewport = viewport.child(preparing_badge("monitor-preview-preparing", environment));
     }
     if let Some(context) = &model.private_context {
         viewport = viewport.child(

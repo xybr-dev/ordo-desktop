@@ -14,8 +14,8 @@
 //!
 //! * `timer`: one sleep until `Engine::next_deadline`, replaced whenever the
 //!   deadline changes and cleared when it fires;
-//! * `wall_clock`: the minute ticker for the header clock, started only by
-//!   [`PresenterView::start_wall_clock`];
+//! * `preparing_timer`: one sleep until the slow-frame badge is due,
+//!   replaced when the due time changes and cleared when it fires;
 //! * `frames`: the compose jobs, held by [`PresenterFrames`] (see its docs).
 //!
 //! The timeline and rail start no task. Their scroll handles, focus handles
@@ -36,12 +36,7 @@ pub mod layout;
 pub mod rail;
 pub mod timeline;
 
-use std::{
-    collections::BTreeSet,
-    rc::Rc,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeSet, rc::Rc, sync::Arc, time::Duration};
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
@@ -66,7 +61,7 @@ use self::{
     frames::{FrameView, PresenterFrames},
     header::{DisplayHealth, HeaderModel, OnCueView},
     layout::{
-        BAND_GAP, BAND_GUTTER, DOCK_GAP, DOCK_PADDING, DockLayout, LayoutInput, PresenterLayout,
+        BAND_GAP, BAND_GUTTER, BAND_TOP_PADDING, DockLayout, LayoutInput, PresenterLayout,
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
     rail::{PinControl, RailItem, RailModel, RailSection},
@@ -112,6 +107,41 @@ fn idle_status(engine: &Engine) -> &'static str {
     }
 }
 
+/// How long a wanted frame may stay pending before the operator sees a
+/// "Preparing…" badge. The owner's decision (PR #91 review, 2026-11-04): the
+/// congregation output always keeps the previous complete frame, so this only
+/// tells the operator that the next slide is slower than expected.
+pub const PREPARING_THRESHOLD_MS: u64 = 250;
+
+/// The frame a monitor wants, and when it began to want it (injected clock).
+#[derive(Clone, Copy, Default)]
+struct Wanted {
+    id: Option<FrameId>,
+    since: Millis,
+    /// Whether the frame was pending when last observed.
+    pending: bool,
+}
+
+impl Wanted {
+    /// Follow the Engine: a different frame restarts the clock, and so does
+    /// the same frame going from Ready back to Pending (evicted, then
+    /// composed again).
+    fn follow(&mut self, id: Option<FrameId>, now: Millis, pending: bool) {
+        if self.id != id {
+            *self = Self {
+                id,
+                since: now,
+                pending,
+            };
+        } else {
+            if pending && !self.pending {
+                self.since = now;
+            }
+            self.pending = pending;
+        }
+    }
+}
+
 /// The Presenter: header, rail, Cue timeline and Output Dock over one Engine.
 pub struct PresenterView {
     snapshot: Arc<LoadedSnapshot>,
@@ -151,8 +181,12 @@ pub struct PresenterView {
     /// The deadline the sleeping task waits for, and the task. Dropped with
     /// the view.
     timer: Option<(Millis, Task<()>)>,
-    wall_clock: Option<Task<()>>,
-    clock_text: Option<SharedString>,
+    /// The frame Program and Preview want, for the slow-frame badge.
+    program_wanted: Wanted,
+    preview_wanted: Wanted,
+    /// When the next badge becomes due (a time on the injected clock), and
+    /// the task sleeping until then. Dropped with the view.
+    preparing_timer: Option<(u64, Task<()>)>,
     /// The last frame each monitor finished drawing, kept while its
     /// replacement is still composing (the consumer rule in
     /// `rendering::frame_cache`).
@@ -189,8 +223,9 @@ impl PresenterView {
             status: None,
             save_preferences: None,
             timer: None,
-            wall_clock: None,
-            clock_text: None,
+            program_wanted: Wanted::default(),
+            preview_wanted: Wanted::default(),
+            preparing_timer: None,
             last_program: Shown::default(),
             last_preview: Shown::default(),
         };
@@ -287,34 +322,6 @@ impl PresenterView {
         cx.notify();
     }
 
-    /// Start the header clock: the time now, refreshed on every minute.
-    ///
-    /// The clock is UTC and says so. Local time needs a Windows API behind an
-    /// unsafe platform module, which is out of scope here; that seam is
-    /// deferred to T1.6. Labelling the zone means it never misleads. The
-    /// ticker is owned by the view and stops with it.
-    pub fn start_wall_clock(&mut self, cx: &mut Context<Self>) {
-        self.wall_clock = Some(cx.spawn(async move |this, cx| {
-            loop {
-                let seconds = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_or(0, |elapsed| elapsed.as_secs());
-                let text: SharedString = header::format_clock(seconds).into();
-                let alive = this
-                    .update(cx, |view, cx| {
-                        view.clock_text = Some(text);
-                        cx.notify();
-                    })
-                    .is_ok();
-                if !alive {
-                    break;
-                }
-                let wait = Duration::from_secs(60 - seconds % 60);
-                cx.background_executor().timer(wait).await;
-            }
-        }));
-    }
-
     /// Bring everything that follows the Engine in line with it: the frame
     /// store, the deadline timer and the screen. Runs after the Engine
     /// changed, never from `render`.
@@ -325,8 +332,16 @@ impl PresenterView {
         let preload = self.preload_frames();
         self.frames
             .sync(program, preview, preload, |view| &mut view.frames, cx);
+        let pending = |frames: &PresenterFrames, id: Option<FrameId>| {
+            id.is_some_and(|id| matches!(frames.peek(id), FrameView::Pending))
+        };
+        let program_pending = pending(&self.frames, program);
+        let preview_pending = pending(&self.frames, preview);
+        self.program_wanted.follow(program, now, program_pending);
+        self.preview_wanted.follow(preview, now, preview_pending);
         self.request_visible(cx);
         self.reschedule(cx);
+        self.reschedule_preparing(cx);
         cx.notify();
     }
 
@@ -453,6 +468,60 @@ impl PresenterView {
         self.timer = Some((deadline, task));
     }
 
+    /// True when `wanted` has been pending for at least the threshold.
+    fn is_preparing(&self, wanted: Wanted, now: Millis) -> bool {
+        wanted.id.is_some_and(|id| {
+            now.0.saturating_sub(wanted.since.0) >= PREPARING_THRESHOLD_MS
+                && matches!(self.frames.peek(id), FrameView::Pending)
+        })
+    }
+
+    /// Keep one sleeping task aimed at the earliest moment a still-pending
+    /// wanted frame crosses the threshold, so the badge appears without any
+    /// other input. A frame that is ready, failed or already past the
+    /// threshold needs no timer.
+    fn reschedule_preparing(&mut self, cx: &mut Context<Self>) {
+        let now = (self.clock)().0;
+        let due = [self.program_wanted, self.preview_wanted]
+            .into_iter()
+            .filter(|wanted| {
+                wanted
+                    .id
+                    .is_some_and(|id| matches!(self.frames.peek(id), FrameView::Pending))
+            })
+            .map(|wanted| wanted.since.0 + PREPARING_THRESHOLD_MS)
+            .filter(|due| *due > now)
+            .min();
+        let Some(due) = due else {
+            self.preparing_timer = None;
+            return;
+        };
+        if self
+            .preparing_timer
+            .as_ref()
+            .is_some_and(|(waiting_for, _)| *waiting_for == due)
+        {
+            return;
+        }
+        let wait = Duration::from_millis(due - now);
+        let task = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            this.update(cx, |view, cx| view.preparing_due(cx)).ok();
+        });
+        self.preparing_timer = Some((due, task));
+    }
+
+    fn preparing_due(&mut self, cx: &mut Context<Self>) {
+        // The running task ends as soon as this returns, so it is detached
+        // rather than dropped from inside itself.
+        if let Some((_, finished)) = self.preparing_timer.take() {
+            finished.detach();
+        }
+        // Another monitor may cross the threshold later.
+        self.reschedule_preparing(cx);
+        cx.notify();
+    }
+
     fn timer_fired(&mut self, cx: &mut Context<Self>) {
         // This task is the one running; it ends as soon as this returns, so
         // it is detached rather than dropped from inside itself.
@@ -518,7 +587,7 @@ impl PresenterView {
             status: self
                 .status
                 .clone()
-                .unwrap_or_else(|| idle_status(&self.engine).into()),
+                .unwrap_or_else(|| self.standing_status(now)),
             can_freeze: allowed(Command::ToggleFreeze),
             can_blackout: allowed(Command::ToggleBlackout),
             can_primary: match dock::primary_for(live) {
@@ -528,7 +597,27 @@ impl PresenterView {
         }
     }
 
-    fn preview_model(&self, shown: Shown) -> PreviewModel {
+    /// The status line when no refusal is showing. A slow frame is told only
+    /// while output is working normally: a disabled or disconnected output
+    /// is the more important thing to say.
+    fn standing_status(&self, now: Millis) -> SharedString {
+        let idle = idle_status(&self.engine);
+        if matches!(
+            self.engine.state().live(),
+            LiveState::OutputDisabled | LiveState::Disconnected { .. }
+        ) {
+            return idle.into();
+        }
+        if self.is_preparing(self.program_wanted, now) {
+            "Program is preparing the next slide".into()
+        } else if self.is_preparing(self.preview_wanted, now) {
+            "Preview is preparing".into()
+        } else {
+            idle.into()
+        }
+    }
+
+    fn preview_model(&self, shown: Shown, preparing: bool) -> PreviewModel {
         let state = self.engine.state();
         let unavailable = match self.engine.preview_availability() {
             Availability::Presentable => None,
@@ -553,6 +642,7 @@ impl PresenterView {
                 .map(|context| context.to_owned().into()),
             unavailable,
             shown,
+            preparing,
         }
     }
 
@@ -737,6 +827,9 @@ impl PresenterView {
 impl Render for PresenterView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.absorb_failures(cx);
+        // A held frame may have become Ready since the last paint: drop a
+        // timer that has nothing left to announce.
+        self.reschedule_preparing(cx);
         let now = (self.clock)();
         let environment = self.environment;
         let scale = environment.preferences().scale;
@@ -763,8 +856,10 @@ impl Render for PresenterView {
             live: state.live(),
             unavailable_black: state.unavailable_black(),
             shown: program_shown,
+            preparing: self.is_preparing(self.program_wanted, now),
         };
-        let preview = self.preview_model(preview_shown);
+        let preview =
+            self.preview_model(preview_shown, self.is_preparing(self.preview_wanted, now));
         let controls = self.controls(now);
 
         let view = cx.entity().downgrade();
@@ -937,7 +1032,6 @@ impl Render for PresenterView {
         let header = header::header(
             HeaderModel {
                 title: self.snapshot.snapshot().title().to_owned().into(),
-                clock: self.clock_text.clone(),
                 health: DisplayHealth::of(state.live()),
                 cue_view: self.cue_view,
                 icon_only: layout.regime == Regime::Constrained,
@@ -958,11 +1052,11 @@ impl Render for PresenterView {
                     .w(px(width))
                     .h_full()
                     .overflow_hidden()
-                    .p(px(scale.apply(DOCK_PADDING)))
+                    .p(px(scale.apply(layout::dock_padding(layout.regime))))
                     .flex()
                     .flex_col()
                     .items_center()
-                    .gap(px(scale.apply(DOCK_GAP)))
+                    .gap(px(scale.apply(layout::dock_gap(layout.regime))))
                     .bg(rgb(palette.surface))
                     .child(dock::program_monitor(&program, monitor_width, environment))
                     .child(dock::preview_monitor(&preview, monitor_width, environment))
@@ -992,7 +1086,7 @@ impl Render for PresenterView {
                     .justify_center()
                     .gap(px(scale.apply(BAND_GAP)))
                     .px(px(scale.apply(BAND_GUTTER)))
-                    .pt(px(scale.apply(DOCK_GAP)))
+                    .pt(px(scale.apply(BAND_TOP_PADDING)))
                     .child(dock::program_monitor(&program, monitor_width, environment))
                     .child(dock::preview_monitor(&preview, monitor_width, environment));
                 let controls_row = div()
@@ -2209,5 +2303,189 @@ mod tests {
             last_group_frames[..],
             "the group on screen comes first"
         );
+    }
+
+    /// Hold every compose job started from now on for `ms` of executor time.
+    fn hold_jobs(open: &Open, cx: &mut VisualTestContext, ms: u64) {
+        open.view.update(cx, |view, _| {
+            view.frames.set_hold(Duration::from_millis(ms));
+        });
+    }
+
+    /// Move both the injected clock and the executor clock to `at`, which
+    /// must be later than the last call, and let everything that woke run.
+    fn advance_to(open: &Open, cx: &mut VisualTestContext, at: u64) {
+        let step = at - open.now.get();
+        open.now.set(at);
+        cx.executor().advance_clock(Duration::from_millis(step));
+        cx.run_until_parked();
+    }
+
+    /// A slow-frame fixture: List view (no thumbnails are composed ahead) and
+    /// a Cue far from the start (outside the preload radius), whose frame is
+    /// therefore still to be composed when Preview goes there.
+    fn open_for_slow_frames(cx: &mut TestAppContext) -> (Open, &mut VisualTestContext, usize) {
+        let (open, cx) = open_with(
+            cx,
+            SIZES[0],
+            UiPreferences {
+                cue_view: CueView::List,
+                ..UiPreferences::default()
+            },
+        );
+        let far = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count() - 1);
+        (open, cx, far)
+    }
+
+    fn status_line(open: &Open, cx: &VisualTestContext) -> String {
+        open.view.read_with(cx, |view, _| {
+            view.controls(Millis(open.now.get())).status.to_string()
+        })
+    }
+
+    #[gpui::test]
+    fn a_slow_preview_frame_shows_the_badge_at_250_ms_and_keeps_the_old_frame(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        let before = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview drew a frame");
+
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        assert_eq!(open.now.get(), 0);
+        assert!(cx.debug_bounds("monitor-preview-preparing").is_none());
+
+        advance_to(&open, cx, 249);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_none(),
+            "no badge at 249 ms"
+        );
+
+        advance_to(&open, cx, 250);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_some(),
+            "the timer woke the view and the badge is up at 250 ms"
+        );
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        assert_eq!(status_line(&open, cx), "Preview is preparing");
+        let during = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview still draws a frame");
+        assert!(Arc::ptr_eq(&before, &during), "the previous frame stays");
+
+        advance_to(&open, cx, 1000);
+        assert!(
+            cx.debug_bounds("monitor-preview-preparing").is_none(),
+            "the badge goes when the frame is ready"
+        );
+        assert_eq!(status_line(&open, cx), "Output enabled");
+        let after = open
+            .view
+            .read_with(cx, |view, _| view.last_preview.frame.clone())
+            .expect("Preview draws the new frame");
+        assert!(!Arc::ptr_eq(&before, &after), "the new frame shows");
+    }
+
+    #[gpui::test]
+    fn a_slow_program_frame_shows_its_own_badge_and_status(cx: &mut TestAppContext) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        assert!(run(&open, cx, Command::Take).is_ok());
+        settle(&open, cx, 1000);
+        let before = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program drew a frame after Take");
+
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        advance_to(&open, cx, 1249);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        advance_to(&open, cx, 1250);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_some());
+        assert_eq!(
+            status_line(&open, cx),
+            "Program is preparing the next slide"
+        );
+        let during = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program still draws a frame");
+        assert!(Arc::ptr_eq(&before, &during), "the previous frame stays");
+
+        advance_to(&open, cx, 2250);
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+        let after = open
+            .view
+            .read_with(cx, |view, _| view.last_program.frame.clone())
+            .expect("Program draws the new frame");
+        assert!(!Arc::ptr_eq(&before, &after), "the new frame shows");
+    }
+
+    #[gpui::test]
+    fn fast_navigation_never_shows_the_badge(cx: &mut TestAppContext) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        assert!(run(&open, cx, Command::EnableOutput).is_ok());
+        assert!(run(&open, cx, Command::Take).is_ok());
+        // Jobs take 200 ms: slow enough to be pending, under the threshold.
+        hold_jobs(&open, cx, 200);
+        let middle = far / 2;
+        let mut at = 0;
+        for flat in [far, middle] {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            let started = at;
+            for step in [100, 199, 200, 300] {
+                at = started + step;
+                advance_to(&open, cx, at);
+                assert!(cx.debug_bounds("monitor-preview-preparing").is_none());
+                assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+            }
+        }
+    }
+
+    /// A view that draws the live viewport alone, as the congregation output
+    /// does.
+    struct BareViewport(UiEnvironment);
+
+    impl Render for BareViewport {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            crate::canonical_views::live_viewport_fading(None, None, 320.0, None, 1.0, self.0)
+        }
+    }
+
+    #[gpui::test]
+    fn the_badge_belongs_to_the_operator_monitor_and_not_the_viewport(cx: &mut TestAppContext) {
+        let (open, cx, far) = open_for_slow_frames(cx);
+        hold_jobs(&open, cx, 1000);
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        advance_to(&open, cx, 250);
+        let badge = bounds(cx, "monitor-preview-preparing");
+        let monitor = bounds(cx, "monitor-preview");
+        assert!(
+            left(badge) >= left(monitor) - 0.5
+                && right(badge) <= right(monitor) + 0.5
+                && top(badge) >= top(monitor) - 0.5
+                && bottom(badge) <= bottom(monitor) + 0.5,
+            "{badge:?} inside {monitor:?}"
+        );
+        assert!(cx.debug_bounds("monitor-program-preparing").is_none());
+    }
+
+    #[gpui::test]
+    fn the_live_viewport_alone_draws_no_badge(cx: &mut TestAppContext) {
+        cx.update(ui::init).unwrap();
+        let (_, cx) =
+            cx.add_window_view(|_, _| BareViewport(environment(InterfaceScale::Percent100)));
+        cx.run_until_parked();
+        for selector in ["monitor-program-preparing", "monitor-preview-preparing"] {
+            assert!(cx.debug_bounds(selector).is_none(), "{selector}");
+        }
     }
 }
