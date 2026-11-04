@@ -792,8 +792,11 @@ T0.6 result before starting it; do not implement both designs.
       replacing a newer Preview.
 - [x] `[AUTO]` Decode/render failure becomes the same structured Unavailable Cue
       result consumed by the Engine and Preflight.
-- [ ] `[AUTO]` A 500-Cue fixture remains within the Phase 0 measured memory
+- [x] `[AUTO]` A 500-Cue fixture remains within the Phase 0 measured memory
       envelope during forward, reverse, and random navigation.
+      `cargo xtask measure-presenter` drives the real Presenter through each
+      phase and compares every sample with the same-run Phase-0 presenter
+      baseline × 1.10 (owner decision 2026-11-04) (T1.3d).
 
 **E2E** `[AUTO]` — Navigate rapidly through 500 mixed Cues while injecting slow
 and failed frame jobs; assert latest-selection Preview, stable valid Program,

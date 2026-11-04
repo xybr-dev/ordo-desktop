@@ -17,5 +17,10 @@ sha2 = "=0.10.9"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 
+[features]
+# Synthetic-snapshot writer for measurement tooling (`ordo`'s live-control-lab).
+# Off by default so it is not compiled into the shipping library.
+test-support = []
+
 [lints]
 workspace = true
