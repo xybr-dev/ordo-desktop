@@ -746,7 +746,7 @@ Interface used by UI and tests.
 - [x] `[AUTO]` An unavailable future Cue remains navigable and cannot be taken
       live; while linked Live lands on one, Program goes black and linked Live
       continues, and Freeze and Blackout stay active (Decision 274).
-- [ ] `[AUTO]` Property tests generate long valid command sequences and assert
+- [x] `[AUTO]` Property tests generate long valid command sequences and assert
       Program is always black, disconnected, or one complete valid frame.
 
 **E2E** `[AUTO]` — Replay the Recovery Drill's canonical command script through

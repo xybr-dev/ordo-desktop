@@ -1,34 +1,78 @@
 # Recovery Drill command script. One command per line; lines starting with `#` are
-# comments. T1.2 replays this script against the Presenter Engine (T1.1 only reads it).
+# comments. T1.2 replays this script against the Presentation Engine and compares
+# every resulting state with commands.expect (tests/presentation/tests/state_model.rs).
+# The clock starts at 0 ms and advances 100 ms per line; `tick <ms>` advances it by
+# <ms> and lets time pass (auto-play) instead of applying a command.
 enable-output
 take
 next
 next
 take
 next
+next
+next
 next-item
-take
 next
 next
-next
-take
-next-item
-take
 next
 next
 freeze
 next
-take
+next
+previous-item
+freeze
 blackout
 next
-take
 blackout
-next-item
-previous-item
+next
 first
 autoplay
+tick 3000
+tick 3000
+tick 2000
+tick 1000
+tick 6000
+loop-section
+stop-autoplay
+stop-autoplay
+autoplay
+freeze
+autoplay
+freeze
+next-item
+autoplay
+loop-section
+next
+disconnect
+take
+display-back-other
+take
+display-back
+take
+first
+autoplay
+recover
 autoplay
 disconnect
+display-back
+disconnect
+display-back
+enable-output
+take
+disconnect
+display-back-other
+take
+display-back
+disable-output
 enable-output
 last
+take
 first
+previous
+autoplay
+next
+next
+tick 100000
+next
+disconnect
+autoplay
