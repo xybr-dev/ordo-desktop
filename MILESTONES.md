@@ -784,10 +784,11 @@ T0.6 result before starting it; do not implement both designs.
       Not applicable under Decision 310 (accepted; retained display path):
       thumbnails draw the same logical `Frame` at a smaller fit scale, so no
       full-size raster exists to retain. Left unticked for the owner.
-- [ ] `[AUTO]` Cache eviction releases decoded resources and never evicts the
+- [x] `[AUTO]` Cache eviction releases decoded resources and never evicts the
       active Program frame.
       Under Decision 310 the cache holds logical `Frame` values by frame
-      identity, count-bounded and pinned; there is no decoded raster to release.
+      identity, count-bounded and pinned; the decoded resources are foreground
+      images, released when no cached frame places them (T1.4g).
 - [x] `[AUTO]` Obsolete render requests are cancelled or ignored without
       replacing a newer Preview.
 - [x] `[AUTO]` Decode/render failure becomes the same structured Unavailable Cue
