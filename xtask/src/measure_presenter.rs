@@ -6,6 +6,8 @@
 //! Then the native measurement runs the `presenter-lab` example, a real GPUI
 //! window, as one fresh release process per measurement: the keydown-to-paint
 //! run, the display-path comparison, and three runs of each memory baseline.
+//! The `live-control-lab` example then measures the real Presenter at 500 Cues
+//! in three more fresh processes (T1.3d), judged against the Phase 0 envelope.
 //! Its results are merged under the document's `native` key, and the command
 //! fails if any native budget is missed.
 
@@ -29,6 +31,9 @@ pub const REPORT_ENV: &str = "ORDO_PERFORMANCE_REPORT";
 
 /// The example the native measurement runs.
 const LAB_EXAMPLE: &str = "presenter-lab";
+/// The example that measures the real Presenter (T1.3d), one fresh process per
+/// run, with `--measure-memory`.
+const LIVE_LAB_EXAMPLE: &str = "live-control-lab";
 
 /// Every keydown-to-paint p95 must be strictly below this.
 const P95_LIMIT_MS: f64 = 50.0;
@@ -39,6 +44,32 @@ const QUALIFICATION_BYTES: u64 = 512 * MIB;
 const CEILING_BYTES: u64 = GIB;
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
+
+/// `value` plus the 10 % run-to-run noise tolerance the Phase 0 envelope allows.
+const fn with_tolerance(value: u64) -> u64 {
+    value + value / 10
+}
+
+/// The Phase 0 envelope for the Presenter at 500 Cues, from
+/// `docs/plans/T0.6-implementation-plan.md` ("Baselines, private MiB (peak
+/// private), three fresh processes", about line 336): the old probe's
+/// presenter baseline measured private 198.5 / 198.5 / 198.5 MiB. The real
+/// Presenter (`PresenterView`, frame store, timeline, dock) must stay within
+/// that plus a 10 % tolerance for run-to-run noise (218.35 MiB). This is the
+/// T1.3 acceptance "A 500-Cue fixture remains within the Phase 0 measured
+/// memory envelope"; a run over it fails the measurement, and the bound is
+/// never loosened to fit a run.
+const PHASE0_PRESENTER_PRIVATE_BYTES: u64 = with_tolerance(397 * MIB / 2);
+/// The Phase 0 peak private bound: the same plan lists peaks 329.7 / 329.9 /
+/// 330.3 MiB, so the highest, 330.3 MiB, plus the same 10 % (363.33 MiB). The
+/// peak is OS-recorded since process start, so it includes the snapshot load
+/// and the frame cache filling.
+const PHASE0_PRESENTER_PEAK_BYTES: u64 = with_tolerance(3303 * MIB / 10);
+/// Each live-presenter run is its own process, like the baselines.
+const LIVE_PRESENTER_RUNS: usize = 3;
+/// Memory fields the live-presenter runs are judged on.
+const LIVE_PRIVATE_KEY: &str = "private_bytes";
+const LIVE_PEAK_KEY: &str = "peak_private_bytes";
 
 /// The commands and surfaces every keydown-to-paint run must measure. A pair
 /// missing from the document is a failure, not a pass by omission.
@@ -72,6 +103,9 @@ const BASELINE_MEMORY_KEYS: [&str; 2] = ["private_bytes", "rss_bytes"];
 const MEASURE_TIMEOUT: Duration = Duration::from_secs(600);
 /// Every other lab process gets this long.
 const LAB_TIMEOUT: Duration = Duration::from_secs(180);
+/// A live-presenter run drives about 2,700 commands, 4 ms apart or more, and
+/// settles several times; the lab's own 420 s timeout fires before this kill.
+const LIVE_TIMEOUT: Duration = Duration::from_secs(480);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The absolute location of the measurement document under `root`.
@@ -175,13 +209,39 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
         baselines.push(Value::Object(entry));
     }
 
+    let live_presenter = measure_live_presenter(root, &scratch)?;
+
     // Best effort: the scratch files are not part of the document.
     let _ = fs::remove_dir_all(&scratch);
     Ok(json!({
         "measure": measure,
         "display_path": display_path,
         "baselines": baselines,
+        "live_presenter": live_presenter,
     }))
+}
+
+/// Builds `live-control-lab` in release and runs `--measure-memory` in
+/// [`LIVE_PRESENTER_RUNS`] fresh processes. Each document keeps its `run`
+/// number, and a failed run is an `{"error": ...}` document.
+fn measure_live_presenter(root: &Path, scratch: &Path) -> XtaskResult<Value> {
+    let executable = build_example(root, LIVE_LAB_EXAMPLE)?;
+    let mut runs = Vec::with_capacity(LIVE_PRESENTER_RUNS);
+    for run in 1..=LIVE_PRESENTER_RUNS {
+        let label = format!("live-presenter-{run}");
+        let mut document = run_lab(
+            &executable,
+            &["--measure-memory"],
+            scratch,
+            &label,
+            LIVE_TIMEOUT,
+        );
+        if let Some(object) = document.as_object_mut() {
+            object.insert("run".to_owned(), json!(run));
+        }
+        runs.push(document);
+    }
+    Ok(Value::Array(runs))
 }
 
 /// Builds an `ordo` example in release, with the same `--locked` pin as the
@@ -370,6 +430,60 @@ pub fn native_failures(native: &Value) -> Vec<String> {
         }
         None => failures.push("baselines: no runs were recorded".to_owned()),
     }
+    failures.extend(live_presenter_failures(native));
+    failures
+}
+
+/// Failures for the real Presenter at 500 Cues (T1.3d): each run's final
+/// private bytes and peak private bytes must be within the 512 MiB
+/// qualification budget and the Phase 0 envelope. Private bytes only: the
+/// envelope is a private-memory figure, so a run without one fails rather than
+/// being judged on RSS.
+fn live_presenter_failures(native: &Value) -> Vec<String> {
+    let Some(runs) = native["live_presenter"].as_array() else {
+        return vec!["live presenter: no runs were recorded".to_owned()];
+    };
+    if runs.is_empty() {
+        return vec!["live presenter: no runs were recorded".to_owned()];
+    }
+    let mut failures = Vec::new();
+    for run in runs {
+        let label = format!("live presenter run {}", run["run"].as_u64().unwrap_or(0));
+        if let Some(message) = error_message(run) {
+            failures.push(format!("{label}: {message}"));
+            continue;
+        }
+        for (key, envelope, name) in [
+            (
+                LIVE_PRIVATE_KEY,
+                PHASE0_PRESENTER_PRIVATE_BYTES,
+                "Phase 0 private envelope",
+            ),
+            (
+                LIVE_PEAK_KEY,
+                PHASE0_PRESENTER_PEAK_BYTES,
+                "Phase 0 peak private envelope",
+            ),
+        ] {
+            let Some(bytes) = run.get(key).and_then(Value::as_u64) else {
+                failures.push(format!("{label}: {key} was not sampled"));
+                continue;
+            };
+            if bytes > QUALIFICATION_BYTES {
+                failures.push(format!(
+                    "{label}: {:.1} MiB ({key}) is over the 512 MiB qualification budget",
+                    bytes as f64 / MIB as f64
+                ));
+            }
+            if bytes > envelope {
+                failures.push(format!(
+                    "{label}: {:.1} MiB ({key}) is over the {name} of {:.1} MiB",
+                    bytes as f64 / MIB as f64,
+                    envelope as f64 / MIB as f64
+                ));
+            }
+        }
+    }
     failures
 }
 
@@ -509,6 +623,26 @@ fn summary_lines(native: &Value) -> Vec<String> {
             ));
         }
     }
+    if let Some(runs) = native["live_presenter"].as_array() {
+        for run in runs {
+            lines.push(match error_message(run) {
+                Some(message) => format!("live presenter run {}: {message}", run["run"]),
+                None => format!(
+                    "live presenter run {}: private {}, peak private {}, {} Cues, {} frames composed, max cache {}, max images {} full / {} thumbnail (limits {:.1} / {:.1} MiB)",
+                    run["run"],
+                    memory_text(run, &[LIVE_PRIVATE_KEY]),
+                    memory_text(run, &[LIVE_PEAK_KEY]),
+                    run["cue_count"],
+                    run["frames_composed"],
+                    run["max_cache_len"],
+                    run["max_full_images"],
+                    run["max_thumb_images"],
+                    PHASE0_PRESENTER_PRIVATE_BYTES as f64 / MIB as f64,
+                    PHASE0_PRESENTER_PEAK_BYTES as f64 / MIB as f64,
+                ),
+            });
+        }
+    }
     lines
 }
 
@@ -572,6 +706,20 @@ mod tests {
         })
     }
 
+    fn live_run(run: u64, private: u64, peak: u64) -> Value {
+        json!({
+            "run": run,
+            "mode": "live-presenter",
+            "private_bytes": private,
+            "peak_private_bytes": peak,
+            "cue_count": 500,
+            "frames_composed": 120,
+            "max_cache_len": 40,
+            "max_full_images": 2,
+            "max_thumb_images": 3,
+        })
+    }
+
     fn passing_native() -> Value {
         let sample = |rss: u64| json!({"mode": "x", "rss_bytes": rss, "virtual_bytes": 1});
         json!({
@@ -581,6 +729,11 @@ mod tests {
                 {"run": 1, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
                 {"run": 2, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
                 {"run": 3, "empty_shell": sample(40 * MIB), "preparation": sample(120 * MIB), "presenter": sample(90 * MIB)},
+            ],
+            "live_presenter": [
+                live_run(1, 190 * MIB, 330 * MIB),
+                live_run(2, 190 * MIB, 330 * MIB),
+                live_run(3, 190 * MIB, 330 * MIB),
             ]
         })
     }
@@ -886,6 +1039,83 @@ mod tests {
                 .iter()
                 .any(|line| line == "baseline run 1: empty 40.0 MiB (rss_bytes), preparation 120.0 MiB (rss_bytes), presenter 90.0 MiB (rss_bytes)")
         );
+    }
+
+    #[test]
+    fn the_phase_0_envelope_is_the_measured_value_plus_ten_percent() {
+        // 198.5 MiB and 330.3 MiB, each plus 10 %.
+        assert!((218..219).contains(&(PHASE0_PRESENTER_PRIVATE_BYTES / MIB)));
+        assert!((363..364).contains(&(PHASE0_PRESENTER_PEAK_BYTES / MIB)));
+    }
+
+    #[test]
+    fn live_presenter_runs_at_the_envelope_pass() {
+        let mut native = passing_native();
+        native["live_presenter"][0] = live_run(
+            1,
+            PHASE0_PRESENTER_PRIVATE_BYTES,
+            PHASE0_PRESENTER_PEAK_BYTES,
+        );
+        assert_eq!(native_failures(&native), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_live_presenter_run_over_the_private_envelope_fails() {
+        let mut native = passing_native();
+        native["live_presenter"][1] = live_run(2, PHASE0_PRESENTER_PRIVATE_BYTES + 1, 300 * MIB);
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].starts_with("live presenter run 2:"));
+        assert!(failures[0].contains("(private_bytes)"));
+        assert!(failures[0].contains("Phase 0 private envelope"));
+    }
+
+    #[test]
+    fn a_live_presenter_peak_over_the_peak_envelope_fails() {
+        let mut native = passing_native();
+        native["live_presenter"][2] = live_run(3, 190 * MIB, PHASE0_PRESENTER_PEAK_BYTES + 1);
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("(peak_private_bytes)"));
+        assert!(failures[0].contains("Phase 0 peak private envelope"));
+    }
+
+    #[test]
+    fn a_live_presenter_run_over_the_qualification_budget_fails_both_gates() {
+        let mut native = passing_native();
+        native["live_presenter"][0] = live_run(1, 600 * MIB, 190 * MIB);
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(failures[0].contains("qualification budget"));
+        assert!(failures[1].contains("Phase 0 private envelope"));
+    }
+
+    #[test]
+    fn an_unsampled_errored_or_missing_live_presenter_fails() {
+        let mut native = passing_native();
+        native["live_presenter"][0] = json!({"run": 1, "rss_bytes": 10 * MIB});
+        native["live_presenter"][1] = json!({"run": 2, "error": "timed out after 300 s"});
+        let failures = native_failures(&native);
+        assert_eq!(failures.len(), 3, "{failures:?}");
+        assert!(failures[0].contains("private_bytes was not sampled"));
+        assert!(failures[1].contains("peak_private_bytes was not sampled"));
+        assert!(failures[2].contains("run 2: timed out"));
+
+        let mut native = passing_native();
+        native["live_presenter"] = json!([]);
+        assert_eq!(
+            native_failures(&native),
+            vec!["live presenter: no runs were recorded".to_owned()]
+        );
+        native.as_object_mut().unwrap().remove("live_presenter");
+        assert_eq!(native_failures(&native).len(), 1);
+    }
+
+    #[test]
+    fn the_summary_names_each_live_presenter_run() {
+        let lines = summary_lines(&passing_native());
+        assert!(lines.iter().any(|line| line
+            == "live presenter run 1: private 190.0 MiB (private_bytes), peak private 330.0 MiB (peak_private_bytes), 500 Cues, 120 frames composed, max cache 40, max images 2 full / 3 thumbnail (limits 218.3 / 363.3 MiB)"));
     }
 
     #[test]

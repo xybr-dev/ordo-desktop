@@ -21,6 +21,8 @@ pub mod engine;
 pub mod presenter;
 pub mod snapshot_reader;
 pub mod state;
+#[doc(hidden)]
+pub mod test_support;
 
 /// A complete immutable RGBA Program frame ready for every presentation view.
 ///

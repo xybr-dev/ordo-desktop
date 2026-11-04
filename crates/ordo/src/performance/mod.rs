@@ -16,6 +16,7 @@ pub mod frames;
 pub mod hot_path;
 pub mod latency;
 pub mod live;
+pub mod memory;
 pub mod native_display_path;
 pub mod process;
 pub mod report;

@@ -34,8 +34,7 @@
 
 use std::{
     any::Any,
-    cell::{Cell, RefCell},
-    fmt::Write as _,
+    cell::Cell,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -53,9 +52,10 @@ use ordo::{
         DriveError, PresenterProbe, ProbeOutcome, StartupClock,
         bench::{BenchConfig, command_stream},
         drive,
+        memory::{MemoryWatch, json_string, sample_process},
         native_display_path::{DisplayPathProbe, measure},
         open_probe,
-        process::{PeakMemory, ProcessSample, ProcessSampler},
+        process::{PeakMemory, ProcessSample},
     },
 };
 use presentation::{
@@ -80,8 +80,6 @@ const DEFAULT_PASSES: usize = 30;
 /// The 2,000-command run gets 230 s, under xtask's 600 s kill.
 const BASE_TIMEOUT: Duration = Duration::from_secs(30);
 const TIMEOUT_PER_COMMAND: Duration = Duration::from_millis(100);
-/// Interval of the background memory sampler that feeds the peak.
-const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 /// Entries in the synthetic library the Preparation stand-in holds.
 const LIBRARY_ENTRIES: usize = 10_000;
 const LIBRARY_ENTRY_BYTES: usize = 512;
@@ -259,24 +257,6 @@ fn error_json(message: &str) -> String {
     format!("{{\"error\":{}}}", json_string(message))
 }
 
-/// A quoted JSON string. Control characters are escaped, so any message is
-/// a valid document.
-fn json_string(text: &str) -> String {
-    let mut out = String::from("\"");
-    for character in text.chars() {
-        match character {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            control if control.is_control() => {
-                let _ = write!(out, "\\u{:04x}", control as u32);
-            }
-            other => out.push(other),
-        }
-    }
-    out.push('"');
-    out
-}
-
 /// The timeout for a mode that drives `steps` commands (or passes).
 fn timeout_for(steps: usize) -> Duration {
     let steps = u32::try_from(steps).unwrap_or(u32::MAX);
@@ -341,55 +321,6 @@ fn open_timed_probe(cx: &mut App) -> Result<TimedProbe, String> {
     // the measured frames would not be the operator's frames.
     cx.activate(true);
     Ok((window, startup))
-}
-
-/// A background memory sampler. It samples every `MEMORY_SAMPLE_INTERVAL` on
-/// the background executor, and folds each result into a peak on the GPUI
-/// thread. It keeps sampling until `finish`.
-struct MemoryWatch {
-    peak: Rc<RefCell<PeakMemory>>,
-    stop: Rc<Cell<bool>>,
-}
-
-impl MemoryWatch {
-    fn start(cx: &mut App) -> Result<Self, String> {
-        let mut sampler = ProcessSampler::new().map_err(|error| error.to_string())?;
-        let watch = Self {
-            peak: Rc::default(),
-            stop: Rc::default(),
-        };
-        let (peak, stop) = (watch.peak.clone(), watch.stop.clone());
-        let background = cx.background_executor().clone();
-        cx.spawn(async move |_| {
-            while !stop.get() {
-                // The sampler is not shared: it moves to the background task
-                // for one sample and comes back with the result.
-                let (returned, sample) = background
-                    .spawn(async move {
-                        let sample = sampler.sample();
-                        (sampler, sample)
-                    })
-                    .await;
-                sampler = returned;
-                if let Some(sample) = sample {
-                    peak.borrow_mut().observe(sample);
-                }
-                background.timer(MEMORY_SAMPLE_INTERVAL).await;
-            }
-        })
-        .detach();
-        Ok(watch)
-    }
-
-    /// Stops sampling and returns the peak, folding in `last` if the caller
-    /// already took a sample.
-    fn finish(&self, last: Option<ProcessSample>) -> PeakMemory {
-        self.stop.set(true);
-        if let Some(sample) = last {
-            self.peak.borrow_mut().observe(sample);
-        }
-        *self.peak.borrow()
-    }
 }
 
 fn measure_run(cx: &mut App, out: PathBuf) {
@@ -699,14 +630,4 @@ fn baseline_document(
         peak.peak_rss_bytes,
         optional_u64(peak.peak_private_bytes),
     )
-}
-
-/// One process memory sample, taken on the calling background task. The
-/// sampler is created there, because it is not thread-safe to share.
-fn sample_process() -> Result<ProcessSample, String> {
-    let mut sampler =
-        ProcessSampler::new().map_err(|error| format!("cannot sample process memory: {error}"))?;
-    sampler
-        .sample()
-        .ok_or_else(|| "process memory was not sampled".to_owned())
 }
