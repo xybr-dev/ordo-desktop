@@ -27,6 +27,12 @@ rustybuzz = "=0.20.1"
 # feature (which carries process sampling) is enabled.
 sysinfo = { version = "=0.31.4", default-features = false, features = ["system"] }
 
+# Thumbnail-sized decode (T1.4g): GPUI's `to_image_data` always decodes at
+# full size and offers no downscale, so Visible-only frames decode and shrink
+# through the same crate GPUI uses. Pinned to the version already locked;
+# PNG is the only asset format a snapshot carries.
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 # Fault hooks (injected panic) for the supervision tests only.

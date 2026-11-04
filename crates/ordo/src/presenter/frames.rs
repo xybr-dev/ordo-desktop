@@ -12,36 +12,65 @@
 //! The owner is the Presenter view: it holds one `PresenterFrames` per
 //! [`LoadedSnapshot`] (a new snapshot gets a new value) and calls
 //! [`PresenterFrames::sync`] when the Engine changes, never from `render`.
-//! Every running job is a [`Task`] held in `in_flight`, so dropping the store
-//! (with its owning view) drops every task. Obsolete jobs are dropped the
-//! same way as soon as the scheduler abandons their tickets. A background
-//! compose that is already running cannot be interrupted: it finishes and its
-//! result is discarded.
+//! Every running job is a [`Task`] held by the store: compose jobs in
+//! `in_flight`, full-size image upgrades in `upgrades`, and the one-shot
+//! atlas release in `flush`. Dropping the store (with its owning view) drops
+//! every task. Obsolete jobs are dropped the same way as soon as the
+//! scheduler abandons their tickets or no wanted frame needs their asset. A
+//! background job that is already running cannot be interrupted: it finishes
+//! and its result is discarded.
+//!
+//! # Images: eager, bounded, two sizes
 //!
 //! Foreground images are decoded eagerly inside the job (not lazily at first
 //! paint), so a frame is only ever Ready with its image, and a corrupt asset
 //! becomes [`UnavailableReason::DecodeFailed`] instead of a silent gap.
 //!
+//! Memory is bounded like frames. A decoded image is kept only while a Ready
+//! frame in the cache places its asset, so the decoded images never outnumber
+//! the cache's [`FRAME_CAPACITY`]. After every completion, `sync` and
+//! `request_visible` the store releases the rest. A released image is dropped
+//! from GPUI's sprite atlas only once nothing else holds it (a monitor that is
+//! still painting it keeps its `Arc`); until then it waits in `retiring` and
+//! the atlas copy is dropped from a one-shot hop (never from inside an event
+//! handler, where the window may be leased and the drop would be skipped).
+//!
+//! Frames wanted only as thumbnails (`FrameSlot::Visible`) decode at
+//! `THUMBNAIL_IMAGE_MAX_PX`; Program, Preview and Preload decode in full. A
+//! frame promoted from thumbnail to one of those slots keeps its thumbnail
+//! while a background upgrade job decodes the full image, and the monitors
+//! read through [`PresenterFrames::get_full`] / [`PresenterFrames::peek_full`],
+//! which keep an image frame `Pending` until the full image exists, so
+//! nothing partial ever reaches the congregation. [`PresenterFrames::get`] and
+//! [`PresenterFrames::peek`] (the timeline thumbnails) show whichever image
+//! exists.
+//!
 //! The store does not own the Engine. A composition that fails is queued and
 //! handed out by [`PresenterFrames::take_failures`] so the view can call
 //! `engine.mark_frame_unavailable` for each.
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use domain::presentation::{AssetId, FrameId};
-use gpui::{App, AppContext, Context, Image, ImageFormat, RenderImage, SvgRenderer, Task, Window};
+use gpui::{App, AppContext, Context, RenderImage, SvgRenderer, Task, Window};
 use presentation::snapshot_reader::LoadedSnapshot;
 use rendering::{
-    Completion, FRAME_CAPACITY, Frame, FrameCache, FrameEntry, FrameScheduler, FrameSlot, Ticket,
-    UnavailableReason, compose,
+    Completion, FRAME_CAPACITY, Frame, FrameCache, FrameEntry, FrameScheduler, FrameSlot,
+    PRELOAD_RADIUS, Ticket, UnavailableReason, compose,
 };
+
+use super::images::{decode_full, decode_thumbnail};
 
 /// What a view should draw for one frame identity right now.
 #[derive(Clone, Debug)]
 pub enum FrameView {
     /// A complete composed frame, plus the decoded foreground image when the
-    /// frame places one.
+    /// frame places one. Which size the image is depends on the accessor:
+    /// [`PresenterFrames::get`] and [`PresenterFrames::peek`] may return a
+    /// thumbnail-sized one; the `_full` accessors only ever return the full
+    /// image (and `Pending` until it exists).
     Ready {
         frame: Arc<Frame>,
         image: Option<Arc<RenderImage>>,
@@ -53,29 +82,54 @@ pub enum FrameView {
     Unavailable(UnavailableReason),
 }
 
+/// Which decode a job makes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Quality {
+    /// At most `THUMBNAIL_IMAGE_MAX_PX` on the longest side.
+    Thumb,
+    /// The asset's own size.
+    Full,
+}
+
 /// The outcome of one background job: the composed frame (or why not) and
-/// the image it wrapped, if the asset was not already cached.
+/// the image it decoded, if one was needed.
 struct Prepared {
     result: Result<Frame, UnavailableReason>,
     /// True when `compose` actually ran.
     composed: bool,
-    image: Option<(AssetId, Arc<RenderImage>)>,
+    image: Option<(AssetId, Quality, Arc<RenderImage>)>,
 }
 
-/// Owner of composed frames, decoded images and in-flight compose jobs for
-/// one snapshot. See the module docs for ownership and shutdown.
+/// Owner of composed frames, decoded images and in-flight jobs for one
+/// snapshot. See the module docs for ownership and shutdown.
 pub struct PresenterFrames {
     snapshot: Arc<LoadedSnapshot>,
     cache: FrameCache<FrameId>,
     scheduler: FrameScheduler<FrameId>,
-    /// One decoded image per asset of this snapshot, so the number of
-    /// entries is bounded by the snapshot's asset count. Keyed by `AssetId`
-    /// rather than by asset hash (Decision 310): within one snapshot an
-    /// `AssetId` names exactly one verified byte string, so the two keys
-    /// select the same entries, and a new snapshot gets a new store.
-    images: HashMap<AssetId, Arc<RenderImage>>,
+    /// Full-size decoded images, keyed by `AssetId` rather than by asset hash
+    /// (Decision 310): within one snapshot an `AssetId` names exactly one
+    /// verified byte string, so the two keys select the same entries, and a
+    /// new snapshot gets a new store. Only assets placed by a Ready cached
+    /// frame are kept.
+    full: HashMap<AssetId, Arc<RenderImage>>,
+    /// Thumbnail-sized decoded images, under the same rule. An asset has a
+    /// thumbnail only until its full image arrives.
+    thumb: HashMap<AssetId, Arc<RenderImage>>,
+    /// Released images some monitor may still be painting; their atlas copy
+    /// is dropped once this is the last holder.
+    retiring: Vec<Arc<RenderImage>>,
+    /// The frames Program, Preview and Preload want now, which need the full
+    /// image.
+    full_wanted: Vec<FrameId>,
     /// Dropping a task cancels its job.
     in_flight: HashMap<FrameId, Task<()>>,
+    /// Full-size decodes that promote a thumbnail-only asset, one per asset.
+    upgrades: HashMap<AssetId, Task<()>>,
+    /// Assets whose full decode failed; their wanted frames become
+    /// Unavailable instead of retrying in a loop.
+    failed_assets: HashSet<AssetId>,
+    /// The one-shot hop that drops released images from the atlas.
+    flush: Option<Task<()>>,
     composed_count: usize,
     failures: Vec<(FrameId, UnavailableReason)>,
     /// Test seam: a verified snapshot never lacks or corrupts an asset, so
@@ -99,14 +153,26 @@ enum AssetFault {
     Corrupt,
 }
 
+/// The asset a frame places, if any.
+fn asset_of(snapshot: &LoadedSnapshot, id: FrameId) -> Option<AssetId> {
+    let content = snapshot.frame(id)?;
+    AssetId::parse(&content.image.as_ref()?.id).ok()
+}
+
 impl PresenterFrames {
     pub fn new(snapshot: Arc<LoadedSnapshot>) -> Self {
         Self {
             snapshot,
             cache: FrameCache::new(FRAME_CAPACITY),
             scheduler: FrameScheduler::new(),
-            images: HashMap::new(),
+            full: HashMap::new(),
+            thumb: HashMap::new(),
+            retiring: Vec::new(),
+            full_wanted: Vec::new(),
             in_flight: HashMap::new(),
+            upgrades: HashMap::new(),
+            failed_assets: HashSet::new(),
+            flush: None,
             composed_count: 0,
             failures: Vec::new(),
             #[cfg(test)]
@@ -116,13 +182,24 @@ impl PresenterFrames {
         }
     }
 
+    /// A store whose cache holds `capacity` entries (clamped up to the
+    /// cache's minimum), so a test can force evictions with a small fixture.
+    #[cfg(test)]
+    fn with_capacity(snapshot: Arc<LoadedSnapshot>, capacity: usize) -> Self {
+        let mut frames = Self::new(snapshot);
+        frames.cache = FrameCache::new(capacity);
+        frames
+    }
+
     /// Bring the store in line with what the Engine now shows.
     ///
     /// Pins Program and Preview, requests both and the preload set (latest
     /// wins per slot), drops the jobs the scheduler reports obsolete, and
     /// starts one background job per new ticket. Each job composes with
     /// [`compose`] off the GPUI thread and hops back through `access`, which
-    /// must return this store from the owning view `V`. Finishes with
+    /// must return this store from the owning view `V`. A frame that is
+    /// already cached with only a thumbnail image gets a background upgrade to
+    /// the full image. Releases images no cached frame uses. Finishes with
     /// `cx.notify()` so the view repaints.
     pub fn sync<V: 'static>(
         &mut self,
@@ -135,6 +212,13 @@ impl PresenterFrames {
         self.cache.pin(FrameSlot::Program, program);
         self.cache.pin(FrameSlot::Preview, preview);
 
+        let preload: Vec<FrameId> = preload.into_iter().take(2 * PRELOAD_RADIUS).collect();
+        self.full_wanted = program
+            .into_iter()
+            .chain(preview)
+            .chain(preload.iter().copied())
+            .collect();
+
         let mut tickets = Vec::new();
         if let Some(id) = program {
             tickets.extend(self.scheduler.request(FrameSlot::Program, id, &self.cache));
@@ -144,20 +228,14 @@ impl PresenterFrames {
         }
         tickets.extend(self.scheduler.request_preload(preload, &self.cache));
 
-        let mut abandoned = false;
-        for ticket in self.scheduler.obsolete() {
-            if self.scheduler.abandon(&ticket) {
-                self.in_flight.remove(&ticket.key());
-                abandoned = true;
-            }
-        }
+        let abandoned = self.drop_obsolete();
         let started = !tickets.is_empty();
-
         for ticket in tickets {
             let task = self.start_job(ticket, access, cx);
             self.in_flight.insert(ticket.key(), task);
         }
-        if started || abandoned {
+        let changed = self.after_change(access, cx);
+        if started || abandoned || changed {
             cx.notify();
         }
     }
@@ -167,7 +245,8 @@ impl PresenterFrames {
     /// first, and start a job for each that is neither composed nor in flight.
     /// Like [`PresenterFrames::sync`] it runs after state changed, never from
     /// `render`. At most `MAX_VISIBLE` keys are taken, so the cache stays
-    /// within `FRAME_CAPACITY`; they are never pinned.
+    /// within `FRAME_CAPACITY`; they are never pinned. A frame requested only
+    /// here decodes its image at thumbnail size.
     pub fn request_visible<V: 'static>(
         &mut self,
         ids: impl IntoIterator<Item = FrameId>,
@@ -175,6 +254,20 @@ impl PresenterFrames {
         cx: &mut Context<V>,
     ) {
         let tickets = self.scheduler.request_visible(ids, &self.cache);
+        let abandoned = self.drop_obsolete();
+        let started = !tickets.is_empty();
+        for ticket in tickets {
+            let task = self.start_job(ticket, access, cx);
+            self.in_flight.insert(ticket.key(), task);
+        }
+        let changed = self.after_change(access, cx);
+        if started || abandoned || changed {
+            cx.notify();
+        }
+    }
+
+    /// Drop the tasks of jobs the scheduler no longer wants; true if any.
+    fn drop_obsolete(&mut self) -> bool {
         let mut abandoned = false;
         for ticket in self.scheduler.obsolete() {
             if self.scheduler.abandon(&ticket) {
@@ -182,13 +275,21 @@ impl PresenterFrames {
                 abandoned = true;
             }
         }
-        let started = !tickets.is_empty();
-        for ticket in tickets {
-            let task = self.start_job(ticket, access, cx);
-            self.in_flight.insert(ticket.key(), task);
-        }
-        if started || abandoned {
-            cx.notify();
+        abandoned
+    }
+
+    /// The bytes of `asset`, honoring the test fault seam.
+    fn asset_bytes(
+        snapshot: &LoadedSnapshot,
+        asset: AssetId,
+        fault: AssetFault,
+    ) -> Option<Cow<'_, [u8]>> {
+        match fault {
+            AssetFault::None => snapshot.asset(asset).map(Cow::Borrowed),
+            #[cfg(test)]
+            AssetFault::Withhold => None,
+            #[cfg(test)]
+            AssetFault::Corrupt => Some(Cow::Borrowed(b"not a png")),
         }
     }
 
@@ -200,7 +301,12 @@ impl PresenterFrames {
     ) -> Task<()> {
         let key = ticket.key();
         let snapshot = self.snapshot.clone();
-        let known = self.known_image(key);
+        let quality = if ticket.slot() == FrameSlot::Visible {
+            Quality::Thumb
+        } else {
+            Quality::Full
+        };
+        let known = self.known_image(key, quality);
         #[cfg(test)]
         let fault = self.fault;
         #[cfg(not(test))]
@@ -208,8 +314,9 @@ impl PresenterFrames {
         #[cfg(test)]
         let hold = self.hold;
         let renderer = cx.svg_renderer();
-        let job =
-            cx.background_spawn(async move { prepare(&snapshot, key, known, &renderer, fault) });
+        let job = cx.background_spawn(async move {
+            prepare(&snapshot, key, quality, known, &renderer, fault)
+        });
         cx.spawn(async move |this, cx| {
             let prepared = job.await;
             #[cfg(test)]
@@ -217,22 +324,39 @@ impl PresenterFrames {
                 cx.background_executor().timer(hold).await;
             }
             this.update(cx, |view, cx| {
-                access(view).finish(ticket, prepared);
+                access(view).finish(ticket, prepared, access, cx);
                 cx.notify();
             })
             .ok();
         })
     }
 
-    /// The image already wrapped for the asset `key`'s frame uses, so a job
-    /// does not build a second copy.
-    fn known_image(&self, key: FrameId) -> Option<Arc<RenderImage>> {
-        let content = self.snapshot.frame(key)?;
-        let asset = AssetId::parse(&content.image.as_ref()?.id).ok()?;
-        self.images.get(&asset).cloned()
+    /// The image already decoded for the asset `key`'s frame uses and good
+    /// enough for `quality`, so a job does not decode a second copy. A full
+    /// image serves both qualities; a thumbnail serves only `Thumb`. The job
+    /// hands it back with its result, so the image is still held if the frame
+    /// that owned it was evicted while the job ran.
+    fn known_image(&self, key: FrameId, quality: Quality) -> Option<(Quality, Arc<RenderImage>)> {
+        let asset = asset_of(&self.snapshot, key)?;
+        if let Some(full) = self.full.get(&asset) {
+            return Some((Quality::Full, Arc::clone(full)));
+        }
+        match quality {
+            Quality::Full => None,
+            Quality::Thumb => self
+                .thumb
+                .get(&asset)
+                .map(|thumb| (Quality::Thumb, Arc::clone(thumb))),
+        }
     }
 
-    fn finish(&mut self, ticket: Ticket<FrameId>, prepared: Prepared) {
+    fn finish<V: 'static>(
+        &mut self,
+        ticket: Ticket<FrameId>,
+        prepared: Prepared,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) {
         // Dropping the finished task here is safe: the job has nothing left
         // to await.
         self.in_flight.remove(&ticket.key());
@@ -245,49 +369,268 @@ impl PresenterFrames {
             .complete(ticket, prepared.result, &mut self.cache);
         // Defensive: `sync` drops obsolete tasks, so a stale result should
         // not arrive; the scheduler still decides if one does.
-        if completion != Completion::Accepted {
-            return;
-        }
-        match (failure, prepared.image) {
-            (Some(reason), _) => self.failures.push((ticket.key(), reason)),
-            (None, Some((asset, image))) => {
-                self.images.insert(asset, image);
+        if completion == Completion::Accepted {
+            match (failure, prepared.image) {
+                (Some(reason), _) => self.failures.push((ticket.key(), reason)),
+                (None, Some((asset, quality, image))) => self.store_image(asset, quality, image),
+                (None, None) => {}
             }
-            (None, None) => {}
+        }
+        // The insert may have evicted a frame, and a thumbnail-only frame may
+        // already be wanted in full.
+        self.after_change(access, cx);
+    }
+
+    /// Keep a freshly decoded image. A thumbnail never replaces or outlives a
+    /// full image of the same asset; a full image retires the thumbnail.
+    fn store_image(&mut self, asset: AssetId, quality: Quality, image: Arc<RenderImage>) {
+        match quality {
+            Quality::Full => {
+                self.full.insert(asset, image);
+                if let Some(thumb) = self.thumb.remove(&asset) {
+                    self.retiring.push(thumb);
+                }
+            }
+            Quality::Thumb => {
+                if !self.full.contains_key(&asset) {
+                    self.thumb.insert(asset, image);
+                }
+            }
         }
     }
 
-    /// What to draw for `id`. Marks a ready frame recently used.
+    /// The assets placed by Ready cached frames.
+    fn referenced_assets(&self) -> HashSet<AssetId> {
+        self.cache
+            .keys()
+            .filter(|id| matches!(self.cache.peek(id), Some(FrameEntry::Ready(_))))
+            .filter_map(|id| asset_of(&self.snapshot, *id))
+            .collect()
+    }
+
+    /// The one pass after state changed: start (or cancel) the full-size
+    /// upgrades the wanted frames need, then release images no Ready cached
+    /// frame uses. Returns true when it changed what a view would draw.
+    fn after_change<V: 'static>(
+        &mut self,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> bool {
+        let changed = self.reconcile(access, cx);
+        self.prune(access, cx);
+        changed
+    }
+
+    /// Move every decoded image no Ready cached frame places into `retiring`
+    /// and schedule the atlas drop.
+    fn prune<V: 'static>(&mut self, access: fn(&mut V) -> &mut Self, cx: &mut Context<V>) {
+        let referenced = self.referenced_assets();
+        for map in [&mut self.full, &mut self.thumb] {
+            let stale: Vec<AssetId> = map
+                .keys()
+                .filter(|asset| !referenced.contains(asset))
+                .copied()
+                .collect();
+            for asset in stale {
+                if let Some(image) = map.remove(&asset) {
+                    self.retiring.push(image);
+                }
+            }
+        }
+        if !self.retiring.is_empty() && self.flush.is_none() {
+            self.flush = Some(cx.spawn(async move |this, cx| {
+                this.update(cx, |view, cx| access(view).flush_retiring(cx))
+                    .ok();
+            }));
+        }
+    }
+
+    /// Drop the atlas copy of every retired image nothing else holds. An image
+    /// a monitor still paints stays for the next pass: dropping its atlas tile
+    /// now would only make the monitor upload it again, unowned.
+    fn flush_retiring<V: 'static>(&mut self, cx: &mut Context<V>) {
+        // The running task ends as soon as this returns, so it is detached
+        // rather than dropped from inside itself.
+        if let Some(done) = self.flush.take() {
+            done.detach();
+        }
+        let (idle, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retiring)
+            .into_iter()
+            .partition(|image| Arc::strong_count(image) == 1);
+        self.retiring = held;
+        for image in idle {
+            cx.drop_image(image, None);
+        }
+    }
+
+    /// Start a full-size decode for every wanted Ready frame whose asset has
+    /// none (the promotion of a thumbnail), cancel upgrades nobody wants, and
+    /// turn the frames of an asset that failed to decode into Unavailable.
+    /// Returns true when a frame changed state.
+    fn reconcile<V: 'static>(
+        &mut self,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> bool {
+        let mut changed = false;
+        let mut needed = HashSet::new();
+        for id in self.full_wanted.clone() {
+            if !matches!(self.cache.peek(&id), Some(FrameEntry::Ready(_))) {
+                continue;
+            }
+            let Some(asset) = asset_of(&self.snapshot, id) else {
+                continue;
+            };
+            if self.full.contains_key(&asset) {
+                continue;
+            }
+            if self.failed_assets.contains(&asset) {
+                let reason = UnavailableReason::DecodeFailed;
+                self.cache.insert(id, Err(reason));
+                self.failures.push((id, reason));
+                changed = true;
+                continue;
+            }
+            needed.insert(asset);
+            if !self.upgrades.contains_key(&asset) {
+                let task = self.start_upgrade(asset, access, cx);
+                self.upgrades.insert(asset, task);
+            }
+        }
+        self.upgrades.retain(|asset, _| needed.contains(asset));
+        changed
+    }
+
+    fn start_upgrade<V: 'static>(
+        &self,
+        asset: AssetId,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> Task<()> {
+        let snapshot = self.snapshot.clone();
+        #[cfg(test)]
+        let fault = self.fault;
+        #[cfg(not(test))]
+        let fault = AssetFault::None;
+        #[cfg(test)]
+        let hold = self.hold;
+        let renderer = cx.svg_renderer();
+        let job = cx.background_spawn(async move {
+            let bytes = Self::asset_bytes(&snapshot, asset, fault)?;
+            decode_full(&bytes, &renderer).ok()
+        });
+        cx.spawn(async move |this, cx| {
+            let decoded = job.await;
+            #[cfg(test)]
+            if !hold.is_zero() {
+                cx.background_executor().timer(hold).await;
+            }
+            this.update(cx, |view, cx| {
+                access(view).finish_upgrade(asset, decoded, access, cx);
+                cx.notify();
+            })
+            .ok();
+        })
+    }
+
+    fn finish_upgrade<V: 'static>(
+        &mut self,
+        asset: AssetId,
+        decoded: Option<Arc<RenderImage>>,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) {
+        self.upgrades.remove(&asset);
+        match decoded {
+            // Only keep it while a cached frame still places the asset.
+            Some(image) if self.referenced_assets().contains(&asset) => {
+                self.store_image(asset, Quality::Full, image);
+            }
+            Some(_) => {}
+            None => {
+                self.failed_assets.insert(asset);
+            }
+        }
+        self.after_change(access, cx);
+    }
+
+    /// What to draw for `id`, a thumbnail-sized image allowed. Marks a ready
+    /// frame recently used.
     pub fn get(&mut self, id: FrameId) -> FrameView {
-        let view = match self.cache.get(&id) {
-            Some(FrameEntry::Ready(frame)) => Ok(Arc::clone(frame)),
-            Some(FrameEntry::Unavailable(reason)) => Err(Some(*reason)),
-            None => Err(None),
-        };
-        self.view_of(view)
+        let view = self.entry(id);
+        self.view_of(view, false)
     }
 
     /// What to draw for `id` without touching its recency, for the timeline's
-    /// thumbnails: painting must never change what the cache evicts.
+    /// thumbnails: painting must never change what the cache evicts. A
+    /// thumbnail-sized image is allowed.
     pub fn peek(&self, id: FrameId) -> FrameView {
-        let view = match self.cache.peek(&id) {
+        let view = self.entry_peek(id);
+        self.view_of(view, false)
+    }
+
+    /// Like [`PresenterFrames::get`], for the Program and Preview monitors and
+    /// the output: a frame that places an image is `Pending` until its full
+    /// image is decoded, so the viewer keeps its last complete frame and no
+    /// low-resolution image reaches the congregation.
+    pub fn get_full(&mut self, id: FrameId) -> FrameView {
+        let view = self.entry(id);
+        self.view_of(view, true)
+    }
+
+    /// [`PresenterFrames::get_full`] without touching recency.
+    pub fn peek_full(&self, id: FrameId) -> FrameView {
+        let view = self.entry_peek(id);
+        self.view_of(view, true)
+    }
+
+    fn entry(&mut self, id: FrameId) -> Result<Arc<Frame>, Option<UnavailableReason>> {
+        match self.cache.get(&id) {
             Some(FrameEntry::Ready(frame)) => Ok(Arc::clone(frame)),
             Some(FrameEntry::Unavailable(reason)) => Err(Some(*reason)),
             None => Err(None),
-        };
-        self.view_of(view)
+        }
     }
 
-    fn view_of(&self, entry: Result<Arc<Frame>, Option<UnavailableReason>>) -> FrameView {
+    fn entry_peek(&self, id: FrameId) -> Result<Arc<Frame>, Option<UnavailableReason>> {
+        match self.cache.peek(&id) {
+            Some(FrameEntry::Ready(frame)) => Ok(Arc::clone(frame)),
+            Some(FrameEntry::Unavailable(reason)) => Err(Some(*reason)),
+            None => Err(None),
+        }
+    }
+
+    fn view_of(
+        &self,
+        entry: Result<Arc<Frame>, Option<UnavailableReason>>,
+        full_only: bool,
+    ) -> FrameView {
         let frame = match entry {
             Ok(frame) => frame,
             Err(Some(reason)) => return FrameView::Unavailable(reason),
             Err(None) => return FrameView::Pending,
         };
-        let image = frame
+        let asset = frame
             .image()
-            .and_then(|placed| AssetId::parse(&placed.id).ok())
-            .and_then(|asset| self.images.get(&asset).cloned());
+            .and_then(|placed| AssetId::parse(&placed.id).ok());
+        let image = match asset {
+            None => None,
+            Some(asset) => {
+                let full = self.full.get(&asset);
+                let found = if full_only {
+                    full
+                } else {
+                    full.or_else(|| self.thumb.get(&asset))
+                };
+                match found {
+                    Some(image) => Some(Arc::clone(image)),
+                    // The frame is composed but its full image is not there
+                    // yet: not ready for the monitors.
+                    None if full_only => return FrameView::Pending,
+                    None => None,
+                }
+            }
+        };
         FrameView::Ready { frame, image }
     }
 
@@ -309,15 +652,34 @@ impl PresenterFrames {
         self.cache.len()
     }
 
+    /// Decoded images held, as `(full, thumbnail)`. Released images waiting
+    /// for a monitor to let go are not counted.
+    pub fn image_counts(&self) -> (usize, usize) {
+        (self.full.len(), self.thumb.len())
+    }
+
+    /// Distinct assets placed by Ready cached frames: the bound on both
+    /// [`PresenterFrames::image_counts`] entries.
+    pub fn referenced_image_count(&self) -> usize {
+        self.referenced_assets().len()
+    }
+
     /// Drop every decoded image and release its GPU atlas tile. Call when
     /// the Presenter stops showing this snapshot's images (for example when
     /// the view closes); frames stay cached, but a ready image frame drawn
     /// afterwards has no image, so only call it when idle.
     pub fn release(&mut self, window: Option<&mut Window>, cx: &mut App) {
         let mut window = window;
-        for (_, image) in self.images.drain() {
+        let images = self
+            .full
+            .drain()
+            .chain(self.thumb.drain())
+            .map(|(_, image)| image)
+            .chain(self.retiring.drain(..));
+        for image in images {
             cx.drop_image(image, window.as_deref_mut());
         }
+        self.upgrades.clear();
     }
 
     #[cfg(test)]
@@ -338,13 +700,14 @@ impl PresenterFrames {
     }
 }
 
-/// The background job: resolve and decode the foreground asset, then
-/// compose. Runs off the GPUI thread. The asset is decoded eagerly into the
-/// `RenderImage` GPUI paints, so a bad PNG fails here as `DecodeFailed`.
+/// The background job: resolve and decode the foreground asset at `quality`,
+/// then compose. Runs off the GPUI thread. The asset is decoded eagerly into
+/// the `RenderImage` GPUI paints, so a bad PNG fails here as `DecodeFailed`.
 fn prepare(
     snapshot: &LoadedSnapshot,
     key: FrameId,
-    known: Option<Arc<RenderImage>>,
+    quality: Quality,
+    known: Option<(Quality, Arc<RenderImage>)>,
     renderer: &SvgRenderer,
     fault: AssetFault,
 ) -> Prepared {
@@ -359,23 +722,20 @@ fn prepare(
         let Ok(asset) = AssetId::parse(&foreground.id) else {
             return failed(UnavailableReason::DecodeFailed);
         };
-        if known.is_none() {
-            let bytes = match fault {
-                AssetFault::None => snapshot.asset(asset).map(<[u8]>::to_vec),
-                #[cfg(test)]
-                AssetFault::Withhold => None,
-                #[cfg(test)]
-                AssetFault::Corrupt => Some(b"not a png".to_vec()),
-            };
-            let Some(bytes) = bytes else {
+        if let Some((held, decoded)) = known {
+            image = Some((asset, held, decoded));
+        } else {
+            let Some(bytes) = PresenterFrames::asset_bytes(snapshot, asset, fault) else {
                 return failed(UnavailableReason::DecodeFailed);
             };
-            let Ok(decoded) =
-                Image::from_bytes(ImageFormat::Png, bytes).to_image_data(renderer.clone())
-            else {
+            let decoded = match quality {
+                Quality::Full => decode_full(&bytes, renderer),
+                Quality::Thumb => decode_thumbnail(&bytes),
+            };
+            let Ok(decoded) = decoded else {
                 return failed(UnavailableReason::DecodeFailed);
             };
-            image = Some((asset, decoded));
+            image = Some((asset, quality, decoded));
         }
     }
     Prepared {
@@ -430,6 +790,7 @@ mod tests {
     use super::test_support::{fixture_snapshot, frame_ids};
     use super::*;
     use gpui::{Render, TestAppContext, Window, div, prelude::*, px, size};
+    use std::time::Duration;
     use ui::environment::{ResolvedAppearance, UiEnvironment, UiPreferences};
 
     struct Host {
@@ -468,9 +829,18 @@ mod tests {
         snapshot: Arc<LoadedSnapshot>,
         fault: AssetFault,
     ) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
+        open_sized(cx, snapshot, fault, FRAME_CAPACITY)
+    }
+
+    fn open_sized(
+        cx: &mut TestAppContext,
+        snapshot: Arc<LoadedSnapshot>,
+        fault: AssetFault,
+        capacity: usize,
+    ) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
         cx.update(ui::init).unwrap();
         let (host, cx) = cx.add_window_view(|_, _| {
-            let mut frames = PresenterFrames::new(snapshot);
+            let mut frames = PresenterFrames::with_capacity(snapshot, capacity);
             frames.fault = fault;
             Host {
                 frames,
@@ -630,5 +1000,155 @@ mod tests {
             vec![(image_frame, UnavailableReason::DecodeFailed)]
         );
         assert!(host.update(cx, |h, _| h.frames.take_failures()).is_empty());
+    }
+
+    fn visible(host: &gpui::Entity<Host>, cx: &mut gpui::VisualTestContext, ids: Vec<FrameId>) {
+        host.update(cx, |host, cx| host.frames.request_visible(ids, access, cx));
+    }
+
+    fn image_counts(host: &gpui::Entity<Host>, cx: &mut gpui::VisualTestContext) -> (usize, usize) {
+        host.read_with(cx, |host, _| host.frames.image_counts())
+    }
+
+    fn ready_image(view: FrameView) -> Option<Arc<RenderImage>> {
+        match view {
+            FrameView::Ready { image, .. } => image,
+            other => panic!("expected a ready frame, found {other:?}"),
+        }
+    }
+
+    #[gpui::test]
+    fn a_visible_only_image_frame_holds_a_thumbnail_and_no_full_image(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+
+        visible(&host, cx, vec![image_frame]);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (0, 1));
+        // The timeline draws the thumbnail; the monitors would not.
+        let thumb = host.read_with(cx, |h, _| h.frames.peek(image_frame));
+        assert!(ready_image(thumb).is_some());
+        let for_monitor = host.read_with(cx, |h, _| h.frames.peek_full(image_frame));
+        assert!(matches!(for_monitor, FrameView::Pending));
+    }
+
+    #[gpui::test]
+    fn promoting_a_thumbnail_decodes_the_full_image_and_program_waits_for_it(
+        cx: &mut TestAppContext,
+    ) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+        visible(&host, cx, vec![image_frame]);
+        cx.run_until_parked();
+        let thumb = ready_image(host.read_with(cx, |h, _| h.frames.peek(image_frame))).unwrap();
+
+        // Hold the upgrade so the thumbnail-only state can be observed.
+        host.update(cx, |h, _| h.frames.set_hold(Duration::from_millis(50)));
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (0, 1), "still only the thumbnail");
+        assert_eq!(host.read_with(cx, |h, _| h.frames.upgrades.len()), 1);
+        assert!(
+            matches!(view(&host, cx, image_frame), FrameView::Ready { .. }),
+            "the timeline keeps its thumbnail meanwhile"
+        );
+        assert!(
+            matches!(
+                host.update(cx, |h, _| h.frames.get_full(image_frame)),
+                FrameView::Pending
+            ),
+            "Program must not show a thumbnail-only frame"
+        );
+
+        cx.executor().advance_clock(Duration::from_millis(50));
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (1, 0), "the thumbnail is retired");
+        let full = ready_image(host.update(cx, |h, _| h.frames.get_full(image_frame))).unwrap();
+        assert_ne!(full.id, thumb.id, "the full image is a separate decode");
+        assert!(host.read_with(cx, |h, _| h.frames.upgrades.is_empty()));
+    }
+
+    #[gpui::test]
+    fn a_failed_upgrade_makes_the_frame_unavailable_and_is_reported_once(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let (host, cx) = open(cx, snapshot, AssetFault::None);
+        visible(&host, cx, vec![image_frame]);
+        cx.run_until_parked();
+
+        host.update(cx, |h, _| h.frames.fault = AssetFault::Corrupt);
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        assert!(matches!(
+            view(&host, cx, image_frame),
+            FrameView::Unavailable(UnavailableReason::DecodeFailed)
+        ));
+        assert_eq!(
+            host.update(cx, |h, _| h.frames.take_failures()),
+            vec![(image_frame, UnavailableReason::DecodeFailed)]
+        );
+        // No retry loop: nothing is decoding any more.
+        assert!(host.read_with(cx, |h, _| h.frames.upgrades.is_empty()));
+    }
+
+    #[gpui::test]
+    fn a_released_image_is_gone_from_both_maps_after_its_frame_is_evicted(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let plain = frame_ids(&snapshot, false);
+        let (host, cx) = open_sized(cx, snapshot, AssetFault::None, 0);
+
+        // A thumbnail first, then the full image, then enough other frames to
+        // push the image frame out of the small cache.
+        visible(&host, cx, vec![image_frame]);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (0, 1));
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        assert_eq!(image_counts(&host, cx), (1, 0));
+        let held = ready_image(host.update(cx, |h, _| h.frames.get_full(image_frame))).unwrap();
+        let weak = Arc::downgrade(&held);
+        drop(held);
+
+        for id in &plain {
+            sync(&host, cx, Some(*id), None);
+            cx.run_until_parked();
+        }
+        let evicted = host.read_with(cx, |h, _| h.frames.cache.peek(&image_frame).is_none());
+        assert!(evicted, "the fixture must overflow the small cache");
+        assert_eq!(image_counts(&host, cx), (0, 0));
+        assert!(
+            weak.upgrade().is_none(),
+            "nothing keeps the evicted image alive once the atlas copy is dropped"
+        );
+    }
+
+    #[gpui::test]
+    fn an_image_a_monitor_still_holds_is_not_dropped_from_the_atlas_early(cx: &mut TestAppContext) {
+        let snapshot = fixture_snapshot();
+        let image_frame = frame_ids(&snapshot, true)[0];
+        let plain = frame_ids(&snapshot, false);
+        let (host, cx) = open_sized(cx, snapshot, AssetFault::None, 0);
+        sync(&host, cx, Some(image_frame), None);
+        cx.run_until_parked();
+        let held = ready_image(host.update(cx, |h, _| h.frames.get_full(image_frame))).unwrap();
+
+        for id in &plain {
+            sync(&host, cx, Some(*id), None);
+            cx.run_until_parked();
+        }
+        assert_eq!(image_counts(&host, cx), (0, 0));
+        assert_eq!(
+            host.read_with(cx, |h, _| h.frames.retiring.len()),
+            1,
+            "a held image waits instead of losing its atlas tile"
+        );
+
+        drop(held);
+        sync(&host, cx, Some(plain[0]), None);
+        cx.run_until_parked();
+        assert!(host.read_with(cx, |h, _| h.frames.retiring.is_empty()));
     }
 }
