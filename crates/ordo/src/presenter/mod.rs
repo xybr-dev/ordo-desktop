@@ -1025,7 +1025,10 @@ impl Render for PresenterView {
                         environment,
                     )
                 });
-                (rail::tab(width, on_open_rail, environment), overlay)
+                (
+                    rail::tab(width, on_open_rail, environment, window, cx),
+                    overlay,
+                )
             }
         };
         let timeline_element = timeline::timeline(
@@ -1676,6 +1679,94 @@ mod tests {
                 "the tab column stays under the overlay"
             );
         }
+    }
+
+    fn tab_width(cx: &mut VisualTestContext) -> f32 {
+        f32::from(bounds(cx, "ordo-tab").size.width)
+    }
+
+    fn hover_tab(cx: &mut VisualTestContext) {
+        let at = bounds(cx, "ordo-tab").center();
+        cx.simulate_mouse_move(at, None, Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    fn leave_tab(cx: &mut VisualTestContext) {
+        cx.simulate_mouse_move(
+            gpui::point(px(700.0), px(500.0)),
+            None,
+            Modifiers::default(),
+        );
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn hovering_the_tab_grows_it_over_the_grid_without_moving_anything(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let timeline = bounds(cx, "cue-timeline");
+        let slot = bounds(cx, "ordo-tab-slot");
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        animate(&open, cx, 30);
+        let midway = tab_width(cx);
+        assert!(midway > rest + 0.5 && midway < rest + 6.0 - 0.5, "{midway}");
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - (rest + 6.0)).abs() < 0.5);
+        assert_eq!(
+            bounds(cx, "cue-timeline"),
+            timeline,
+            "the grid does not move"
+        );
+        assert_eq!(bounds(cx, "ordo-tab-slot"), slot, "the layout width stays");
+        let tab = bounds(cx, "ordo-tab");
+        let centre = left(tab) + f32::from(tab.size.width) / 2.0;
+        assert!((centre - (left(tab) + (rest + 6.0) / 2.0)).abs() < 0.5);
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+
+        leave_tab(cx);
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.5, "unhover gives it back");
+        assert_eq!(bounds(cx, "cue-timeline"), timeline);
+    }
+
+    #[gpui::test]
+    fn an_unhover_mid_grow_reverses_from_the_current_width(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        animate(&open, cx, 80);
+        let grown = tab_width(cx);
+        leave_tab(cx);
+        animate(&open, cx, 20);
+        let shrinking = tab_width(cx);
+        assert!(shrinking < grown && shrinking > rest + 0.1, "{shrinking}");
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.5);
+    }
+
+    #[gpui::test]
+    fn reduced_motion_never_changes_the_tab_width(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        let rest = tab_width(cx);
+        hover_tab(cx);
+        for millis in [0, 30, 200] {
+            animate(&open, cx, millis);
+            assert!((tab_width(cx) - rest).abs() < 0.01);
+        }
+        leave_tab(cx);
+        animate(&open, cx, 200);
+        assert!((tab_width(cx) - rest).abs() < 0.01);
+    }
+
+    #[gpui::test]
+    fn a_click_on_the_grown_tab_still_opens_the_rail(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        hover_tab(cx);
+        animate(&open, cx, 200);
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        click(cx, "ordo-tab");
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
     }
 
     #[gpui::test]

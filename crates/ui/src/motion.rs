@@ -29,6 +29,15 @@ pub fn standard() -> Transition {
     .easing(easing())
 }
 
+/// `120ms` on the `easing` token: what a hover or press gives back, which
+/// should feel quicker than the movement that asked for it.
+pub fn quick() -> Transition {
+    Transition::new(Duration::from_millis(
+        tokens::motion::QUICK_DURATION_MS.into(),
+    ))
+    .easing(easing())
+}
+
 /// A marker's position travelling to `target`, keyed by `id`.
 ///
 /// It travels on [`standard`] motion only when `selection` changes — the
@@ -143,6 +152,77 @@ pub fn entrance(
     Entrance {
         opacity: eased,
         offset: snapshot.distance * (1.0 - eased),
+    }
+}
+
+/// How a hover affordance is drawn on this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lift {
+    /// `0.0` at rest, `1.0` fully grown. Always `0.0` under reduced motion.
+    pub grow: f32,
+    /// `0.0` at rest, `1.0` fully highlighted.
+    pub tint: f32,
+}
+
+#[derive(Clone, Copy)]
+struct FadeState {
+    hovered: bool,
+    from: f32,
+    started_at: std::time::Instant,
+}
+
+/// A hover affordance, keyed by `id`: the pointer being over a control
+/// grows and highlights it.
+///
+/// It grows over [`standard`] motion and gives back over [`quick`] motion.
+/// Both are interruptible: turning around mid-flight reverses from where it
+/// is, with the remaining time in proportion. Under reduced motion nothing
+/// grows (`grow` stays `0.0`) and only the highlight fades, linearly, over at
+/// most `REDUCED_MOTION_MAX_DURATION_MS`.
+pub fn lift(id: impl Into<ElementId>, hovered: bool, window: &mut Window, cx: &mut App) -> Lift {
+    let id = id.into();
+    if !cx.reduce_motion() {
+        let policy = if hovered { standard() } else { quick() };
+        let progress = transition(
+            (id, "lift"),
+            if hovered { 1.0 } else { 0.0 },
+            policy,
+            window,
+            cx,
+        );
+        return Lift {
+            grow: progress,
+            tint: progress,
+        };
+    }
+    let now = cx.background_executor().now();
+    let duration = Duration::from_millis(tokens::motion::REDUCED_MOTION_MAX_DURATION_MS.into());
+    let state = window.use_keyed_state((id, "lift-fade"), cx, |_, _| FadeState {
+        hovered,
+        from: if hovered { 1.0 } else { 0.0 },
+        started_at: now,
+    });
+    let sample = |state: FadeState| {
+        let target = if state.hovered { 1.0 } else { 0.0 };
+        let elapsed = now.saturating_duration_since(state.started_at);
+        let progress = (elapsed.as_secs_f32() / duration.as_secs_f32()).min(1.0);
+        state.from + (target - state.from) * progress
+    };
+    let mut snapshot = *state.read(cx);
+    if snapshot.hovered != hovered {
+        snapshot = FadeState {
+            hovered,
+            from: sample(snapshot),
+            started_at: now,
+        };
+        state.update(cx, |state, _| *state = snapshot);
+    }
+    if now.saturating_duration_since(snapshot.started_at) < duration {
+        window.request_animation_frame();
+    }
+    Lift {
+        grow: 0.0,
+        tint: sample(snapshot),
     }
 }
 
