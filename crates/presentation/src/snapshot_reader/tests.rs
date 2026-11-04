@@ -1653,11 +1653,30 @@ fn a_hostile_manifest_never_sizes_an_allocation_from_its_content() {
     // A wall of nested arrays and a huge declared size: the parser reads what
     // is present and fails; nothing reserves capacity from a number.
     let spec = Spec::minimal();
-    let nested = format!("{}\n", "[".repeat(10_000));
-    assert!(matches!(
-        manifest_reason(read_snapshot(&spec.source_with_text(nested)).unwrap_err()),
-        ManifestReason::Malformed { .. }
-    ));
+    // Deep nesting inside an unknown member (which the version probe skips
+    // without building anything), inside a known member, and unterminated:
+    // each is a typed rejection, never a stack overflow or a panic.
+    let deep = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
+    for text in [
+        format!(
+            "{{\"schema_version\":2,\"x\":{deep}}}
+"
+        ),
+        format!(
+            "{{\"schema_version\":2,\"title\":{deep}}}
+"
+        ),
+        format!(
+            "{{\"schema_version\":2,\"x\":{}
+",
+            "[".repeat(10_000)
+        ),
+    ] {
+        assert!(matches!(
+            manifest_reason(read_snapshot(&spec.source_with_text(text)).unwrap_err()),
+            ManifestReason::Malformed { .. }
+        ));
+    }
     let source = spec.source_with(|value| value["assets"][0]["size"] = json!(u32::MAX));
     assert!(matches!(
         read_snapshot(&source).unwrap_err(),
@@ -1665,10 +1684,133 @@ fn a_hostile_manifest_never_sizes_an_allocation_from_its_content() {
     ));
 }
 
+/// Walk a JSON path of member names and array indexes.
+fn navigate<'a>(mut at: &'a mut Value, path: &[&str]) -> &'a mut Value {
+    for step in path {
+        at = match step.parse::<usize>() {
+            Ok(index) => &mut at[index],
+            Err(_) => &mut at[*step],
+        };
+    }
+    at
+}
+
+#[test]
+fn serdes_positional_array_form_is_refused_at_every_level() {
+    let spec = Spec::minimal();
+    let id = uuid(0x9f0);
+    let cases: [(&[&str], Value); 8] = [
+        (&[], json!([2, id, id])),
+        (&["themes", "0"], json!([id, "Theme", "custom"])),
+        (&["sections", "0"], json!([id, "Section", []])),
+        (
+            &["sections", "0", "items", "0"],
+            json!([id, "Item", "song", null, null, []]),
+        ),
+        (
+            &["sections", "0", "items", "0", "cues", "0"],
+            json!([id, "Cue", null, {"type": "hold"}]),
+        ),
+        (
+            &["sections", "0", "items", "0", "cues", "0", "behavior"],
+            json!(["project", id]),
+        ),
+        (&["frames", "0"], json!([id, "frames/a.txt", "0"])),
+        (&["assets", "0"], json!([id, "assets/a.png", 4, "0"])),
+    ];
+    for (path, array) in cases {
+        let source = spec.source_with(|value| {
+            *navigate(value, path) = array.clone();
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains("expected a JSON object"),
+            "{path:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn one_identity_names_one_thing() {
+    let spec = Spec::minimal();
+    let snapshot = snapshot_id().to_string();
+    let snapshot = snapshot.as_str();
+    let cue = cue_id().to_string();
+    let theme = custom_theme().to_string();
+    let theme = theme.as_str();
+
+    // A frame whose id is a Cue's id (the Cue still shows that frame).
+    let source = spec.source_with(|value| {
+        value["frames"][0]["id"] = json!(cue);
+        value["sections"][0]["items"][0]["cues"][0]["behavior"]["frame_id"] = json!(cue);
+    });
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::DuplicateIdentity { at, .. } if at == "/sections/0/items/0/cues/0/id"
+    ));
+
+    let collisions: [(&[&str], &str, &str); 5] = [
+        (&["mass_plan_id"], snapshot, "/mass_plan_id"),
+        (&["themes", "1", "id"], theme, "/themes/1/id"),
+        (&["assets", "0", "id"], snapshot, "/assets/0/id"),
+        (&["sections", "0", "id"], theme, "/sections/0/id"),
+        (
+            &["sections", "0", "items", "0", "id"],
+            snapshot,
+            "/sections/0/items/0/id",
+        ),
+    ];
+    for (path, other, pointer) in collisions {
+        let source = spec.source_with(|value| {
+            *navigate(value, path) = json!(other);
+        });
+        let error = manifest_reason(read_snapshot(&source).unwrap_err());
+        assert!(
+            matches!(&error, ManifestReason::DuplicateIdentity { at, .. } if at == pointer),
+            "{pointer}: {error:?}"
+        );
+    }
+
+    // The Celebration identity is in the same namespace.
+    let source = spec.source_with(|value| value["celebration_id"] = json!(snapshot));
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::DuplicateIdentity { at, .. } if at == "/celebration_id"
+    ));
+
+    // A reference is a use, not a claim: the Mass Theme names a listed Theme.
+    assert!(spec.load().is_ok());
+}
+
+fn schema_members(schema: &Value) -> (Vec<String>, Vec<String>) {
+    let mut properties: Vec<String> = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    properties.sort_unstable();
+    let mut required: Vec<String> = schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| member.as_str().unwrap().to_owned())
+        .collect();
+    required.sort_unstable();
+    (properties, required)
+}
+
+fn sorted(members: &[&str]) -> Vec<String> {
+    let mut members: Vec<String> = members.iter().map(|member| (*member).to_owned()).collect();
+    members.sort_unstable();
+    members
+}
+
 #[test]
 fn the_committed_schema_pins_the_same_version_and_members() {
-    // The schema is the contract for other tools; this keeps it from drifting
-    // from the constants the reader enforces.
+    // The schema is the contract for other tools; this keeps every level of it
+    // from drifting from the wire structs the reader deserializes. The lists
+    // below restate those structs on purpose.
     let schema: Value = serde_json::from_str(
         &std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1678,21 +1820,134 @@ fn the_committed_schema_pins_the_same_version_and_members() {
     )
     .unwrap();
     assert_eq!(schema["properties"]["schema_version"]["const"], json!(2));
-    assert_eq!(schema["additionalProperties"], json!(false));
-    let mut required: Vec<&str> = schema["required"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|member| member.as_str().unwrap())
-        .collect();
-    required.sort_unstable();
+
+    let levels: [(&Value, &[&str], &[&str]); 7] = [
+        (
+            &schema,
+            &[
+                "schema_version",
+                "id",
+                "mass_plan_id",
+                "celebration_id",
+                "captured_at",
+                "title",
+                "themes",
+                "mass_theme_id",
+                "sections",
+                "frames",
+                "assets",
+                "dependencies_fingerprint",
+            ],
+            &[
+                "schema_version",
+                "id",
+                "mass_plan_id",
+                "title",
+                "themes",
+                "mass_theme_id",
+                "sections",
+                "frames",
+                "assets",
+                "dependencies_fingerprint",
+            ],
+        ),
+        (
+            &schema["$defs"]["theme"],
+            &["id", "name", "kind"],
+            &["id", "name", "kind"],
+        ),
+        (
+            &schema["$defs"]["section"],
+            &["id", "title", "items"],
+            &["id", "title", "items"],
+        ),
+        (
+            &schema["$defs"]["item"],
+            &[
+                "id",
+                "title",
+                "kind",
+                "theme_id",
+                "auto_play_seconds",
+                "cues",
+            ],
+            &["id", "title", "kind", "cues"],
+        ),
+        (
+            &schema["$defs"]["cue"],
+            &["id", "label", "private_context", "behavior"],
+            &["id", "label", "behavior"],
+        ),
+        (
+            &schema["$defs"]["frame"],
+            &["id", "path", "sha256"],
+            &["id", "path", "sha256"],
+        ),
+        (
+            &schema["$defs"]["asset"],
+            &["id", "path", "size", "sha256"],
+            &["id", "path", "size", "sha256"],
+        ),
+    ];
+    for (level, properties, required) in levels {
+        assert_eq!(level["additionalProperties"], json!(false));
+        let (found_properties, found_required) = schema_members(level);
+        assert_eq!(found_properties, sorted(properties));
+        assert_eq!(found_required, sorted(required));
+    }
+
+    // The behavior variants: tag values and each variant's members.
+    let variants: [(&str, &[&str], &[&str]); 5] = [
+        (
+            "project",
+            &["type", "frame_id", "duration_seconds"],
+            &["type", "frame_id"],
+        ),
+        ("operator_trigger", &["type"], &["type"]),
+        ("hold", &["type"], &["type"]),
+        ("wait", &["type"], &["type"]),
+        ("unavailable", &["type", "reason"], &["type", "reason"]),
+    ];
+    let one_of = schema["$defs"]["behavior"]["oneOf"].as_array().unwrap();
+    assert_eq!(one_of.len(), variants.len());
+    for (variant, (tag, properties, required)) in one_of.iter().zip(variants) {
+        assert_eq!(variant["properties"]["type"]["const"], json!(tag));
+        assert_eq!(variant["additionalProperties"], json!(false));
+        let (found_properties, found_required) = schema_members(variant);
+        assert_eq!(found_properties, sorted(properties), "{tag}");
+        assert_eq!(found_required, sorted(required), "{tag}");
+    }
+
+    // Item and Theme kind vocabularies.
+    let kinds = |value: &Value| -> Vec<String> {
+        value["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kind| kind.as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        kinds(&schema["$defs"]["theme"]["properties"]["kind"]),
+        ["custom", "fallback"]
+    );
+    assert_eq!(
+        kinds(&schema["$defs"]["item"]["properties"]["kind"]),
+        [
+            "song",
+            "reading",
+            "psalm",
+            "response_sequence",
+            "general_presentation",
+            "rite"
+        ]
+    );
+
+    // Every member the tests emit is a member the schema declares and
+    // requires.
     let manifest = Spec::minimal().manifest_json();
-    let mut members: Vec<&str> = manifest
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    members.sort_unstable();
-    assert_eq!(required, members, "every member the tests emit is required");
+    let (_, required) = schema_members(&schema);
+    for member in manifest.as_object().unwrap().keys() {
+        assert!(required.contains(member), "{member}");
+    }
 }

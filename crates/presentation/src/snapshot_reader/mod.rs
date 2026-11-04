@@ -36,11 +36,23 @@
 //!   compatible-version message, before the rest of the document is judged.
 //! - Unknown members, a member that appears twice, a missing required member,
 //!   and `null` in place of an absent optional member are all rejected, as is
-//!   a repeated identity among frames or assets.
+//!   a JSON array where an object belongs (serde's positional form is
+//!   refused, so the member guards cannot be bypassed) and a repeated identity
+//!   among frames or assets.
+//! - One identity names one thing: the snapshot, Mass plan, Celebration,
+//!   Themes, sections, items, Cues, frames, and assets share one identity
+//!   namespace, and any collision is rejected (`DuplicateIdentity`). A Theme
+//!   *reference* (`mass_theme_id`, `theme_id`) or a frame reference
+//!   (`frame_id`) is a use of an identity, not a claim on it.
 //! - The manifest is LF-only: a carriage return is rejected (naming its line),
 //!   the text must end with a final LF, a byte-order mark is rejected, and no
 //!   text value may be blank, hold a line break, or end in whitespace.
 //!   Every frame is LF-only text under the same rules.
+//! - JSON has several spellings of the same content (escapes such as `\u0041`
+//!   for `A`, member order, and whitespace between tokens), and each gives
+//!   different bytes. The reader accepts them all, so equal content does not
+//!   mean equal bytes: [`LoadedSnapshot::manifest_hash`] pins the exact bytes
+//!   that were read, and the fingerprint does not.
 //!
 //! # Invariants this boundary enforces
 //!
@@ -91,7 +103,7 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read as _};
 use std::path::PathBuf;
 
 use domain::presentation::{
@@ -192,8 +204,32 @@ impl SnapshotSource for DirectorySource {
                 });
             }
         }
+        if path == MANIFEST_PATH {
+            return read_manifest_capped(&current);
+        }
         fs::read(&current).map_err(io_error)
     }
+}
+
+/// Read the manifest without ever holding more than [`MAX_MANIFEST_BYTES`] of
+/// it: the length is checked first, and the read itself is bounded in case the
+/// file grows after the check. An oversized manifest is refused, not read.
+fn read_manifest_capped(path: &std::path::Path) -> Result<Vec<u8>, SourceError> {
+    let too_large = || SourceError::Refused {
+        reason: format!("{MANIFEST_PATH} is larger than {MAX_MANIFEST_BYTES} bytes"),
+    };
+    let file = fs::File::open(path).map_err(io_error)?;
+    if file.metadata().map_err(io_error)?.len() > MAX_MANIFEST_BYTES as u64 {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_MANIFEST_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(too_large());
+    }
+    Ok(bytes)
 }
 
 fn io_error(error: std::io::Error) -> SourceError {
@@ -833,6 +869,9 @@ pub enum ManifestReason {
     /// A dependency path is absolute, backslash-separated, escapes its root,
     /// or is not a portable Windows file name.
     UnsafePath { path: String },
+    /// One identity is claimed by two entities of the snapshot (for example a
+    /// frame and a Cue), or by one entity twice.
+    DuplicateIdentity { at: String, value: String },
     /// The same identity is declared more than once.
     Duplicate { field: &'static str, value: String },
     /// Two dependencies name the same file (ignoring ASCII case).
@@ -874,6 +913,9 @@ impl fmt::Display for ManifestReason {
                 write!(f, "{at}: the text must not end in whitespace")
             }
             Self::UnsafePath { path } => write!(f, "{path:?} is not a snapshot-relative path"),
+            Self::DuplicateIdentity { at, value } => {
+                write!(f, "{at}: identity {value} already names something else")
+            }
             Self::Duplicate { field, value } => {
                 write!(f, "{field} {value} is declared more than once")
             }

@@ -16,7 +16,10 @@ use domain::presentation::{
     MassItemId, MassItemKind, MassSection, MassSectionId, PresentationSnapshot, SnapshotError,
     SnapshotId, ThemeId, ThemeKind, ThemeRef,
 };
+use serde::de::value::MapAccessDeserializer;
+use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
+use std::marker::PhantomData;
 
 use super::{
     ASSET_DIRECTORY, FRAME_DIRECTORY, MANIFEST_SCHEMA_VERSION, ManifestReason, is_snapshot_relative,
@@ -95,6 +98,35 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+/// A JSON object and nothing else.
+///
+/// A derived struct also accepts serde's positional form, a JSON array of its
+/// fields in declaration order, and the unknown-member and duplicate-member
+/// guards only protect the map form. Every wire struct is therefore read
+/// through this adapter, which asks the deserializer for a map and so refuses
+/// an array (or any other JSON type) outright.
+struct Obj<T>(T);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Obj<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjVisitor<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for ObjVisitor<T> {
+            type Value = Obj<T>;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a JSON object")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                T::deserialize(MapAccessDeserializer::new(map)).map(Obj)
+            }
+        }
+
+        deserializer.deserialize_map(ObjVisitor(PhantomData))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ManifestWire {
@@ -107,11 +139,11 @@ struct ManifestWire {
     #[serde(default, deserialize_with = "present")]
     captured_at: Option<String>,
     title: String,
-    themes: Vec<ThemeWire>,
+    themes: Vec<Obj<ThemeWire>>,
     mass_theme_id: String,
-    sections: Vec<SectionWire>,
-    frames: Vec<FrameWire>,
-    assets: Vec<AssetWire>,
+    sections: Vec<Obj<SectionWire>>,
+    frames: Vec<Obj<FrameWire>>,
+    assets: Vec<Obj<AssetWire>>,
     dependencies_fingerprint: String,
 }
 
@@ -135,7 +167,7 @@ enum ThemeKindWire {
 struct SectionWire {
     id: String,
     title: String,
-    items: Vec<ItemWire>,
+    items: Vec<Obj<ItemWire>>,
 }
 
 #[derive(Deserialize)]
@@ -148,7 +180,7 @@ struct ItemWire {
     theme_id: Option<String>,
     #[serde(default, deserialize_with = "present")]
     auto_play_seconds: Option<u32>,
-    cues: Vec<CueWire>,
+    cues: Vec<Obj<CueWire>>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -169,7 +201,7 @@ struct CueWire {
     label: String,
     #[serde(default, deserialize_with = "present")]
     private_context: Option<String>,
-    behavior: BehaviorWire,
+    behavior: Obj<BehaviorWire>,
 }
 
 /// Every variant is a struct variant, even the empty ones: serde ignores
@@ -228,14 +260,14 @@ pub(super) fn parse_manifest(text: &str) -> Result<Manifest, ManifestReason> {
         return Err(ManifestReason::MissingFinalNewline);
     }
 
-    let probe: VersionProbe = serde_json::from_str(text).map_err(malformed)?;
+    let Obj(probe) = serde_json::from_str::<Obj<VersionProbe>>(text).map_err(malformed)?;
     if let Some(found) = probe.schema_version
         && found != MANIFEST_SCHEMA_VERSION
     {
         return Err(ManifestReason::UnsupportedVersion { found });
     }
 
-    let wire: ManifestWire = serde_json::from_str(text).map_err(malformed)?;
+    let Obj(wire) = serde_json::from_str::<Obj<ManifestWire>>(text).map_err(malformed)?;
     convert(wire)
 }
 
@@ -252,14 +284,35 @@ fn malformed(error: serde_json::Error) -> ManifestReason {
     }
 }
 
+/// Claim one identity in the snapshot-wide namespace: one identity names one
+/// thing, so a Theme, frame, asset, section, item, or Cue may not share an id
+/// with each other or with the snapshot, Mass plan, or Celebration.
+fn claim(
+    seen: &mut BTreeSet<EntityId>,
+    value: &str,
+    at: impl Fn() -> String,
+) -> Result<(), ManifestReason> {
+    let entity = id::<EntityId>(value, &at)?;
+    if seen.insert(entity) {
+        Ok(())
+    } else {
+        Err(ManifestReason::DuplicateIdentity {
+            at: at(),
+            value: value.to_owned(),
+        })
+    }
+}
+
 fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
+    let mut seen = BTreeSet::new();
     let snapshot = id::<SnapshotId>(&wire.id, || "/id".to_owned())?;
+    claim(&mut seen, &wire.id, || "/id".to_owned())?;
     // The Mass plan and Celebration identities and the capture time describe
     // where the snapshot came from. The domain snapshot does not carry them, so
     // they are validated for shape and then dropped.
-    id::<EntityId>(&wire.mass_plan_id, || "/mass_plan_id".to_owned())?;
+    claim(&mut seen, &wire.mass_plan_id, || "/mass_plan_id".to_owned())?;
     if let Some(celebration) = &wire.celebration_id {
-        id::<EntityId>(celebration, || "/celebration_id".to_owned())?;
+        claim(&mut seen, celebration, || "/celebration_id".to_owned())?;
     }
     if let Some(captured) = wire.captured_at
         && !is_utc_timestamp(&captured)
@@ -275,7 +328,8 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
     })?;
 
     let mut themes = Vec::with_capacity(wire.themes.len());
-    for (index, theme) in wire.themes.into_iter().enumerate() {
+    for (index, Obj(theme)) in wire.themes.into_iter().enumerate() {
+        claim(&mut seen, &theme.id, || format!("/themes/{index}/id"))?;
         themes.push(ThemeRef {
             id: id(&theme.id, || format!("/themes/{index}/id"))?,
             name: text(theme.name, || format!("/themes/{index}/name"))?,
@@ -289,8 +343,8 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
 
     let mut paths = BTreeSet::new();
     let mut frame_ids = BTreeSet::new();
-    let mut frames = Vec::with_capacity(wire.frames.len());
-    for (index, frame) in wire.frames.into_iter().enumerate() {
+    let mut frames: Vec<FrameDecl> = Vec::with_capacity(wire.frames.len());
+    for (index, Obj(frame)) in wire.frames.into_iter().enumerate() {
         frames.push(dependency(
             DependencyWire {
                 id: &frame.id,
@@ -307,9 +361,14 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
             &mut paths,
         )?);
     }
+    for (index, frame) in frames.iter().enumerate() {
+        claim(&mut seen, &frame.id.to_string(), || {
+            format!("/frames/{index}/id")
+        })?;
+    }
     let mut asset_ids = BTreeSet::new();
-    let mut assets = Vec::with_capacity(wire.assets.len());
-    for (index, asset) in wire.assets.into_iter().enumerate() {
+    let mut assets: Vec<AssetDecl> = Vec::with_capacity(wire.assets.len());
+    for (index, Obj(asset)) in wire.assets.into_iter().enumerate() {
         assets.push(dependency(
             DependencyWire {
                 id: &asset.id,
@@ -327,14 +386,21 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
         )?);
     }
 
+    for (index, asset) in assets.iter().enumerate() {
+        claim(&mut seen, &asset.id.to_string(), || {
+            format!("/assets/{index}/id")
+        })?;
+    }
     let mut sections = Vec::with_capacity(wire.sections.len());
-    for (s, section) in wire.sections.into_iter().enumerate() {
+    for (s, Obj(section)) in wire.sections.into_iter().enumerate() {
+        claim(&mut seen, &section.id, || format!("/sections/{s}/id"))?;
         let mut items = Vec::with_capacity(section.items.len());
-        for (i, item) in section.items.into_iter().enumerate() {
+        for (i, Obj(item)) in section.items.into_iter().enumerate() {
             let at = |tail: &str| format!("/sections/{s}/items/{i}/{tail}");
+            claim(&mut seen, &item.id, || at("id"))?;
             let mut cues = Vec::with_capacity(item.cues.len());
-            for (c, cue) in item.cues.into_iter().enumerate() {
-                cues.push(convert_cue(cue, |tail| {
+            for (c, Obj(cue)) in item.cues.into_iter().enumerate() {
+                cues.push(convert_cue(cue, &mut seen, |tail| {
                     format!("/sections/{s}/items/{i}/cues/{c}/{tail}")
                 })?);
             }
@@ -377,8 +443,13 @@ fn convert(wire: ManifestWire) -> Result<Manifest, ManifestReason> {
     })
 }
 
-fn convert_cue(cue: CueWire, at: impl Fn(&str) -> String) -> Result<CueDecl, ManifestReason> {
-    let behavior = match cue.behavior {
+fn convert_cue(
+    cue: CueWire,
+    seen: &mut BTreeSet<EntityId>,
+    at: impl Fn(&str) -> String,
+) -> Result<CueDecl, ManifestReason> {
+    claim(seen, &cue.id, || at("id"))?;
+    let behavior = match cue.behavior.0 {
         BehaviorWire::Project {
             frame_id,
             duration_seconds,

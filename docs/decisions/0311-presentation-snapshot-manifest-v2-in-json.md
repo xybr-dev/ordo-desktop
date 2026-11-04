@@ -40,7 +40,7 @@ The contract already has a versioning rule (`docs/contracts/README.md` §5). Eve
   - `{ "type": "hold" }`
   - `{ "type": "wait" }`
   - `{ "type": "unavailable", "reason" }`
-- **Identifiers** are lowercase UUIDv4, per the contract rule.
+- **Identifiers** are lowercase UUIDv4, per the contract rule. One identity names one thing: the snapshot, Mass plan, Celebration, Theme, section, item, Cue, frame and asset ids share one namespace, and a collision (a frame id equal to a Cue id, say) is rejected. References to an identity (`mass_theme_id`, `theme_id`, `frame_id`) are not claims.
 - **`dependencies_fingerprint`** applies the contract's fingerprint rule to every `frames[].sha256` and `assets[].sha256`. It covers dependency bytes only. The structure is pinned separately by the SHA-256 of the exact manifest bytes (`manifest_hash`).
 - **Frame files stay** canonical `ordo-fixture/1` LF-only text under `frames/`. Only the manifest changes format.
 - **Validation is unchanged:**
@@ -59,4 +59,5 @@ The contract already has a versioning rule (`docs/contracts/README.md` §5). Eve
 
 - `presentation::snapshot_reader` reads `snapshot.json` (v2) instead of `snapshot.txt`, and gains exact-pinned `serde`/`serde_json`, the versions the contract spike already uses. `LoadedSnapshot` and its API are unchanged, so the Engine, frame store and Presenter are unaffected.
 - `contracts/snapshot-manifest/v2.schema.json` and `docs/contracts/README.md` describe v2. A Celebration Package embedding v2 snapshots is a later contract bump of `celebration-package`.
+- JSON has several spellings of the same content: escapes, member order and whitespace give different bytes. The reader accepts them, so `manifest_hash`, the SHA-256 of the exact bytes, is what pins a snapshot; equal content does not imply an equal hash.
 - **Interrupted-session recovery keys on SnapshotId + CueId** (owner confirmation 2026-11-04). `recovery-journal` v1 records a flat `cue_index`. Moving it to `cue_id` is a later `recovery-journal` v2 change, made when recovery is implemented.

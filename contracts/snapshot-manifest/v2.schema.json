@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ordo.invalid/contracts/snapshot-manifest/v2.schema.json",
   "title": "Presentation snapshot manifest v2",
-  "description": "Immutable captured version of one Mass plan, with its Themes, Mass sections, items, Cues and the frame and asset dependencies the Cues show. dependencies_fingerprint is the SHA-256 of every frames[].sha256 and assets[].sha256 sorted, each followed by LF; it covers dependency bytes only, so the structure is pinned separately by the SHA-256 of the exact manifest bytes. Every Project Cue frame_id must name a frame of this snapshot and every frame must be shown by a Project Cue; every item and Cue id is unique. Frame and asset bytes live beside the manifest under frames/ and assets/; their sha256 is checked by the reader. v1 stays frozen and is not read by a v2 reader.",
+  "description": "Immutable captured version of one Mass plan, with its Themes, Mass sections, items, Cues and the frame and asset dependencies the Cues show. dependencies_fingerprint is the SHA-256 of every frames[].sha256 and assets[].sha256 sorted, each followed by LF; it covers dependency bytes only, so the structure is pinned separately by the SHA-256 of the exact manifest bytes. Every Project Cue frame_id must name a frame of this snapshot and every frame must be shown by a Project Cue; every item and Cue id is unique. Frame and asset bytes live beside the manifest under frames/ and assets/; their sha256 is checked by the reader. v1 stays frozen and is not read by a v2 reader. All identities (snapshot, Mass plan, Celebration, Themes, sections, items, Cues, frames, assets) share one namespace and must be unique across it; JSON Schema cannot express that, the reader enforces it. The exact manifest bytes are pinned by their SHA-256, since escapes, member order and whitespace vary for equal content.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -98,7 +98,7 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]*[^\\s]$",
-      "description": "One line of non-blank text that does not end in whitespace."
+      "description": "One line of non-blank text that does not end in whitespace. The reader is stricter than this pattern: it rejects any trailing Unicode whitespace (Rust char::is_whitespace, including U+00A0), not only the characters \\s matches."
     },
     "seconds": {
       "type": "integer",
@@ -219,11 +219,36 @@
         },
         "private_context": {
           "$ref": "#/$defs/text",
-          "description": "Operator-only text, never projected. Required for operator_trigger, hold and wait Cues."
+          "description": "Operator-only text, never projected. Required for operator_trigger and wait Cues (the domain rule); optional for project, hold and unavailable."
         },
         "behavior": {
           "$ref": "#/$defs/behavior"
         }
+      },
+      "if": {
+        "required": [
+          "behavior"
+        ],
+        "properties": {
+          "behavior": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "operator_trigger",
+                  "wait"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "private_context"
+        ]
       }
     },
     "behavior": {
@@ -319,6 +344,7 @@
         },
         "path": {
           "type": "string",
+          "description": "Snapshot-relative, under frames/. The reader also requires every segment to be a legal Windows file name (no device names such as CON or NUL, no trailing dot or space, no reserved characters) and compares paths case-insensitively, so two paths that differ only in ASCII case, across frames and assets together, are one file and are rejected.",
           "pattern": "^frames/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
         },
         "sha256": {
@@ -341,6 +367,7 @@
         },
         "path": {
           "type": "string",
+          "description": "Snapshot-relative, under assets/. The reader also requires every segment to be a legal Windows file name (no device names such as CON or NUL, no trailing dot or space, no reserved characters) and compares paths case-insensitively, so two paths that differ only in ASCII case, across frames and assets together, are one file and are rejected.",
           "pattern": "^assets/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
         },
         "sha256": {

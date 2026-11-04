@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use domain::presentation::{ContentHash, CueBehavior, CueId, FrameId, ProgramEffect, ThemeKind};
 use presentation::snapshot_reader::{
-    Dependency, DependencyId, DirectorySource, LoadedSnapshot, SnapshotLoadError, read_snapshot,
+    Dependency, DependencyId, DirectorySource, LoadedSnapshot, MAX_MANIFEST_BYTES,
+    SnapshotLoadError, read_snapshot,
 };
 use rendering::{TargetDensity, Theme, render_template};
 
@@ -669,6 +670,27 @@ fn a_changed_asset_byte_is_rejected_as_a_hash_mismatch() {
                 ..
             }
         ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_oversized_manifest_is_refused_by_the_directory_source() {
+    let copy = copy_fixture("recovery-drill");
+    let manifest = copy.path().join("snapshot.json");
+    // One byte over the cap: refused from its length, whatever it holds.
+    fs::write(&manifest, vec![b' '; MAX_MANIFEST_BYTES + 1]).unwrap();
+    let error = load_from(copy.path()).unwrap_err();
+    assert!(
+        matches!(error, SnapshotLoadError::RefusedManifest { .. }),
+        "{error:?}"
+    );
+
+    // Exactly at the cap it is read and then judged as the bad JSON it is.
+    fs::write(&manifest, vec![b'\n'; MAX_MANIFEST_BYTES]).unwrap();
+    let error = load_from(copy.path()).unwrap_err();
+    assert!(
+        matches!(error, SnapshotLoadError::Manifest { .. }),
         "{error:?}"
     );
 }
