@@ -127,7 +127,7 @@ async fn runtime_restores_and_persists_installation_preferences(cx: &mut TestApp
 
     assert_eq!(
         fs::read_to_string(&preferences).unwrap(),
-        "appearance=dark\nscale=200\n"
+        "appearance=dark\nscale=200\ncue-view=grid\n"
     );
     fs::remove_file(preferences).unwrap();
 }

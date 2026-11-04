@@ -31,6 +31,7 @@ pub mod canonical_views;
 pub mod diagnostics;
 pub mod output;
 pub mod performance;
+pub mod presenter;
 pub mod settings;
 pub mod shell;
 

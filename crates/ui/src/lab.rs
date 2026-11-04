@@ -972,6 +972,7 @@ mod tests {
                                 EnvironmentChange::SetPreferences(UiPreferences {
                                     appearance,
                                     scale,
+                                    ..Default::default()
                                 }),
                                 cx,
                             );
@@ -1205,6 +1206,7 @@ mod tests {
                                 EnvironmentChange::SetPreferences(UiPreferences {
                                     appearance,
                                     scale,
+                                    ..Default::default()
                                 }),
                                 cx,
                             );
@@ -1525,6 +1527,7 @@ mod tests {
                 EnvironmentChange::SetPreferences(UiPreferences {
                     appearance: PreparationAppearance::Light,
                     scale: crate::environment::InterfaceScale::Percent100,
+                    ..Default::default()
                 }),
                 cx,
             );
@@ -1800,6 +1803,7 @@ mod tests {
                 EnvironmentChange::SetPreferences(UiPreferences {
                     appearance: PreparationAppearance::Light,
                     scale: crate::environment::InterfaceScale::Percent200,
+                    ..Default::default()
                 }),
                 cx,
             );
@@ -1862,6 +1866,7 @@ mod tests {
                     EnvironmentChange::SetPreferences(UiPreferences {
                         appearance: PreparationAppearance::Light,
                         scale,
+                        ..Default::default()
                     }),
                     cx,
                 );
