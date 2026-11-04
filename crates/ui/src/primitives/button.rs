@@ -52,6 +52,7 @@ pub struct Button {
     icon_only: bool,
     quiet: bool,
     stretch: bool,
+    control_height: f32,
     current: bool,
     tone: Tone,
     tooltip: Option<SharedString>,
@@ -80,6 +81,7 @@ impl Button {
             tone: Tone::Standard,
             quiet: false,
             stretch: false,
+            control_height: tokens::density::DEFAULT_CONTROL,
             tooltip: None,
             availability: Availability::default(),
             environment,
@@ -153,6 +155,15 @@ impl Button {
         self
     }
 
+    /// Overrides the unscaled control height (default
+    /// `tokens::density::DEFAULT_CONTROL`), for a surface with its own density
+    /// such as the Presenter's `PRESENTER_CONTROL`. Scaled by the Interface
+    /// scale like the default.
+    pub fn control_height(mut self, height: f32) -> Self {
+        self.control_height = height;
+        self
+    }
+
     /// Marks the one control in a set the operator is currently on — the rail
     /// destination they are in. It changes nothing visible: the surface that
     /// owns the set draws that, and this is the half of it a screen reader
@@ -201,7 +212,7 @@ impl Button {
         // Nothing binds `icon_only()` to `icon()`, and a square with neither a
         // glyph nor a label is a named empty box. The label wins.
         let icon_only = self.icon_only && self.icon.is_some();
-        let height = scale.apply(tokens::density::DEFAULT_CONTROL);
+        let height = scale.apply(self.control_height);
         let tone = if disabled { Tone::Standard } else { self.tone };
         let ink = match tone {
             _ if disabled => palette.text_muted,
