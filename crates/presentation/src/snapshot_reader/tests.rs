@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 
 use domain::presentation::{
     AutoPlay, CueBehavior, CueId, MassItemId, MassItemKind, MassSectionId, SnapshotId, ThemeId,
     ThemeKind, ThemeRef,
 };
+
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -245,85 +246,93 @@ impl Spec {
         fingerprint_of(self.hashes())
     }
 
+    /// The manifest as a JSON value. Keys serialize in sorted order, which is
+    /// deterministic; the committed fixtures use the authored order instead.
+    fn manifest_json(&self) -> Value {
+        let themes: Vec<Value> = self
+            .themes
+            .iter()
+            .map(|theme| {
+                json!({
+                    "id": theme.id.to_string(),
+                    "name": theme.name,
+                    "kind": match theme.kind {
+                        ThemeKind::Custom => "custom",
+                        ThemeKind::Fallback => "fallback",
+                    },
+                })
+            })
+            .collect();
+        let frames: Vec<Value> = self
+            .frames
+            .iter()
+            .map(|frame| {
+                json!({
+                    "id": frame.id.to_string(),
+                    "path": frame.path,
+                    "sha256": hash_bytes(frame.text.as_bytes()).to_string(),
+                })
+            })
+            .collect();
+        let assets: Vec<Value> = self
+            .assets
+            .iter()
+            .map(|asset| {
+                json!({
+                    "id": asset.id.to_string(),
+                    "path": asset.path,
+                    "size": asset.bytes.len(),
+                    "sha256": hash_bytes(&asset.bytes).to_string(),
+                })
+            })
+            .collect();
+        let sections: Vec<Value> = self
+            .sections
+            .iter()
+            .map(|section| {
+                let items: Vec<Value> = section.items.iter().map(item_json).collect();
+                json!({
+                    "id": section.id.to_string(),
+                    "title": section.title,
+                    "items": items,
+                })
+            })
+            .collect();
+        json!({
+            "schema_version": 2,
+            "id": self.snapshot.to_string(),
+            "mass_plan_id": uuid(0x701),
+            "celebration_id": uuid(0x702),
+            "captured_at": "2026-11-04T09:30:00Z",
+            "title": self.title,
+            "themes": themes,
+            "mass_theme_id": self.mass_theme.to_string(),
+            "sections": sections,
+            "frames": frames,
+            "assets": assets,
+            "dependencies_fingerprint": self.fingerprint().to_string(),
+        })
+    }
+
     fn manifest(&self) -> String {
-        let mut out = String::new();
-        writeln!(out, "{MANIFEST_FORMAT}").unwrap();
-        writeln!(out, "snapshot {}", self.snapshot).unwrap();
-        writeln!(out, "title {}", self.title).unwrap();
-        writeln!(out, "fingerprint {}", self.fingerprint()).unwrap();
-        for theme in &self.themes {
-            writeln!(out, "theme {}", theme.id).unwrap();
-            writeln!(out, "theme-name {}", theme.name).unwrap();
-            let kind = match theme.kind {
-                ThemeKind::Custom => "Custom",
-                ThemeKind::Fallback => "Fallback",
-            };
-            writeln!(out, "theme-kind {kind}").unwrap();
-        }
-        writeln!(out, "mass-theme {}", self.mass_theme).unwrap();
-        for frame in &self.frames {
-            writeln!(out, "frame {}", frame.id).unwrap();
-            writeln!(out, "frame-path {}", frame.path).unwrap();
-            writeln!(out, "frame-sha256 {}", hash_bytes(frame.text.as_bytes())).unwrap();
-        }
-        for asset in &self.assets {
-            writeln!(out, "asset {}", asset.id).unwrap();
-            writeln!(out, "asset-path {}", asset.path).unwrap();
-            writeln!(out, "asset-size {}", asset.bytes.len()).unwrap();
-            writeln!(out, "asset-sha256 {}", hash_bytes(&asset.bytes)).unwrap();
-        }
-        for section in &self.sections {
-            writeln!(out, "section {}", section.id).unwrap();
-            writeln!(out, "section-title {}", section.title).unwrap();
-            for item in &section.items {
-                writeln!(out, "item {}", item.id).unwrap();
-                writeln!(out, "item-title {}", item.title).unwrap();
-                let kind = match item.kind {
-                    MassItemKind::Song => "Song",
-                    MassItemKind::Reading => "Reading",
-                    MassItemKind::Psalm => "Psalm",
-                    MassItemKind::ResponseSequence => "ResponseSequence",
-                    MassItemKind::GeneralPresentation => "GeneralPresentation",
-                    MassItemKind::Rite => "Rite",
-                };
-                writeln!(out, "item-kind {kind}").unwrap();
-                if let Some(theme) = item.theme {
-                    writeln!(out, "item-theme {theme}").unwrap();
-                }
-                if let Some(seconds) = item.auto_play {
-                    writeln!(out, "item-auto-play {seconds}").unwrap();
-                }
-                for cue in &item.cues {
-                    writeln!(out, "cue {}", cue.id).unwrap();
-                    writeln!(out, "cue-label {}", cue.label).unwrap();
-                    if let Some(context) = &cue.private_context {
-                        writeln!(out, "cue-private-context {context}").unwrap();
-                    }
-                    match &cue.behavior {
-                        CueBehavior::Project {
-                            frame,
-                            duration_seconds,
-                        } => {
-                            writeln!(out, "cue-behavior Project").unwrap();
-                            writeln!(out, "cue-frame {frame}").unwrap();
-                            if let Some(seconds) = duration_seconds {
-                                writeln!(out, "cue-duration {seconds}").unwrap();
-                            }
-                        }
-                        CueBehavior::OperatorTrigger => {
-                            writeln!(out, "cue-behavior OperatorTrigger").unwrap();
-                        }
-                        CueBehavior::Hold => writeln!(out, "cue-behavior Hold").unwrap(),
-                        CueBehavior::Wait => writeln!(out, "cue-behavior Wait").unwrap(),
-                        CueBehavior::Unavailable { reason } => {
-                            writeln!(out, "cue-behavior Unavailable").unwrap();
-                            writeln!(out, "cue-reason {reason}").unwrap();
-                        }
-                    }
-                }
-            }
-        }
-        out
+        serialize(&self.manifest_json())
+    }
+
+    /// The source with the manifest edited as JSON, so a test changes the one
+    /// fact it is about.
+    fn source_with(&self, edit: impl FnOnce(&mut Value)) -> MemorySource {
+        let mut value = self.manifest_json();
+        edit(&mut value);
+        let mut source = self.source();
+        source.insert(MANIFEST_PATH, serialize(&value));
+        source
+    }
+
+    /// The source with raw manifest text, for bytes JSON cannot express.
+    fn source_with_text(&self, text: impl Into<Vec<u8>>) -> MemorySource {
+        let mut source = self.source();
+        source.insert(MANIFEST_PATH, text);
+        source
     }
 
     fn source(&self) -> MemorySource {
@@ -340,6 +349,84 @@ impl Spec {
 
     fn load(&self) -> Result<LoadedSnapshot, SnapshotLoadError> {
         read_snapshot(&self.source())
+    }
+}
+
+fn serialize(value: &Value) -> String {
+    let mut text = serde_json::to_string_pretty(value).unwrap();
+    text.push('\n');
+    text
+}
+
+fn item_json(item: &ItemSpec) -> Value {
+    let cues: Vec<Value> = item
+        .cues
+        .iter()
+        .map(|cue| {
+            let behavior = match &cue.behavior {
+                CueBehavior::Project {
+                    frame,
+                    duration_seconds,
+                } => {
+                    let mut behavior = json!({"type": "project", "frame_id": frame.to_string()});
+                    if let Some(seconds) = duration_seconds {
+                        behavior["duration_seconds"] = json!(seconds);
+                    }
+                    behavior
+                }
+                CueBehavior::OperatorTrigger => json!({"type": "operator_trigger"}),
+                CueBehavior::Hold => json!({"type": "hold"}),
+                CueBehavior::Wait => json!({"type": "wait"}),
+                CueBehavior::Unavailable { reason } => {
+                    json!({"type": "unavailable", "reason": reason})
+                }
+            };
+            let mut value = json!({
+                "id": cue.id.to_string(),
+                "label": cue.label,
+                "behavior": behavior,
+            });
+            if let Some(context) = &cue.private_context {
+                value["private_context"] = json!(context);
+            }
+            value
+        })
+        .collect();
+    let mut value = json!({
+        "id": item.id.to_string(),
+        "title": item.title,
+        "kind": match item.kind {
+            MassItemKind::Song => "song",
+            MassItemKind::Reading => "reading",
+            MassItemKind::Psalm => "psalm",
+            MassItemKind::ResponseSequence => "response_sequence",
+            MassItemKind::GeneralPresentation => "general_presentation",
+            MassItemKind::Rite => "rite",
+        },
+        "cues": cues,
+    });
+    if let Some(theme) = item.theme {
+        value["theme_id"] = json!(theme.to_string());
+    }
+    if let Some(seconds) = item.auto_play {
+        value["auto_play_seconds"] = json!(seconds);
+    }
+    value
+}
+
+/// The `Manifest` reason of a failed read, for tests that assert on it.
+fn manifest_reason(error: SnapshotLoadError) -> ManifestReason {
+    match error {
+        SnapshotLoadError::Manifest { reason } => reason,
+        other => panic!("expected a manifest error, got {other:?}"),
+    }
+}
+
+/// The cause text of a `Malformed` manifest error.
+fn malformed_message(error: SnapshotLoadError) -> String {
+    match manifest_reason(error) {
+        ManifestReason::Malformed { message, .. } => message,
+        other => panic!("expected a malformed manifest, got {other:?}"),
     }
 }
 
@@ -443,96 +530,431 @@ fn the_fingerprint_follows_the_contract_rule() {
 }
 
 #[test]
-fn the_manifest_must_start_with_its_format_line() {
+fn the_manifest_must_be_the_v2_json_document() {
+    // A frame file where the manifest belongs is not JSON.
     let spec = Spec::minimal();
-    let manifest = spec
-        .manifest()
-        .replacen(MANIFEST_FORMAT, "ordo-fixture/1", 1);
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
+    let source = spec.source_with_text("ordo-fixture/1\n");
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::Malformed { line: 1, .. }
+    ));
 
+    // The v1 line manifest is not JSON either.
+    let source = spec.source_with_text("ordo-presentation-snapshot/1\nsnapshot x\n");
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::Malformed { .. }
+    ));
+
+    // An empty manifest has no final LF to find.
     assert_eq!(
-        read_snapshot(&source).unwrap_err(),
+        manifest_reason(read_snapshot(&spec.source_with_text("")).unwrap_err()),
+        ManifestReason::MissingFinalNewline
+    );
+}
+
+#[test]
+fn only_schema_version_2_is_read() {
+    let spec = Spec::minimal();
+    for (version, found) in [(json!(1), 1), (json!(3), 3), (json!(0), 0), (json!(99), 99)] {
+        let source = spec.source_with(|value| value["schema_version"] = version.clone());
+        let error = read_snapshot(&source).unwrap_err();
+        assert_eq!(
+            error,
+            SnapshotLoadError::Manifest {
+                reason: ManifestReason::UnsupportedVersion { found },
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "snapshot.json: requires an Ordo version supporting snapshot-manifest v{found}; this build supports v2"
+            )
+        );
+    }
+}
+
+#[test]
+fn a_v1_manifest_is_refused_by_version_before_its_shape_is_judged() {
+    // A genuine v1 document: flat `items` and `assets_fingerprint`, none of
+    // v2's members. It must be refused as v1, not as a pile of unknown fields.
+    let spec = Spec::minimal();
+    let v1 = format!(
+        "{{\"schema_version\":1,\"id\":\"{}\",\"mass_plan_id\":\"{}\",\"items\":[],\"assets\":[],\"assets_fingerprint\":\"{}\"}}\n",
+        uuid(1),
+        uuid(2),
+        hash_bytes(b"")
+    );
+    assert_eq!(
+        read_snapshot(&spec.source_with_text(v1)).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: 1,
-            reason: ManifestReason::UnknownFormat {
-                found: "ordo-fixture/1".to_owned(),
-            },
+            reason: ManifestReason::UnsupportedVersion { found: 1 },
         }
     );
 }
 
 #[test]
-fn out_of_order_records_name_their_line() {
+fn a_missing_or_mistyped_schema_version_is_malformed() {
     let spec = Spec::minimal();
-    let manifest = spec
-        .manifest()
-        .replace("title Minimal", "themes-are-not-here");
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
-
-    assert_eq!(
-        read_snapshot(&source).unwrap_err(),
-        SnapshotLoadError::Manifest {
-            line: 3,
-            reason: ManifestReason::Unexpected {
-                expected: "title",
-                found: "themes-are-not-here".to_owned(),
-            },
-        }
+    let source = spec.source_with(|value| {
+        value.as_object_mut().unwrap().remove("schema_version");
+    });
+    assert!(
+        malformed_message(read_snapshot(&source).unwrap_err())
+            .contains("missing field `schema_version`")
     );
+
+    for bad in [json!("2"), json!(2.5), json!(-2), json!(null)] {
+        let source = spec.source_with(|value| value["schema_version"] = bad.clone());
+        assert!(
+            matches!(
+                manifest_reason(read_snapshot(&source).unwrap_err()),
+                ManifestReason::Malformed { .. }
+            ),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_missing_required_member_is_named() {
+    let spec = Spec::minimal();
+    for member in [
+        "id",
+        "mass_plan_id",
+        "celebration_id",
+        "captured_at",
+        "title",
+        "themes",
+        "mass_theme_id",
+        "sections",
+        "frames",
+        "assets",
+        "dependencies_fingerprint",
+    ] {
+        let source = spec.source_with(|value| {
+            value.as_object_mut().unwrap().remove(member);
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains(&format!("missing field `{member}`")),
+            "{member}: {message}"
+        );
+    }
+
+    // Nested required members too.
+    let source = spec.source_with(|value| {
+        value["sections"][0]["items"][0]["cues"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("label");
+    });
+    assert!(
+        malformed_message(read_snapshot(&source).unwrap_err()).contains("missing field `label`")
+    );
+}
+
+#[test]
+fn an_unknown_member_is_rejected_at_every_level() {
+    let spec = Spec::minimal();
+    let paths: [&[&str]; 8] = [
+        &[],
+        &["themes", "0"],
+        &["sections", "0"],
+        &["sections", "0", "items", "0"],
+        &["sections", "0", "items", "0", "cues", "0"],
+        &["sections", "0", "items", "0", "cues", "0", "behavior"],
+        &["frames", "0"],
+        &["assets", "0"],
+    ];
+    for path in paths {
+        let source = spec.source_with(|value| {
+            let mut at = value;
+            for step in path {
+                at = match step.parse::<usize>() {
+                    Ok(index) => &mut at[index],
+                    Err(_) => &mut at[*step],
+                };
+            }
+            at["surprise"] = json!(true);
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains("unknown field `surprise`"),
+            "{path:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_behavior_variant_still_rejects_unknown_members() {
+    let spec = Spec::minimal();
+    // Item 1 holds the trigger (Cue 0), Hold (1), Wait (2) and Unavailable (3).
+    for cue in 0..4 {
+        let source = spec.source_with(|value| {
+            value["sections"][0]["items"][1]["cues"][cue]["behavior"]["surprise"] = json!(1);
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains("unknown field `surprise`"),
+            "{cue}: {message}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_variant_or_kind_is_rejected() {
+    let spec = Spec::minimal();
+    let source = spec.source_with(|value| {
+        value["sections"][0]["items"][1]["cues"][0]["behavior"]["type"] = json!("teleport");
+    });
+    assert!(malformed_message(read_snapshot(&source).unwrap_err()).contains("unknown variant"));
+
+    // v1 spelled kinds in PascalCase; v2 is snake_case only.
+    let source = spec.source_with(|value| {
+        value["sections"][0]["items"][0]["kind"] = json!("GeneralPresentation");
+    });
+    assert!(malformed_message(read_snapshot(&source).unwrap_err()).contains("unknown variant"));
+    let source = spec.source_with(|value| value["themes"][0]["kind"] = json!("Custom"));
+    assert!(malformed_message(read_snapshot(&source).unwrap_err()).contains("unknown variant"));
+}
+
+#[test]
+fn a_duplicate_key_is_rejected_not_last_one_wins() {
+    let spec = Spec::minimal();
+    let manifest = spec.manifest();
+
+    // Top level.
+    let duplicated = manifest.replacen("{\n", "{\n  \"title\": \"Other\",\n", 1);
+    assert!(
+        malformed_message(read_snapshot(&spec.source_with_text(duplicated)).unwrap_err())
+            .contains("duplicate field `title`")
+    );
+
+    // Nested in a Cue.
+    let duplicated = manifest.replacen(
+        "\"label\": \"Slide one\"",
+        "\"label\": \"Slide one\",\n          \"label\": \"Slide two\"",
+        1,
+    );
+    assert_ne!(duplicated, manifest);
+    assert!(
+        malformed_message(read_snapshot(&spec.source_with_text(duplicated)).unwrap_err())
+            .contains("duplicate field `label`")
+    );
+
+    // Inside the tagged behavior, the tag itself and a payload member.
+    let duplicated = manifest.replacen(
+        "\"type\": \"operator_trigger\"",
+        "\"type\": \"operator_trigger\",\n            \"type\": \"hold\"",
+        1,
+    );
+    assert_ne!(duplicated, manifest);
+    assert!(
+        matches!(
+            manifest_reason(read_snapshot(&spec.source_with_text(duplicated)).unwrap_err()),
+            ManifestReason::Malformed { .. }
+        ),
+        "a repeated type tag must not pick one"
+    );
+    let duplicated = manifest.replacen(
+        "\"reason\": \"Image could not be captured\"",
+        "\"reason\": \"Image could not be captured\",\n            \"reason\": \"Other\"",
+        1,
+    );
+    assert_ne!(duplicated, manifest);
+    assert!(
+        malformed_message(read_snapshot(&spec.source_with_text(duplicated)).unwrap_err())
+            .contains("duplicate field `reason`")
+    );
+
+    // The version probe also refuses a repeated `schema_version`.
+    let duplicated = manifest.replacen("{\n", "{\n  \"schema_version\": 1,\n", 1);
+    assert!(matches!(
+        manifest_reason(read_snapshot(&spec.source_with_text(duplicated)).unwrap_err()),
+        ManifestReason::Malformed { .. }
+    ));
+}
+
+#[test]
+fn null_is_not_a_way_to_spell_an_absent_optional_member() {
+    let spec = Spec::minimal();
+    for (path, member) in [
+        (vec!["sections", "0", "items", "0"], "theme_id"),
+        (vec!["sections", "0", "items", "0"], "auto_play_seconds"),
+        (
+            vec!["sections", "0", "items", "0", "cues", "0"],
+            "private_context",
+        ),
+        (
+            vec!["sections", "0", "items", "0", "cues", "0", "behavior"],
+            "duration_seconds",
+        ),
+    ] {
+        let source = spec.source_with(|value| {
+            let mut at = value;
+            for step in &path {
+                at = match step.parse::<usize>() {
+                    Ok(index) => &mut at[index],
+                    Err(_) => &mut at[*step],
+                };
+            }
+            at[member] = Value::Null;
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains(&format!("`{member}` is null; omit the member")),
+            "{member}: {message}"
+        );
+    }
+}
+
+#[test]
+fn provenance_is_validated_and_carried() {
+    let spec = Spec::minimal();
+    let loaded = spec.load().unwrap();
+    let provenance = loaded.provenance();
+    assert_eq!(provenance.mass_plan_id().to_string(), uuid(0x701));
+    assert_eq!(provenance.celebration_id().to_string(), uuid(0x702));
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-04T09:30:00Z");
+    assert_eq!(provenance.captured_at().to_string(), "2026-11-04T09:30:00Z");
+
+    for member in ["celebration_id", "captured_at"] {
+        let source = spec.source_with(|value| {
+            value.as_object_mut().unwrap().remove(member);
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains(&format!("missing field `{member}`")),
+            "{member}: {message}"
+        );
+    }
+
+    let source = spec.source_with(|value| value["mass_plan_id"] = json!("nope"));
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::InvalidId { at, .. } if at == "/mass_plan_id"
+    ));
+    let source =
+        spec.source_with(|value| value["celebration_id"] = json!(uuid(0x7ab).to_uppercase()));
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::InvalidId { at, .. } if at == "/celebration_id"
+    ));
+    for bad in [
+        "2026-11-04",
+        "2026-11-04T09:30:00",
+        "2026-11-04 09:30:00Z",
+        "2026-11-04T09:30:00.5Z",
+    ] {
+        let source = spec.source_with(|value| value["captured_at"] = json!(bad));
+        assert!(
+            matches!(
+                manifest_reason(read_snapshot(&source).unwrap_err()),
+                ManifestReason::InvalidTimestamp { .. }
+            ),
+            "{bad}"
+        );
+    }
 }
 
 #[test]
 fn non_canonical_identities_and_digests_are_rejected() {
     let spec = Spec::minimal();
-    let manifest =
-        spec.manifest()
-            .replacen(&format!("snapshot {}", snapshot_id()), "snapshot 0", 1);
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
+    let source = spec.source_with(|value| value["id"] = json!("0"));
     assert!(matches!(
-        read_snapshot(&source).unwrap_err(),
-        SnapshotLoadError::Manifest {
-            line: 2,
-            reason: ManifestReason::InvalidId { .. },
-        }
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::InvalidId { at, .. } if at == "/id"
     ));
 
-    let spec = Spec::minimal();
-    let manifest = spec.manifest().replacen(
-        &spec.fingerprint().to_string(),
-        &spec.fingerprint().to_string().to_uppercase(),
-        1,
-    );
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
+    // Identities nested deep name their JSON Pointer.
+    let source = spec.source_with(|value| {
+        value["sections"][0]["items"][0]["cues"][1]["behavior"]["frame_id"] =
+            json!(uuid(0xabc).to_uppercase());
+    });
     assert!(matches!(
-        read_snapshot(&source).unwrap_err(),
-        SnapshotLoadError::Manifest {
-            line: 4,
-            reason: ManifestReason::InvalidHash {
-                error: ContentHashError::NotLowercaseHex,
-                ..
-            },
-        }
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::InvalidId { at, .. } if at == "/sections/0/items/0/cues/1/behavior/frame_id"
+    ));
+
+    let source = spec.source_with(|value| {
+        value["dependencies_fingerprint"] = json!(spec.fingerprint().to_string().to_uppercase());
+    });
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::InvalidHash {
+            at,
+            error: ContentHashError::NotLowercaseHex,
+            ..
+        } if at == "/dependencies_fingerprint"
     ));
 }
 
 #[test]
 fn blank_text_is_rejected_rather_than_forwarded() {
     let spec = Spec::minimal();
-    let manifest = spec.manifest().replace("title Minimal", "title   ");
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
-
+    let source = spec.source_with(|value| value["title"] = json!("   "));
     assert_eq!(
         read_snapshot(&source).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: 3,
-            reason: ManifestReason::Blank { field: "title" },
+            reason: ManifestReason::Blank {
+                at: "/title".to_owned(),
+            },
         }
     );
+
+    // Every text member is checked, not only the title.
+    let cases: [(&[&str], &str); 6] = [
+        (&["themes", "0", "name"], "/themes/0/name"),
+        (&["sections", "0", "title"], "/sections/0/title"),
+        (
+            &["sections", "0", "items", "0", "title"],
+            "/sections/0/items/0/title",
+        ),
+        (
+            &["sections", "0", "items", "0", "cues", "0", "label"],
+            "/sections/0/items/0/cues/0/label",
+        ),
+        (
+            &[
+                "sections",
+                "0",
+                "items",
+                "0",
+                "cues",
+                "0",
+                "private_context",
+            ],
+            "/sections/0/items/0/cues/0/private_context",
+        ),
+        (
+            &[
+                "sections", "0", "items", "1", "cues", "3", "behavior", "reason",
+            ],
+            "/sections/0/items/1/cues/3/behavior/reason",
+        ),
+    ];
+    for (path, pointer) in cases {
+        let source = spec.source_with(|value| {
+            let mut at = value;
+            for step in path {
+                at = match step.parse::<usize>() {
+                    Ok(index) => &mut at[index],
+                    Err(_) => &mut at[*step],
+                };
+            }
+            *at = json!("\t ");
+        });
+        assert_eq!(
+            read_snapshot(&source).unwrap_err(),
+            SnapshotLoadError::Manifest {
+                reason: ManifestReason::Blank {
+                    at: pointer.to_owned(),
+                },
+            },
+            "{pointer}"
+        );
+    }
 }
 
 #[test]
@@ -582,9 +1004,23 @@ fn duplicate_frame_ids_and_shared_paths_are_rejected() {
         text: text_frame("Another"),
     });
     assert!(matches!(
-        duplicate_id.load().unwrap_err(),
-        SnapshotLoadError::Manifest {
-            reason: ManifestReason::Duplicate { field: "frame", .. },
+        manifest_reason(duplicate_id.load().unwrap_err()),
+        ManifestReason::Duplicate {
+            field: "frames",
+            ..
+        }
+    ));
+
+    let mut duplicate_asset = Spec::minimal();
+    duplicate_asset.assets.push(AssetSpec {
+        id: asset_id(),
+        path: "assets/other.png".to_owned(),
+        bytes: vec![1, 2, 3],
+    });
+    assert!(matches!(
+        manifest_reason(duplicate_asset.load().unwrap_err()),
+        ManifestReason::Duplicate {
+            field: "assets",
             ..
         }
     ));
@@ -596,11 +1032,8 @@ fn duplicate_frame_ids_and_shared_paths_are_rejected() {
         text: text_frame("Another"),
     });
     assert!(matches!(
-        shared_path.load().unwrap_err(),
-        SnapshotLoadError::Manifest {
-            reason: ManifestReason::DuplicatePath { .. },
-            ..
-        }
+        manifest_reason(shared_path.load().unwrap_err()),
+        ManifestReason::DuplicatePath { .. }
     ));
 }
 
@@ -767,9 +1200,7 @@ fn a_declared_asset_no_frame_uses_is_rejected() {
 #[test]
 fn an_asset_must_have_its_declared_size() {
     let spec = Spec::minimal();
-    let manifest = spec.manifest().replace("asset-size 4", "asset-size 5");
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest);
+    let source = spec.source_with(|value| value["assets"][0]["size"] = json!(5));
 
     assert_eq!(
         read_snapshot(&source).unwrap_err(),
@@ -780,6 +1211,18 @@ fn an_asset_must_have_its_declared_size() {
             actual: 4,
         }
     );
+
+    // A size that is not a plain unsigned integer is malformed, not coerced.
+    for bad in [json!(-1), json!(4.0), json!("4"), json!(4_294_967_296_u64)] {
+        let source = spec.source_with(|value| value["assets"][0]["size"] = bad.clone());
+        assert!(
+            matches!(
+                manifest_reason(read_snapshot(&source).unwrap_err()),
+                ManifestReason::Malformed { .. }
+            ),
+            "{bad}"
+        );
+    }
 }
 
 #[test]
@@ -1011,28 +1454,31 @@ fn a_hostile_line_count_never_sizes_an_allocation() {
 #[test]
 fn a_crlf_manifest_is_rejected_at_its_first_carriage_return() {
     let spec = Spec::minimal();
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, spec.manifest().replace('\n', "\r\n"));
+    let source = spec.source_with_text(spec.manifest().replace('\n', "\r\n"));
     assert_eq!(
         read_snapshot(&source).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: 1,
-            reason: ManifestReason::CarriageReturn,
+            reason: ManifestReason::CarriageReturn { line: 1 },
         }
     );
 
-    // A single stray carriage return in the middle names its own line.
-    let mut source = spec.source();
-    source.insert(
-        MANIFEST_PATH,
-        spec.manifest()
-            .replacen("title Minimal", "title Minimal\r", 1),
-    );
+    // A single stray carriage return in the middle names its own line, even
+    // where JSON would accept it as whitespace.
+    let manifest = spec.manifest();
+    let line = manifest
+        .lines()
+        .position(|line| line.contains("\"title\": \"Minimal\""))
+        .unwrap()
+        + 1;
+    let source = spec.source_with_text(manifest.replacen(
+        "\"title\": \"Minimal\"",
+        "\"title\": \"Minimal\"\r",
+        1,
+    ));
     assert_eq!(
         read_snapshot(&source).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: 3,
-            reason: ManifestReason::CarriageReturn,
+            reason: ManifestReason::CarriageReturn { line },
         }
     );
 }
@@ -1058,12 +1504,10 @@ fn a_crlf_frame_is_rejected_rather_than_normalized() {
 fn a_missing_final_lf_is_rejected_in_the_manifest_and_in_frames() {
     let spec = Spec::minimal();
     let manifest = spec.manifest();
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, manifest.trim_end_matches('\n'));
+    let source = spec.source_with_text(manifest.trim_end_matches('\n'));
     assert_eq!(
         read_snapshot(&source).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: manifest.lines().count(),
             reason: ManifestReason::MissingFinalNewline,
         }
     );
@@ -1085,17 +1529,15 @@ fn a_missing_final_lf_is_rejected_in_the_manifest_and_in_frames() {
 }
 
 #[test]
-fn a_byte_order_mark_is_not_part_of_the_format_line() {
+fn a_byte_order_mark_is_rejected_in_the_manifest_and_in_frames() {
     let spec = Spec::minimal();
-    let mut source = spec.source();
-    source.insert(MANIFEST_PATH, format!("\u{feff}{}", spec.manifest()));
-    assert!(matches!(
+    let source = spec.source_with_text(format!("\u{feff}{}", spec.manifest()));
+    assert_eq!(
         read_snapshot(&source).unwrap_err(),
         SnapshotLoadError::Manifest {
-            line: 1,
-            reason: ManifestReason::UnknownFormat { .. },
+            reason: ManifestReason::ByteOrderMark,
         }
-    ));
+    );
 
     let mut spec = Spec::minimal();
     spec.frames[0].text = format!("\u{feff}{}", spec.frames[0].text);
@@ -1112,22 +1554,33 @@ fn a_byte_order_mark_is_not_part_of_the_format_line() {
 }
 
 #[test]
-fn trailing_whitespace_in_a_text_value_is_rejected() {
+fn trailing_whitespace_and_line_breaks_in_a_text_value_are_rejected() {
+    let spec = Spec::minimal();
     for suffix in [" ", "\t", "\u{a0}"] {
-        let spec = Spec::minimal();
-        let mut source = spec.source();
-        source.insert(
-            MANIFEST_PATH,
-            spec.manifest()
-                .replacen("title Minimal", &format!("title Minimal{suffix}"), 1),
-        );
+        let source = spec.source_with(|value| value["title"] = json!(format!("Minimal{suffix}")));
         assert_eq!(
             read_snapshot(&source).unwrap_err(),
             SnapshotLoadError::Manifest {
-                line: 3,
-                reason: ManifestReason::TrailingWhitespace { field: "title" },
+                reason: ManifestReason::TrailingWhitespace {
+                    at: "/title".to_owned(),
+                },
             },
             "{suffix:?}"
+        );
+    }
+
+    // JSON can spell a line break inside a string; the manifest texts are one
+    // line, as the old line format guaranteed.
+    for title in ["Two\nlines", "Two\rlines"] {
+        let source = spec.source_with(|value| value["title"] = json!(title));
+        assert_eq!(
+            read_snapshot(&source).unwrap_err(),
+            SnapshotLoadError::Manifest {
+                reason: ManifestReason::LineBreak {
+                    at: "/title".to_owned(),
+                },
+            },
+            "{title:?}"
         );
     }
 }
@@ -1164,4 +1617,369 @@ fn a_loaded_snapshot_pins_its_manifest_bytes() {
         "the fingerprint covers dependencies only"
     );
     assert_ne!(before.manifest_hash(), after.manifest_hash());
+}
+
+#[test]
+fn a_manifest_over_the_size_cap_is_refused_before_parsing() {
+    let spec = Spec::minimal();
+    let source = spec.source_with_text(vec![b' '; MAX_MANIFEST_BYTES + 1]);
+    assert_eq!(
+        read_snapshot(&source).unwrap_err(),
+        SnapshotLoadError::Manifest {
+            reason: ManifestReason::TooLarge {
+                size: MAX_MANIFEST_BYTES + 1,
+                limit: MAX_MANIFEST_BYTES,
+            },
+        }
+    );
+
+    // The cap is checked before UTF-8: bytes that could never be text are
+    // still reported as too large, not decoded.
+    let source = spec.source_with_text(vec![0xff; MAX_MANIFEST_BYTES + 1]);
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::TooLarge { .. }
+    ));
+
+    // Exactly at the cap is parsed (and here fails as the bad JSON it is).
+    let source = spec.source_with_text(vec![b'\n'; MAX_MANIFEST_BYTES]);
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::Malformed { .. }
+    ));
+}
+
+#[test]
+fn a_manifest_that_is_not_utf8_is_refused() {
+    let spec = Spec::minimal();
+    let mut bytes = spec.manifest().into_bytes();
+    bytes[10] = 0xff;
+    assert_eq!(
+        read_snapshot(&spec.source_with_text(bytes)).unwrap_err(),
+        SnapshotLoadError::ManifestNotUtf8
+    );
+}
+
+#[test]
+fn a_hostile_manifest_never_sizes_an_allocation_from_its_content() {
+    // A wall of nested arrays and a huge declared size: the parser reads what
+    // is present and fails; nothing reserves capacity from a number.
+    let spec = Spec::minimal();
+    // Deep nesting inside an unknown member (which the version probe skips
+    // without building anything), inside a known member, and unterminated:
+    // each is a typed rejection, never a stack overflow or a panic.
+    let deep = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
+    for text in [
+        format!(
+            "{{\"schema_version\":2,\"x\":{deep}}}
+"
+        ),
+        format!(
+            "{{\"schema_version\":2,\"title\":{deep}}}
+"
+        ),
+        format!(
+            "{{\"schema_version\":2,\"x\":{}
+",
+            "[".repeat(10_000)
+        ),
+    ] {
+        assert!(matches!(
+            manifest_reason(read_snapshot(&spec.source_with_text(text)).unwrap_err()),
+            ManifestReason::Malformed { .. }
+        ));
+    }
+    let source = spec.source_with(|value| value["assets"][0]["size"] = json!(u32::MAX));
+    assert!(matches!(
+        read_snapshot(&source).unwrap_err(),
+        SnapshotLoadError::WrongAssetSize { .. }
+    ));
+}
+
+/// Walk a JSON path of member names and array indexes.
+fn navigate<'a>(mut at: &'a mut Value, path: &[&str]) -> &'a mut Value {
+    for step in path {
+        at = match step.parse::<usize>() {
+            Ok(index) => &mut at[index],
+            Err(_) => &mut at[*step],
+        };
+    }
+    at
+}
+
+#[test]
+fn serdes_positional_array_form_is_refused_at_every_level() {
+    let spec = Spec::minimal();
+    let id = uuid(0x9f0);
+    let cases: [(&[&str], Value); 8] = [
+        (&[], json!([2, id, id])),
+        (&["themes", "0"], json!([id, "Theme", "custom"])),
+        (&["sections", "0"], json!([id, "Section", []])),
+        (
+            &["sections", "0", "items", "0"],
+            json!([id, "Item", "song", null, null, []]),
+        ),
+        (
+            &["sections", "0", "items", "0", "cues", "0"],
+            json!([id, "Cue", null, {"type": "hold"}]),
+        ),
+        (
+            &["sections", "0", "items", "0", "cues", "0", "behavior"],
+            json!(["project", id]),
+        ),
+        (&["frames", "0"], json!([id, "frames/a.txt", "0"])),
+        (&["assets", "0"], json!([id, "assets/a.png", 4, "0"])),
+    ];
+    for (path, array) in cases {
+        let source = spec.source_with(|value| {
+            *navigate(value, path) = array.clone();
+        });
+        let message = malformed_message(read_snapshot(&source).unwrap_err());
+        assert!(
+            message.contains("expected a JSON object"),
+            "{path:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn one_identity_names_one_thing() {
+    let spec = Spec::minimal();
+    let snapshot = snapshot_id().to_string();
+    let snapshot = snapshot.as_str();
+    let cue = cue_id().to_string();
+    let theme = custom_theme().to_string();
+    let theme = theme.as_str();
+
+    // A frame whose id is a Cue's id (the Cue still shows that frame).
+    let source = spec.source_with(|value| {
+        value["frames"][0]["id"] = json!(cue);
+        value["sections"][0]["items"][0]["cues"][0]["behavior"]["frame_id"] = json!(cue);
+    });
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::DuplicateIdentity { at, .. } if at == "/sections/0/items/0/cues/0/id"
+    ));
+
+    let collisions: [(&[&str], &str, &str); 5] = [
+        (&["mass_plan_id"], snapshot, "/mass_plan_id"),
+        (&["themes", "1", "id"], theme, "/themes/1/id"),
+        (&["assets", "0", "id"], snapshot, "/assets/0/id"),
+        (&["sections", "0", "id"], theme, "/sections/0/id"),
+        (
+            &["sections", "0", "items", "0", "id"],
+            snapshot,
+            "/sections/0/items/0/id",
+        ),
+    ];
+    for (path, other, pointer) in collisions {
+        let source = spec.source_with(|value| {
+            *navigate(value, path) = json!(other);
+        });
+        let error = manifest_reason(read_snapshot(&source).unwrap_err());
+        assert!(
+            matches!(&error, ManifestReason::DuplicateIdentity { at, .. } if at == pointer),
+            "{pointer}: {error:?}"
+        );
+    }
+
+    // The Celebration identity is in the same namespace.
+    let source = spec.source_with(|value| value["celebration_id"] = json!(snapshot));
+    assert!(matches!(
+        manifest_reason(read_snapshot(&source).unwrap_err()),
+        ManifestReason::DuplicateIdentity { at, .. } if at == "/celebration_id"
+    ));
+
+    // A reference is a use, not a claim: the Mass Theme names a listed Theme.
+    assert!(spec.load().is_ok());
+}
+
+fn schema_members(schema: &Value) -> (Vec<String>, Vec<String>) {
+    let mut properties: Vec<String> = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    properties.sort_unstable();
+    let mut required: Vec<String> = schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| member.as_str().unwrap().to_owned())
+        .collect();
+    required.sort_unstable();
+    (properties, required)
+}
+
+fn sorted(members: &[&str]) -> Vec<String> {
+    let mut members: Vec<String> = members.iter().map(|member| (*member).to_owned()).collect();
+    members.sort_unstable();
+    members
+}
+
+#[test]
+fn the_committed_schema_pins_the_same_version_and_members() {
+    // The schema is the contract for other tools; this keeps every level of it
+    // from drifting from the wire structs the reader deserializes. The lists
+    // below restate those structs on purpose.
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../contracts/snapshot-manifest/v2.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(schema["properties"]["schema_version"]["const"], json!(2));
+
+    let levels: [(&Value, &[&str], &[&str]); 7] = [
+        (
+            &schema,
+            &[
+                "schema_version",
+                "id",
+                "mass_plan_id",
+                "celebration_id",
+                "captured_at",
+                "title",
+                "themes",
+                "mass_theme_id",
+                "sections",
+                "frames",
+                "assets",
+                "dependencies_fingerprint",
+            ],
+            &[
+                "schema_version",
+                "id",
+                "mass_plan_id",
+                "celebration_id",
+                "captured_at",
+                "title",
+                "themes",
+                "mass_theme_id",
+                "sections",
+                "frames",
+                "assets",
+                "dependencies_fingerprint",
+            ],
+        ),
+        (
+            &schema["$defs"]["theme"],
+            &["id", "name", "kind"],
+            &["id", "name", "kind"],
+        ),
+        (
+            &schema["$defs"]["section"],
+            &["id", "title", "items"],
+            &["id", "title", "items"],
+        ),
+        (
+            &schema["$defs"]["item"],
+            &[
+                "id",
+                "title",
+                "kind",
+                "theme_id",
+                "auto_play_seconds",
+                "cues",
+            ],
+            &["id", "title", "kind", "cues"],
+        ),
+        (
+            &schema["$defs"]["cue"],
+            &["id", "label", "private_context", "behavior"],
+            &["id", "label", "behavior"],
+        ),
+        (
+            &schema["$defs"]["frame"],
+            &["id", "path", "sha256"],
+            &["id", "path", "sha256"],
+        ),
+        (
+            &schema["$defs"]["asset"],
+            &["id", "path", "size", "sha256"],
+            &["id", "path", "size", "sha256"],
+        ),
+    ];
+    for (level, properties, required) in levels {
+        assert_eq!(level["additionalProperties"], json!(false));
+        let (found_properties, found_required) = schema_members(level);
+        assert_eq!(found_properties, sorted(properties));
+        assert_eq!(found_required, sorted(required));
+    }
+
+    // The behavior variants: tag values and each variant's members.
+    let variants: [(&str, &[&str], &[&str]); 5] = [
+        (
+            "project",
+            &["type", "frame_id", "duration_seconds"],
+            &["type", "frame_id"],
+        ),
+        ("operator_trigger", &["type"], &["type"]),
+        ("hold", &["type"], &["type"]),
+        ("wait", &["type"], &["type"]),
+        ("unavailable", &["type", "reason"], &["type", "reason"]),
+    ];
+    let one_of = schema["$defs"]["behavior"]["oneOf"].as_array().unwrap();
+    assert_eq!(one_of.len(), variants.len());
+    for (variant, (tag, properties, required)) in one_of.iter().zip(variants) {
+        assert_eq!(variant["properties"]["type"]["const"], json!(tag));
+        assert_eq!(variant["additionalProperties"], json!(false));
+        let (found_properties, found_required) = schema_members(variant);
+        assert_eq!(found_properties, sorted(properties), "{tag}");
+        assert_eq!(found_required, sorted(required), "{tag}");
+    }
+
+    // Item and Theme kind vocabularies.
+    let kinds = |value: &Value| -> Vec<String> {
+        value["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kind| kind.as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        kinds(&schema["$defs"]["theme"]["properties"]["kind"]),
+        ["custom", "fallback"]
+    );
+    assert_eq!(
+        kinds(&schema["$defs"]["item"]["properties"]["kind"]),
+        [
+            "song",
+            "reading",
+            "psalm",
+            "response_sequence",
+            "general_presentation",
+            "rite"
+        ]
+    );
+
+    // Every member the tests emit is a member the schema declares and
+    // requires.
+    let manifest = Spec::minimal().manifest_json();
+    let (_, required) = schema_members(&schema);
+    for member in manifest.as_object().unwrap().keys() {
+        assert!(required.contains(member), "{member}");
+    }
+}
+
+#[test]
+fn captured_at_orders_chronologically_as_text() {
+    let spec = Spec::minimal();
+    let at = |text: &str| {
+        let source = spec.source_with(|value| value["captured_at"] = json!(text));
+        read_snapshot(&source)
+            .unwrap()
+            .provenance()
+            .captured_at()
+            .clone()
+    };
+    let earlier = at("2026-11-04T09:30:00Z");
+    let later = at("2026-11-04T10:00:00Z");
+    let next_year = at("2027-01-01T00:00:00Z");
+    assert!(earlier < later && later < next_year);
+    assert_eq!(earlier, at("2026-11-04T09:30:00Z"));
 }

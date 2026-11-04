@@ -1,12 +1,13 @@
-//! The strict LF line cursor shared by the manifest and frame parsers.
+//! The strict LF line cursor of the frame parser.
 //!
-//! Both formats are LF-only text. Lines split on `\n` alone, a carriage return
+//! A frame is LF-only text. (The manifest is JSON and has its own byte-level
+//! checks in `manifest.rs`.) Lines split on `\n` alone, a carriage return
 //! anywhere is rejected (it names its line), and a non-empty text must end with
 //! a final LF. [`str::lines`] is deliberately not used: it would silently strip
 //! a `\r` and accept a CRLF checkout whose bytes no longer match the digest the
 //! author computed.
 
-use super::{FrameParseError, FrameReason, ManifestReason};
+use super::{FrameParseError, FrameReason};
 
 /// Why the text could not be split into strict LF lines.
 pub(super) enum LexError {
@@ -17,19 +18,6 @@ pub(super) enum LexError {
 }
 
 impl LexError {
-    pub(super) fn into_manifest(self) -> ManifestError {
-        match self {
-            Self::CarriageReturn { line } => ManifestError {
-                line,
-                reason: ManifestReason::CarriageReturn,
-            },
-            Self::MissingFinalNewline { line } => ManifestError {
-                line,
-                reason: ManifestReason::MissingFinalNewline,
-            },
-        }
-    }
-
     pub(super) fn into_frame(self) -> FrameParseError {
         match self {
             Self::CarriageReturn { line } => FrameParseError::Line {
@@ -52,21 +40,6 @@ pub(super) struct LineError {
 }
 
 impl LineError {
-    pub(super) fn into_manifest(self) -> ManifestError {
-        ManifestError {
-            line: self.line,
-            reason: match self.found {
-                Some(found) => ManifestReason::Unexpected {
-                    expected: self.expected,
-                    found,
-                },
-                None => ManifestReason::Missing {
-                    expected: self.expected,
-                },
-            },
-        }
-    }
-
     pub(super) fn into_frame(self) -> FrameParseError {
         FrameParseError::Line {
             line: self.line,
@@ -81,11 +54,6 @@ impl LineError {
             },
         }
     }
-}
-
-pub(super) struct ManifestError {
-    pub(super) line: usize,
-    pub(super) reason: ManifestReason,
 }
 
 /// The text's lines, read forward exactly once.
@@ -144,11 +112,6 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// The key of one line: everything before the first space.
-pub(super) fn key_of(line: &str) -> &str {
-    line.split_once(' ').map_or(line, |(key, _)| key)
-}
-
 pub(super) fn take_raw<'a>(
     cursor: &mut Cursor<'a>,
     expected: &'static str,
@@ -158,25 +121,6 @@ pub(super) fn take_raw<'a>(
         expected,
         found: None,
     })
-}
-
-/// Consume the next line, requiring it to be `key` followed by one space.
-pub(super) fn take_prefixed<'a>(
-    cursor: &mut Cursor<'a>,
-    key: &'static str,
-) -> Result<(usize, &'a str), LineError> {
-    let (line, text) = take_raw(cursor, key)?;
-    let Some(value) = text
-        .strip_prefix(key)
-        .and_then(|rest| rest.strip_prefix(' '))
-    else {
-        return Err(LineError {
-            line,
-            expected: key,
-            found: Some(text.to_owned()),
-        });
-    };
-    Ok((line, value))
 }
 
 /// Consume the next line, requiring it to start with `prefix`; the value is

@@ -12,75 +12,58 @@
 //! # The snapshot directory
 //!
 //! ```text
-//! snapshot.txt            the manifest, one record per line (LF)
+//! snapshot.json           the manifest: `snapshot-manifest` v2 (JSON, LF)
 //! frames/<name>.txt       one canonical `ordo-fixture/1` frame per file
 //! assets/<name>           binary assets declared by digest
 //! ```
 //!
-//! The manifest is a deliberately simple line format in the spirit of
-//! `ordo-fixture/1`, not the frozen `snapshot-manifest` v1 JSON contract: that
-//! contract has no Mass sections or Cues yet, and reconciling the two belongs
-//! to the Portability phase. Records appear in this fixed order, one per line:
+//! The manifest is the `snapshot-manifest` v2 JSON contract
+//! (`contracts/snapshot-manifest/v2.schema.json`, Decision 311): `schema_version`
+//! 2, the snapshot identity, title, Themes, Mass sections with their items and
+//! Cues, the declared frames and assets, and `dependencies_fingerprint`. A
+//! Cue's behavior is an internally tagged object (`project`, `operator_trigger`,
+//! `hold`, `wait`, `unavailable`). Frame files stay `ordo-fixture/1` text; only
+//! the manifest is JSON. `manifest.rs` holds the grammar.
 //!
-//! ```text
-//! ordo-presentation-snapshot/1
-//! snapshot <SnapshotId>
-//! title <text>
-//! fingerprint <sha256>
-//! theme <ThemeId>
-//! theme-name <text>
-//! theme-kind <Custom|Fallback>
-//! ...                                   (one theme record per Theme)
-//! mass-theme <ThemeId>
-//! frame <FrameId>
-//! frame-path <frames/...>
-//! frame-sha256 <sha256>
-//! ...                                   (one frame record per frame)
-//! asset <AssetId>
-//! asset-path <assets/...>
-//! asset-size <bytes>
-//! asset-sha256 <sha256>
-//! ...                                   (one asset record per asset)
-//! section <MassSectionId>
-//! section-title <text>
-//! item <MassItemId>
-//! item-title <text>
-//! item-kind <Song|Reading|Psalm|ResponseSequence|GeneralPresentation|Rite>
-//! item-theme <ThemeId>                  (optional: inherit the Mass Theme)
-//! item-auto-play <seconds>              (optional: manual advance)
-//! cue <CueId>
-//! cue-label <text>
-//! cue-private-context <text>            (optional: operator-only)
-//! cue-behavior <Project|OperatorTrigger|Hold|Wait|Unavailable>
-//! cue-frame <FrameId>                   (Project only)
-//! cue-duration <seconds>                (Project only, optional)
-//! cue-reason <text>                     (Unavailable only)
-//! ...                                   (one or more cues per item)
-//! ...                                   (one or more items per section)
-//! ...                                   (one or more sections)
-//! ```
+//! The reader is strict, so one snapshot is one byte sequence and nothing is
+//! guessed:
 //!
-//! Text values are the raw remainder of the line, so punctuation, quotes, and
-//! non-Latin scripts pass through untouched and nothing needs escaping. A
-//! missing required record, an out-of-order line, a miscount, or trailing
-//! content is a loud error naming the 1-based line.
-//!
-//! Both the manifest and every frame are LF-only text: lines split on
-//! `\n` alone, any carriage return is rejected (naming its line), the text must end
-//! with a final LF, and a manifest text value may not end in whitespace. A
-//! byte-order mark is not part of the format line and is rejected as an
-//! unknown format. The strictness keeps one snapshot to one byte sequence, so
-//! a digest can never survive an editor or checkout converting line endings.
+//! - The manifest may not exceed [`MAX_MANIFEST_BYTES`]; the size is checked
+//!   before any parsing, and no allocation is sized from a count in the
+//!   input.
+//! - A `schema_version` other than 2 (v1 is frozen and never read; a higher
+//!   version is from a newer Ordo) is refused with the contract's
+//!   compatible-version message, before the rest of the document is judged.
+//! - Unknown members, a member that appears twice, a missing required member,
+//!   and `null` in place of an absent optional member are all rejected, as is
+//!   a JSON array where an object belongs (serde's positional form is
+//!   refused, so the member guards cannot be bypassed) and a repeated identity
+//!   among frames or assets.
+//! - One identity names one thing: the snapshot, Mass plan, Celebration,
+//!   Themes, sections, items, Cues, frames, and assets share one identity
+//!   namespace, and any collision is rejected (`DuplicateIdentity`). A Theme
+//!   *reference* (`mass_theme_id`, `theme_id`) or a frame reference
+//!   (`frame_id`) is a use of an identity, not a claim on it.
+//! - The manifest is LF-only: a carriage return is rejected (naming its line),
+//!   the text must end with a final LF, a byte-order mark is rejected, and no
+//!   text value may be blank, hold a line break, or end in whitespace.
+//!   Every frame is LF-only text under the same rules.
+//! - JSON has several spellings of the same content (escapes such as `\u0041`
+//!   for `A`, member order, and whitespace between tokens), and each gives
+//!   different bytes. The reader accepts them all, so equal content does not
+//!   mean equal bytes: [`LoadedSnapshot::manifest_hash`] pins the exact bytes
+//!   that were read, and the fingerprint does not.
 //!
 //! # Invariants this boundary enforces
 //!
 //! - Fingerprint: the SHA-256 of every declared frame and asset digest's hex,
-//!   sorted, each followed by LF — the same rule `snapshot-manifest` v1 fixes
-//!   for `assets_fingerprint`. It covers the *dependency bytes only*: it does
-//!   not cover the manifest, so a changed title, Cue order, identity, or
-//!   behavior leaves it unchanged. [`LoadedSnapshot::manifest_hash`] is the
-//!   SHA-256 of the exact `snapshot.txt` bytes, and a caller that must pin the
-//!   structure (every identity and the order) pins that digest as well.
+//!   sorted, each followed by LF — the fingerprint rule of `snapshot-manifest`
+//!   v1 (`assets_fingerprint`) and v2, declared as `dependencies_fingerprint`. It
+//!   covers the *dependency bytes only*: it does not cover the manifest, so a
+//!   changed title, Cue order, identity, or behavior leaves it unchanged.
+//!   [`LoadedSnapshot::manifest_hash`] is the SHA-256 of the exact
+//!   `snapshot.json` bytes, and a caller that must pin the structure (every
+//!   identity and the order) pins that digest as well.
 //! - Dependency paths are snapshot-relative: frames live under `frames/` and
 //!   assets under `assets/` (file names are free), with no absolute path,
 //!   drive prefix, backslash separator, empty segment, `.`, or `..`, so a
@@ -89,7 +72,7 @@
 //!   without an extension), no trailing `.` or space, and no reserved
 //!   character, and two paths that differ only in ASCII case count as one
 //!   file.
-//! - Every asset's byte length equals its declared `asset-size`, checked
+//! - Every asset's byte length equals its declared `size`, checked
 //!   before the bytes are hashed.
 //! - A frame names an image (`image:`) only when it is a General Image frame.
 //! - Every declared frame is shown by at least one Project Cue, and every
@@ -120,22 +103,21 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read as _};
 use std::path::PathBuf;
 
 use domain::presentation::{
-    AssetId, ContentHash, ContentHashError, CueBehavior, CueId, FrameId, IdError, MassItem,
-    MassSection, PresentationSnapshot, SnapshotError,
+    AssetId, ContentHash, ContentHashError, CueBehavior, CueId, EntityId, FrameId, IdError,
+    MassItem, MassSection, PresentationSnapshot, SnapshotError,
 };
 use rendering::{RenderError, TargetDensity, TemplateContent, Theme, render_template};
 use sha2::{Digest, Sha256};
 
 use frame::parse_frame;
-use lines::ManifestError;
 use manifest::{Manifest, build_snapshot, parse_manifest};
 
 /// The one manifest file name a snapshot directory or container must carry.
-pub const MANIFEST_PATH: &str = "snapshot.txt";
+pub const MANIFEST_PATH: &str = "snapshot.json";
 
 /// Where every declared frame file lives.
 const FRAME_DIRECTORY: &str = "frames";
@@ -143,8 +125,13 @@ const FRAME_DIRECTORY: &str = "frames";
 /// Where every declared asset lives.
 const ASSET_DIRECTORY: &str = "assets";
 
-/// The format line every manifest starts with.
-const MANIFEST_FORMAT: &str = "ordo-presentation-snapshot/1";
+/// The only `schema_version` this build reads (`snapshot-manifest` v2).
+const MANIFEST_SCHEMA_VERSION: u64 = 2;
+
+/// The largest manifest the reader will parse, checked before parsing. A real
+/// Mass plan is a few hundred kilobytes at most; the cap only bounds what a
+/// hostile or corrupt file can make the parser do.
+pub const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 
 /// The format line every frame file starts with, shared with the golden-frame
 /// harness in `crates/rendering/tests/golden.rs`.
@@ -217,8 +204,32 @@ impl SnapshotSource for DirectorySource {
                 });
             }
         }
+        if path == MANIFEST_PATH {
+            return read_manifest_capped(&current);
+        }
         fs::read(&current).map_err(io_error)
     }
+}
+
+/// Read the manifest without ever holding more than [`MAX_MANIFEST_BYTES`] of
+/// it: the length is checked first, and the read itself is bounded in case the
+/// file grows after the check. An oversized manifest is refused, not read.
+fn read_manifest_capped(path: &std::path::Path) -> Result<Vec<u8>, SourceError> {
+    let too_large = || SourceError::Refused {
+        reason: format!("{MANIFEST_PATH} is larger than {MAX_MANIFEST_BYTES} bytes"),
+    };
+    let file = fs::File::open(path).map_err(io_error)?;
+    if file.metadata().map_err(io_error)?.len() > MAX_MANIFEST_BYTES as u64 {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_MANIFEST_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(too_large());
+    }
+    Ok(bytes)
 }
 
 fn io_error(error: std::io::Error) -> SourceError {
@@ -278,10 +289,68 @@ pub struct Dependency {
 /// a missing dependency.
 pub struct LoadedSnapshot {
     snapshot: PresentationSnapshot,
+    provenance: SnapshotProvenance,
     frames: BTreeMap<FrameId, LoadedFrame>,
     assets: BTreeMap<AssetId, LoadedAsset>,
     fingerprint: ContentHash,
     manifest_hash: ContentHash,
+}
+
+/// Where a snapshot came from: the Mass plan it captured, the Celebration that
+/// plan sits under, and when it was captured.
+///
+/// All three are required in `snapshot-manifest` v2 and are carried, not
+/// discarded, because later features key on them: interrupted-Mass recovery
+/// (Decision 14), reuse of the latest snapshot of a plan (Decision 178), and
+/// grouping snapshots under their Celebration (Decision 180). The domain
+/// snapshot does not hold them, so the storage format's identities stay out of
+/// `domain`. The Mass plan and Celebration are plain [`EntityId`]s because no
+/// typed identity for them exists yet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotProvenance {
+    mass_plan_id: EntityId,
+    celebration_id: EntityId,
+    captured_at: CapturedAt,
+}
+
+impl SnapshotProvenance {
+    /// The Mass plan this snapshot captured.
+    pub fn mass_plan_id(&self) -> EntityId {
+        self.mass_plan_id
+    }
+
+    /// The Celebration the Mass plan sits under.
+    pub fn celebration_id(&self) -> EntityId {
+        self.celebration_id
+    }
+
+    /// When the snapshot was captured.
+    pub fn captured_at(&self) -> &CapturedAt {
+        &self.captured_at
+    }
+}
+
+/// A UTC capture time in the fixed shape `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// The reader checks the shape (digits and separators), not calendar ranges.
+/// Because the width and field order are fixed and the zone is always `Z`,
+/// the derived ordering is plain string order, which is chronological order
+/// for well-formed values with in-range fields. There is no time library
+/// behind it.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedAt(String);
+
+impl CapturedAt {
+    /// The validated text, exactly as written in the manifest.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CapturedAt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 struct LoadedFrame {
@@ -298,6 +367,11 @@ impl LoadedSnapshot {
     /// The domain model: sections, Mass items, Cues, and Themes.
     pub fn snapshot(&self) -> &PresentationSnapshot {
         &self.snapshot
+    }
+
+    /// Where this snapshot came from: Mass plan, Celebration, capture time.
+    pub fn provenance(&self) -> &SnapshotProvenance {
+        &self.provenance
     }
 
     /// The parsed frame file a Project Cue shows.
@@ -330,7 +404,7 @@ impl LoadedSnapshot {
     }
 
     /// The digest of every declared frame and asset digest under the
-    /// `snapshot-manifest` v1 rule.
+    /// `snapshot-manifest` fingerprint rule (`dependencies_fingerprint`).
     ///
     /// This covers the dependency bytes only. It does not cover the manifest:
     /// a changed title, identity, Cue order, or Cue behavior leaves it
@@ -339,7 +413,7 @@ impl LoadedSnapshot {
         self.fingerprint
     }
 
-    /// The SHA-256 of the exact `snapshot.txt` bytes that were read, so it
+    /// The SHA-256 of the exact `snapshot.json` bytes that were read, so it
     /// pins every identity, title, and the order of sections, items, and Cues
     /// that the dependency-only [`LoadedSnapshot::fingerprint`] leaves free.
     pub fn manifest_hash(&self) -> ContentHash {
@@ -353,6 +427,7 @@ impl fmt::Debug for LoadedSnapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LoadedSnapshot")
             .field("snapshot", &self.snapshot)
+            .field("provenance", &self.provenance)
             .field(
                 "frames",
                 &self.frames.keys().copied().collect::<Vec<FrameId>>(),
@@ -381,6 +456,15 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
         SourceError::Unreadable { reason } => SnapshotLoadError::UnreadableManifest { reason },
         SourceError::Refused { reason } => SnapshotLoadError::RefusedManifest { reason },
     })?;
+    // The cap comes first so an oversized file is never hashed or parsed.
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(SnapshotLoadError::Manifest {
+            reason: ManifestReason::TooLarge {
+                size: bytes.len(),
+                limit: MAX_MANIFEST_BYTES,
+            },
+        });
+    }
     let manifest_hash = hash_bytes(&bytes);
     let text = std::str::from_utf8(&bytes).map_err(|_| SnapshotLoadError::ManifestNotUtf8)?;
 
@@ -388,6 +472,7 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
     // must not make the reader open files.
     let Manifest {
         snapshot: snapshot_id,
+        provenance,
         title,
         fingerprint: declared_fingerprint,
         themes,
@@ -395,7 +480,7 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
         frames: declared_frames,
         assets: declared_assets,
         sections,
-    } = parse_manifest(text)?;
+    } = parse_manifest(text).map_err(|reason| SnapshotLoadError::Manifest { reason })?;
     let snapshot = build_snapshot(snapshot_id, title, mass_theme, themes, sections)?;
 
     let mut frames = BTreeMap::new();
@@ -460,6 +545,7 @@ pub fn read_snapshot(source: &dyn SnapshotSource) -> Result<LoadedSnapshot, Snap
 
     Ok(LoadedSnapshot {
         snapshot,
+        provenance,
         frames,
         assets,
         fingerprint,
@@ -568,7 +654,8 @@ fn verify_references(
     Ok(())
 }
 
-/// The `snapshot-manifest` v1 fingerprint rule: every digest's lowercase hex,
+/// The `snapshot-manifest` fingerprint rule (v1 `assets_fingerprint`, v2
+/// `dependencies_fingerprint`): every digest's lowercase hex,
 /// sorted, each followed by LF, hashed once more.
 ///
 /// Duplicates appear once per declaration rather than being deduplicated, so
@@ -654,17 +741,17 @@ fn is_windows_device_name(segment: &str) -> bool {
 /// file to repair instead of reporting that loading failed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SnapshotLoadError {
-    /// The source has no `snapshot.txt`.
+    /// The source has no `snapshot.json`.
     MissingManifest,
-    /// `snapshot.txt` exists but its bytes could not be read.
+    /// `snapshot.json` exists but its bytes could not be read.
     UnreadableManifest { reason: String },
-    /// The source refused to serve `snapshot.txt` (for example a symbolic
+    /// The source refused to serve `snapshot.json` (for example a symbolic
     /// link); nothing was read.
     RefusedManifest { reason: String },
-    /// `snapshot.txt` is not UTF-8 text, so no line format can be read.
+    /// `snapshot.json` is not UTF-8 text, so no JSON can be read.
     ManifestNotUtf8,
-    /// The manifest does not follow the documented line format.
-    Manifest { line: usize, reason: ManifestReason },
+    /// The manifest is not a valid `snapshot-manifest` v2 document.
+    Manifest { reason: ManifestReason },
     /// The assembled snapshot violates a domain invariant.
     Snapshot(SnapshotError),
     /// A declared frame or asset is absent from the source.
@@ -731,7 +818,7 @@ impl fmt::Display for SnapshotLoadError {
                 write!(f, "{MANIFEST_PATH} was refused: {reason}")
             }
             Self::ManifestNotUtf8 => write!(f, "{MANIFEST_PATH} is not UTF-8 text"),
-            Self::Manifest { line, reason } => write!(f, "{MANIFEST_PATH} line {line}: {reason}"),
+            Self::Manifest { reason } => write!(f, "{MANIFEST_PATH}: {reason}"),
             Self::Snapshot(error) => write!(f, "the snapshot is not usable: {error}"),
             Self::MissingDependency { dependency } => {
                 write!(f, "{} at {:?} is missing", dependency.id, dependency.path)
@@ -800,51 +887,57 @@ impl From<SnapshotError> for SnapshotLoadError {
     }
 }
 
-impl From<ManifestError> for SnapshotLoadError {
-    fn from(error: ManifestError) -> Self {
-        Self::Manifest {
-            line: error.line,
-            reason: error.reason,
-        }
-    }
-}
-
-/// Why one manifest line, or the missing end of the manifest, is not the
-/// documented format. The line number lives beside it in
-/// [`SnapshotLoadError::Manifest`].
+/// Why the manifest is not a usable `snapshot-manifest` v2 document.
+///
+/// Where a value is at fault, `at` is the RFC 6901 JSON Pointer to it (for
+/// example `/sections/2/items/0/cues/1/id`), so the message names the spot to
+/// repair even though JSON has no stable line per value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ManifestReason {
-    /// The first line is not the format line.
-    UnknownFormat { found: String },
-    /// The next record was `found` where `expected` belongs.
-    Unexpected {
-        expected: &'static str,
-        found: String,
+    /// The manifest is larger than [`MAX_MANIFEST_BYTES`]; it was not parsed.
+    TooLarge { size: usize, limit: usize },
+    /// The manifest starts with a byte-order mark.
+    ByteOrderMark,
+    /// The 1-based `line` holds a carriage return; the manifest is LF-only.
+    CarriageReturn { line: usize },
+    /// The manifest does not end with a final LF.
+    MissingFinalNewline,
+    /// The text is not the document shape: bad JSON, an unknown member, a
+    /// repeated member, a missing or mistyped member, or an unknown variant.
+    /// `message` is the cause; `line` and `column` (1-based) locate it.
+    Malformed {
+        line: usize,
+        column: usize,
+        message: String,
     },
-    /// The manifest ended before `expected` appeared.
-    Missing { expected: &'static str },
+    /// `schema_version` names a version this build does not read.
+    UnsupportedVersion { found: u64 },
     /// The value is not a canonical lowercase UUID v4 identity.
-    InvalidId { value: String, error: IdError },
+    InvalidId {
+        at: String,
+        value: String,
+        error: IdError,
+    },
     /// The value is not a canonical lowercase SHA-256 digest.
     InvalidHash {
+        at: String,
         value: String,
         error: ContentHashError,
     },
-    /// The value is not a plain decimal integer without leading zeros.
-    InvalidNumber { value: String },
-    /// The value is not one of the values `field` defines.
-    InvalidChoice { field: &'static str, value: String },
+    /// `captured_at` is not `YYYY-MM-DDTHH:MM:SSZ`.
+    InvalidTimestamp { at: String, value: String },
     /// A title, label, name, or explanation is empty or whitespace only.
-    Blank { field: &'static str },
-    /// A text value ends in whitespace, which an LF-only format cannot show.
-    TrailingWhitespace { field: &'static str },
-    /// The line holds a carriage return; the manifest is LF-only.
-    CarriageReturn,
-    /// The manifest does not end with a final LF.
-    MissingFinalNewline,
+    Blank { at: String },
+    /// A text value holds a line break; manifest texts are one line.
+    LineBreak { at: String },
+    /// A text value ends in whitespace, which an exact byte pin cannot show.
+    TrailingWhitespace { at: String },
     /// A dependency path is absolute, backslash-separated, escapes its root,
     /// or is not a portable Windows file name.
     UnsafePath { path: String },
+    /// One identity is claimed by two entities of the snapshot (for example a
+    /// frame and a Cue), or by one entity twice.
+    DuplicateIdentity { at: String, value: String },
     /// The same identity is declared more than once.
     Duplicate { field: &'static str, value: String },
     /// Two dependencies name the same file (ignoring ASCII case).
@@ -854,33 +947,41 @@ pub enum ManifestReason {
 impl fmt::Display for ManifestReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownFormat { found } => write!(
-                f,
-                "expected the `{MANIFEST_FORMAT}` format line, found {found:?}"
-            ),
-            Self::Unexpected { expected, found } => {
-                write!(f, "expected {expected}, found {found:?}")
+            Self::TooLarge { size, limit } => {
+                write!(f, "the manifest is {size} bytes; the limit is {limit}")
             }
-            Self::Missing { expected } => write!(f, "expected {expected}"),
-            Self::InvalidId { value, error } => {
-                write!(f, "{value:?} is not a canonical identity: {error}")
+            Self::ByteOrderMark => f.write_str("the manifest starts with a byte-order mark"),
+            Self::CarriageReturn { line } => {
+                write!(f, "line {line}: carriage return (the manifest is LF-only)")
             }
-            Self::InvalidHash { value, error } => {
-                write!(f, "{value:?} is not a canonical digest: {error}")
-            }
-            Self::InvalidNumber { value } => {
-                write!(f, "{value:?} is not a plain decimal integer")
-            }
-            Self::InvalidChoice { field, value } => {
-                write!(f, "{value:?} is not a valid {field}")
-            }
-            Self::Blank { field } => write!(f, "{field} must not be blank"),
-            Self::TrailingWhitespace { field } => {
-                write!(f, "{field} must not end in whitespace")
-            }
-            Self::CarriageReturn => f.write_str("carriage return (the manifest is LF-only)"),
             Self::MissingFinalNewline => f.write_str("the manifest must end with a final LF"),
+            Self::Malformed {
+                line,
+                column,
+                message,
+            } => write!(f, "line {line} column {column}: {message}"),
+            Self::UnsupportedVersion { found } => write!(
+                f,
+                "requires an Ordo version supporting snapshot-manifest v{found}; this build supports v{MANIFEST_SCHEMA_VERSION}"
+            ),
+            Self::InvalidId { at, value, error } => {
+                write!(f, "{at}: {value:?} is not a canonical identity: {error}")
+            }
+            Self::InvalidHash { at, value, error } => {
+                write!(f, "{at}: {value:?} is not a canonical digest: {error}")
+            }
+            Self::InvalidTimestamp { at, value } => {
+                write!(f, "{at}: {value:?} is not a UTC timestamp")
+            }
+            Self::Blank { at } => write!(f, "{at}: the text must not be blank"),
+            Self::LineBreak { at } => write!(f, "{at}: the text must be one line"),
+            Self::TrailingWhitespace { at } => {
+                write!(f, "{at}: the text must not end in whitespace")
+            }
             Self::UnsafePath { path } => write!(f, "{path:?} is not a snapshot-relative path"),
+            Self::DuplicateIdentity { at, value } => {
+                write!(f, "{at}: identity {value} already names something else")
+            }
             Self::Duplicate { field, value } => {
                 write!(f, "{field} {value} is declared more than once")
             }

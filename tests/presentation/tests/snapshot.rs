@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use domain::presentation::{ContentHash, CueBehavior, CueId, FrameId, ProgramEffect, ThemeKind};
 use presentation::snapshot_reader::{
-    Dependency, DependencyId, DirectorySource, LoadedSnapshot, SnapshotLoadError, read_snapshot,
+    Dependency, DependencyId, DirectorySource, LoadedSnapshot, MAX_MANIFEST_BYTES,
+    SnapshotLoadError, read_snapshot,
 };
 use rendering::{TargetDensity, Theme, render_template};
 
@@ -30,12 +31,12 @@ const RECOVERY_DRILL_FINGERPRINT: &str =
     "0a8b2474c81b7b466a321916c7af0058b0244ad7907ba5ee2fb82aa780b39cc4";
 
 // The fingerprint covers frame and asset bytes only. The manifest hash is the
-// SHA-256 of the exact `snapshot.txt` bytes, so these pin every identity, title,
+// SHA-256 of the exact `snapshot.json` bytes, so these pin every identity, title,
 // Cue behavior, and the order of sections, items, and Cues as well.
 const NORMAL_MASS_MANIFEST_HASH: &str =
-    "ca423010dd11422b1e6004d60aebf90eb85853a8c4bfc16f79c364ab0529801a";
+    "d0ad8264abed710e33156a73e4c72ab603426a9ec9141469b42daee6dc606ca4";
 const RECOVERY_DRILL_MANIFEST_HASH: &str =
-    "9485fc11711203807013980b1e574887258e2a042656ea853609e96b70861718";
+    "8e6ec6ec19f2cecf6dd3cd87cfc57bfd7027bbf698bd818eb6dac53833350483";
 
 fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -330,6 +331,16 @@ fn recovery_drill_covers_every_cue_behavior_and_its_adversarial_controls() {
 #[test]
 fn recovery_drill_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("recovery-drill");
+    let provenance = loaded.provenance();
+    assert_eq!(
+        provenance.mass_plan_id().to_string(),
+        "b7000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(
+        provenance.celebration_id().to_string(),
+        "b8000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-01T09:30:00Z");
     assert_eq!(loaded.fingerprint(), hash(RECOVERY_DRILL_FINGERPRINT));
     assert_eq!(loaded.manifest_hash(), hash(RECOVERY_DRILL_MANIFEST_HASH));
     assert_eq!(
@@ -398,6 +409,16 @@ fn normal_mass_has_the_sunday_structure() {
 #[test]
 fn normal_mass_has_a_stable_fingerprint_and_hashes() {
     let loaded = load("normal-mass");
+    let provenance = loaded.provenance();
+    assert_eq!(
+        provenance.mass_plan_id().to_string(),
+        "a7000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(
+        provenance.celebration_id().to_string(),
+        "a8000000-0000-4000-8000-000000000000"
+    );
+    assert_eq!(provenance.captured_at().as_str(), "2026-11-01T09:30:00Z");
     assert_eq!(loaded.fingerprint(), hash(NORMAL_MASS_FINGERPRINT));
     assert_eq!(loaded.manifest_hash(), hash(NORMAL_MASS_MANIFEST_HASH));
     assert_eq!(
@@ -533,7 +554,7 @@ fn operator_only_cues_carry_their_private_context() {
 fn no_fixture_text_has_carriage_returns_or_a_missing_final_lf() {
     for name in ["normal-mass", "recovery-drill"] {
         let dir = fixture_dir(name);
-        let mut files = vec![dir.join("snapshot.txt")];
+        let mut files = vec![dir.join("snapshot.json")];
         for entry in fs::read_dir(dir.join("frames")).unwrap() {
             files.push(entry.unwrap().path());
         }
@@ -669,6 +690,27 @@ fn a_changed_asset_byte_is_rejected_as_a_hash_mismatch() {
                 ..
             }
         ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_oversized_manifest_is_refused_by_the_directory_source() {
+    let copy = copy_fixture("recovery-drill");
+    let manifest = copy.path().join("snapshot.json");
+    // One byte over the cap: refused from its length, whatever it holds.
+    fs::write(&manifest, vec![b' '; MAX_MANIFEST_BYTES + 1]).unwrap();
+    let error = load_from(copy.path()).unwrap_err();
+    assert!(
+        matches!(error, SnapshotLoadError::RefusedManifest { .. }),
+        "{error:?}"
+    );
+
+    // Exactly at the cap it is read and then judged as the bad JSON it is.
+    fs::write(&manifest, vec![b'\n'; MAX_MANIFEST_BYTES]).unwrap();
+    let error = load_from(copy.path()).unwrap_err();
+    assert!(
+        matches!(error, SnapshotLoadError::Manifest { .. }),
         "{error:?}"
     );
 }

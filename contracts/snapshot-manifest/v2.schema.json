@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/snapshot-manifest/v2.schema.json",
+  "title": "Presentation snapshot manifest v2",
+  "description": "Immutable captured version of one Mass plan, with its Themes, Mass sections, items, Cues and the frame and asset dependencies the Cues show. dependencies_fingerprint is the SHA-256 of every frames[].sha256 and assets[].sha256 sorted, each followed by LF; it covers dependency bytes only, so the structure is pinned separately by the SHA-256 of the exact manifest bytes. Every Project Cue frame_id must name a frame of this snapshot and every frame must be shown by a Project Cue; every item and Cue id is unique. Frame and asset bytes live beside the manifest under frames/ and assets/; their sha256 is checked by the reader. v1 stays frozen and is not read by a v2 reader. All identities (snapshot, Mass plan, Celebration, Themes, sections, items, Cues, frames, assets) share one namespace and must be unique across it; JSON Schema cannot express that, the reader enforces it. The exact manifest bytes are pinned by their SHA-256, since escapes, member order and whitespace vary for equal content.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "assets",
+    "captured_at",
+    "celebration_id",
+    "dependencies_fingerprint",
+    "frames",
+    "id",
+    "mass_plan_id",
+    "mass_theme_id",
+    "schema_version",
+    "sections",
+    "themes",
+    "title"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Payload contract version; 2 in v2."
+    },
+    "id": {
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of this snapshot manifest (SnapshotId)."
+    },
+    "mass_plan_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Mass plan this snapshot captures."
+    },
+    "celebration_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Celebration the Mass plan belongs to."
+    },
+    "captured_at": {
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the snapshot was captured."
+    },
+    "title": {
+      "$ref": "#/$defs/text"
+    },
+    "themes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/theme"
+      },
+      "description": "Themes the snapshot lists; each has a unique id."
+    },
+    "mass_theme_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "The Theme of the whole Mass; names one of themes[].id."
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/section"
+      },
+      "description": "Mass sections in order; at least one."
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/frame"
+      },
+      "description": "Frame files the Project Cues show, each with its SHA-256."
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/asset"
+      },
+      "description": "Binary assets the frames use, each with exact byte size and SHA-256."
+    },
+    "dependencies_fingerprint": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 fingerprint over every frames[].sha256 and assets[].sha256."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]*[^\\s]$",
+      "description": "One line of non-blank text that does not end in whitespace. The reader is stricter than this pattern: it rejects any trailing Unicode whitespace (Rust char::is_whitespace, including U+00A0), not only the characters \\s matches."
+    },
+    "seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "custom",
+            "fallback"
+          ]
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "items",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/item"
+          }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cues",
+        "id",
+        "kind",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "song",
+            "reading",
+            "psalm",
+            "response_sequence",
+            "general_presentation",
+            "rite"
+          ]
+        },
+        "theme_id": {
+          "$ref": "#/$defs/uuid",
+          "description": "Theme override for this item; names one of themes[].id. Absent means the Mass Theme."
+        },
+        "auto_play_seconds": {
+          "$ref": "#/$defs/seconds",
+          "description": "Default auto-play seconds; general_presentation items only. Absent means manual advance."
+        },
+        "cues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/cue"
+          }
+        }
+      }
+    },
+    "cue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "behavior",
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "label": {
+          "$ref": "#/$defs/text"
+        },
+        "private_context": {
+          "$ref": "#/$defs/text",
+          "description": "Operator-only text, never projected. Required for operator_trigger and wait Cues (the domain rule); optional for project, hold and unavailable."
+        },
+        "behavior": {
+          "$ref": "#/$defs/behavior"
+        }
+      },
+      "if": {
+        "required": [
+          "behavior"
+        ],
+        "properties": {
+          "behavior": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "operator_trigger",
+                  "wait"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "private_context"
+        ]
+      }
+    },
+    "behavior": {
+      "description": "What the Cue does when taken, discriminated by type.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frame_id",
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "project"
+            },
+            "frame_id": {
+              "$ref": "#/$defs/uuid",
+              "description": "Names one of frames[].id."
+            },
+            "duration_seconds": {
+              "$ref": "#/$defs/seconds",
+              "description": "Per-Cue auto-play override; only inside an item with auto_play_seconds."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "operator_trigger"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "hold"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "wait"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason",
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "$ref": "#/$defs/text",
+              "description": "Why the Cue could not be captured."
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "path": {
+          "type": "string",
+          "description": "Snapshot-relative, under frames/. The reader also requires every segment to be a legal Windows file name (no device names such as CON or NUL, no trailing dot or space, no reserved characters) and compares paths case-insensitively, so two paths that differ only in ASCII case, across frames and assets together, are one file and are rejected.",
+          "pattern": "^frames/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "path": {
+          "type": "string",
+          "description": "Snapshot-relative, under assets/. The reader also requires every segment to be a legal Windows file name (no device names such as CON or NUL, no trailing dot or space, no reserved characters) and compares paths case-insensitively, so two paths that differ only in ASCII case, across frames and assets together, are one file and are rejected.",
+          "pattern": "^assets/(?!(?:[^/]*/)*\\.{1,2}(?:/|$))(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    }
+  }
+}
