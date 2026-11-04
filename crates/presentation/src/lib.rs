@@ -3,7 +3,8 @@
 //! The Presentation Engine begins in T0.2. It depends on domain values and
 //! completed canonical rendering values, never on GPUI views. The
 //! snapshot-driven state machine is in `engine` (state in `state`, inputs in
-//! `commands`).
+//! `commands`), including the reversible 500 ms Program fade and bounded
+//! auto-play, both driven by explicit [`state::Millis`] times.
 //!
 //! `engine::Engine` is the authority from T1.2 on. `PresentationEngine` and
 //! `presenter::PresenterEngine` are Phase-0 qualification seams that T1.4

@@ -37,6 +37,18 @@ pub enum Command {
         /// Whether it is the same display the output used.
         recognized: bool,
     },
+    /// Start auto-play on the Preview Cue's item, or stop whatever auto-play is
+    /// active.
+    ToggleAutoPlay,
+    /// Loop the Preview Cue's whole section (menu). While an item run is
+    /// active it widens that run to the section; on the same section it is a
+    /// no-op.
+    LoopSection,
+    /// Stop auto-play (menu); a no-op when none is active.
+    StopAutoPlay,
+    /// Recovery or session restore: stops auto-play and changes nothing else.
+    /// Restored sessions never resume auto-play silently.
+    Recover,
 }
 
 impl Command {
