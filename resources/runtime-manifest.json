@@ -22,6 +22,8 @@
     "crates/ui/assets/icons/lucide/list.svg",
     "crates/ui/assets/icons/lucide/package.svg",
     "crates/ui/assets/icons/lucide/palette.svg",
+    "crates/ui/assets/icons/lucide/pin-off.svg",
+    "crates/ui/assets/icons/lucide/pin.svg",
     "crates/ui/assets/icons/lucide/plus.svg",
     "crates/ui/assets/icons/lucide/settings.svg",
     "crates/ui/assets/icons/lucide/triangle-alert.svg",
