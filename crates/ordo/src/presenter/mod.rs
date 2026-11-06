@@ -216,10 +216,15 @@ pub struct PresenterView {
     /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
     /// panel reads as `FocusContext::ShortcutReference` for key policy.
     reference_focus: FocusHandle,
+    /// The panel's close button, where focus lands when it opens (`DESIGN.md`).
+    reference_close_focus: FocusHandle,
     reference_scroll: Scroll,
     /// Where focus was when the reference opened; `Esc` or `Ctrl+/` puts it
     /// back there (the Cues when that is gone). Session only.
     reference_return: Option<WeakFocusHandle>,
+    /// Whether that focus was inside the rail, whose control may be gone by
+    /// the time the reference closes.
+    reference_from_rail: bool,
     /// Set when an Auto-play menu choice closed the menu; the next frame puts
     /// focus on the (possibly replaced) Auto-play control.
     /// The F6 cycle over the three Presenter regions, which reuse the three
@@ -314,8 +319,10 @@ impl PresenterView {
             rail_focus: cx.focus_handle(),
             dock_focus: cx.focus_handle(),
             reference_focus: cx.focus_handle(),
+            reference_close_focus: cx.focus_handle(),
             reference_scroll: Scroll::new(),
             reference_return: None,
+            reference_from_rail: false,
             regions: RegionRegistry::default(),
             #[cfg(test)]
             text_probe: cx.focus_handle(),
@@ -485,9 +492,10 @@ impl PresenterView {
     pub fn open_reference(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.reference_open() {
             self.reference_return = window.focused(cx).map(|focus| focus.downgrade());
+            self.reference_from_rail = self.rail_focus.contains_focused(window, cx);
             self.surfaces.open(Surface::ShortcutReference);
         }
-        self.reference_focus.focus(window, cx);
+        self.reference_close_focus.focus(window, cx);
         cx.notify();
     }
 
@@ -498,12 +506,13 @@ impl PresenterView {
             return;
         }
         let rail_shown = self.rail_is_pinned || self.rail_open();
+        let from_rail = std::mem::take(&mut self.reference_from_rail);
         let back = self
             .reference_return
             .take()
             .and_then(|focus| focus.upgrade())
             .filter(|focus| *focus != self.reference_focus)
-            .filter(|focus| *focus != self.rail_focus || rail_shown)
+            .filter(|_| rail_shown || !from_rail)
             .unwrap_or_else(|| self.timeline_focus.clone());
         back.focus(window, cx);
         cx.notify();
@@ -1740,6 +1749,7 @@ impl Render for PresenterView {
                 &shortcut_reference::model(registry::Group::Presenter),
                 shortcut_reference::Placement {
                     focus: &self.reference_focus,
+                    close_focus: &self.reference_close_focus,
                     scroll: &self.reference_scroll,
                     top: scale.apply(layout::HEADER_HEIGHT),
                 },
@@ -3200,6 +3210,13 @@ mod tests {
         open.view.read_with(cx, |view, _| view.reference_open())
     }
 
+    fn close_button_focused(open: &Open, cx: &mut VisualTestContext) -> bool {
+        cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, _| view.reference_close_focus.is_focused(window))
+        })
+    }
+
     fn focus_dock(open: &Open, cx: &mut VisualTestContext) {
         open.view
             .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
@@ -3230,6 +3247,10 @@ mod tests {
                 focus_context_now(&open, cx),
                 FocusContext::ShortcutReference,
                 "{name}"
+            );
+            assert!(
+                close_button_focused(&open, cx),
+                "{name}: focus starts on the close button (DESIGN.md)"
             );
             assert_eq!(engine_state(&open, cx), before, "{name}: Program untouched");
 
@@ -3338,11 +3359,179 @@ mod tests {
             cx.run_until_parked();
             let panel = bounds(cx, "shortcut-reference");
             assert!(inside(panel, case.0, case.1), "{case:?} {panel:?}");
+            // The workspace exterior gutter stays at the right and the bottom.
+            let gutter = case.2.apply(tokens::density::WORKSPACE_GUTTER_WIDE);
+            assert!(right(panel) <= case.0 - gutter + 0.5, "{case:?} {panel:?}");
+            assert!(bottom(panel) <= case.1 - gutter + 0.5, "{case:?} {panel:?}");
             let header = bounds(cx, "presenter-header");
             assert!(
                 top(panel) >= bottom(header) - 0.5,
                 "{case:?} below the header"
             );
+        }
+    }
+
+    #[gpui::test]
+    fn the_panel_closes_to_the_timeline_when_the_rail_it_came_from_is_gone(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        open_overlay(&open, cx);
+        // The rail footer's entry takes focus (a control inside the rail), then
+        // opens the panel.
+        click(cx, "rail-shortcuts");
+        assert!(reference_open(&open, cx));
+        // The overlay goes away under the panel without moving focus.
+        open.view.update(cx, |view, cx| {
+            view.surfaces.close(Surface::RailOverlay);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        press_keys(cx, "escape");
+        assert!(!reference_open(&open, cx));
+        assert_eq!(
+            focus_context_now(&open, cx),
+            FocusContext::Timeline,
+            "the control it came from is gone"
+        );
+        assert!(timeline_has_focus(&open, cx));
+    }
+
+    #[gpui::test]
+    fn a_scrim_press_over_the_open_panel_closes_only_the_panel(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        open_overlay(&open, cx);
+        press_keys(cx, "ctrl-/");
+        assert!(reference_open(&open, cx));
+        let rail = bounds(cx, "presenter-rail");
+        let panel = bounds(cx, "shortcut-reference");
+        // Below the panel, in the bottom gutter, clear of the rail.
+        let at = gpui::point(
+            panel.origin.x + panel.size.width / 2.0,
+            panel.origin.y + panel.size.height + px(6.0),
+        );
+        assert!(!panel.contains(&at) && !rail.contains(&at), "{at:?}");
+        let before = engine_state(&open, cx);
+        cx.simulate_click(at, Modifiers::default());
+        cx.run_until_parked();
+        assert!(!reference_open(&open, cx), "the topmost surface closes");
+        assert!(
+            open.view.read_with(cx, |view, _| view.rail_open()),
+            "the rail overlay stays"
+        );
+        assert_eq!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn the_header_shortcuts_button_fits_the_header_at_every_size(cx: &mut TestAppContext) {
+        for case in SIZES.into_iter().chain(SHORT) {
+            let (_open, cx) = open(cx, case);
+            let header = bounds(cx, "presenter-header");
+            let entry = bounds(cx, "header-shortcuts");
+            let grid = bounds(cx, "button-Grid");
+            let list = bounds(cx, "button-List");
+            assert!(inside(header, case.0, case.1), "{case:?} {header:?}");
+            for (name, b) in [("entry", entry), ("Grid", grid), ("List", list)] {
+                assert!(
+                    left(b) >= left(header) - 0.5
+                        && right(b) <= right(header) + 0.5
+                        && top(b) >= top(header) - 0.5
+                        && bottom(b) <= bottom(header) + 0.5,
+                    "{case:?}: {name} {b:?} outside {header:?}"
+                );
+            }
+            // Left to right: the entry, Grid, then List, none overlapping.
+            assert!(right(entry) <= left(grid) + 0.5, "{case:?}");
+            assert!(right(grid) <= left(list) + 0.5, "{case:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn the_timeline_reports_the_preview_cue_as_its_active_descendant(cx: &mut TestAppContext) {
+        // `Window::debug_a11y_tree_json` is `None` under the pinned test
+        // platform (no `a11y_init`; see `GPUI-BASE-T0.4a.md`), so the tree
+        // cannot be read here. This reads what the renderer applies to every
+        // tile and row (`timeline::cue_semantics`) and whether the node is
+        // drawn at all.
+        for mode in [CueView::Grid, CueView::List] {
+            let case = SIZES[1];
+            let (open, cx) = open_with(
+                cx,
+                case,
+                UiPreferences {
+                    scale: case.2,
+                    cue_view: mode,
+                    ..UiPreferences::default()
+                },
+            );
+            bind_registry_keys(cx);
+            open.view
+                .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+            let active = |open: &Open, cx: &mut VisualTestContext| {
+                open.view.read_with(cx, |view, _| {
+                    let model = view.timeline_model(&layout_at(case), false);
+                    let at = timeline::active_descendant(&model);
+                    let preview = view.engine.state().preview();
+                    let semantics: Vec<_> = model
+                        .groups
+                        .iter()
+                        .flat_map(|g| &g.cues)
+                        .filter(|cue| cue.preview)
+                        .map(timeline::cue_semantics)
+                        .collect();
+                    (at, preview, semantics)
+                })
+            };
+            let (at, preview, semantics) = active(&open, cx);
+            assert_eq!(at, Some(preview), "{mode:?}");
+            assert_eq!(semantics.len(), 1, "only the Preview Cue is selected");
+            assert!(semantics[0].selected && semantics[0].active_descendant);
+            assert!(
+                semantics[0]
+                    .name
+                    .starts_with(&format!("Cue {} of ", preview + 1))
+            );
+            assert!(
+                semantics[0].name.ends_with(", Preview"),
+                "{}",
+                semantics[0].name
+            );
+            assert!(present(cx, cue(preview)), "its node is drawn");
+
+            for keys in ["right", "down"] {
+                press_keys(cx, keys);
+                animate(&open, cx, 400);
+                let (at, now, semantics) = active(&open, cx);
+                assert_ne!(now, preview, "{keys} moved Preview");
+                assert_eq!(at, Some(now), "{mode:?} {keys}");
+                assert!(
+                    semantics[0]
+                        .name
+                        .starts_with(&format!("Cue {} of ", now + 1))
+                );
+                assert!(present(cx, cue(now)), "{keys}: its node is drawn");
+            }
+
+            // Fold the group Preview is in: no Cue node is drawn for it, so the
+            // report falls back to the timeline container.
+            let (_, now, _) = active(&open, cx);
+            let group = open.view.read_with(cx, |view, _| {
+                let model = view.timeline_model(&layout_at(case), false);
+                model
+                    .groups
+                    .iter()
+                    .position(|g| g.cues.iter().any(|c| c.flat == now))
+                    .unwrap()
+            });
+            open.view
+                .update(cx, |view, cx| view.toggle_group(group, cx));
+            animate(&open, cx, 400);
+            let (at, _, _) = active(&open, cx);
+            assert_eq!(at, None, "{mode:?}: folded group");
+            assert!(!present(cx, cue(now)), "no dangling node");
         }
     }
 

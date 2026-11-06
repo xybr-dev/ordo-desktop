@@ -187,21 +187,22 @@ pub struct CueModel {
     /// The Mass item the Cue belongs to.
     pub item_title: SharedString,
     /// Text only the operator may read (a trigger's phrase, what a Wait is
-    /// for). It reaches the operator's accessible name and nothing else: it
-    /// is never drawn on a tile, never in a tooltip, never in a frame.
+    /// for). It reaches the operator's accessible description and nothing
+    /// else: it is never drawn on a tile, never in a tooltip, never in a
+    /// frame.
     pub private_context: Option<SharedString>,
 }
-
-/// Longest private-context excerpt an accessible name carries, in characters.
-const CONTEXT_EXCERPT: usize = 80;
 
 /// The accessible name of a Cue tile or row, operator side only.
 ///
 /// It leads with the position ("Cue 12 of 48"), then the Mass item and the
 /// Cue's number, then what the Cue does: "Project" for a frame, and for the
 /// operator-only kinds their behaviour (Trigger and Hold give black output,
-/// Wait leaves Program unchanged) with the private context when there is one,
-/// then the Program and Preview markers. Pure and Engine-free.
+/// Wait leaves Program unchanged), then the Program and Preview markers. The
+/// operator-only private context is never part of the name: it is the
+/// description ([`cue_accessible_description`]), which assistive technology
+/// announces after the name (`DESIGN.md`, Assistive Semantics). Pure and
+/// Engine-free.
 ///
 /// Congregation boundary: this lives in the `ordo` presenter module, and the
 /// `rendering` crate (which composes everything the congregation output
@@ -215,7 +216,6 @@ pub fn cue_accessible_name(cue: &CueModel) -> SharedString {
         cue.number,
         cue.item_title
     );
-    let context = cue.private_context.as_deref().map(excerpt);
     match (&cue.unavailable, cue.kind) {
         (Some(reason), _) => {
             name.push_str(&format!(
@@ -226,21 +226,12 @@ pub fn cue_accessible_name(cue: &CueModel) -> SharedString {
         (None, CueKind::Slide) => name.push_str(&format!("Project, {}", cue.label)),
         (None, CueKind::Trigger) => {
             name.push_str(&format!("Trigger, {}, black output", cue.label));
-            if let Some(context) = &context {
-                name.push_str(&format!(", wait for: {context}"));
-            }
         }
         (None, CueKind::Wait) => {
             name.push_str(&format!("Wait, {}, Program unchanged", cue.label));
-            if let Some(context) = &context {
-                name.push_str(&format!(", {context}"));
-            }
         }
         (None, CueKind::Hold) => {
             name.push_str(&format!("Hold, {}, black output", cue.label));
-            if let Some(context) = &context {
-                name.push_str(&format!(", {context}"));
-            }
         }
         (None, CueKind::Unavailable) => {
             name.push_str(&format!("Unavailable, {}, cannot go live", cue.label));
@@ -257,14 +248,50 @@ pub fn cue_accessible_name(cue: &CueModel) -> SharedString {
     name.into()
 }
 
-/// `text` cut to [`CONTEXT_EXCERPT`] characters with an ellipsis.
-fn excerpt(text: &str) -> String {
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if text.chars().count() <= CONTEXT_EXCERPT {
-        return text;
+/// The accessible description of a Cue: its operator-only private context in
+/// full (a trigger's phrase, what a Wait is for), or none. Operator side only,
+/// like the name; never drawn, never a tooltip, never in a frame.
+pub fn cue_accessible_description(cue: &CueModel) -> Option<SharedString> {
+    cue.private_context
+        .as_ref()
+        .filter(|context| !context.trim().is_empty())
+        .cloned()
+}
+
+/// What a Cue tile or row tells assistive technology: one value the renderer
+/// applies and the tests read, so the two cannot differ.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CueSemantics {
+    pub name: SharedString,
+    pub description: Option<SharedString>,
+    /// Whether this is the Preview Cue (`aria-selected`).
+    pub selected: bool,
+    /// Whether the timeline, which keeps keyboard focus, reports this Cue as
+    /// its active descendant: the Preview Cue.
+    pub active_descendant: bool,
+}
+
+pub fn cue_semantics(cue: &CueModel) -> CueSemantics {
+    CueSemantics {
+        name: cue_accessible_name(cue),
+        description: cue_accessible_description(cue),
+        selected: cue.preview,
+        active_descendant: cue.preview,
     }
-    let cut: String = text.chars().take(CONTEXT_EXCERPT).collect();
-    format!("{}\u{2026}", cut.trim_end())
+}
+
+/// The Cue (flat index) the timeline reports as its active descendant: the
+/// Preview Cue, when its group is open. A folded group draws no Cue and so no
+/// node; GPUI then leaves the timeline container itself as the focused node, so
+/// nothing dangles.
+pub fn active_descendant(model: &TimelineModel) -> Option<usize> {
+    model
+        .groups
+        .iter()
+        .filter(|group| !group.collapsed)
+        .flat_map(|group| &group.cues)
+        .find(|cue| cue_semantics(cue).active_descendant)
+        .map(|cue| cue.flat)
 }
 
 impl CueModel {
@@ -765,7 +792,7 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .children(indicators(&cue, environment));
 
     let name = cue.name();
-    let accessible = cue_accessible_name(&cue);
+    let semantics = cue_semantics(&cue);
     let go_to = handlers.go_to.clone();
     let tile = div()
         .id(("cue", flat))
@@ -778,10 +805,16 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .flex_col()
         .cursor_pointer()
         .role(Role::Button)
-        .aria_label(accessible)
+        .aria_label(semantics.name)
+        .aria_selected(semantics.selected)
+        .when_some(semantics.description, |tile, text| {
+            tile.aria_description(text)
+        })
         // Focus stays on the timeline as one tab stop; assistive technology
         // hears the Preview Cue as the focused item.
-        .when(cue.preview, |tile| tile.aria_active_descendant())
+        .when(semantics.active_descendant, |tile| {
+            tile.aria_active_descendant()
+        })
         .on_click(move |_, window, cx| go_to(flat, window, cx))
         .child(wrap)
         .child(bar)
@@ -862,7 +895,7 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
             .into_any_element(),
     };
     let name = cue.name();
-    let accessible = cue_accessible_name(&cue);
+    let semantics = cue_semantics(&cue);
     let go_to = handlers.go_to.clone();
     let row = div()
         .id(("cue", flat))
@@ -885,8 +918,14 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .hover(|style| style.bg(rgb(palette.surface_secondary)))
         .cursor_pointer()
         .role(Role::Button)
-        .aria_label(accessible)
-        .when(cue.preview, |row| row.aria_active_descendant())
+        .aria_label(semantics.name)
+        .aria_selected(semantics.selected)
+        .when_some(semantics.description, |row, text| {
+            row.aria_description(text)
+        })
+        .when(semantics.active_descendant, |row| {
+            row.aria_active_descendant()
+        })
         .on_click(move |_, window, cx| go_to(flat, window, cx))
         .child(
             // A fixed column, so the thumbnails and markers line up whether
@@ -1238,12 +1277,12 @@ mod tests {
     }
 
     #[test]
-    fn wait_hold_and_trigger_cues_name_their_behaviour() {
+    fn wait_hold_and_trigger_cues_name_their_behaviour_without_the_private_context() {
         let mut wait = cue(4, CueKind::Wait);
         wait.private_context = Some("Priest incenses the altar".into());
         assert_eq!(
             cue_accessible_name(&wait),
-            "Cue 5 of 48, 2.5 Gloria: Wait, Verse, Program unchanged, Priest incenses the altar"
+            "Cue 5 of 48, 2.5 Gloria: Wait, Verse, Program unchanged"
         );
         let hold = cue(5, CueKind::Hold);
         assert_eq!(
@@ -1254,7 +1293,11 @@ mod tests {
         trigger.private_context = Some("Let us proclaim the mystery of faith".into());
         assert_eq!(
             cue_accessible_name(&trigger),
-            "Cue 7 of 48, 2.7 Gloria: Trigger, Verse, black output, wait for: Let us proclaim the mystery of faith"
+            "Cue 7 of 48, 2.7 Gloria: Trigger, Verse, black output"
+        );
+        assert_eq!(
+            cue_accessible_description(&trigger).as_deref(),
+            Some("Let us proclaim the mystery of faith")
         );
     }
 
@@ -1268,29 +1311,42 @@ mod tests {
         );
     }
 
-    /// Private context is for the operator's name alone: the visible caption
-    /// and hover text never carry it, and a long one is cut.
+    /// Private context is for the operator's description alone: not in the
+    /// name, the visible caption or the hover text, and never cut.
     #[test]
-    fn private_context_appears_only_in_the_operator_name() {
+    fn private_context_appears_only_in_the_operator_description() {
         let secret = "Quietly ask the sacristan about the candles";
         let mut wait = cue(4, CueKind::Wait);
+        assert_eq!(cue_accessible_description(&wait), None);
         wait.private_context = Some(secret.into());
-        assert!(cue_accessible_name(&wait).contains(secret));
+        assert_eq!(cue_accessible_description(&wait).as_deref(), Some(secret));
+        assert!(!cue_accessible_name(&wait).contains(secret));
         assert!(!wait.caption().contains(secret));
         assert!(!wait.name().contains(secret));
 
-        wait.private_context = Some("word ".repeat(40).into());
-        let name = cue_accessible_name(&wait);
-        assert!(name.ends_with("\u{2026}"), "{name}");
-        assert!(name.chars().count() < 160, "{name}");
+        let long = "word ".repeat(40);
+        wait.private_context = Some(long.clone().into());
+        assert_eq!(
+            cue_accessible_description(&wait).as_deref(),
+            Some(long.as_str())
+        );
+        assert!(cue_accessible_name(&wait).chars().count() < 80);
     }
 
     /// Crate-boundary check: the code that composes or hands over everything
     /// the congregation sees must never mention the operator's Cue names or
     /// the private context. (`rendering` cannot depend on `ordo`, so this
-    /// guards against the text being copied across by hand.)
+    /// guards against the text being copied across by hand.) Only identifiers
+    /// that exist are listed: the name and description builders, the model
+    /// field, and the accessible-description call that carries it.
     #[test]
     fn the_congregation_side_never_reads_cue_names_or_private_context() {
+        const GUARDED: [&str; 4] = [
+            "cue_accessible_name",
+            "cue_accessible_description",
+            "private_context",
+            "aria_description",
+        ];
         fn scan(dir: &std::path::Path, hits: &mut Vec<String>) {
             for entry in std::fs::read_dir(dir).unwrap() {
                 let path = entry.unwrap().path();
@@ -1298,7 +1354,7 @@ mod tests {
                     scan(&path, hits);
                 } else if path.extension().is_some_and(|e| e == "rs") {
                     let text = std::fs::read_to_string(&path).unwrap();
-                    for word in ["cue_accessible_name", "private_context", "preview_context"] {
+                    for word in GUARDED {
                         if text.contains(word) {
                             hits.push(format!("{} mentions {word}", path.display()));
                         }
@@ -1315,7 +1371,7 @@ mod tests {
             "src/canonical_views.rs",
         ] {
             let text = std::fs::read_to_string(ordo.join(file)).unwrap();
-            for word in ["cue_accessible_name", "private_context", "preview_context"] {
+            for word in GUARDED {
                 if text.contains(word) {
                     hits.push(format!("{file} mentions {word}"));
                 }

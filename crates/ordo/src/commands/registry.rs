@@ -520,23 +520,50 @@ mod tests {
     }
 
     /// The keys `ui` binds are listed here so the reference shows them; this
-    /// keeps the two from drifting in either direction.
+    /// keeps the two from drifting in either direction, key by key and in what
+    /// each key means.
     #[test]
     fn every_ui_key_is_listed_and_every_listed_ui_key_is_bound() {
-        let ui: BTreeSet<String> = ui::key_bindings()
-            .iter()
-            .flat_map(|b| b.keystrokes().iter().map(|k| k.inner().unparse()))
-            .collect();
-        let listed: BTreeSet<String> = ENTRIES
-            .iter()
-            .filter(|e| {
-                e.group == Group::Global
-                    && !matches!(e.id, CommandId::ToggleReference | CommandId::CloseSurface)
-            })
-            .flat_map(|e| e.keys.iter())
-            .map(|k| gpui::Keystroke::parse(k).unwrap().unparse())
-            .collect();
-        assert_eq!(ui, listed);
+        // The `ui` action each binding runs, as the Global entry that lists it.
+        fn listed_as(action: &str) -> CommandId {
+            match action {
+                "NextRegion" | "PreviousRegion" => CommandId::CycleRegion,
+                "FocusNext" | "FocusPrevious" => CommandId::FocusNext,
+                "IncreaseInterfaceScale" => CommandId::ScaleUp,
+                "DecreaseInterfaceScale" => CommandId::ScaleDown,
+                "ResetInterfaceScale" => CommandId::ScaleReset,
+                other => panic!("`ui` binds {other}, which the registry does not list"),
+            }
+        }
+        let normal = |keys: &str| gpui::Keystroke::parse(keys).unwrap().unparse();
+        let mut bound: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
+        for binding in ui::key_bindings() {
+            let action = binding.action().name().rsplit("::").next().unwrap();
+            let id = listed_as(action);
+            let entry = entry_for(id);
+            assert_eq!(entry.group, Group::Global, "{id:?}");
+            for keystroke in binding.keystrokes() {
+                let keys = keystroke.inner().unparse();
+                assert!(
+                    entry.keys.iter().any(|listed| normal(listed) == keys),
+                    "{keys} runs {action} but {id:?} lists {:?}",
+                    entry.keys
+                );
+                bound.entry(format!("{id:?}")).or_default().insert(keys);
+            }
+        }
+        for entry in ENTRIES.iter().filter(|e| {
+            e.group == Group::Global
+                && !matches!(e.id, CommandId::ToggleReference | CommandId::CloseSurface)
+        }) {
+            let listed: BTreeSet<String> = entry.keys.iter().map(|k| normal(k)).collect();
+            assert_eq!(
+                bound.get(&format!("{:?}", entry.id)),
+                Some(&listed),
+                "{:?}",
+                entry.id
+            );
+        }
     }
 
     /// `ctrl-shift-1` never fired on Linux (see `ui`): no registered key may

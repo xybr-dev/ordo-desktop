@@ -61,6 +61,7 @@ pub struct Button {
     environment: UiEnvironment,
     surface: u32,
     on_activate: Option<Activate>,
+    focus_handle: Option<gpui::FocusHandle>,
 }
 
 impl Button {
@@ -89,6 +90,7 @@ impl Button {
             environment,
             surface: tokens::palette(environment.appearance()).background,
             on_activate: None,
+            focus_handle: None,
         }
     }
 
@@ -207,6 +209,12 @@ impl Button {
         self
     }
 
+    /// Uses a caller-owned focus handle, so the owner can focus this button.
+    pub fn track_focus(mut self, focus_handle: &gpui::FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle.clone());
+        self
+    }
+
     pub fn on_activate(mut self, activate: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_activate = Some(Rc::new(activate));
         self
@@ -320,6 +328,9 @@ impl Button {
         };
 
         gpui_base::Button::new(self.id)
+            .when_some(self.focus_handle.as_ref(), |control, handle| {
+                control.track_focus(handle)
+            })
             .debug_selector({
                 let label = label.clone();
                 move || format!("button-{label}")

@@ -43,16 +43,31 @@ pub const TITLE: &str = "Keyboard shortcuts";
 /// The panel's close button.
 pub const CLOSE: &str = "Close Keyboard shortcuts";
 /// Said under the groups, so a suspended key never leaves the operator
-/// guessing (Decision 67).
-pub const NOTES: [&str; 2] = [
-    "F, B and Space keep working while this panel is open.",
-    "Single-key commands pause while you type in a text field or a dialog.",
-];
+/// guessing (Decision 67). The keys named come from the registry.
+pub fn notes() -> [String; 2] {
+    let key = |id| registry::entry_for(id).keycaps;
+    [
+        format!(
+            "{}, {} and {} keep working while this panel is open.",
+            key(CommandId::ToggleFreeze),
+            key(CommandId::ToggleBlackout),
+            key(CommandId::TakeLive),
+        ),
+        "Single-key commands pause while you type in a text field or a dialog.".to_owned(),
+    ]
+}
+
+/// The closing hint under the title, from the registry's two closing keys.
+pub fn close_hint() -> String {
+    format!(
+        "{} or {} to close",
+        registry::entry_for(CommandId::ToggleReference).keycaps,
+        registry::entry_for(CommandId::CloseSurface).keycaps,
+    )
+}
 
 /// Width of the panel before the Interface scale (`.sh-keys` in the mockups).
 const WIDTH: f32 = 400.0;
-/// The gutter kept clear at the left of a narrow window.
-const GUTTER: f32 = 32.0;
 /// Above the rail overlay and its scrim, below a popup.
 const PRIORITY: usize = 22;
 
@@ -130,6 +145,9 @@ pub struct Placement<'a> {
     /// The handle the owner focuses when the panel opens, so the panel is
     /// where keyboard focus sits.
     pub focus: &'a FocusHandle,
+    /// The close button's handle: initial focus goes there (`DESIGN.md`,
+    /// slide-overs), inside `focus`'s panel so the focus context holds.
+    pub close_focus: &'a FocusHandle,
     pub scroll: &'a Scroll,
     /// The panel hangs below this (the header's scaled height).
     pub top: f32,
@@ -144,17 +162,28 @@ pub fn panel(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let Placement { focus, scroll, top } = placement;
+    let Placement {
+        focus,
+        close_focus,
+        scroll,
+        top,
+    } = placement;
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     let viewport = f32::from(window.viewport_size().width);
-    let width = scale.apply(WIDTH).min((viewport - GUTTER).max(0.0));
+    // `DESIGN.md` keeps the exterior gutters on a bounded surface: the panel
+    // hangs below the header with the workspace gutter at its right, bottom and
+    // (in a narrow window) left. `DESIGN.md` does not allow an edge-anchored
+    // slide-over here.
+    let gutter = scale.apply(tokens::density::WORKSPACE_GUTTER_WIDE);
+    let width = scale.apply(WIDTH).min((viewport - 2.0 * gutter).max(0.0));
 
     let close = Button::new(CLOSE, CLOSE, environment)
         .icon(icon::X)
         .icon_only()
         .quiet()
         .on_surface(palette.surface)
+        .track_focus(close_focus)
         .on_activate(move |window, cx| on_close(window, cx));
     // The cross leads the header, before the title (Decision 299).
     let header = div()
@@ -190,7 +219,7 @@ pub fn panel(
                         .truncate()
                         .text_color(rgb(palette.text_muted))
                         .text_size(px(scale.apply(tokens::typography::META.size)))
-                        .child("Ctrl+/ or Esc to close"),
+                        .child(close_hint()),
                 ),
         );
 
@@ -216,14 +245,14 @@ pub fn panel(
             body.push(row_element(row, environment));
         }
     }
-    body.extend(NOTES.iter().map(|note| {
+    body.extend(notes().into_iter().map(|note| {
         div()
             .flex_none()
             .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .pt(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .text_color(rgb(palette.text_muted))
             .text_size(px(scale.apply(tokens::typography::META.size)))
-            .child(*note)
+            .child(note)
             .into_any_element()
     }));
 
@@ -232,8 +261,8 @@ pub fn panel(
         .debug_selector(|| "shortcut-reference".into())
         .absolute()
         .top(px(top))
-        .bottom_0()
-        .right_0()
+        .bottom(px(gutter))
+        .right(px(gutter))
         .w(px(width))
         .flex()
         .flex_col()
@@ -241,7 +270,8 @@ pub fn panel(
         .bg(rgb(palette.surface))
         .text_color(rgb(palette.text))
         .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-        .border_l(px(tokens::border::SEPARATOR))
+        .rounded(px(scale.apply(tokens::radius::OVERLAY)))
+        .border(px(tokens::border::SEPARATOR))
         .border_color(rgb(palette.border_strong))
         .shadow(vec![tokens::elevation::overlay(
             environment.appearance(),
