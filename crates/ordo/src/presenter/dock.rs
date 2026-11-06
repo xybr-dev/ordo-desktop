@@ -16,7 +16,10 @@ use gpui::{
     AnyElement, App, IntoElement, ParentElement, RenderImage, SharedString, Styled, Window, div,
     prelude::*, px, rgb, svg,
 };
-use presentation::{commands::Command, state::LiveState};
+use presentation::{
+    commands::Command,
+    state::{AutoPlayScope, LiveState},
+};
 use rendering::Frame;
 use std::sync::Arc;
 use ui::{
@@ -26,13 +29,14 @@ use ui::{
         self, Availability,
         button::{Button, Tone},
         record::Marker,
+        selection::{Choice, Menu, SelectionState},
     },
     tokens,
 };
 
 use super::layout::{
-    DOCK_FREEZE_BLACKOUT_HEIGHT, DOCK_PRIMARY_HEIGHT, DOCK_STATUS_HEIGHT, MONITOR_LABEL_GAP,
-    MONITOR_LABEL_HEIGHT,
+    DOCK_AUTO_PLAY_HEIGHT, DOCK_FREEZE_BLACKOUT_HEIGHT, DOCK_PRIMARY_HEIGHT, DOCK_STATUS_HEIGHT,
+    MONITOR_LABEL_GAP, MONITOR_LABEL_HEIGHT,
 };
 use crate::canonical_views::live_viewport_fading;
 
@@ -147,6 +151,33 @@ pub struct ControlsModel {
     pub can_freeze: bool,
     pub can_blackout: bool,
     pub can_primary: bool,
+    pub auto_play: AutoPlayModel,
+}
+
+/// One entry of the Auto-play menu: the words, the command it stands for and
+/// whether the Engine would take it. An entry the Engine would refuse is
+/// Unavailable and carries the refusal sentence.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AutoPlayEntry {
+    pub label: &'static str,
+    pub command: Command,
+    pub availability: Availability,
+}
+
+/// What the Auto-play control shows: the state in words, and its menu.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AutoPlayModel {
+    pub label: &'static str,
+    pub entries: Vec<AutoPlayEntry>,
+}
+
+/// The control's words for the current run, so the state never rests on color.
+pub fn auto_play_label(scope: Option<AutoPlayScope>) -> &'static str {
+    match scope {
+        None => "Auto-play off",
+        Some(AutoPlayScope::Item(_)) => "Auto-play: this item",
+        Some(AutoPlayScope::Section(_)) => "Auto-play: this section",
+    }
 }
 
 struct Colors {
@@ -617,6 +648,76 @@ pub fn primary_action(
             )
             .into_any_element(),
     }
+}
+
+/// The Auto-play control: a Menu whose trigger says the state in words.
+///
+/// The Menu owns its popup, Esc, outside press and the return of focus to its
+/// trigger. Its choices are fixed for the life of a selection state, so the
+/// state is keyed by what the entries say and a change in the words or in what
+/// the Engine would refuse starts a fresh (closed) menu with a fresh trigger.
+/// `refocus` is set after the operator chose an entry: the old trigger is gone
+/// by then, so the new one takes the focus the menu was meant to give back.
+pub fn auto_play_control(
+    model: &AutoPlayModel,
+    on_command: &OnCommand,
+    refocus: bool,
+    environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let signature = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for entry in &model.entries {
+            (entry.label, entry.availability.reason()).hash(&mut hasher);
+            entry.availability.is_disabled().hash(&mut hasher);
+        }
+        hasher.finish()
+    };
+    let choices = model
+        .entries
+        .iter()
+        .map(|entry| Choice::new(entry.label).availability(entry.availability.clone()))
+        .collect();
+    let state = SelectionState::keyed(
+        format!("auto-play-state-{signature:x}"),
+        choices,
+        None,
+        window,
+        cx,
+    );
+    if refocus {
+        state.focus(window, cx);
+    }
+    let commands: Vec<Command> = model.entries.iter().map(|entry| entry.command).collect();
+    let on_command = on_command.clone();
+    div()
+        .id("auto-play")
+        .debug_selector(|| "auto-play-control".into())
+        .flex_none()
+        .w_full()
+        .h(px(scale.apply(DOCK_AUTO_PLAY_HEIGHT)))
+        .flex()
+        .items_center()
+        .child(
+            div().flex_1().min_w_0().flex().flex_col().child(
+                Menu::new(
+                    format!("auto-play-menu-{signature:x}"),
+                    model.label,
+                    &state,
+                    environment,
+                )
+                .on_surface(tokens::palette(environment.appearance()).surface)
+                .on_select(move |chosen, window, cx| {
+                    if let Some(command) = chosen.and_then(|i| commands.get(i).copied()) {
+                        on_command(command, window, cx);
+                    }
+                }),
+            ),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]
