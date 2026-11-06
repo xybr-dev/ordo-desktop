@@ -668,6 +668,15 @@ creates whole-Presenter scrolling, or changes Cue selection, Preview, Program,
 Freeze, Blackout, or output state. Restore the preferred wide composition when
 effective space returns.
 
+When Preview moves other than by a click on a Cue, the Cue timeline glides in
+`160ms` on the easing token to put Preview's Cue on its middle line, so what
+comes next stays in sight below it; while Freeze holds Program on another Cue,
+the two are centred together when they fit, and Preview wins when they do not.
+The timeline stops at either end rather than showing empty space. It never
+moves for a click on a Cue or against the operator's own scrolling, a further
+move retargets a glide from where it is, and under reduced motion the timeline
+is simply there.
+
 ## Truncation and Information Priority
 
 Never truncate Live, Freeze, Blackout, congregation-output health, active

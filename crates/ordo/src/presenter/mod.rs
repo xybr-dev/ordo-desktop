@@ -170,6 +170,8 @@ pub struct PresenterView {
     /// The Preview Cue the timeline last brought into view; a different
     /// Preview on the next frame makes the timeline follow it.
     followed_preview: Option<usize>,
+    /// The timeline's follow in flight (see `timeline::Glide`).
+    glide: timeline::Glide,
     /// Whether the rail was drawn pinned on the last frame, so a pin toggle
     /// flips what the operator saw.
     rail_is_pinned: bool,
@@ -220,6 +222,7 @@ impl PresenterView {
             timeline_scroll: Scroll::new(),
             visible_range: (0, 0),
             followed_preview: None,
+            glide: timeline::Glide::default(),
             rail_is_pinned: false,
             rail_scroll: Scroll::new(),
             timeline_focus: cx.focus_handle(),
@@ -841,6 +844,7 @@ impl PresenterView {
             columns: layout.grid_columns as usize,
             cell_width: layout.cell_width,
             follow_preview,
+            glide: self.glide.clone(),
         }
     }
 }
@@ -2199,6 +2203,93 @@ mod tests {
     }
 
     /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
+    /// Let a follow land: the frame that sees Preview move, the glide's full
+    /// run, and the frame drawn at the final offset.
+    fn land(open: &Open, cx: &mut VisualTestContext) {
+        animate(open, cx, 0);
+        animate(
+            open,
+            cx,
+            u64::from(tokens::motion::STANDARD_DURATION_MS) + 40,
+        );
+        animate(open, cx, 0);
+    }
+
+    fn centre_gap(cx: &mut VisualTestContext, flat: usize) -> f32 {
+        let selector: &'static str = format!("cue-{flat}").leak();
+        let cue = bounds(cx, selector);
+        let timeline = bounds(cx, "cue-timeline");
+        let middle = |b: gpui::Bounds<gpui::Pixels>| f32::from(b.top() + b.bottom()) / 2.0;
+        (middle(cue) - middle(timeline)).abs()
+    }
+
+    /// Navigation glides Preview's Cue to the middle of the timeline, so what
+    /// comes next is in sight below it; under reduced motion it is simply
+    /// there.
+    #[gpui::test]
+    fn navigation_glides_preview_to_the_middle_of_the_timeline(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        // The first Cue of a later group of two or more, so its neighbour is
+        // on the same row.
+        let middle = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            (6..snapshot.item_count() - 1)
+                .find_map(|g| {
+                    let (start, next) = (snapshot.item_start(g)?, snapshot.item_start(g + 1)?);
+                    (next - start >= 2).then_some(start)
+                })
+                .expect("a later group with two Cues")
+        });
+        let start = timeline_offset(&open, cx);
+        assert!(run(&open, cx, Command::GoTo(middle)).is_ok());
+        animate(&open, cx, 0);
+        animate(&open, cx, 40);
+        let midway = timeline_offset(&open, cx);
+        land(&open, cx);
+        let end = timeline_offset(&open, cx);
+        assert!(
+            midway < start && midway > end,
+            "the timeline glides: {start} -> {midway} -> {end}"
+        );
+        assert!(centre_gap(cx, middle) < 1.0, "Preview sits on the middle");
+
+        // Along the same row nothing moves; the next row moves by one row.
+        assert!(run(&open, cx, Command::GoTo(middle + 1)).is_ok());
+        land(&open, cx);
+        assert!((timeline_offset(&open, cx) - end).abs() < 0.5);
+
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        let later = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_start(10).unwrap());
+        assert!(run(&open, cx, Command::GoTo(later)).is_ok());
+        animate(&open, cx, 0);
+        animate(&open, cx, 0);
+        assert!(centre_gap(cx, later) < 1.0, "reduced motion: there at once");
+    }
+
+    /// The operator's own scroll during a glide wins.
+    #[gpui::test]
+    fn scrolling_during_a_glide_ends_it(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let far = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_start(10).unwrap());
+        assert!(run(&open, cx, Command::GoTo(far)).is_ok());
+        animate(&open, cx, 0);
+        animate(&open, cx, 40);
+        open.view.update(cx, |view, _| {
+            view.timeline_scroll
+                .handle()
+                .set_offset(gpui::point(gpui::px(0.0), gpui::px(-10.0)))
+        });
+        land(&open, cx);
+        assert!(
+            (timeline_offset(&open, cx) + 10.0).abs() < 0.5,
+            "the timeline stays where the operator put it"
+        );
+    }
+
     #[gpui::test]
     fn the_timeline_follows_preview_down_and_back_up(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
@@ -2213,11 +2304,11 @@ mod tests {
         };
         for flat in 1..=last {
             assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
-            animate(&open, cx, 0);
+            land(&open, cx);
             assert!(inside(cx, flat), "Cue {flat} is in view after Next");
         }
         assert!(run(&open, cx, Command::GoTo(0)).is_ok());
-        animate(&open, cx, 0);
+        land(&open, cx);
         assert!(
             inside(cx, 0),
             "back at the first Cue, the timeline is at the top"
@@ -2225,7 +2316,7 @@ mod tests {
 
         // The operator's own scrolling is not undone while Preview stays put.
         open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
-        animate(&open, cx, 0);
+        land(&open, cx);
         assert!(
             !inside(cx, 0),
             "a jump away from Preview stays where it went"
@@ -2259,11 +2350,11 @@ mod tests {
         ] {
             assert!(run(&open, cx, command).is_ok(), "{command:?}");
         }
-        animate(&open, cx, 0);
+        land(&open, cx);
 
         // The operator scrolls far away, then steps Preview on.
         open.view.update(cx, |view, cx| view.jump_to_group(12, cx));
-        animate(&open, cx, 0);
+        land(&open, cx);
         assert!(!in_view(cx, held));
         // The next group's first Cue: below Program's rows, so following
         // Preview alone would leave Program above the viewport.
@@ -2271,13 +2362,13 @@ mod tests {
             .view
             .read_with(cx, |view, _| view.engine.snapshot().item_start(3).unwrap());
         assert!(run(&open, cx, Command::GoTo(next)).is_ok());
-        animate(&open, cx, 0);
+        land(&open, cx);
         assert!(in_view(cx, next), "Preview is in view");
         assert!(in_view(cx, held), "the held Program Cue came back with it");
 
         // Too far apart to fit together: Preview wins.
         assert!(run(&open, cx, Command::GoTo(last)).is_ok());
-        animate(&open, cx, 0);
+        land(&open, cx);
         assert!(in_view(cx, last), "Preview is in view");
         assert!(!in_view(cx, held), "Program gives way when both cannot fit");
         assert_eq!(
