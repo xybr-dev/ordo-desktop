@@ -966,24 +966,9 @@ fn settled_offset(wanted: f32, lowest: f32, pixel: f32) -> f32 {
     ((wanted / pixel).round() * pixel).clamp(lowest, 0.0)
 }
 
-/// How quickly a glide closes on its target. Every time constant the
-/// distance still to go shrinks to about a third (`1/e`), so a move is about
-/// 95% done after three of them (240ms), slows smoothly into place and never
-/// overshoots.
-const GLIDE_TIME_CONSTANT: Duration = Duration::from_millis(80);
-
-/// Where a glide is after `elapsed`: an exponential approach to its target.
-/// A retarget starts a new approach from wherever the last one was, so the
-/// timeline never jumps and never stops to turn around.
-fn glide_position(flight: &Flight, elapsed: Duration) -> f32 {
-    let remaining = (-elapsed.as_secs_f32() / GLIDE_TIME_CONSTANT.as_secs_f32()).exp();
-    flight.to + (flight.from - flight.to) * remaining
-}
-
-/// Moves the timeline along a follow in flight, one frame at a time against
-/// the clock, so a slow frame does not slow the glide down. It never holds
-/// input: the next key press moves Preview at once and retargets the glide
-/// from where it is.
+/// Moves the timeline along a follow in flight, over `160ms` on the easing
+/// token, as navigation moves (Decision 301). It never holds input: the next
+/// key press moves Preview at once and retargets the glide from where it is.
 fn glide(glide: &Glide, handle: ScrollHandle) -> AnyElement {
     let glide = glide.clone();
     canvas(
@@ -997,18 +982,18 @@ fn glide(glide: &Glide, handle: ScrollHandle) -> AnyElement {
                 glide.0.set(None);
                 return;
             }
+            let duration = Duration::from_millis(tokens::motion::STANDARD_DURATION_MS.into());
             let elapsed = cx
                 .background_executor()
                 .now()
                 .saturating_duration_since(flight.started);
-            let y = glide_position(&flight, elapsed);
-            // Within a device pixel it lands exactly on its whole-pixel target.
-            if (y - flight.to).abs() <= 1.0 / window.scale_factor() {
-                handle.set_offset(point(offset.x, px(flight.to)));
+            let progress = (elapsed.as_secs_f32() / duration.as_secs_f32()).min(1.0);
+            let y = flight.from + (flight.to - flight.from) * motion::easing().sample(progress);
+            handle.set_offset(point(offset.x, px(y)));
+            if progress >= 1.0 {
                 glide.0.set(None);
                 window.refresh();
             } else {
-                handle.set_offset(point(offset.x, px(y)));
                 glide.0.set(Some(Flight { last: y, ..flight }));
                 window.request_animation_frame();
             }
@@ -1030,31 +1015,6 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Arc::new(fixture_snapshot().snapshot().clone()))
-    }
-
-    /// The glide starts at once, is about 95% there after three time
-    /// constants, and only ever closes in on its target.
-    #[test]
-    fn a_glide_eases_out_without_overshoot() {
-        let flight = Flight {
-            from: 0.0,
-            to: -300.0,
-            started: Instant::now(),
-            last: 0.0,
-        };
-        let at = |ms: u64| glide_position(&flight, Duration::from_millis(ms));
-        assert_eq!(at(0), 0.0);
-        assert!(at(16) < -50.0, "it moves on the first frame: {}", at(16));
-        assert!((at(240) + 300.0).abs() < 300.0 * 0.06, "{}", at(240));
-        let mut last = at(0);
-        for ms in (8..=1000).step_by(8) {
-            let y = at(ms);
-            assert!(
-                y <= last && y >= -300.0,
-                "monotonic, no overshoot at {ms}ms"
-            );
-            last = y;
-        }
     }
 
     /// Re-centring a Cue measured on whole device pixels, step after step
