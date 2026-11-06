@@ -215,6 +215,12 @@ pub struct PresenterView {
     /// set was last requested. A different range after a scroll or a resize
     /// asks for a new set, outside `render`.
     visible_range: (usize, usize),
+    /// A rail jump the scroll has not applied yet, so the timeline lays that
+    /// group's Cues out before it arrives. Dropped once the group is at the top.
+    pending_jump: Option<usize>,
+    /// Test only: lay every group out, the layout before virtualisation.
+    #[cfg(test)]
+    all_groups_real: bool,
     /// The Preview Cue the timeline last brought into view; a different
     /// Preview on the next frame makes the timeline follow it.
     followed_preview: Option<usize>,
@@ -341,6 +347,9 @@ impl PresenterView {
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
             visible_range: (0, 0),
+            pending_jump: None,
+            #[cfg(test)]
+            all_groups_real: false,
             followed_preview: None,
             glide: timeline::Glide::default(),
             rail_is_pinned: false,
@@ -1136,6 +1145,7 @@ impl PresenterView {
         // The scroll is applied at the next layout, so ask for the target
         // group's frames now; `render` corrects the set once it has moved.
         self.visible_range = (group, group);
+        self.pending_jump = Some(group);
         let ids = self.visible_frames((group, group));
         self.frames
             .request_visible(ids, |view| &mut view.frames, cx);
@@ -1360,6 +1370,11 @@ impl PresenterView {
             cell_width: layout.cell_width,
             follow_preview,
             glide: self.glide.clone(),
+            jump_to: self.pending_jump,
+            #[cfg(test)]
+            virtualise: !self.all_groups_real,
+            #[cfg(not(test))]
+            virtualise: true,
         }
     }
 }
@@ -1529,6 +1544,9 @@ impl PresenterView {
         // A scroll or a resize moved the groups on screen: ask for their
         // thumbnails on the next turn, because the store is not synced from
         // `render`. The hop holds only a weak handle and ends at once.
+        if self.pending_jump == Some(self.timeline_scroll.handle().top_item()) {
+            self.pending_jump = None;
+        }
         if self.visible_groups() != self.visible_range {
             self.visible_range = self.visible_groups();
             cx.spawn(async move |this, cx| {
@@ -2019,8 +2037,17 @@ mod tests {
 
     fn open_with(
         cx: &mut TestAppContext,
+        case: (f32, f32, InterfaceScale),
+        preferences: UiPreferences,
+    ) -> (Open, &mut VisualTestContext) {
+        open_snapshot(cx, case, preferences, fixture_snapshot())
+    }
+
+    fn open_snapshot(
+        cx: &mut TestAppContext,
         (width, height, _): (f32, f32, InterfaceScale),
         preferences: UiPreferences,
+        snapshot: Arc<LoadedSnapshot>,
     ) -> (Open, &mut VisualTestContext) {
         cx.update(ui::init).unwrap();
         let now = Rc::new(Cell::new(0_u64));
@@ -2030,13 +2057,8 @@ mod tests {
             let saved = saved.clone();
             move |window, cx| {
                 let clock: Rc<dyn Fn() -> Millis> = Rc::new(move || Millis(now.get()));
-                let mut view = PresenterView::new(
-                    fixture_snapshot(),
-                    clock,
-                    environment_with(preferences),
-                    window,
-                    cx,
-                );
+                let mut view =
+                    PresenterView::new(snapshot, clock, environment_with(preferences), window, cx);
                 view.set_save_preferences(Rc::new(move |preferences| {
                     saved.borrow_mut().push(preferences);
                 }));
@@ -5140,5 +5162,222 @@ mod tests {
                 "{case:?}: the control sits in the status row"
             );
         }
+    }
+
+    /// The synthetic 500-Cue snapshot (60 groups), written to a scratch
+    /// directory and read back.
+    fn synthetic_snapshot() -> Arc<LoadedSnapshot> {
+        use presentation::snapshot_reader::{DirectorySource, read_snapshot};
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "ordo-virtualise-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        presentation::test_support::write_synthetic_snapshot(&dir).expect("synthetic snapshot");
+        let snapshot = read_snapshot(&DirectorySource::new(dir.clone())).expect("reads back");
+        std::fs::remove_dir_all(&dir).ok();
+        Arc::new(snapshot)
+    }
+
+    /// Scroll to `y` pixels from the top and draw, so the virtualised range follows the offset.
+    fn scroll_to(open: &Open, cx: &mut VisualTestContext, y: f32) {
+        open.view.read_with(cx, |view, _| {
+            view.timeline_scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-y)));
+        });
+        animate(open, cx, 0);
+    }
+
+    /// The scroll positions that walk the whole timeline, a little under one
+    /// viewport apart.
+    fn sweep_offsets(open: &Open, cx: &VisualTestContext) -> Vec<f32> {
+        let (viewport, max) = open.view.read_with(cx, |view, _| {
+            let handle = view.timeline_scroll.handle();
+            (
+                f32::from(handle.bounds().size.height),
+                f32::from(handle.max_offset().y),
+            )
+        });
+        let step = viewport * 0.9;
+        let mut at = vec![0.0];
+        while *at.last().unwrap() < max {
+            at.push((at.last().unwrap() + step).min(max));
+        }
+        at
+    }
+
+    fn open_many(
+        cx: &mut TestAppContext,
+        case: (f32, f32, InterfaceScale),
+        mode: CueView,
+    ) -> (Open, &mut VisualTestContext) {
+        open_snapshot(
+            cx,
+            case,
+            UiPreferences {
+                scale: case.2,
+                cue_view: mode,
+                ..UiPreferences::default()
+            },
+            synthetic_snapshot(),
+        )
+    }
+
+    #[gpui::test]
+    fn a_spacer_is_exactly_as_tall_as_the_group_it_stands_for(cx: &mut TestAppContext) {
+        // Every group is seen real and as a spacer along the sweep; its height
+        // must not change, or the scroll would shift when it swaps.
+        let cases = [
+            (1366.0, 768.0, InterfaceScale::Percent100),
+            (1366.0, 768.0, InterfaceScale::Percent200),
+            (1920.0, 1080.0, InterfaceScale::Percent100),
+            (1920.0, 1080.0, InterfaceScale::Percent200),
+        ];
+        let (mut real, mut spacer) = (0, 0);
+        for case in cases {
+            for mode in [CueView::Grid, CueView::List] {
+                for fold in [false, true] {
+                    let (open, cx) = open_snapshot(
+                        cx,
+                        case,
+                        UiPreferences {
+                            scale: case.2,
+                            cue_view: mode,
+                            ..UiPreferences::default()
+                        },
+                        fixture_snapshot(),
+                    );
+                    let groups = open
+                        .view
+                        .read_with(cx, |view, _| view.engine.snapshot().item_count());
+                    if fold {
+                        for group in (0..groups).step_by(3) {
+                            open.view
+                                .update(cx, |view, cx| view.toggle_group(group, cx));
+                        }
+                        animate(&open, cx, 400);
+                    }
+                    let firsts: Vec<usize> = open.view.read_with(cx, |view, _| {
+                        (0..groups)
+                            .map(|group| view.engine.snapshot().item_start(group).unwrap())
+                            .collect()
+                    });
+                    let mut seen: Vec<Vec<f32>> = vec![Vec::new(); groups];
+                    for y in sweep_offsets(&open, cx) {
+                        scroll_to(&open, cx, y);
+                        for group in 0..groups {
+                            let h =
+                                f32::from(bounds(cx, sel(format!("group-{group}"))).size.height);
+                            seen[group].push(h);
+                            if !fold || group % 3 != 0 {
+                                if present(cx, cue(firsts[group])) {
+                                    real += 1;
+                                } else {
+                                    spacer += 1;
+                                }
+                            }
+                        }
+                    }
+                    for (group, heights) in seen.iter().enumerate() {
+                        let first = heights[0];
+                        assert!(
+                            heights.iter().all(|h| (h - first).abs() < 0.01),
+                            "{case:?} {mode:?} fold {fold}: group {group} changed height {heights:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(real > 0 && spacer > 0, "{real} real, {spacer} spacers");
+    }
+
+    #[gpui::test]
+    fn scrolling_through_every_cue_lays_each_tile_out_where_it_was(cx: &mut TestAppContext) {
+        use std::collections::{BTreeMap, BTreeSet};
+        for (case, mode) in [(SIZES[1], CueView::Grid)] {
+            {
+                let collect =
+                    |cx: &mut TestAppContext, all_real: bool, offsets: Option<Vec<f32>>| {
+                        let (open, cx) = open_many(cx, case, mode);
+                        open.view.update(cx, |view, cx| {
+                            view.all_groups_real = all_real;
+                            cx.notify();
+                        });
+                        let total = open
+                            .view
+                            .read_with(cx, |view, _| view.engine.snapshot().cue_count());
+                        let mut tiles = BTreeMap::new();
+                        let mut most = 0;
+                        let offsets = offsets.unwrap_or_else(|| sweep_offsets(&open, cx));
+                        for (step, y) in offsets.iter().copied().enumerate() {
+                            scroll_to(&open, cx, y);
+                            let region = bounds(cx, "cue-timeline");
+                            let mut present_now = 0;
+                            for flat in 0..total {
+                                if let Some(b) = cx.debug_bounds(cue(flat)) {
+                                    present_now += 1;
+                                    if bottom(b) > top(region) && top(b) < bottom(region) {
+                                        tiles.insert(
+                                            (step, flat),
+                                            (left(b), top(b), width(b), f32::from(b.size.height)),
+                                        );
+                                    }
+                                }
+                            }
+                            most = most.max(present_now);
+                        }
+                        let seen: BTreeSet<usize> = tiles.keys().map(|(_, flat)| *flat).collect();
+                        assert_eq!(
+                            seen.len(),
+                            total,
+                            "{case:?} {mode:?}: every Cue is scrolled past"
+                        );
+                        (tiles, most, total, offsets)
+                    };
+                let (reference, all_present, total, offsets) = collect(cx, true, None);
+                let (tiles, most_present, ..) = collect(cx, false, Some(offsets));
+                assert_eq!(all_present, total, "the reference lays out every Cue");
+                assert!(
+                    most_present < total / 2,
+                    "{case:?} {mode:?}: {most_present} of {total} Cues laid out at once"
+                );
+                assert_eq!(tiles.len(), reference.len(), "{case:?} {mode:?}");
+                for (key, got) in &tiles {
+                    let want = reference[key];
+                    assert!(
+                        [
+                            got.0 - want.0,
+                            got.1 - want.1,
+                            got.2 - want.2,
+                            got.3 - want.3
+                        ]
+                        .iter()
+                        .all(|d| d.abs() < 0.01),
+                        "{case:?} {mode:?} {key:?}: {got:?} against {want:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn the_preview_group_stays_laid_out_far_from_the_viewport(cx: &mut TestAppContext) {
+        let (open, cx) = open_many(cx, SIZES[1], CueView::Grid);
+        let (preview, last) = open.view.read_with(cx, |view, _| {
+            (
+                view.engine.state().preview(),
+                view.engine.snapshot().cue_count() - 1,
+            )
+        });
+        let max = sweep_offsets(&open, cx).last().copied().unwrap();
+        scroll_to(&open, cx, max);
+        assert!(
+            present(cx, cue(preview)),
+            "Preview's Cue is laid out far away"
+        );
+        assert!(present(cx, cue(last)), "the last group is on screen");
+        assert!(!present(cx, cue(preview + 150)), "a far group is a spacer");
     }
 }
