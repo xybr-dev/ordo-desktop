@@ -17,7 +17,7 @@ use gpui::{
 use presentation::state::LiveState;
 use ui::{
     environment::{CueView, UiEnvironment},
-    primitives::button::Button,
+    primitives::{button::Button, record::Marker},
     tokens,
 };
 
@@ -88,8 +88,13 @@ pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
         DisplayHealth::BackNotResumed => palette.warning,
         DisplayHealth::Lost => palette.danger,
     };
-    // Shape as well as color: a round dot is healthy, a square one is not.
-    let round = matches!(model.health, DisplayHealth::Connected);
+    // Shape as well as color: a dot is healthy, a diamond is waiting on the
+    // operator, a square is off or lost.
+    let shape = match model.health {
+        DisplayHealth::Connected => Marker::Dot,
+        DisplayHealth::BackNotResumed => Marker::Diamond,
+        DisplayHealth::NotEnabled | DisplayHealth::Lost => Marker::Square,
+    };
     let gap = px(scale.apply(tokens::spacing::CONTROL_INSET));
 
     div()
@@ -122,12 +127,7 @@ pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .text_color(rgb(health_color))
                 .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                .child(
-                    div()
-                        .size(px(scale.apply(10.0)))
-                        .bg(rgb(health_color))
-                        .when(round, |dot| dot.rounded_full()),
-                )
+                .child(super::dock::marker(shape, health_color, 10.0, environment))
                 .child(model.health.label()),
         )
         .child(cue_view_control(

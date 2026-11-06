@@ -13,11 +13,7 @@ use gpui::{
     prelude::*, px, rgb,
 };
 
-use crate::{
-    environment::UiEnvironment,
-    primitives::{button, focus_visible},
-    tokens,
-};
+use crate::{environment::UiEnvironment, primitives::focus_visible, tokens};
 
 /// A short label beside a row's own text: what kind of thing the row is, or
 /// what state it is in. It is never the only thing that says so — the row's
@@ -225,53 +221,55 @@ impl ListRow {
                 .children(self.badges)
         });
 
-        gpui_base::Button::new(self.id)
-            .debug_selector(move || format!("row-{title}"))
-            .accessibility_label(name.clone())
-            // A row's title and detail both truncate, so `DESIGN.md` owes the
-            // full text to the pointer as well as to AccessKit.
-            .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
-            .tooltip(move |_, cx| button::tooltip_view(name.clone().into(), self.environment, cx))
-            .aria_selected(selected)
-            .when_some(self.on_activate, |row, activate| {
-                row.on_click(move |_, window, cx| activate(window, cx))
-            })
-            .flex()
-            .flex_col()
-            .items_start()
-            .justify_center()
-            .w_full()
-            .min_w_0()
-            // A row is the height of what it holds and nothing less. Without
-            // this it is an ordinary flex child of its column, so a short
-            // window squeezes every row down to fit instead of overflowing —
-            // the titles close up, and the scroll indicator has nothing to
-            // report because the list was never allowed to be too long.
-            .flex_none()
-            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-            .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
-            .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
-            .py(px(scale.apply(tokens::spacing::RELATED)))
-            // The one shared edge. A row draws its own bottom border and
-            // nothing else, so adjacent rows rule a continuous column instead
-            // of doubling a border between every pair.
-            .border_b(px(tokens::border::SEPARATOR))
-            .border_color(rgb(palette.border))
-            .when(selected, |row| row.bg(rgb(palette.selection)))
-            .when(!selected, |row| {
-                row.hover(|style| style.bg(rgb(palette.surface_secondary)))
-            })
-            .active(|style| style.bg(rgb(palette.border)))
-            .cursor_pointer()
-            .text_color(rgb(palette.text))
-            .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .truncate()
-                    .child(self.title.clone()),
-            )
-            .children(secondary)
+        super::tooltip(
+            gpui_base::Button::new(self.id),
+            name.clone(),
+            self.environment,
+        )
+        .debug_selector(move || format!("row-{title}"))
+        .accessibility_label(name.clone())
+        // A row's title and detail both truncate, so `DESIGN.md` owes the
+        // full text to the pointer as well as to AccessKit.
+        .aria_selected(selected)
+        .when_some(self.on_activate, |row, activate| {
+            row.on_click(move |_, window, cx| activate(window, cx))
+        })
+        .flex()
+        .flex_col()
+        .items_start()
+        .justify_center()
+        .w_full()
+        .min_w_0()
+        // A row is the height of what it holds and nothing less. Without
+        // this it is an ordinary flex child of its column, so a short
+        // window squeezes every row down to fit instead of overflowing —
+        // the titles close up, and the scroll indicator has nothing to
+        // report because the list was never allowed to be too long.
+        .flex_none()
+        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .min_h(px(scale.apply(tokens::density::DEFAULT_CONTROL)))
+        .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+        .py(px(scale.apply(tokens::spacing::RELATED)))
+        // The one shared edge. A row draws its own bottom border and
+        // nothing else, so adjacent rows rule a continuous column instead
+        // of doubling a border between every pair.
+        .border_b(px(tokens::border::SEPARATOR))
+        .border_color(rgb(palette.border))
+        .when(selected, |row| row.bg(rgb(palette.selection)))
+        .when(!selected, |row| {
+            row.hover(|style| style.bg(rgb(palette.surface_secondary)))
+        })
+        .active(|style| style.bg(rgb(palette.border)))
+        .cursor_pointer()
+        .text_color(rgb(palette.text))
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .child(self.title.clone()),
+        )
+        .children(secondary)
     }
 }
 

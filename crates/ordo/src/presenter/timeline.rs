@@ -8,21 +8,26 @@
 //! # Grid and List
 //!
 //! In Grid, a Project (or Unavailable) Cue is a fixed-width tile and every
-//! other Cue is a full-width compact row; in List every Cue is a row with no
-//! thumbnail. The tile width is the layout model's `cell_width` and is never
-//! stretched: a group whose last row is not full, or that has one Cue, keeps
-//! the width of a full row, so the 270 px floor of `presenter_layout` holds
-//! for every tile.
+//! other Cue is a full-width compact row; in List every Cue is a row
+//! (`timeline-modes-v2`). The tile width is the layout model's `cell_width`
+//! and is never stretched: a group whose last row is not full, or that has one
+//! Cue, keeps the width of a full row, so the 270 px floor of
+//! `presenter_layout` holds for every tile.
+//!
+//! A row leads with what the Cue is: a small canonical thumbnail for a slide
+//! (List only), or the operator-only marker of a trigger, Wait, Hold or
+//! Unavailable Cue, so the kind is a shape as well as a word.
 //!
 //! # What a tile shows
 //!
 //! The thumbnail is the same retained element the monitors draw
-//! ([`live_viewport`], Decision 310), laid out at `cell_width`; nothing is
-//! rasterized and a resize never recomposes. Only Program, Preview and the
-//! four Cues around Preview are composed (the scheduler bounds the preload
-//! set), so every other tile is black until Preview has been near it; the
-//! frame cache then keeps it (at most `FRAME_CAPACITY` entries). An
-//! Unavailable Cue is black with the caption "Unavailable · reason".
+//! ([`live_viewport`], Decision 310), laid out at `cell_width` (or
+//! [`MINI_WIDTH`] in a row); nothing is rasterized and a resize never
+//! recomposes. The frame store composes the groups on screen and their
+//! neighbours at thumbnail quality (`request_visible`), so a tile is black
+//! only until its frame is ready. An Unavailable Cue is black with the
+//! operator-only "Output unavailable" placeholder and the caption
+//! "Unavailable · reason".
 //!
 //! # Marks (Decision 295) and one-line captions (Decision 303)
 //!
@@ -35,14 +40,17 @@
 //!
 //! Nothing here reads the Engine: the owning view builds the models below and
 //! a click reports the Cue's flat index through one callback, which the view
-//! sends as `Command::GoTo`. The timeline never scrolls itself on navigation
-//! (keeping Preview in view is T1.5).
+//! sends as `Command::GoTo`. When Preview moves, the timeline scrolls just far
+//! enough to keep its Cue in view, and Program's too while Freeze
+//! holds a different Cue, if both fit ([`follow`]); it never scrolls
+//! otherwise.
 
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use gpui::{
-    AnyElement, App, FocusHandle, FontWeight, IntoElement, ParentElement, RenderImage, Role,
-    SharedString, Styled, Window, div, prelude::*, px, rgb,
+    AnyElement, App, Bounds, FocusHandle, FontWeight, IntoElement, ParentElement, Pixels,
+    RenderImage, Role, ScrollHandle, SharedString, Styled, Window, canvas, div, point, prelude::*,
+    px, rgb, svg,
 };
 use presentation::state::{EngineState, LiveState, ProgramContent};
 use rendering::Frame;
@@ -50,12 +58,15 @@ use ui::{
     assets::icon,
     environment::{CueView, UiEnvironment},
     motion,
-    primitives::{self, button::Button},
+    primitives::{self, button::Button, record::Marker},
     scroll::Scroll,
     tokens,
 };
 
-use super::layout::{CELL_GAP, CELL_PADDING};
+use super::{
+    dock,
+    layout::{CELL_GAP, CELL_PADDING},
+};
 use crate::canonical_views::live_viewport;
 
 /// Called with a Cue's flat index.
@@ -74,6 +85,13 @@ pub const PROGRAM_RING: f32 = 2.0;
 pub const CUE_INDENT: f32 = 16.0;
 /// Height of a group header.
 pub const GROUP_HEAD_HEIGHT: f32 = 40.0;
+/// Width of a row's small canonical thumbnail (16:9, so 27 px tall inside the
+/// 32 px compact row).
+pub const MINI_WIDTH: f32 = 48.0;
+/// Size of a row's lead marker glyph.
+const LEAD_ICON: f32 = 16.0;
+/// Width of a row's Cue number column.
+const NUMBER_WIDTH: f32 = 32.0;
 
 /// Whether a Cue is on Program, and what Program is doing with it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -128,6 +146,18 @@ impl CueKind {
     /// Hold Cues have nothing to show and stay compact rows in both modes.
     pub fn is_tile(self) -> bool {
         matches!(self, Self::Slide | Self::Unavailable)
+    }
+
+    /// The operator-only marker a row leads with; a slide leads with its
+    /// thumbnail instead.
+    pub fn lead_icon(self) -> Option<&'static str> {
+        match self {
+            Self::Slide => None,
+            Self::Trigger => Some(icon::MIC),
+            Self::Wait => Some(icon::HOURGLASS),
+            Self::Hold => Some(icon::SQUARE),
+            Self::Unavailable => Some(icon::CIRCLE_OFF),
+        }
     }
 }
 
@@ -190,6 +220,8 @@ pub struct TimelineModel {
     pub columns: usize,
     /// Frame width of a tile (`PresenterLayout::cell_width`).
     pub cell_width: f32,
+    /// Preview moved since the last frame: bring its Cue into view.
+    pub follow_preview: bool,
 }
 
 /// The callbacks the timeline reports to.
@@ -220,6 +252,10 @@ pub fn timeline(
         columns: model.columns.max(1),
         cell_width: model.cell_width,
         environment,
+        follow: model.follow_preview.then(|| Follow {
+            handle: scroll.handle().clone(),
+            seen: Rc::default(),
+        }),
     };
     let groups: Vec<AnyElement> = model
         .groups
@@ -247,7 +283,7 @@ pub fn timeline(
                     scale.apply(tokens::spacing::GROUP) + super::layout::SCROLLBAR_WIDTH
                 ))
                 .children(groups)
-                .child(tail(scroll)),
+                .child(tail(scroll, geometry.follow.as_ref(), environment)),
         )
         .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
         .into_any_element()
@@ -258,7 +294,11 @@ pub fn timeline(
 /// of the timeline. It is the scroll element's last child, after the groups,
 /// so a group's index is still its child index. It is sized from the previous
 /// layout; the surface asks for one more frame when that moved.
-fn tail(scroll: &Scroll) -> AnyElement {
+///
+/// When Preview has just moved, the tail also carries the step that brings it
+/// into view ([`follow`]): being the last child, it is laid out after every
+/// Cue has said where it is.
+fn tail(scroll: &Scroll, follow: Option<&Follow>, environment: UiEnvironment) -> AnyElement {
     let handle = scroll.handle();
     let viewport = f32::from(handle.bounds().size.height);
     let last = handle.children_count().saturating_sub(2);
@@ -270,6 +310,8 @@ fn tail(scroll: &Scroll) -> AnyElement {
         .flex_none()
         .w_full()
         .h(px((viewport - last_height).max(0.0)))
+        .relative()
+        .children(follow.map(|follow| self::follow(follow, environment)))
         .into_any_element()
 }
 
@@ -278,6 +320,8 @@ struct Geometry {
     columns: usize,
     cell_width: f32,
     environment: UiEnvironment,
+    /// Set when Preview's Cue (and Program's, if it fits) must come into view.
+    follow: Option<Follow>,
 }
 
 fn group(
@@ -297,14 +341,22 @@ fn group(
     let fold_id = SharedString::from(format!("group-fold-{index}"));
     let open = motion::fold(fold_id.clone(), !group.collapsed, window, cx);
     let count = group.cues.len();
+    let unavailable = group
+        .cues
+        .iter()
+        .filter(|cue| cue.kind == CueKind::Unavailable)
+        .count();
 
     let toggle = {
         let toggle_group = handlers.toggle_group.clone();
+        // The item's number leads its title, as in the rail and the Cue
+        // numbers below it ("4" here, "4.2" on its Cues).
         Button::new(
             SharedString::from(format!("group-toggle-{index}")),
             title.clone(),
             environment,
         )
+        .leading_text(group.number.to_string())
         .name(format!(
             "{} {title}",
             if group.collapsed {
@@ -331,6 +383,20 @@ fn group(
         .gap(px(scale.apply(tokens::spacing::RELATED)))
         .font_weight(FontWeight::SEMIBOLD)
         .child(div().flex_1().min_w_0().child(toggle))
+        // A folded group still says it holds a Cue that cannot go live.
+        .children((unavailable > 0).then(|| {
+            div()
+                .debug_selector(move || format!("group-{index}-unavailable"))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                .whitespace_nowrap()
+                .text_color(rgb(palette.warning))
+                .text_size(px(scale.apply(tokens::typography::META.size)))
+                .child(glyph(icon::CIRCLE_OFF, palette.warning, environment))
+                .child(format!("{unavailable} unavailable"))
+        }))
         .child(
             div()
                 .flex_none()
@@ -436,7 +502,9 @@ fn tile_row(cues: Vec<CueModel>, g: &Geometry, handlers: &Handlers) -> AnyElemen
 fn indicators(cue: &CueModel, environment: UiEnvironment) -> Vec<AnyElement> {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    let word = |text: &'static str, color: u32, round: bool| {
+    // Shape as well as color: a dot for Program, a diamond while held, a
+    // square for Preview (the monitors and the header use the same shapes).
+    let word = |text: &'static str, color: u32, shape: Marker| {
         div()
             .flex_none()
             .flex()
@@ -444,26 +512,55 @@ fn indicators(cue: &CueModel, environment: UiEnvironment) -> Vec<AnyElement> {
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .whitespace_nowrap()
             .text_color(rgb(color))
-            .child(
-                // Shape as well as color: round for Live, square otherwise.
-                div()
-                    .size(px(scale.apply(8.0)))
-                    .bg(rgb(color))
-                    .when(round, |dot| dot.rounded_full()),
-            )
+            .child(dock::marker(shape, color, 8.0, environment))
             .child(text)
             .into_any_element()
     };
     let mut all = Vec::new();
     match cue.air {
-        Some(Air::Program) => all.push(word("Program", palette.live, true)),
-        Some(Air::Held) => all.push(word("Held", palette.warning, false)),
+        Some(Air::Program) => all.push(word("Program", palette.live, Marker::Dot)),
+        Some(Air::Held) => all.push(word("Held", palette.warning, Marker::Diamond)),
         None => {}
     }
     if cue.preview {
-        all.push(word("Preview", palette.text, false));
+        all.push(word("Preview", palette.text, Marker::Square));
     }
     all
+}
+
+/// An outlined Lucide glyph at the row-marker size.
+fn glyph(svg_source: &'static str, color: u32, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    svg()
+        .flex_none()
+        .size(px(scale.apply(LEAD_ICON)))
+        .text_color(rgb(color))
+        .data(svg_source.as_bytes())
+        .into_any_element()
+}
+
+/// The operator-only placeholder over an Unavailable tile's black frame. It
+/// sits on the timeline's own thumbnail, never on anything the congregation
+/// output draws.
+fn unavailable_placeholder(flat: usize, environment: UiEnvironment) -> AnyElement {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    div()
+        .debug_selector(move || format!("cue-{flat}-unavailable"))
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .text_color(rgb(palette.warning))
+        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+        .child(glyph(icon::CIRCLE_OFF, palette.warning, environment))
+        .child("Output unavailable")
+        .into_any_element()
 }
 
 fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
@@ -490,6 +587,7 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
     });
     let frame = div()
         .debug_selector(move || format!("cue-{flat}-frame"))
+        .relative()
         .flex_none()
         .child(live_viewport(
             cue.frame.clone(),
@@ -497,7 +595,10 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
             g.cell_width,
             None,
             environment,
-        ));
+        ))
+        .children(
+            (cue.kind == CueKind::Unavailable).then(|| unavailable_placeholder(flat, environment)),
+        );
     let wrap = div()
         .relative()
         .flex_none()
@@ -547,6 +648,8 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
     let tile = div()
         .id(("cue", flat))
         .debug_selector(move || format!("cue-{flat}"))
+        .relative()
+        .children(mark(&cue, g))
         .flex_none()
         .w(px(width))
         .flex()
@@ -591,6 +694,48 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
             .h(px(scale.apply(PREVIEW_BAR)))
             .bg(rgb(palette.text))
     });
+    // A slide leads with its thumbnail; anything else with its operator-only
+    // marker, in the warning color when it cannot go live.
+    let lead = match cue.kind.lead_icon() {
+        None => div()
+            .debug_selector(move || format!("cue-{flat}-mini"))
+            .flex_none()
+            .child(live_viewport(
+                cue.frame.clone(),
+                cue.image.clone(),
+                scale.apply(MINI_WIDTH),
+                None,
+                environment,
+            ))
+            .into_any_element(),
+        // The marker sits in a frame of the thumbnail's size and outline, so
+        // every row's lead is the same 16:9 box whatever the Cue is.
+        Some(svg_source) => div()
+            .debug_selector(move || format!("cue-{flat}-marker"))
+            .flex_none()
+            .w(px(scale.apply(MINI_WIDTH)))
+            .h(px(scale.apply(MINI_WIDTH * 9.0 / 16.0)))
+            .rounded(px(scale.apply(tokens::radius::CONTROL)))
+            .border(px(tokens::border::SEPARATOR))
+            .border_color(rgb(if cue.kind == CueKind::Unavailable {
+                palette.warning
+            } else {
+                palette.border_strong
+            }))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(glyph(
+                svg_source,
+                if cue.kind == CueKind::Unavailable {
+                    palette.warning
+                } else {
+                    palette.text_muted
+                },
+                environment,
+            ))
+            .into_any_element(),
+    };
     let name = cue.name();
     let go_to = handlers.go_to.clone();
     let row = div()
@@ -617,12 +762,16 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .aria_label(name.clone())
         .on_click(move |_, window, cx| go_to(flat, window, cx))
         .child(
+            // A fixed column, so the thumbnails and markers line up whether
+            // the number is "3.1" or "12.10".
             div()
                 .flex_none()
+                .min_w(px(scale.apply(NUMBER_WIDTH)))
                 .whitespace_nowrap()
                 .text_color(rgb(palette.text_muted))
                 .child(cue.number.clone()),
         )
+        .child(lead)
         .child(
             div()
                 .flex_1()
@@ -643,8 +792,112 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         )
         .children(indicators(&cue, environment))
         .children(program)
-        .children(preview);
+        .children(preview)
+        .children(mark(&cue, g));
     primitives::truncated(row, name, environment).into_any_element()
+}
+
+/// Room kept between the Preview Cue and the timeline's edges when it is
+/// brought into view: below, a little air; above, its group header too.
+const FOLLOW_MARGIN: f32 = 16.0;
+
+/// Where the Preview and Program Cues were laid out this frame.
+#[derive(Default)]
+struct Seen {
+    preview: Option<Bounds<Pixels>>,
+    program: Option<Bounds<Pixels>>,
+}
+
+/// One frame's follow: the timeline's scroll handle, and where the Cues that
+/// must be in view turned out to be.
+struct Follow {
+    handle: ScrollHandle,
+    seen: Rc<RefCell<Seen>>,
+}
+
+/// When Preview has just moved, an invisible layer over the Preview Cue, and
+/// over the Program Cue when Freeze holds a different one, that
+/// records where it was laid out. [`follow`] then uses those bounds.
+fn mark(cue: &CueModel, g: &Geometry) -> Option<AnyElement> {
+    let follow = g.follow.as_ref()?;
+    let preview = cue.preview;
+    if !preview && cue.air.is_none() {
+        return None;
+    }
+    let seen = follow.seen.clone();
+    Some(
+        canvas(
+            move |bounds, _, _| {
+                let mut seen = seen.borrow_mut();
+                if preview {
+                    seen.preview = Some(bounds);
+                } else {
+                    seen.program = Some(bounds);
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
+
+/// The step that scrolls the timeline, during layout, just far enough to
+/// bring Preview's Cue into view, downward or upward. When Freeze
+/// holds Program on a different Cue, both are kept in view if they fit
+/// together; otherwise Preview wins. It only runs on the frame after Preview
+/// moved, so the operator's own scrolling is never fought.
+fn follow(follow: &Follow, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let below = scale.apply(FOLLOW_MARGIN);
+    let above = scale.apply(GROUP_HEAD_HEIGHT + FOLLOW_MARGIN);
+    let handle = follow.handle.clone();
+    let seen = follow.seen.clone();
+    canvas(
+        move |_, window, _| {
+            let seen = seen.borrow();
+            // A folded group draws no Cue: nothing to follow.
+            let Some(preview) = seen.preview else {
+                return;
+            };
+            let viewport = handle.bounds();
+            let (view_top, view_bottom) = (f32::from(viewport.top()), f32::from(viewport.bottom()));
+            let span = |b: Bounds<Pixels>| (f32::from(b.top()), f32::from(b.bottom()));
+            let (mut top, mut bottom) = span(preview);
+            if let Some(program) = seen.program {
+                let (program_top, program_bottom) = span(program);
+                let (both_top, both_bottom) = (top.min(program_top), bottom.max(program_bottom));
+                if both_bottom - both_top + above + below <= view_bottom - view_top {
+                    (top, bottom) = (both_top, both_bottom);
+                }
+            }
+            let offset = handle.offset();
+            let lowest = -f32::from(handle.max_offset().y);
+            let y = f32::from(offset.y);
+            let wanted = if top < view_top + above || bottom - top > view_bottom - view_top {
+                // Above the viewport, or taller than it: its top first.
+                y + (view_top + above - top)
+            } else if bottom > view_bottom - below {
+                y - (bottom - (view_bottom - below))
+            } else {
+                return;
+            };
+            let wanted = wanted.clamp(lowest, 0.0);
+            if (wanted - y).abs() >= 0.5 {
+                handle.set_offset(point(offset.x, px(wanted)));
+                window.refresh();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_0()
+    .into_any_element()
 }
 
 #[cfg(test)]

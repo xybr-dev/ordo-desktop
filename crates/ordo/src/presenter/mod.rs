@@ -167,6 +167,9 @@ pub struct PresenterView {
     /// set was last requested. A different range after a scroll or a resize
     /// asks for a new set, outside `render`.
     visible_range: (usize, usize),
+    /// The Preview Cue the timeline last brought into view; a different
+    /// Preview on the next frame makes the timeline follow it.
+    followed_preview: Option<usize>,
     /// Whether the rail was drawn pinned on the last frame, so a pin toggle
     /// flips what the operator saw.
     rail_is_pinned: bool,
@@ -216,6 +219,7 @@ impl PresenterView {
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
             visible_range: (0, 0),
+            followed_preview: None,
             rail_is_pinned: false,
             rail_scroll: Scroll::new(),
             timeline_focus: cx.focus_handle(),
@@ -368,8 +372,9 @@ impl PresenterView {
     /// Ask the frame store for the thumbnails the timeline wants: the Project
     /// frames of the groups on screen, then of their neighbours, nearest
     /// first. The store takes the first `MAX_VISIBLE` distinct ones, never
-    /// pins them and keeps the cache within `FRAME_CAPACITY`. List mode shows
-    /// no thumbnail, so it wants none. Called when something that changes the
+    /// pins them and keeps the cache within `FRAME_CAPACITY`. Grid tiles and
+    /// List rows show the same frames (List draws them small), so the set does
+    /// not depend on the mode. Called when something that changes the
     /// set changed (the Engine, Grid/List, a fold, a jump) and from the
     /// one-shot hop `render` schedules after a scroll or resize; never from
     /// `render` itself.
@@ -380,12 +385,11 @@ impl PresenterView {
             .request_visible(ids, |view| &mut view.frames, cx);
     }
 
-    /// Frames for `(first, last)` and then each step outward, skipping folded
-    /// groups and Cues that cannot be shown.
+    /// Frames for `(first, last)` and, in Grid, each step outward, skipping
+    /// folded groups and Cues that cannot be shown. List rows are short, so
+    /// the groups on screen are already many and their small thumbnails are
+    /// all it asks for; the hop after a scroll asks for the next ones.
     fn visible_frames(&self, (first, last): (usize, usize)) -> Vec<FrameId> {
-        if self.cue_view == CueView::List {
-            return Vec::new();
-        }
         let snapshot = self.engine.snapshot();
         let items: Vec<_> = snapshot
             .sections()
@@ -393,7 +397,11 @@ impl PresenterView {
             .flat_map(|section| section.items())
             .collect();
         let mut order: Vec<usize> = (first..=last).collect();
-        for step in 1..items.len() {
+        let reach = match self.cue_view {
+            CueView::Grid => items.len(),
+            CueView::List => 1,
+        };
+        for step in 1..reach {
             order.extend((last + step < items.len()).then_some(last + step));
             order.extend(first.checked_sub(step));
         }
@@ -760,7 +768,7 @@ impl PresenterView {
     /// reads the frame store with `peek`, so a paint never changes what the
     /// cache would evict, and composing follows state changes
     /// (`engine_changed`, `request_visible`), never a paint.
-    fn timeline_model(&self, layout: &PresenterLayout) -> TimelineModel {
+    fn timeline_model(&self, layout: &PresenterLayout, follow_preview: bool) -> TimelineModel {
         let engine = &self.engine;
         let frames = &self.frames;
         let snapshot = engine.snapshot();
@@ -832,6 +840,7 @@ impl PresenterView {
             mode: self.cue_view,
             columns: layout.grid_columns as usize,
             cell_width: layout.cell_width,
+            follow_preview,
         }
     }
 }
@@ -854,7 +863,12 @@ impl Render for PresenterView {
             rail: self.rail_choice,
         });
 
-        let timeline_model = self.timeline_model(&layout);
+        // Follow Preview once per move: navigation scrolls the timeline, the
+        // operator's own scrolling never is undone.
+        let preview_now = self.engine.state().preview();
+        let follow_preview = self.followed_preview != Some(preview_now);
+        self.followed_preview = Some(preview_now);
+        let timeline_model = self.timeline_model(&layout, follow_preview);
         let program_view = self.engine.program_view(now);
         let preview_view = self.engine.preview_view(now);
         if program_view.fading || preview_view.fading {
@@ -884,6 +898,21 @@ impl Render for PresenterView {
                 .ok();
             })
         };
+        // The primary action replaces itself (Enable Output becomes Take
+        // Preview Live, which becomes the LIVE statement), so the button the
+        // pointer just focused is gone. Focus returns to the Cues, as it does
+        // when the rail overlay closes, so the keys keep reaching the
+        // Presenter instead of an element that no longer exists.
+        let on_primary: OnCommand = {
+            let view = view.clone();
+            Rc::new(move |command, window, cx| {
+                view.update(cx, |view, cx| {
+                    view.command(command, cx).ok();
+                    view.timeline_focus.focus(window, cx);
+                })
+                .ok();
+            })
+        };
         let on_cue_view: OnCueView = {
             let view = view.clone();
             Rc::new(move |chosen, _, cx| {
@@ -904,7 +933,7 @@ impl Render for PresenterView {
         // A scroll or a resize moved the groups on screen: ask for their
         // thumbnails on the next turn, because the store is not synced from
         // `render`. The hop holds only a weak handle and ends at once.
-        if self.cue_view == CueView::Grid && self.visible_groups() != self.visible_range {
+        if self.visible_groups() != self.visible_range {
             self.visible_range = self.visible_groups();
             cx.spawn(async move |this, cx| {
                 this.update(cx, |view, cx| view.request_visible(cx)).ok();
@@ -916,6 +945,9 @@ impl Render for PresenterView {
                 let view = view.clone();
                 Rc::new(move |flat, _, cx| {
                     view.update(cx, |view, cx| {
+                        // A pressed Cue is where the pointer is: the timeline
+                        // stays still under it (only key navigation follows).
+                        view.followed_preview = Some(flat);
                         view.command(Command::GoTo(flat), cx).ok();
                     })
                     .ok();
@@ -1072,9 +1104,13 @@ impl Render for PresenterView {
                     .bg(rgb(palette.surface))
                     .child(dock::program_monitor(&program, monitor_width, environment))
                     .child(dock::preview_monitor(&preview, monitor_width, environment))
-                    .child(dock::output_status(controls.status.clone(), environment))
+                    .child(dock::output_status(
+                        controls.status.clone(),
+                        controls.live,
+                        environment,
+                    ))
                     .child(dock::freeze_blackout(&controls, &on_command, environment))
-                    .child(dock::primary_action(&controls, &on_command, environment));
+                    .child(dock::primary_action(&controls, &on_primary, environment));
                 div()
                     .flex_1()
                     .min_h_0()
@@ -1110,7 +1146,11 @@ impl Render for PresenterView {
                     .gap(px(scale.apply(tokens::spacing::RELATED)))
                     .px(px(scale.apply(BAND_GUTTER)))
                     .pt(px(scale.apply(tokens::spacing::RELATED)))
-                    .child(dock::output_status(controls.status.clone(), environment))
+                    .child(dock::output_status(
+                        controls.status.clone(),
+                        controls.live,
+                        environment,
+                    ))
                     .child(
                         div()
                             .flex()
@@ -1124,7 +1164,7 @@ impl Render for PresenterView {
                             )))
                             .child(div().flex_1().min_w_0().child(dock::primary_action(
                                 &controls,
-                                &on_command,
+                                &on_primary,
                                 environment,
                             ))),
                     );
@@ -1770,6 +1810,62 @@ mod tests {
     }
 
     #[gpui::test]
+    fn operator_only_and_unavailable_cues_carry_a_shape_as_well_as_a_word(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let kinds = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            (0..snapshot.cue_count())
+                .map(|flat| snapshot.cue(flat).unwrap().behavior().clone())
+                .collect::<Vec<_>>()
+        });
+        let trigger = kinds
+            .iter()
+            .position(|b| matches!(b, CueBehavior::OperatorTrigger))
+            .expect("the fixture has a trigger");
+        let group = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            (0..snapshot.item_count())
+                .rev()
+                .find(|g| {
+                    snapshot
+                        .item_start(*g)
+                        .is_some_and(|start| start <= trigger)
+                })
+                .expect("the trigger's group")
+        });
+        open.view
+            .update(cx, |view, cx| view.jump_to_group(group, cx));
+        cx.run_until_parked();
+        animate(&open, cx, 0);
+        let trigger_marker: &'static str = format!("cue-{trigger}-marker").leak();
+        assert!(
+            present(cx, trigger_marker),
+            "a Grid row leads with its marker"
+        );
+        open.view.update(cx, |view, cx| view.jump_to_group(0, cx));
+        cx.run_until_parked();
+        animate(&open, cx, 0);
+
+        // Cue 1's frame fails: its tile keeps its place with the operator-only
+        // placeholder, and its group says so even when folded.
+        let CueBehavior::Project { frame, .. } = kinds[1] else {
+            panic!("Cue 1 projects")
+        };
+        let before = engine_state(&open, cx);
+        let _ = run(
+            &open,
+            cx,
+            Command::FrameUnavailable {
+                frame,
+                reason: rendering::UnavailableReason::DecodeFailed,
+            },
+        );
+        assert!(present(cx, "cue-1-unavailable"));
+        assert!(present(cx, "group-1-unavailable"));
+        assert_eq!(engine_state(&open, cx).live(), before.live());
+    }
+
+    #[gpui::test]
     fn grid_makes_tiles_and_list_makes_rows_and_the_choice_is_saved_and_restored(
         cx: &mut TestAppContext,
     ) {
@@ -1802,7 +1898,14 @@ mod tests {
                 (f32::from(row.size.height) - 32.0 * s).abs() < 0.5,
                 "{case:?}: row height {row:?}"
             );
-            assert!(!present(vcx, "cue-1-frame"), "no thumbnails in List");
+            assert!(!present(vcx, "cue-1-frame"), "no tile frame in List");
+            // A row leads with a small canonical thumbnail inside its height.
+            let mini = bounds(vcx, "cue-1-mini");
+            assert!(
+                (f32::from(mini.size.width) - timeline::MINI_WIDTH * s).abs() < 0.5
+                    && f32::from(mini.size.height) <= f32::from(row.size.height),
+                "{case:?}: mini {mini:?} in row {row:?}"
+            );
             assert!(
                 (right(row) - left(row) - layout.timeline_width).abs() < 1.0,
                 "{case:?}: a row spans the group"
@@ -2070,6 +2173,118 @@ mod tests {
                 );
             });
         });
+    }
+
+    fn timeline_has_focus(open: &Open, cx: &mut VisualTestContext) -> bool {
+        cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, _| view.timeline_focus.is_focused(window))
+        })
+    }
+
+    /// The primary action replaces itself when pressed, so it hands focus to
+    /// the Cues; otherwise the keys would go to a button that no longer exists.
+    #[gpui::test]
+    fn pressing_the_primary_action_returns_focus_to_the_cues(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        for label in ["button-Enable Output", "button-Take Preview Live"] {
+            click(cx, label);
+            assert!(timeline_has_focus(&open, cx), "after {label}");
+        }
+        assert_eq!(
+            open.view
+                .read_with(cx, |view, _| view.engine.state().live()),
+            LiveState::Live
+        );
+    }
+
+    /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
+    #[gpui::test]
+    fn the_timeline_follows_preview_down_and_back_up(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let last = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count() - 1);
+        let inside = |cx: &mut VisualTestContext, flat: usize| {
+            let selector: &'static str = format!("cue-{flat}").leak();
+            let cue = bounds(cx, selector);
+            let timeline = bounds(cx, "cue-timeline");
+            cue.top() >= timeline.top() && cue.bottom() <= timeline.bottom()
+        };
+        for flat in 1..=last {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            animate(&open, cx, 0);
+            assert!(inside(cx, flat), "Cue {flat} is in view after Next");
+        }
+        assert!(run(&open, cx, Command::GoTo(0)).is_ok());
+        animate(&open, cx, 0);
+        assert!(
+            inside(cx, 0),
+            "back at the first Cue, the timeline is at the top"
+        );
+
+        // The operator's own scrolling is not undone while Preview stays put.
+        open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+        animate(&open, cx, 0);
+        assert!(
+            !inside(cx, 0),
+            "a jump away from Preview stays where it went"
+        );
+    }
+
+    /// While frozen, the held Program Cue is brought back into view with
+    /// Preview when both fit. Stepping from Cue to Cue keeps both on screen by
+    /// itself; this covers the operator having scrolled them away first.
+    #[gpui::test]
+    fn while_frozen_the_timeline_keeps_program_in_view_with_preview_if_both_fit(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let in_view = |cx: &mut VisualTestContext, flat: usize| {
+            let selector: &'static str = format!("cue-{flat}").leak();
+            let cue = bounds(cx, selector);
+            let timeline = bounds(cx, "cue-timeline");
+            cue.top() >= timeline.top() && cue.bottom() <= timeline.bottom()
+        };
+        // Program held on the first Cue of the Entrance song (group 2).
+        let (held, last) = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            (snapshot.item_start(2).unwrap(), snapshot.cue_count() - 1)
+        });
+        for command in [
+            Command::EnableOutput,
+            Command::GoTo(held),
+            Command::Take,
+            Command::ToggleFreeze,
+        ] {
+            assert!(run(&open, cx, command).is_ok(), "{command:?}");
+        }
+        animate(&open, cx, 0);
+
+        // The operator scrolls far away, then steps Preview on.
+        open.view.update(cx, |view, cx| view.jump_to_group(12, cx));
+        animate(&open, cx, 0);
+        assert!(!in_view(cx, held));
+        // The next group's first Cue: below Program's rows, so following
+        // Preview alone would leave Program above the viewport.
+        let next = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_start(3).unwrap());
+        assert!(run(&open, cx, Command::GoTo(next)).is_ok());
+        animate(&open, cx, 0);
+        assert!(in_view(cx, next), "Preview is in view");
+        assert!(in_view(cx, held), "the held Program Cue came back with it");
+
+        // Too far apart to fit together: Preview wins.
+        assert!(run(&open, cx, Command::GoTo(last)).is_ok());
+        animate(&open, cx, 0);
+        assert!(in_view(cx, last), "Preview is in view");
+        assert!(!in_view(cx, held), "Program gives way when both cannot fit");
+        assert_eq!(
+            open.view
+                .read_with(cx, |view, _| view.engine.state().live()),
+            LiveState::Frozen
+        );
     }
 
     #[gpui::test]
@@ -2361,7 +2576,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_visible_set_follows_the_groups_on_screen_nearest_first_and_is_empty_in_list(
+    fn the_visible_set_follows_the_groups_on_screen_nearest_first_and_list_keeps_to_the_screen(
         cx: &mut TestAppContext,
     ) {
         let (open, cx) = open(cx, SIZES[0]);
@@ -2374,7 +2589,6 @@ mod tests {
             view.set_cue_view(CueView::Grid, cx);
             (view.visible_groups(), view.visible_frames((14, 14)), list)
         });
-        assert!(list.is_empty(), "List shows no thumbnails");
         assert!(first.1 == 14, "the last group is on screen: {first:?}");
         let last_group_frames = open.view.read_with(cx, |view, _| {
             let snapshot = view.engine.snapshot();
@@ -2389,6 +2603,11 @@ mod tests {
             wanted[..2],
             last_group_frames[..],
             "the group on screen comes first"
+        );
+        assert!(wanted.len() > 2, "Grid reaches out to the neighbours");
+        assert_eq!(
+            list, last_group_frames,
+            "List wants the small thumbnails of the groups on screen only"
         );
     }
 
@@ -2408,9 +2627,10 @@ mod tests {
         cx.run_until_parked();
     }
 
-    /// A slow-frame fixture: List view (no thumbnails are composed ahead) and
-    /// a Cue far from the start (outside the preload radius), whose frame is
-    /// therefore still to be composed when Preview goes there.
+    /// A slow-frame fixture: List view (only the groups on screen compose
+    /// thumbnails, nothing ahead) and a Cue far from the start (off screen and
+    /// outside the preload radius), whose frame is therefore still to be
+    /// composed when Preview goes there.
     fn open_for_slow_frames(cx: &mut TestAppContext) -> (Open, &mut VisualTestContext, usize) {
         let (open, cx) = open_with(
             cx,

@@ -14,16 +14,18 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, IntoElement, ParentElement, RenderImage, SharedString, Styled, Window, div,
-    prelude::*, px, rgb,
+    prelude::*, px, rgb, svg,
 };
 use presentation::{commands::Command, state::LiveState};
 use rendering::Frame;
 use std::sync::Arc;
 use ui::{
+    assets::icon,
     environment::UiEnvironment,
     primitives::{
-        Availability,
+        self, Availability,
         button::{Button, Tone},
+        record::Marker,
     },
     tokens,
 };
@@ -48,6 +50,7 @@ pub enum Primary {
     Action {
         label: &'static str,
         command: Command,
+        icon: &'static str,
     },
     /// A statement, not a control: there is nothing for the operator to press.
     Info(&'static str),
@@ -59,15 +62,18 @@ pub fn primary_for(live: LiveState) -> Primary {
         LiveState::OutputDisabled => Primary::Action {
             label: "Enable Output",
             command: Command::EnableOutput,
+            icon: icon::MONITOR_UP,
         },
         LiveState::EnabledBlack | LiveState::Frozen | LiveState::Blackout => Primary::Action {
             label: "Take Preview Live",
             command: Command::Take,
+            icon: icon::PLAY,
         },
         LiveState::Live => Primary::Info("LIVE — navigation updates Program"),
         LiveState::Disconnected { display_back: true } => Primary::Action {
             label: "Resume Output",
             command: Command::Take,
+            icon: icon::PLAY,
         },
         LiveState::Disconnected {
             display_back: false,
@@ -89,7 +95,7 @@ pub enum StateTone {
 /// The word above the Program monitor.
 pub fn program_label(live: LiveState, unavailable_black: bool) -> (&'static str, StateTone) {
     match live {
-        LiveState::OutputDisabled => ("Output off", StateTone::Off),
+        LiveState::OutputDisabled => ("Output disabled", StateTone::Off),
         LiveState::EnabledBlack => ("BLACK · not live", StateTone::Dark),
         LiveState::Live if unavailable_black => ("LIVE · black · Cue unavailable", StateTone::Dark),
         LiveState::Live => ("LIVE", StateTone::Live),
@@ -166,6 +172,29 @@ fn colors(environment: UiEnvironment) -> Colors {
     }
 }
 
+impl StateTone {
+    /// The shape that tells this tone without its color (`DESIGN.md`): a dot
+    /// for Live, a diamond while held (Freeze), a square otherwise.
+    pub fn marker(self) -> Marker {
+        match self {
+            Self::Live => Marker::Dot,
+            Self::Held => Marker::Diamond,
+            Self::Dark | Self::Off | Self::Danger => Marker::Square,
+        }
+    }
+}
+
+/// A filled state marker, `size` px before the Interface scale, in `color`.
+pub fn marker(marker: Marker, color: u32, size: f32, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    svg()
+        .flex_none()
+        .size(px(scale.apply(size)))
+        .text_color(rgb(color))
+        .data(marker.svg().as_bytes())
+        .into_any_element()
+}
+
 fn state_word(text: &'static str, tone: StateTone, environment: UiEnvironment) -> AnyElement {
     let scale = environment.preferences().scale;
     let c = colors(environment);
@@ -183,17 +212,7 @@ fn state_word(text: &'static str, tone: StateTone, environment: UiEnvironment) -
         .min_w_0()
         .text_color(rgb(color))
         .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-        .child(
-            div()
-                .flex_none()
-                .size(px(scale.apply(10.0)))
-                .bg(rgb(color))
-                .map(|dot| match tone {
-                    StateTone::Live => dot.rounded_full(),
-                    StateTone::Held => dot.rounded(px(scale.apply(3.0))),
-                    _ => dot,
-                }),
-        )
+        .child(marker(tone.marker(), color, 10.0, environment))
         .child(div().min_w_0().truncate().child(text))
         .into_any_element()
 }
@@ -361,8 +380,9 @@ pub fn preview_monitor(model: &PreviewModel, width: f32, environment: UiEnvironm
         viewport = viewport.child(preparing_badge("monitor-preview-preparing", environment));
     }
     if let Some(context) = &model.private_context {
-        viewport = viewport.child(
+        viewport = viewport.child(primitives::truncated(
             div()
+                .id("preview-context")
                 .debug_selector(|| "preview-context".into())
                 .absolute()
                 .left_0()
@@ -373,9 +393,14 @@ pub fn preview_monitor(model: &PreviewModel, width: f32, environment: UiEnvironm
                 .bg(gpui::black().opacity(0.72))
                 .text_color(rgb(tokens::color::PROJECTION_TEXT))
                 .text_size(px(scale.apply(tokens::typography::META.size)))
-                .truncate()
+                // The minister's words wrap rather than ellipsize
+                // (DESIGN.md, Truncation). Two lines fit even the 175 %
+                // band; a longer phrase is whole on hover.
+                .line_clamp(2)
                 .child(context.clone()),
-        );
+            context.clone(),
+            environment,
+        ));
     }
     div()
         .id("preview")
@@ -399,10 +424,37 @@ pub fn preview_monitor(model: &PreviewModel, width: f32, environment: UiEnvironm
         .into_any_element()
 }
 
-/// The status line: the last refusal in words, or the standing output state.
-pub fn output_status(text: SharedString, environment: UiEnvironment) -> AnyElement {
+/// The output's health, which the status line's marker shows whatever its
+/// words are (a refusal, or the standing state).
+pub fn output_tone(live: LiveState) -> StateTone {
+    match live {
+        LiveState::OutputDisabled => StateTone::Off,
+        LiveState::EnabledBlack | LiveState::Live | LiveState::Frozen | LiveState::Blackout => {
+            StateTone::Live
+        }
+        LiveState::Disconnected { display_back: true } => StateTone::Held,
+        LiveState::Disconnected {
+            display_back: false,
+        } => StateTone::Danger,
+    }
+}
+
+/// The status line: a marker for the output's health, then the last refusal
+/// in words or the standing output state.
+pub fn output_status(
+    text: SharedString,
+    live: LiveState,
+    environment: UiEnvironment,
+) -> AnyElement {
     let scale = environment.preferences().scale;
     let c = colors(environment);
+    let tone = output_tone(live);
+    let marker_color = match tone {
+        StateTone::Live => c.live,
+        StateTone::Held => c.held,
+        StateTone::Danger => c.danger,
+        StateTone::Dark | StateTone::Off => c.muted,
+    };
     div()
         .id("output-status")
         .debug_selector(|| "output-status".into())
@@ -413,15 +465,17 @@ pub fn output_status(text: SharedString, environment: UiEnvironment) -> AnyEleme
         .items_center()
         .min_w_0()
         .text_color(rgb(c.text))
+        .gap(px(scale.apply(tokens::spacing::RELATED)))
         .text_size(px(scale.apply(tokens::typography::META.size)))
+        .child(marker(tone.marker(), marker_color, 8.0, environment))
         .child(div().min_w_0().truncate().child(text))
         .into_any_element()
 }
 
-/// One of the two output toggles. `pressed` is the toggle's state; it is
+/// One of the two output toggles, with its label and icon. `pressed` is the toggle's state; it is
 /// shown by an edge in the state color as well as by the accessible state.
 fn toggle(
-    label: &'static str,
+    (label, glyph): (&'static str, &'static str),
     command: Command,
     pressed: bool,
     enabled: bool,
@@ -451,6 +505,7 @@ fn toggle(
         .child(
             div().flex_1().min_w_0().flex().flex_col().child(
                 Button::new(format!("toggle-{label}"), label, environment)
+                    .icon(glyph)
                     .control_height(tokens::density::PRESENTER_CONTROL)
                     .current(pressed)
                     .availability(if enabled {
@@ -480,7 +535,7 @@ pub fn freeze_blackout(
         .flex_row()
         .gap(px(scale.apply(tokens::spacing::RELATED)))
         .child(toggle(
-            "Freeze",
+            ("Freeze", icon::SNOWFLAKE),
             Command::ToggleFreeze,
             model.live == LiveState::Frozen,
             model.can_freeze,
@@ -489,7 +544,7 @@ pub fn freeze_blackout(
             environment,
         ))
         .child(toggle(
-            "Blackout",
+            ("Blackout", icon::SQUARE),
             Command::ToggleBlackout,
             model.live == LiveState::Blackout,
             model.can_blackout,
@@ -516,11 +571,16 @@ pub fn primary_action(
         .flex()
         .items_center();
     match primary_for(model.live) {
-        Primary::Action { label, command } => {
+        Primary::Action {
+            label,
+            command,
+            icon: glyph,
+        } => {
             let on_command = on_command.clone();
             slot.child(
                 div().flex_1().min_w_0().flex().flex_col().child(
                     Button::new("primary-action-button", label, environment)
+                        .icon(glyph)
                         .control_height(tokens::density::PRESENTER_CONTROL)
                         .tone(Tone::Primary)
                         .availability(if model.can_primary {
@@ -567,7 +627,7 @@ mod tests {
     fn the_primary_follows_the_live_state() {
         use LiveState::*;
         let action = |live| match primary_for(live) {
-            Primary::Action { label, command } => Some((label, command)),
+            Primary::Action { label, command, .. } => Some((label, command)),
             Primary::Info(_) => None,
         };
         assert_eq!(
@@ -618,6 +678,18 @@ mod tests {
             "LIVE · black · Cue unavailable"
         );
         assert_eq!(program_label(Frozen, false).0, "FROZEN");
-        assert_eq!(program_label(OutputDisabled, false).0, "Output off");
+        assert_eq!(program_label(OutputDisabled, false).0, "Output disabled");
+    }
+
+    #[test]
+    fn frozen_and_blackout_differ_by_shape_as_well_as_color() {
+        use LiveState::*;
+        let shape = |live| program_label(live, false).1.marker();
+        assert_eq!(shape(Live), Marker::Dot);
+        assert_eq!(shape(Frozen), Marker::Diamond);
+        assert_eq!(shape(Blackout), Marker::Square);
+        assert_ne!(shape(Frozen), shape(Blackout));
+        assert_eq!(output_tone(OutputDisabled).marker(), Marker::Square);
+        assert_eq!(output_tone(Frozen).marker(), Marker::Dot, "output still on");
     }
 }
