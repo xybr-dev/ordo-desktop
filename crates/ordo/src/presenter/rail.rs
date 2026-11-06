@@ -93,14 +93,12 @@ pub struct Handlers {
 /// Where and how the panel is drawn.
 pub struct Placement<'a> {
     pub width: f32,
-    /// In the overlay: adds the close button and Escape handling.
+    /// In the overlay: adds the close button. Escape is owned by the Presenter's
+    /// surface stack, not the panel.
     pub overlay: bool,
     /// The handle tracking focus inside the panel, so the owner can tell
     /// when the rail has focus and move focus to it when the overlay opens.
     pub focus: Option<&'a FocusHandle>,
-    /// Whether Escape, heard while focus is inside the panel, closes it. True
-    /// for the overlay only: a pinned rail never collapses.
-    pub closes_on_escape: bool,
 }
 
 /// The rail panel: header, then the sections and their items in a scrolling
@@ -118,7 +116,6 @@ pub fn panel(
         width,
         overlay,
         focus,
-        closes_on_escape,
     } = placement;
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
@@ -216,17 +213,6 @@ pub fn panel(
             palette.border
         }))
         .when_some(focus, |panel, focus| panel.track_focus(focus))
-        .when(closes_on_escape, |panel| {
-            panel.on_key_down({
-                let close = handlers.close.clone();
-                move |event, window, cx| {
-                    if event.keystroke.key == "escape" {
-                        close(window, cx);
-                        cx.stop_propagation();
-                    }
-                }
-            })
-        })
         .child(header)
         .child(
             div()

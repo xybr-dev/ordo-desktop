@@ -58,6 +58,48 @@ impl RegionRegistry {
         region_container(name, &region.focus)
     }
 
+    /// Gives a region the next place in the cycle using a focus handle the
+    /// caller already tracks on its own element, instead of a container this
+    /// registry creates. For a view that owns its handles and key policy (the
+    /// Presenter); the caller labels the element itself. A handle that
+    /// replaces an earlier one under the same name starts with no remembered
+    /// target.
+    pub fn adopt(
+        &mut self,
+        name: impl Into<SharedString>,
+        focus: &FocusHandle,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let name = name.into();
+        if self
+            .regions
+            .get(&name)
+            .is_some_and(|region| &region.focus != focus)
+        {
+            self.regions.remove(&name);
+        }
+        let region = self.regions.entry(name.clone()).or_insert_with(|| {
+            let remembered = Rc::new(RefCell::new(None));
+            let saved = remembered.clone();
+            let container = focus.downgrade();
+            let subscription = window.on_focus_out(focus, cx, move |event, _, _| {
+                *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
+            });
+            Region {
+                focus: focus.clone(),
+                remembered,
+                _subscription: subscription,
+            }
+        });
+        debug_assert!(
+            self.visible.iter().all(|(focus, _)| focus != &region.focus),
+            "duplicate region name: {name}"
+        );
+        self.visible
+            .push((region.focus.clone(), region.remembered.clone()));
+    }
+
     /// The root for the regions wrapped since the last call, which it must
     /// contain. It hosts the ordinary Tab/Shift+Tab handlers (region
     /// boundaries do not trap them) and the visible-region F6/Shift+F6 cycle,

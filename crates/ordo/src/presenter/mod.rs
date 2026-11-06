@@ -35,6 +35,7 @@ pub mod header;
 pub mod images;
 pub mod layout;
 pub mod rail;
+pub mod surfaces;
 pub mod timeline;
 
 use std::{collections::BTreeSet, rc::Rc, sync::Arc, time::Duration};
@@ -52,6 +53,7 @@ use presentation::{
 };
 use rendering::PRELOAD_RADIUS;
 use ui::{
+    accessibility::RegionRegistry,
     environment::{CueView, EnvironmentChange, UiEnvironment, UiPreferences},
     scroll::Scroll,
     tokens,
@@ -66,6 +68,7 @@ use self::{
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
     rail::{PinControl, RailItem, RailModel, RailSection},
+    surfaces::{Surface, SurfaceStack},
     timeline::{CueKind, CueModel, GroupModel, TimelineModel},
 };
 use crate::commands::{
@@ -159,7 +162,7 @@ pub struct PresenterView {
     rail_choice: RailChoice,
     /// Whether the rail overlay is open, and how many times it has opened
     /// (the slide restarts on each opening). Session only, like the choice.
-    rail_open: bool,
+    surfaces: SurfaceStack,
     rail_generation: u64,
     /// Which groups are folded. View state: folding never reaches the Engine.
     collapsed: BTreeSet<usize>,
@@ -186,6 +189,9 @@ pub struct PresenterView {
     /// Tracked on the Output Dock, so a focused control inside it reads as
     /// the Dock for key policy.
     dock_focus: FocusHandle,
+    /// The F6 cycle over the three Presenter regions, which reuse the three
+    /// focus handles above (the registry adopts them; it owns no handle here).
+    regions: RegionRegistry,
     /// Test only: a focusable element declaring the `TextEntry` key context.
     #[cfg(test)]
     text_probe: FocusHandle,
@@ -212,6 +218,11 @@ pub struct PresenterView {
     last_preview: Shown,
 }
 
+/// The F6 regions, from a fixed vocabulary, in reading order.
+const RAIL_REGION: &str = "Ordo rail";
+const TIMELINE_REGION: &str = "Cue timeline";
+const OUTPUT_REGION: &str = "Output controls";
+
 impl PresenterView {
     pub fn new(
         snapshot: Arc<LoadedSnapshot>,
@@ -228,7 +239,7 @@ impl PresenterView {
             clock,
             environment,
             rail_choice: RailChoice::Auto,
-            rail_open: false,
+            surfaces: SurfaceStack::default(),
             rail_generation: 0,
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
@@ -240,6 +251,7 @@ impl PresenterView {
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
             dock_focus: cx.focus_handle(),
+            regions: RegionRegistry::default(),
             #[cfg(test)]
             text_probe: cx.focus_handle(),
             #[cfg(test)]
@@ -357,13 +369,45 @@ impl PresenterView {
             Some(command) => {
                 self.command(command, cx).ok();
             }
-            // TODO(WP2): focus an already-pinned rail; `O` here only opens
-            // the collapsed overlay.
-            None if id == CommandId::OpenOrdo && !self.rail_is_pinned => {
-                self.open_rail(window, cx);
-            }
+            // `O` never changes the pin: a pinned rail only takes focus.
+            None if id == CommandId::OpenOrdo => self.focus_ordo(window, cx),
             None => {}
         }
+    }
+
+    /// `O`: show the rail and focus it. A pinned rail is already on screen, so
+    /// it only takes focus; a collapsed one opens as the overlay. The pin
+    /// choice, Preview, Program and scroll are untouched either way.
+    fn focus_ordo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.rail_is_pinned {
+            self.rail_focus.focus(window, cx);
+        } else {
+            self.open_rail(window, cx);
+        }
+    }
+
+    /// `Esc`: close the topmost temporary surface and return focus to the Cue
+    /// timeline. With nothing open it still brings focus back from the pinned
+    /// rail or the Output controls, and does nothing from the Cues. It never
+    /// reaches the Engine and never collapses a pinned rail. Returns whether
+    /// the key was used.
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        match self.surfaces.topmost() {
+            Some(Surface::RailOverlay) => self.close_rail(window, cx),
+            Some(Surface::ShortcutReference) => {
+                // Opened by T1.5d, which closes it and restores focus.
+                self.surfaces.close_topmost();
+                self.timeline_focus.focus(window, cx);
+                cx.notify();
+            }
+            None => match self.focus_context(window, cx) {
+                // The Cues are one focus target (tiles are not focusable), so
+                // "the active Cue" is the timeline that holds it.
+                FocusContext::Rail | FocusContext::Dock => self.timeline_focus.focus(window, cx),
+                _ => return false,
+            },
+        }
+        true
     }
 
     /// Give focus to the Cues, where the keys are live. The owner calls this
@@ -744,23 +788,23 @@ impl PresenterView {
         }
         self.rail_choice = choice;
         if choice == RailChoice::Pinned {
-            self.rail_open = false;
+            self.surfaces.close(Surface::RailOverlay);
         }
         cx.notify();
     }
 
     /// Whether the rail overlay is open.
     pub fn rail_open(&self) -> bool {
-        self.rail_open
+        self.surfaces.contains(Surface::RailOverlay)
     }
 
     /// Open the rail overlay (the ORDO tab was pressed) and move focus into
     /// it. Hover never calls this.
     pub fn open_rail(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.rail_open {
+        if self.rail_open() {
             return;
         }
-        self.rail_open = true;
+        self.surfaces.open(Surface::RailOverlay);
         self.rail_generation += 1;
         self.rail_focus.focus(window, cx);
         cx.notify();
@@ -771,10 +815,9 @@ impl PresenterView {
     /// (a Cue is not a focus target of its own until T1.5 maps the keyboard),
     /// so "the active Cue" is the timeline.
     pub fn close_rail(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.rail_open {
+        if !self.surfaces.close(Surface::RailOverlay) {
             return;
         }
-        self.rail_open = false;
         self.timeline_focus.focus(window, cx);
         cx.notify();
     }
@@ -1002,8 +1045,7 @@ impl Render for PresenterView {
         // (the window grew, or the rail was pinned) is dropped, not kept for
         // the next unpin to resurrect.
         self.rail_is_pinned = matches!(layout.rail, RailLayout::Pinned { .. });
-        if self.rail_is_pinned && self.rail_open {
-            self.rail_open = false;
+        if self.rail_is_pinned && self.surfaces.close(Surface::RailOverlay) {
             // The overlay held focus; the Cues get it back, as on any close.
             self.timeline_focus.focus(window, cx);
         }
@@ -1095,7 +1137,6 @@ impl Render for PresenterView {
                         width,
                         overlay: false,
                         focus: Some(&self.rail_focus),
-                        closes_on_escape: false,
                     },
                     &self.rail_scroll,
                     &rail_handlers,
@@ -1111,7 +1152,7 @@ impl Render for PresenterView {
                 } else {
                     PinControl::Hidden
                 };
-                let overlay = self.rail_open.then(|| {
+                let overlay = self.rail_open().then(|| {
                     let panel_width = scale.apply(RAIL_PINNED_WIDTH);
                     let panel = rail::panel(
                         self.rail_model(pin),
@@ -1119,7 +1160,6 @@ impl Render for PresenterView {
                             width: panel_width,
                             overlay: true,
                             focus: Some(&self.rail_focus),
-                            closes_on_escape: true,
                         },
                         &self.rail_scroll,
                         &rail_handlers,
@@ -1273,8 +1313,20 @@ impl Render for PresenterView {
             }
         };
 
-        let root = div()
-            .id("presenter")
+        // F6 visits the regions in reading order. A rail that is neither
+        // pinned nor open is not on screen, so it is not a region. The
+        // regions reuse the handles that already decide key policy.
+        if self.rail_is_pinned || self.rail_open() {
+            self.regions
+                .adopt(RAIL_REGION, &self.rail_focus, window, cx);
+        }
+        self.regions
+            .adopt(TIMELINE_REGION, &self.timeline_focus, window, cx);
+        self.regions
+            .adopt(OUTPUT_REGION, &self.dock_focus, window, cx);
+        let root = self
+            .regions
+            .root(window, cx)
             .key_context(registry::PRESENTER_CONTEXT)
             .relative()
             .size_full()
@@ -1287,7 +1339,26 @@ impl Render for PresenterView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .child(header)
             .child(body)
-            .children(rail_overlay);
+            .children(rail_overlay)
+            .on_key_down({
+                let view = view.clone();
+                move |event, window, cx| {
+                    if event.keystroke.key == "escape"
+                        && !event.keystroke.modifiers.modified()
+                        && view
+                            .update(cx, |view, cx| {
+                                let typing = matches!(
+                                    view.focus_context(window, cx),
+                                    FocusContext::TextEntry | FocusContext::Modal
+                                );
+                                !typing && view.escape(window, cx)
+                            })
+                            .unwrap_or(false)
+                    {
+                        cx.stop_propagation();
+                    }
+                }
+            });
         #[cfg(test)]
         let root = root.on_key_down({
             let keys = self.unhandled_keys.clone();
@@ -2457,6 +2528,9 @@ mod tests {
         assert_eq!(engine_state(&open, cx), before, "navigation is refused");
         press_keys(cx, "escape");
         assert!(present(cx, "presenter-rail"), "Esc keeps the pinned rail");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Timeline);
+        open.view
+            .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
         assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
 
         press_keys(cx, "space");
@@ -2797,6 +2871,162 @@ mod tests {
         cx.simulate_keystrokes("escape");
         cx.run_until_parked();
         assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+    }
+
+    fn pinned(open: &Open, cx: &VisualTestContext) -> bool {
+        open.view.read_with(cx, |view, _| view.rail_is_pinned)
+    }
+
+    fn focus_timeline_now(open: &Open, cx: &mut VisualTestContext) {
+        open.view
+            .update_in(cx, |view, window, cx| view.timeline_focus.focus(window, cx));
+    }
+
+    #[gpui::test]
+    fn o_from_the_timeline_opens_and_focuses_the_overlay_without_touching_the_pin(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        let before = engine_state(&open, cx);
+        let choice = open.view.read_with(cx, |view, _| view.rail_choice());
+        assert!(!pinned(&open, cx));
+
+        press_keys(cx, "o");
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+        assert!(!pinned(&open, cx));
+        assert_eq!(
+            open.view.read_with(cx, |view, _| view.rail_choice()),
+            choice
+        );
+        assert_eq!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn o_with_a_pinned_rail_focuses_it_and_keeps_it_pinned(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        assert!(pinned(&open, cx));
+        focus_timeline_now(&open, cx);
+        let before = engine_state(&open, cx);
+        let offset = timeline_offset(&open, cx);
+
+        press_keys(cx, "o");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+        assert!(pinned(&open, cx), "O never changes the pin");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(engine_state(&open, cx), before);
+        assert_eq!(timeline_offset(&open, cx), offset);
+    }
+
+    #[gpui::test]
+    fn escape_closes_the_overlay_and_returns_to_the_timeline(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        press_keys(cx, "o");
+        let before = engine_state(&open, cx);
+
+        press_keys(cx, "escape");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        assert!(!present(cx, "presenter-rail"));
+        assert!(timeline_has_focus(&open, cx));
+        assert_eq!(
+            engine_state(&open, cx),
+            before,
+            "Esc never touches the Engine"
+        );
+
+        // Nothing open: Esc from the Cues does nothing at all.
+        press_keys(cx, "escape");
+        assert!(timeline_has_focus(&open, cx));
+        assert_eq!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn escape_on_a_pinned_rail_or_the_dock_moves_focus_without_collapsing(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        let before = engine_state(&open, cx);
+        press_keys(cx, "o");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+        press_keys(cx, "escape");
+        assert!(pinned(&open, cx));
+        assert!(present(cx, "presenter-rail"));
+        assert!(timeline_has_focus(&open, cx));
+
+        open.view
+            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
+        press_keys(cx, "escape");
+        assert!(timeline_has_focus(&open, cx));
+        assert_eq!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn f6_cycles_the_visible_regions_and_shift_f6_reverses(cx: &mut TestAppContext) {
+        // Pinned rail: rail, timeline, output controls.
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        let before = engine_state(&open, cx);
+        let expected = [
+            FocusContext::Dock,
+            FocusContext::Rail,
+            FocusContext::Timeline,
+            FocusContext::Dock,
+        ];
+        for want in expected {
+            press_keys(cx, "f6");
+            assert_eq!(focus_context_now(&open, cx), want);
+        }
+        for want in [
+            FocusContext::Timeline,
+            FocusContext::Rail,
+            FocusContext::Dock,
+        ] {
+            press_keys(cx, "shift-f6");
+            assert_eq!(focus_context_now(&open, cx), want);
+        }
+        assert_eq!(
+            engine_state(&open, cx),
+            before,
+            "F6 never reaches the Engine"
+        );
+    }
+
+    #[gpui::test]
+    fn f6_skips_a_closed_unpinned_rail_and_visits_the_open_overlay(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        let before = engine_state(&open, cx);
+        for want in [
+            FocusContext::Dock,
+            FocusContext::Timeline,
+            FocusContext::Dock,
+        ] {
+            press_keys(cx, "f6");
+            assert_eq!(focus_context_now(&open, cx), want, "closed rail skipped");
+        }
+        for want in [FocusContext::Timeline, FocusContext::Dock] {
+            press_keys(cx, "shift-f6");
+            assert_eq!(focus_context_now(&open, cx), want);
+        }
+
+        // With the overlay open (focus starts in it), F6 reaches the rail.
+        focus_timeline_now(&open, cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.open_rail(window, cx));
+        cx.run_until_parked();
+        press_keys(cx, "f6");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Timeline);
+        press_keys(cx, "shift-f6");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(engine_state(&open, cx), before);
     }
 
     #[gpui::test]
