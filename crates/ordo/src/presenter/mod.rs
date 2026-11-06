@@ -888,6 +888,21 @@ impl Render for PresenterView {
                 .ok();
             })
         };
+        // The primary action replaces itself (Enable Output becomes Take
+        // Preview Live, which becomes the LIVE statement), so the button the
+        // pointer just focused is gone. Focus returns to the Cues, as it does
+        // when the rail overlay closes, so the keys keep reaching the
+        // Presenter instead of an element that no longer exists.
+        let on_primary: OnCommand = {
+            let view = view.clone();
+            Rc::new(move |command, window, cx| {
+                view.update(cx, |view, cx| {
+                    view.command(command, cx).ok();
+                    view.timeline_focus.focus(window, cx);
+                })
+                .ok();
+            })
+        };
         let on_cue_view: OnCueView = {
             let view = view.clone();
             Rc::new(move |chosen, _, cx| {
@@ -1082,7 +1097,7 @@ impl Render for PresenterView {
                         environment,
                     ))
                     .child(dock::freeze_blackout(&controls, &on_command, environment))
-                    .child(dock::primary_action(&controls, &on_command, environment));
+                    .child(dock::primary_action(&controls, &on_primary, environment));
                 div()
                     .flex_1()
                     .min_h_0()
@@ -1136,7 +1151,7 @@ impl Render for PresenterView {
                             )))
                             .child(div().flex_1().min_w_0().child(dock::primary_action(
                                 &controls,
-                                &on_command,
+                                &on_primary,
                                 environment,
                             ))),
                     );
@@ -2147,6 +2162,30 @@ mod tests {
         });
     }
 
+    fn timeline_has_focus(open: &Open, cx: &mut VisualTestContext) -> bool {
+        cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, _| view.timeline_focus.is_focused(window))
+        })
+    }
+
+    /// The primary action replaces itself when pressed, so it hands focus to
+    /// the Cues; otherwise the keys would go to a button that no longer exists.
+    #[gpui::test]
+    fn pressing_the_primary_action_returns_focus_to_the_cues(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        for label in ["button-Enable Output", "button-Take Preview Live"] {
+            click(cx, label);
+            assert!(timeline_has_focus(&open, cx), "after {label}");
+        }
+        assert_eq!(
+            open.view
+                .read_with(cx, |view, _| view.engine.state().live()),
+            LiveState::Live
+        );
+    }
+
+    /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
     #[gpui::test]
     fn the_close_button_and_escape_both_close_the_overlay(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
