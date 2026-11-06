@@ -53,7 +53,8 @@ use presentation::{
 };
 use rendering::PRELOAD_RADIUS;
 use ui::{
-    accessibility::RegionRegistry,
+    NextRegion, PreviousRegion,
+    accessibility::{RegionRegistry, label_region},
     environment::{CueView, EnvironmentChange, UiEnvironment, UiPreferences},
     scroll::Scroll,
     tokens,
@@ -219,9 +220,9 @@ pub struct PresenterView {
 }
 
 /// The F6 regions, from a fixed vocabulary, in reading order.
-const RAIL_REGION: &str = "Ordo rail";
-const TIMELINE_REGION: &str = "Cue timeline";
-const OUTPUT_REGION: &str = "Output controls";
+pub(super) const RAIL_REGION: &str = "Ordo rail";
+pub(super) const TIMELINE_REGION: &str = "Cue timeline";
+pub(super) const OUTPUT_REGION: &str = "Output controls";
 
 impl PresenterView {
     pub fn new(
@@ -386,28 +387,51 @@ impl PresenterView {
         }
     }
 
-    /// `Esc`: close the topmost temporary surface and return focus to the Cue
-    /// timeline. With nothing open it still brings focus back from the pinned
-    /// rail or the Output controls, and does nothing from the Cues. It never
-    /// reaches the Engine and never collapses a pinned rail. Returns whether
-    /// the key was used.
-    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// Close the topmost temporary surface and return focus to the Cue
+    /// timeline; false when nothing is open. The scrim press and `Esc` both
+    /// come here.
+    fn close_topmost(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         match self.surfaces.topmost() {
             Some(Surface::RailOverlay) => self.close_rail(window, cx),
             Some(Surface::ShortcutReference) => {
-                // Opened by T1.5d, which closes it and restores focus.
+                // T1.5d: restore prior focus (it opens this, so it knows it).
                 self.surfaces.close_topmost();
                 self.timeline_focus.focus(window, cx);
                 cx.notify();
             }
-            None => match self.focus_context(window, cx) {
-                // The Cues are one focus target (tiles are not focusable), so
-                // "the active Cue" is the timeline that holds it.
-                FocusContext::Rail | FocusContext::Dock => self.timeline_focus.focus(window, cx),
-                _ => return false,
-            },
+            None => return false,
         }
         true
+    }
+
+    /// `F6` or `Shift+F6` from inside an open overlay leaves it for another
+    /// region, so the overlay closes (no keys act under a scrim). Focus is
+    /// not moved here: the region cycle that follows chooses where it goes.
+    fn leave_overlay_by_region_key(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.rail_focus.contains_focused(window, cx) && self.surfaces.close(Surface::RailOverlay)
+        {
+            cx.notify();
+        }
+    }
+
+    /// `Esc`: close the topmost temporary surface and return focus to the Cue
+    /// timeline. With nothing open it still brings focus back from the pinned
+    /// rail, the Output controls or any other control, and does nothing from
+    /// the Cues. It never reaches the Engine and never collapses a pinned
+    /// rail. Returns whether the key was used.
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.close_topmost(window, cx) {
+            return true;
+        }
+        // The Cues are one focus target (tiles are not focusable), so "the
+        // active Cue" is the timeline that holds it.
+        match self.focus_context(window, cx) {
+            FocusContext::Rail | FocusContext::Dock | FocusContext::Elsewhere => {
+                self.timeline_focus.focus(window, cx);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Give focus to the Cues, where the keys are live. The owner calls this
@@ -1172,7 +1196,13 @@ impl Render for PresenterView {
                         panel_width,
                         scale.apply(layout::HEADER_HEIGHT),
                         slide,
-                        rail_handlers.close.clone(),
+                        {
+                            let view = view.clone();
+                            Rc::new(move |window, cx| {
+                                view.update(cx, |view, cx| view.close_topmost(window, cx))
+                                    .ok();
+                            })
+                        },
                         environment,
                     )
                 });
@@ -1232,7 +1262,8 @@ impl Render for PresenterView {
                     ))
                     .child(dock::freeze_blackout(&controls, &on_command, environment))
                     .child(dock::primary_action(&controls, &on_primary, environment))
-                    .track_focus(&self.dock_focus);
+                    .track_focus(&self.dock_focus)
+                    .map(|dock| label_region(dock, OUTPUT_REGION));
                 div()
                     .flex_1()
                     .min_h_0()
@@ -1269,6 +1300,7 @@ impl Render for PresenterView {
                     .px(px(scale.apply(BAND_GUTTER)))
                     .pt(px(scale.apply(tokens::spacing::RELATED)))
                     .track_focus(&self.dock_focus)
+                    .map(|controls| label_region(controls, OUTPUT_REGION))
                     .child(dock::output_status(
                         controls.status.clone(),
                         controls.live,
@@ -1340,6 +1372,20 @@ impl Render for PresenterView {
             .child(header)
             .child(body)
             .children(rail_overlay)
+            .capture_action({
+                let view = view.clone();
+                move |_: &NextRegion, window, cx| {
+                    view.update(cx, |view, cx| view.leave_overlay_by_region_key(window, cx))
+                        .ok();
+                }
+            })
+            .capture_action({
+                let view = view.clone();
+                move |_: &PreviousRegion, window, cx| {
+                    view.update(cx, |view, cx| view.leave_overlay_by_region_key(window, cx))
+                        .ok();
+                }
+            })
             .on_key_down({
                 let view = view.clone();
                 move |event, window, cx| {
@@ -2928,8 +2974,10 @@ mod tests {
         focus_timeline_now(&open, cx);
         press_keys(cx, "o");
         let before = engine_state(&open, cx);
+        let offset = timeline_offset(&open, cx);
 
         press_keys(cx, "escape");
+        assert_eq!(timeline_offset(&open, cx), offset, "Esc never scrolls");
         assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
         assert!(!present(cx, "presenter-rail"));
         assert!(timeline_has_focus(&open, cx));
@@ -2940,6 +2988,44 @@ mod tests {
         );
 
         // Nothing open: Esc from the Cues does nothing at all.
+        press_keys(cx, "escape");
+        assert!(timeline_has_focus(&open, cx));
+        assert_eq!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn escape_in_a_text_field_leaves_the_overlay_open(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        press_keys(cx, "o");
+        open.view
+            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        press_keys(cx, "escape");
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+    }
+
+    #[gpui::test]
+    fn escape_with_the_overlay_open_and_focus_in_the_dock_closes_it(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        press_keys(cx, "o");
+        open.view
+            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+        press_keys(cx, "escape");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        assert!(timeline_has_focus(&open, cx));
+    }
+
+    #[gpui::test]
+    fn escape_from_a_header_control_returns_to_the_timeline(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        click(cx, "button-List");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Elsewhere);
+        let before = engine_state(&open, cx);
         press_keys(cx, "escape");
         assert!(timeline_has_focus(&open, cx));
         assert_eq!(engine_state(&open, cx), before);
@@ -2998,7 +3084,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn f6_skips_a_closed_unpinned_rail_and_visits_the_open_overlay(cx: &mut TestAppContext) {
+    fn f6_skips_a_closed_unpinned_rail_and_leaving_an_open_overlay_closes_it(
+        cx: &mut TestAppContext,
+    ) {
         let (open, cx) = open(cx, SIZES[2]);
         bind_registry_keys(cx);
         focus_timeline_now(&open, cx);
@@ -3016,16 +3104,24 @@ mod tests {
             assert_eq!(focus_context_now(&open, cx), want);
         }
 
-        // With the overlay open (focus starts in it), F6 reaches the rail.
-        focus_timeline_now(&open, cx);
-        open.view
-            .update_in(cx, |view, window, cx| view.open_rail(window, cx));
-        cx.run_until_parked();
-        press_keys(cx, "f6");
-        assert_eq!(focus_context_now(&open, cx), FocusContext::Timeline);
-        press_keys(cx, "shift-f6");
-        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
-        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+        // With the overlay open, F6 or Shift+F6 from inside it leaves it, and
+        // the overlay closes: no keys act under a scrim.
+        for (key, want) in [
+            ("f6", FocusContext::Timeline),
+            ("shift-f6", FocusContext::Dock),
+        ] {
+            focus_timeline_now(&open, cx);
+            open.view
+                .update_in(cx, |view, window, cx| view.open_rail(window, cx));
+            cx.run_until_parked();
+            assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+            press_keys(cx, key);
+            assert_eq!(focus_context_now(&open, cx), want, "{key}");
+            assert!(
+                !open.view.read_with(cx, |view, _| view.rail_open()),
+                "{key}"
+            );
+        }
         assert_eq!(engine_state(&open, cx), before);
     }
 

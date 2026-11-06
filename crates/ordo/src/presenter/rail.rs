@@ -28,6 +28,7 @@ use gpui::{
     Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use ui::{
+    accessibility::label_region,
     assets::icon,
     environment::UiEnvironment,
     motion::{self, Entrance},
@@ -212,7 +213,9 @@ pub fn panel(
         } else {
             palette.border
         }))
-        .when_some(focus, |panel, focus| panel.track_focus(focus))
+        .when_some(focus, |panel, focus| {
+            label_region(panel.track_focus(focus), super::RAIL_REGION)
+        })
         .child(header)
         .child(
             div()

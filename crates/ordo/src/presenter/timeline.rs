@@ -60,6 +60,7 @@ use gpui::{
 use presentation::state::{EngineState, LiveState, ProgramContent};
 use rendering::Frame;
 use ui::{
+    accessibility::label_region,
     assets::icon,
     environment::{CueView, UiEnvironment},
     motion,
@@ -282,6 +283,7 @@ pub fn timeline(
                 .bounded(div().id("cue-timeline"))
                 .debug_selector(|| "cue-timeline".into())
                 .track_focus(focus)
+                .map(|timeline| label_region(timeline, super::TIMELINE_REGION))
                 .size_full()
                 .flex()
                 .flex_col()
