@@ -98,12 +98,16 @@ pub fn refusal_text(refusal: Refusal) -> &'static str {
         Refusal::NotLive => "Take Preview live before freezing",
         Refusal::AutoPlayIneligible { reason } => match reason {
             AutoPlayRefusal::NotGeneralPresentation => {
-                "Auto-play is only for General Presentations, not Mass text or songs"
+                "Auto-play works only on General Presentations — use Next to move through this item"
             }
-            AutoPlayRefusal::NoDurations => "This item has no auto-play time set",
-            AutoPlayRefusal::NothingProjectable => "Nothing here can be shown automatically",
+            AutoPlayRefusal::NoDurations => {
+                "This item has no auto-play time — set a time in the General Presentation, or use Next"
+            }
+            AutoPlayRefusal::NothingProjectable => {
+                "Nothing here can be shown automatically — choose another item, or use Next"
+            }
             AutoPlayRefusal::SectionHasIneligibleItem => {
-                "This section has items that cannot auto-play, so it cannot loop"
+                "This section has items that cannot auto-play — use Next, or loop a General Presentation item on its own"
             }
         },
         Refusal::AutoPlayBlocked => {
@@ -208,7 +212,6 @@ pub struct PresenterView {
     dock_focus: FocusHandle,
     /// Set when an Auto-play menu choice closed the menu; the next frame puts
     /// focus on the (possibly replaced) Auto-play control.
-    refocus_auto_play: bool,
     /// The F6 cycle over the three Presenter regions, which reuse the three
     /// focus handles above (the registry adopts them; it owns no handle here).
     regions: RegionRegistry,
@@ -272,7 +275,6 @@ impl PresenterView {
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
             dock_focus: cx.focus_handle(),
-            refocus_auto_play: false,
             regions: RegionRegistry::default(),
             #[cfg(test)]
             text_probe: cx.focus_handle(),
@@ -792,35 +794,55 @@ impl PresenterView {
             Ok(_) => ui::primitives::Availability::Available,
             Err(refusal) => ui::primitives::Availability::unavailable(refusal_text(refusal)),
         };
-        let start = if run.is_some() {
-            ui::primitives::Availability::unavailable("Auto-play is already running")
-        } else {
-            availability(Command::ToggleAutoPlay)
+        use presentation::state::AutoPlayScope;
+        let scope = run.map(|run| run.scope);
+        let stop = |label| AutoPlayEntry {
+            label,
+            command: Command::StopAutoPlay,
+            availability: ui::primitives::Availability::Available,
         };
-        let stop = if run.is_some() {
-            ui::primitives::Availability::Available
-        } else {
-            ui::primitives::Availability::unavailable("Auto-play is not running")
-        };
+        // One Stop entry, never two. An item run stops with the same command
+        // that starts it, so it replaces Start; a section run has no Start
+        // (Start would stop it), so its Stop follows the looping entry.
+        let mut entries = Vec::new();
+        match scope {
+            Some(AutoPlayScope::Item(_)) => entries.push(AutoPlayEntry {
+                label: "Stop auto-play for this item",
+                command: Command::ToggleAutoPlay,
+                availability: ui::primitives::Availability::Available,
+            }),
+            Some(AutoPlayScope::Section(_)) => {}
+            None => entries.push(AutoPlayEntry {
+                label: "Start auto-play for this item",
+                command: Command::ToggleAutoPlay,
+                availability: availability(Command::ToggleAutoPlay),
+            }),
+        }
+        let looping = matches!(scope, Some(AutoPlayScope::Section(_)))
+            && self
+                .engine
+                .check(Command::LoopSection, now)
+                .is_ok_and(|outcome| outcome == Outcome::Unchanged);
+        entries.push(AutoPlayEntry {
+            label: "Loop this section",
+            command: Command::LoopSection,
+            availability: if looping {
+                ui::primitives::Availability::unavailable("This section is already looping")
+            } else {
+                availability(Command::LoopSection)
+            },
+        });
+        match scope {
+            Some(AutoPlayScope::Item(_)) => {}
+            Some(AutoPlayScope::Section(_)) => entries.push(stop("Stop auto-play")),
+            None => entries.push(AutoPlayEntry {
+                availability: ui::primitives::Availability::unavailable("Auto-play is not running"),
+                ..stop("Stop auto-play")
+            }),
+        }
         AutoPlayModel {
-            label: dock::auto_play_label(run.map(|run| run.scope)),
-            entries: vec![
-                AutoPlayEntry {
-                    label: "Start auto-play for this item",
-                    command: Command::ToggleAutoPlay,
-                    availability: start,
-                },
-                AutoPlayEntry {
-                    label: "Loop this section",
-                    command: Command::LoopSection,
-                    availability: availability(Command::LoopSection),
-                },
-                AutoPlayEntry {
-                    label: "Stop auto-play",
-                    command: Command::StopAutoPlay,
-                    availability: stop,
-                },
-            ],
+            label: dock::auto_play_label(scope),
+            entries,
         }
     }
 
@@ -1407,24 +1429,14 @@ impl Render for PresenterView {
             on_cue_view,
         );
 
-        // A menu choice can change the entries, which replaces the menu and
-        // its trigger; the new trigger then takes the focus back.
-        let on_menu_command: OnCommand = {
-            let view = view.clone();
-            Rc::new(move |command, _, cx| {
-                view.update(cx, |view, cx| {
-                    view.refocus_auto_play = true;
-                    view.command(command, cx).ok();
-                    cx.notify();
-                })
-                .ok();
-            })
+        let auto_play_height = match layout.dock {
+            DockLayout::Side { .. } => layout::DOCK_AUTO_PLAY_HEIGHT,
+            DockLayout::Band { .. } => layout::DOCK_STATUS_HEIGHT,
         };
-        let refocus = std::mem::take(&mut self.refocus_auto_play);
         let auto_play = dock::auto_play_control(
             &controls.auto_play,
-            &on_menu_command,
-            refocus,
+            &on_command,
+            auto_play_height,
             environment,
             window,
             cx,
@@ -1496,11 +1508,24 @@ impl Render for PresenterView {
                     .pt(px(scale.apply(tokens::spacing::RELATED)))
                     .track_focus(&self.dock_focus)
                     .map(|controls| label_region(controls, OUTPUT_REGION))
-                    .child(dock::output_status(
-                        controls.status.clone(),
-                        controls.live,
-                        environment,
-                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                            .child(div().flex_1().min_w_0().child(dock::output_status(
+                                controls.status.clone(),
+                                controls.live,
+                                environment,
+                            )))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(scale.apply(layout::BAND_AUTO_PLAY_WIDTH)))
+                                    .child(auto_play),
+                            ),
+                    )
                     .child(
                         div()
                             .flex()
@@ -1516,8 +1541,7 @@ impl Render for PresenterView {
                                 &controls,
                                 &on_primary,
                                 environment,
-                            )))
-                            .child(div().flex_1().min_w_0().child(auto_play)),
+                            ))),
                     );
                 div()
                     .flex_1()
@@ -2014,6 +2038,16 @@ mod tests {
             let text = refusal_text(refusal);
             assert!(!text.trim().is_empty(), "{refusal:?}");
             assert!(!text.contains("Engine"), "{refusal:?} is operator wording");
+            assert!(
+                !text.contains("Mass text"),
+                "{refusal:?} is not a domain term"
+            );
+            if matches!(refusal, Refusal::AutoPlayIneligible { .. }) {
+                assert!(
+                    text.contains("Next") || text.contains("choose"),
+                    "{refusal:?} names a next step"
+                );
+            }
         }
     }
 
@@ -4004,7 +4038,7 @@ mod tests {
         focus_timeline_now(open, cx);
     }
 
-    fn escape_in_menu_open(cx: &mut VisualTestContext) -> bool {
+    fn menu_open(cx: &mut VisualTestContext) -> bool {
         cx.debug_bounds("choice-0").is_some()
     }
 
@@ -4041,7 +4075,23 @@ mod tests {
             reason: AutoPlayRefusal::NotGeneralPresentation,
         };
         assert_eq!(status(&open, cx), Some(refusal_text(refusal).to_owned()));
-        assert!(refusal_text(refusal).contains("General Presentations"));
+        let text = refusal_text(refusal);
+        assert!(text.contains("General Presentations") && text.contains("Next"));
+        assert!(!text.contains("Mass text"));
+    }
+
+    fn menu_labels(open: &Open, cx: &VisualTestContext) -> Vec<&'static str> {
+        open.view.read_with(cx, |view, _| {
+            view.auto_play_model(Millis(0))
+                .entries
+                .iter()
+                .map(|entry| entry.label)
+                .collect()
+        })
+    }
+
+    fn width(b: Bounds<Pixels>) -> f32 {
+        right(b) - left(b)
     }
 
     #[gpui::test]
@@ -4050,10 +4100,10 @@ mod tests {
         timeline_at(&open, cx, 1);
         run(&open, cx, Command::Last).unwrap();
         let program = engine_state(&open, cx).program();
-        assert!(!escape_in_menu_open(cx));
+        assert!(!menu_open(cx));
 
         click(cx, "button-Auto-play off");
-        assert!(escape_in_menu_open(cx), "the menu is open");
+        assert!(menu_open(cx), "the menu is open");
         assert_eq!(auto_play(&open, cx), None, "opening changes nothing");
 
         // Start for this item.
@@ -4062,8 +4112,19 @@ mod tests {
             auto_play(&open, cx),
             Some(presentation::state::AutoPlayScope::Item(_))
         ));
-        assert!(!escape_in_menu_open(cx), "choosing closes the menu");
+        assert!(!menu_open(cx), "choosing closes the menu");
         assert_eq!(focus_context_now(&open, cx), FocusContext::Dock);
+
+        // The same entry now stops this item's run, and there is one Stop.
+        click(cx, "button-Auto-play: this item");
+        assert_eq!(
+            menu_labels(&open, cx),
+            ["Stop auto-play for this item", "Loop this section"]
+        );
+        click(cx, "choice-0");
+        assert_eq!(auto_play(&open, cx), None);
+        click(cx, "button-Auto-play off");
+        click(cx, "choice-0");
 
         // Loop this section widens the run.
         click(cx, "button-Auto-play: this item");
@@ -4075,9 +4136,15 @@ mod tests {
         assert!(cx.debug_bounds("button-Auto-play: this section").is_some());
         assert_eq!(focus_context_now(&open, cx), FocusContext::Dock);
 
-        // Stop.
+        // The section already loops, so Loop is Unavailable and Stop follows it.
         click(cx, "button-Auto-play: this section");
-        click(cx, "choice-2");
+        click(cx, "choice-0");
+        assert!(matches!(
+            auto_play(&open, cx),
+            Some(presentation::state::AutoPlayScope::Section(_))
+        ));
+        assert!(menu_open(cx), "an Unavailable entry does nothing");
+        click(cx, "choice-1");
         assert_eq!(auto_play(&open, cx), None);
         assert_eq!(engine_state(&open, cx).program(), program);
     }
@@ -4109,7 +4176,7 @@ mod tests {
         assert_eq!(stop.as_deref(), Some("Auto-play is not running"));
 
         click(cx, "button-Auto-play off");
-        assert!(escape_in_menu_open(cx));
+        assert!(menu_open(cx));
         assert!(cx.debug_bounds("choice-unavailable").is_some());
         for entry in ["choice-0", "choice-1", "choice-2"] {
             click(cx, entry);
@@ -4122,12 +4189,12 @@ mod tests {
         let (open, cx) = open(cx, SIZES[0]);
         timeline_at(&open, cx, 1);
         click(cx, "button-Auto-play off");
-        assert!(escape_in_menu_open(cx));
+        assert!(menu_open(cx));
         let before = engine_state(&open, cx);
         let choice = open.view.read_with(cx, |view, _| view.rail_choice());
 
         press_keys(cx, "escape");
-        assert!(!escape_in_menu_open(cx), "the menu closed");
+        assert!(!menu_open(cx), "the menu closed");
         assert_eq!(
             focus_context_now(&open, cx),
             FocusContext::Dock,
@@ -4147,16 +4214,110 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_section_loop_says_it_is_already_looping_and_keeps_one_stop(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        timeline_at(&open, cx, 1);
+        run(&open, cx, Command::Last).unwrap();
+        run(&open, cx, Command::LoopSection).unwrap();
+        let (labels, looping, stop) = open.view.read_with(cx, |view, _| {
+            let model = view.auto_play_model(Millis(0));
+            (
+                model.entries.iter().map(|e| e.label).collect::<Vec<_>>(),
+                model.entries[0]
+                    .availability
+                    .reason()
+                    .map(|r| r.to_string()),
+                model.entries[1].availability.is_disabled(),
+            )
+        });
+        assert_eq!(labels, ["Loop this section", "Stop auto-play"]);
+        assert_eq!(looping.as_deref(), Some("This section is already looping"));
+        assert!(!stop);
+    }
+
+    #[gpui::test]
+    fn a_change_of_entries_under_an_open_menu_keeps_focus_in_the_dock(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        timeline_at(&open, cx, 1);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        run(&open, cx, Command::Take).unwrap();
+        click(cx, "button-Auto-play off");
+        assert!(menu_open(cx));
+
+        // Freeze turns Start and Loop into refusals, so the entries change
+        // while the menu is open.
+        press_keys(cx, "f");
+        assert_eq!(live(&open, cx), LiveState::Frozen);
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Dock);
+        let model = open
+            .view
+            .read_with(cx, |view, _| view.auto_play_model(Millis(0)));
+        assert!(
+            model.entries[0].availability.reason().is_some(),
+            "{model:?}"
+        );
+
+        // The keys still reach the Engine from where focus is.
+        press_keys(cx, "f");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        press_keys(cx, "b");
+        assert_eq!(live(&open, cx), LiveState::Blackout);
+        press_keys(cx, "b");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Dock);
+    }
+
+    #[gpui::test]
     fn the_control_sits_in_the_dock_in_every_layout(cx: &mut TestAppContext) {
-        for case in SIZES {
+        for case in SIZES.into_iter().chain(SHORT) {
             let (_, cx) = open(cx, case);
             let control = bounds(cx, "auto-play-control");
             let primary = bounds(cx, "primary-action");
             assert!(
-                top(control) >= bottom(primary) - 0.5 || left(control) >= right(primary) - 0.5,
-                "{case:?}: beside or beneath the primary, never over it"
+                top(control) >= bottom(primary) - 0.5
+                    || left(control) >= right(primary) - 0.5
+                    || bottom(control) <= top(primary) + 0.5,
+                "{case:?}: never over the primary"
             );
             assert!(bottom(control) <= f32::from(cx.update(|w, _| w.viewport_size().height)) + 0.5);
+        }
+    }
+
+    /// In the Band the control shares the status row, so Freeze/Blackout and
+    /// the primary keep the two equal T1.4 columns and the Live sentence has
+    /// its whole column.
+    #[gpui::test]
+    fn the_band_keeps_its_two_columns_and_the_live_sentence(cx: &mut TestAppContext) {
+        for case in [SIZES[1], SIZES[2], SHORT[0], SHORT[1]] {
+            if !matches!(layout_at(case).dock, DockLayout::Band { .. }) {
+                continue;
+            }
+            let (open, cx) = open(cx, case);
+            run(&open, cx, Command::EnableOutput).unwrap();
+            run(&open, cx, Command::Take).unwrap();
+            cx.run_until_parked();
+            let freeze = bounds(cx, "button-Freeze");
+            let blackout = bounds(cx, "button-Blackout");
+            let primary = bounds(cx, "primary-action");
+            let info = bounds(cx, "primary-info");
+            let control = bounds(cx, "auto-play-control");
+            // The two T1.4 columns: Freeze/Blackout and the primary each take
+            // half of the row, whatever the status row now holds.
+            let row = right(primary) - left(freeze);
+            let toggles = right(blackout) - left(freeze);
+            assert!(
+                (width(primary) - row / 2.0).abs() < case.2.apply(8.0)
+                    && (toggles - row / 2.0).abs() < case.2.apply(8.0),
+                "{case:?}: two equal columns, toggles {toggles} primary {primary:?}"
+            );
+            assert!(
+                (width(info) - width(primary)).abs() < 0.5 && width(info) >= case.2.apply(300.0),
+                "{case:?}: the Live sentence has its whole column: {info:?}"
+            );
+            assert!(
+                bottom(control) <= top(freeze) + 0.5,
+                "{case:?}: the control sits in the status row"
+            );
         }
     }
 }

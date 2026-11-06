@@ -35,8 +35,8 @@ use ui::{
 };
 
 use super::layout::{
-    DOCK_AUTO_PLAY_HEIGHT, DOCK_FREEZE_BLACKOUT_HEIGHT, DOCK_PRIMARY_HEIGHT, DOCK_STATUS_HEIGHT,
-    MONITOR_LABEL_GAP, MONITOR_LABEL_HEIGHT,
+    DOCK_FREEZE_BLACKOUT_HEIGHT, DOCK_PRIMARY_HEIGHT, DOCK_STATUS_HEIGHT, MONITOR_LABEL_GAP,
+    MONITOR_LABEL_HEIGHT,
 };
 use crate::canonical_views::live_viewport_fading;
 
@@ -653,44 +653,27 @@ pub fn primary_action(
 /// The Auto-play control: a Menu whose trigger says the state in words.
 ///
 /// The Menu owns its popup, Esc, outside press and the return of focus to its
-/// trigger. Its choices are fixed for the life of a selection state, so the
-/// state is keyed by what the entries say and a change in the words or in what
-/// the Engine would refuse starts a fresh (closed) menu with a fresh trigger.
-/// `refocus` is set after the operator chose an entry: the old trigger is gone
-/// by then, so the new one takes the focus the menu was meant to give back.
+/// trigger. The selection state has a stable key and its choices are updated in
+/// place, so a change in the words or in what the Engine would refuse (a
+/// Freeze, a Blackout, a lost display, a run ending) keeps the trigger and the
+/// focus on it instead of replacing them. `height` is the unscaled slot the
+/// control sits in.
 pub fn auto_play_control(
     model: &AutoPlayModel,
     on_command: &OnCommand,
-    refocus: bool,
+    height: f32,
     environment: UiEnvironment,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let scale = environment.preferences().scale;
-    let signature = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        for entry in &model.entries {
-            (entry.label, entry.availability.reason()).hash(&mut hasher);
-            entry.availability.is_disabled().hash(&mut hasher);
-        }
-        hasher.finish()
-    };
-    let choices = model
+    let choices: Vec<Choice> = model
         .entries
         .iter()
         .map(|entry| Choice::new(entry.label).availability(entry.availability.clone()))
         .collect();
-    let state = SelectionState::keyed(
-        format!("auto-play-state-{signature:x}"),
-        choices,
-        None,
-        window,
-        cx,
-    );
-    if refocus {
-        state.focus(window, cx);
-    }
+    let state = SelectionState::keyed("auto-play-state", choices.clone(), None, window, cx);
+    state.set_choices(choices, window, cx);
     let commands: Vec<Command> = model.entries.iter().map(|entry| entry.command).collect();
     let on_command = on_command.clone();
     div()
@@ -698,23 +681,18 @@ pub fn auto_play_control(
         .debug_selector(|| "auto-play-control".into())
         .flex_none()
         .w_full()
-        .h(px(scale.apply(DOCK_AUTO_PLAY_HEIGHT)))
+        .h(px(scale.apply(height)))
         .flex()
         .items_center()
         .child(
             div().flex_1().min_w_0().flex().flex_col().child(
-                Menu::new(
-                    format!("auto-play-menu-{signature:x}"),
-                    model.label,
-                    &state,
-                    environment,
-                )
-                .on_surface(tokens::palette(environment.appearance()).surface)
-                .on_select(move |chosen, window, cx| {
-                    if let Some(command) = chosen.and_then(|i| commands.get(i).copied()) {
-                        on_command(command, window, cx);
-                    }
-                }),
+                Menu::new("auto-play-menu", model.label, &state, environment)
+                    .on_surface(tokens::palette(environment.appearance()).surface)
+                    .on_select(move |chosen, window, cx| {
+                        if let Some(command) = chosen.and_then(|i| commands.get(i).copied()) {
+                            on_command(command, window, cx);
+                        }
+                    }),
             ),
         )
         .into_any_element()
