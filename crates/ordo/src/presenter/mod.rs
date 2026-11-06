@@ -68,7 +68,10 @@ use self::{
     rail::{PinControl, RailItem, RailModel, RailSection},
     timeline::{CueKind, CueModel, GroupModel, TimelineModel},
 };
-use crate::commands::dispatch;
+use crate::commands::{
+    dispatch,
+    registry::{self, CommandId, FocusContext},
+};
 
 /// Saves preferences through the owner's save path. The shell passes its
 /// background-worker saver; the lab passes one that writes under
@@ -180,6 +183,12 @@ pub struct PresenterView {
     /// holds the Cues), and where it goes while the overlay is open.
     timeline_focus: FocusHandle,
     rail_focus: FocusHandle,
+    /// Tracked on the Output Dock, so a focused control inside it reads as
+    /// the Dock for key policy.
+    dock_focus: FocusHandle,
+    /// Test only: a focusable element declaring the `TextEntry` key context.
+    #[cfg(test)]
+    text_probe: FocusHandle,
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
@@ -227,6 +236,9 @@ impl PresenterView {
             rail_scroll: Scroll::new(),
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
+            dock_focus: cx.focus_handle(),
+            #[cfg(test)]
+            text_probe: cx.focus_handle(),
             cue_view: environment.preferences().cue_view,
             status: None,
             save_preferences: None,
@@ -303,6 +315,48 @@ impl PresenterView {
             }
         }
         result
+    }
+
+    /// Where focus is, for key policy. The rail is checked first (an overlay
+    /// sits above everything else), then the Cues, then the Output Dock.
+    fn focus_context(&self, window: &Window, cx: &gpui::App) -> FocusContext {
+        if self.rail_focus.contains_focused(window, cx) {
+            FocusContext::Rail
+        } else if self.timeline_focus.contains_focused(window, cx) {
+            FocusContext::Timeline
+        } else if self.dock_focus.contains_focused(window, cx) {
+            FocusContext::Dock
+        } else {
+            FocusContext::Elsewhere
+        }
+    }
+
+    /// A registered key was pressed. The policy is checked again here (the
+    /// binding predicate already kept text entry and modals out), and a key
+    /// the policy refuses reaches nothing. An allowed key takes the same path
+    /// as the buttons, so refusal text and redraws behave identically.
+    fn press(&mut self, id: CommandId, window: &mut Window, cx: &mut Context<Self>) {
+        let entry = registry::entry_for(id);
+        if !registry::allows(entry.scope, self.focus_context(window, cx)) {
+            return;
+        }
+        match registry::command_for(id) {
+            Some(command) => {
+                self.command(command, cx).ok();
+            }
+            // TODO(WP2): focus an already-pinned rail; `O` here only opens
+            // the collapsed overlay.
+            None if id == CommandId::OpenOrdo && !self.rail_is_pinned => {
+                self.open_rail(window, cx);
+            }
+            None => {}
+        }
+    }
+
+    /// Give focus to the Cues, where the keys are live. The owner calls this
+    /// when the Presenter opens.
+    pub fn focus_timeline(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.timeline_focus.focus(window, cx);
     }
 
     /// Let the Engine's clock catch up (a fade ending, an auto-play step).
@@ -1114,7 +1168,8 @@ impl Render for PresenterView {
                         environment,
                     ))
                     .child(dock::freeze_blackout(&controls, &on_command, environment))
-                    .child(dock::primary_action(&controls, &on_primary, environment));
+                    .child(dock::primary_action(&controls, &on_primary, environment))
+                    .track_focus(&self.dock_focus);
                 div()
                     .flex_1()
                     .min_h_0()
@@ -1150,6 +1205,7 @@ impl Render for PresenterView {
                     .gap(px(scale.apply(tokens::spacing::RELATED)))
                     .px(px(scale.apply(BAND_GUTTER)))
                     .pt(px(scale.apply(tokens::spacing::RELATED)))
+                    .track_focus(&self.dock_focus)
                     .child(dock::output_status(
                         controls.status.clone(),
                         controls.live,
@@ -1194,8 +1250,9 @@ impl Render for PresenterView {
             }
         };
 
-        div()
+        let root = div()
             .id("presenter")
+            .key_context(registry::PRESENTER_CONTEXT)
             .relative()
             .size_full()
             .overflow_hidden()
@@ -1207,7 +1264,55 @@ impl Render for PresenterView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .child(header)
             .child(body)
-            .children(rail_overlay)
+            .children(rail_overlay);
+        #[cfg(test)]
+        let root = root.child(
+            div()
+                .id("text-probe")
+                .key_context("TextEntry")
+                .track_focus(&self.text_probe),
+        );
+        root.on_action(
+            cx.listener(|this, _: &registry::Previous, w, cx| {
+                this.press(CommandId::Previous, w, cx)
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &registry::Next, w, cx| this.press(CommandId::Next, w, cx)),
+        )
+        .on_action(cx.listener(|this, _: &registry::PreviousItem, w, cx| {
+            this.press(CommandId::PreviousItem, w, cx)
+        }))
+        .on_action(
+            cx.listener(|this, _: &registry::NextItem, w, cx| {
+                this.press(CommandId::NextItem, w, cx)
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &registry::First, w, cx| this.press(CommandId::First, w, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &registry::Last, w, cx| this.press(CommandId::Last, w, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &registry::TakeLive, w, cx| {
+                this.press(CommandId::TakeLive, w, cx)
+            }),
+        )
+        .on_action(cx.listener(|this, _: &registry::ToggleFreeze, w, cx| {
+            this.press(CommandId::ToggleFreeze, w, cx)
+        }))
+        .on_action(cx.listener(|this, _: &registry::ToggleBlackout, w, cx| {
+            this.press(CommandId::ToggleBlackout, w, cx)
+        }))
+        .on_action(cx.listener(|this, _: &registry::ToggleAutoPlay, w, cx| {
+            this.press(CommandId::ToggleAutoPlay, w, cx)
+        }))
+        .on_action(
+            cx.listener(|this, _: &registry::OpenOrdo, w, cx| {
+                this.press(CommandId::OpenOrdo, w, cx)
+            }),
+        )
     }
 }
 
@@ -2184,6 +2289,130 @@ mod tests {
             open.view
                 .read_with(cx, |view, _| view.timeline_focus.is_focused(window))
         })
+    }
+
+    fn bind_registry_keys(cx: &mut VisualTestContext) {
+        cx.update(|_, cx| cx.bind_keys(registry::key_bindings()));
+    }
+
+    fn revision(open: &Open, cx: &VisualTestContext) -> u64 {
+        open.view
+            .read_with(cx, |view, _| view.engine.state().revision())
+    }
+
+    fn preview_index(open: &Open, cx: &VisualTestContext) -> usize {
+        open.view
+            .read_with(cx, |view, _| view.engine.state().preview())
+    }
+
+    fn press_keys(cx: &mut VisualTestContext, keys: &str) {
+        cx.simulate_keystrokes(keys);
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn timeline_focus_navigates_with_the_registry_keys(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+        let start = preview_index(&open, cx);
+        press_keys(cx, "right");
+        assert_eq!(preview_index(&open, cx), start + 1);
+        press_keys(cx, "down");
+        assert_eq!(preview_index(&open, cx), start + 2);
+        press_keys(cx, "left up");
+        assert_eq!(preview_index(&open, cx), start);
+        press_keys(cx, "end");
+        assert!(preview_index(&open, cx) > start + 2);
+        press_keys(cx, "home");
+        assert_eq!(preview_index(&open, cx), 0);
+    }
+
+    #[gpui::test]
+    fn timeline_keys_report_a_refusal_in_words(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+        let before = revision(&open, cx);
+        press_keys(cx, "space");
+        assert_eq!(revision(&open, cx), before);
+        assert_eq!(
+            open.view
+                .read_with(cx, |view, _| view.status().map(str::to_owned)),
+            Some(refusal_text(Refusal::OutputDisabled).to_owned())
+        );
+    }
+
+    #[gpui::test]
+    fn rail_focus_leaves_only_f_b_and_space_active(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        open_overlay(&open, cx);
+        let before = engine_state(&open, cx);
+
+        // Navigation, auto-play and `O` do nothing at all.
+        for keys in ["right", "down", "pageup", "end", "a", "o"] {
+            press_keys(cx, keys);
+            assert_eq!(engine_state(&open, cx), before, "{keys}");
+            assert_eq!(
+                open.view
+                    .read_with(cx, |view, _| view.status().map(str::to_owned)),
+                None,
+                "{keys}"
+            );
+        }
+
+        // Space takes Preview live, then F and B reach the Engine.
+        press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        let taken = revision(&open, cx);
+        assert!(taken > before.revision());
+        press_keys(cx, "f");
+        assert!(revision(&open, cx) > taken, "F reached the Engine");
+        let frozen = revision(&open, cx);
+        press_keys(cx, "space");
+        press_keys(cx, "b");
+        assert!(revision(&open, cx) > frozen, "B reached the Engine");
+    }
+
+    #[gpui::test]
+    fn dock_focus_allows_operating_keys(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
+        let start = preview_index(&open, cx);
+        press_keys(cx, "right");
+        assert_eq!(preview_index(&open, cx), start + 1);
+    }
+
+    #[gpui::test]
+    fn text_entry_swallows_every_single_key_command(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        open.view
+            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        let before = engine_state(&open, cx);
+        for keys in ["f", "b", "o", "space", "right", "a", "home", "pagedown"] {
+            press_keys(cx, keys);
+            assert_eq!(engine_state(&open, cx), before, "{keys}");
+            assert_eq!(
+                open.view
+                    .read_with(cx, |view, _| view.status().map(str::to_owned)),
+                None,
+                "{keys}"
+            );
+        }
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        // Leaving the field gives the keys back.
+        open.view
+            .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+        press_keys(cx, "right");
+        assert_ne!(engine_state(&open, cx), before);
     }
 
     /// The primary action replaces itself when pressed, so it hands focus to

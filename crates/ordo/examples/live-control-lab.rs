@@ -77,19 +77,10 @@ use ui::{
 
 actions!(
     live_control_lab,
-    [
-        PreviousCue,
-        NextCue,
-        TakeLive,
-        ToggleFreeze,
-        ToggleBlackout,
-        EnableOutput,
-        SimulateDisplayLost,
-        SimulateDisplayReturned,
-    ]
+    [EnableOutput, SimulateDisplayLost, SimulateDisplayReturned]
 );
 
-const KEY_HELP: &str = "Left/Right Cue · Space take live · F freeze · B blackout · E enable output · D display lost · R display returned";
+const KEY_HELP: &str = "Presenter keys come from the command registry · E enable output · D display lost · R display returned";
 
 /// What the command line asked for.
 #[derive(Debug, PartialEq)]
@@ -282,10 +273,15 @@ impl LabRoot {
                 if let Some(run) = self.measure.take() {
                     self._measure_task = Some(run.start(view.clone(), window, cx));
                 }
+                // Keys reach the Presenter only from inside it: the Cues
+                // hold focus, and the lab root above still answers E, D, R.
+                view.update(cx, |view, cx| view.focus_timeline(window, cx));
                 self.stage = Stage::Ready(view);
             }
         }
-        window.focus(&self.focus, cx);
+        if !matches!(self.stage, Stage::Ready(_)) {
+            window.focus(&self.focus, cx);
+        }
         cx.notify();
     }
 
@@ -364,15 +360,6 @@ impl Render for LabRoot {
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
             .font_family(tokens::typography::OPERATOR_FAMILY)
-            .on_action(cx.listener(|this, _: &PreviousCue, _, cx| this.send(Command::Previous, cx)))
-            .on_action(cx.listener(|this, _: &NextCue, _, cx| this.send(Command::Next, cx)))
-            .on_action(cx.listener(|this, _: &TakeLive, _, cx| this.send(Command::Take, cx)))
-            .on_action(
-                cx.listener(|this, _: &ToggleFreeze, _, cx| this.send(Command::ToggleFreeze, cx)),
-            )
-            .on_action(cx.listener(|this, _: &ToggleBlackout, _, cx| {
-                this.send(Command::ToggleBlackout, cx);
-            }))
             .on_action(
                 cx.listener(|this, _: &EnableOutput, _, cx| this.send(Command::EnableOutput, cx)),
             )
@@ -477,12 +464,8 @@ fn main() {
             cx.quit();
             return;
         }
+        cx.bind_keys(ordo::commands::registry::key_bindings());
         cx.bind_keys([
-            KeyBinding::new("left", PreviousCue, None),
-            KeyBinding::new("right", NextCue, None),
-            KeyBinding::new("space", TakeLive, None),
-            KeyBinding::new("f", ToggleFreeze, None),
-            KeyBinding::new("b", ToggleBlackout, None),
             KeyBinding::new("e", EnableOutput, None),
             KeyBinding::new("d", SimulateDisplayLost, None),
             KeyBinding::new("r", SimulateDisplayReturned, None),

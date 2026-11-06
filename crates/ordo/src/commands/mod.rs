@@ -2,9 +2,11 @@
 //!
 //! Every button, and later every key, runs a [`Command`] through
 //! [`dispatch`]; nothing else in the Presenter view calls `Engine::apply`.
-//! T1.4 binds only the buttons. T1.5 binds the product shortcuts and the
-//! command registry to this same function, so the refusal and "unchanged"
+//! T1.4 bound the buttons. T1.5 binds the product shortcuts through the
+//! [`registry`] to this same function, so the refusal and "unchanged"
 //! rules stay in one place.
+
+pub mod registry;
 
 use presentation::{
     commands::Command,
