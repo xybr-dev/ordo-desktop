@@ -9,8 +9,7 @@
 pub enum Surface {
     /// The Ordo rail opened as an overlay (not pinned).
     RailOverlay,
-    /// The Keyboard shortcuts reference; T1.5d opens it.
-    #[allow(dead_code, reason = "T1.5d opens the shortcut reference")]
+    /// The Keyboard shortcuts reference (`crate::shortcut_reference`).
     ShortcutReference,
 }
 

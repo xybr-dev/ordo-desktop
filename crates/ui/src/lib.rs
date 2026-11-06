@@ -56,7 +56,7 @@ pub fn init(cx: &mut App) -> Result<(), String> {
 /// where a single-line Field propagates it straight back out. Ordo therefore
 /// owns the two focus-order keys, which is what lets a modal surface contain
 /// them; `DESIGN.md`'s `F6` region cycle joins them with the region registry.
-pub(crate) fn key_bindings() -> [KeyBinding; 8] {
+pub fn key_bindings() -> [KeyBinding; 8] {
     [
         KeyBinding::new("f6", NextRegion, None),
         KeyBinding::new("shift-f6", PreviousRegion, None),

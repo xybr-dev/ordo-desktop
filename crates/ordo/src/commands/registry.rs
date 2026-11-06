@@ -1,12 +1,14 @@
 //! The one command registry: every Presenter key, its keycap text, its label
 //! and the focus contexts it may run in come from [`ENTRIES`].
 //!
-//! GPUI key bindings ([`key_bindings`]) and, later, the Keyboard shortcuts
-//! reference are both derived from this table, so a key can never be bound
-//! without being listed or listed without being bound. Entries whose [`Scope`]
-//! is [`Scope::Surface`] are listed for the reference but bound elsewhere
-//! (`Esc` by the surface stack, `F6` by the region registry, `Ctrl+/` by the
-//! reference) and never reach the Engine.
+//! GPUI key bindings ([`key_bindings`]) and the Keyboard shortcuts reference
+//! (`crate::shortcut_reference`) are both derived from this table, so a key can
+//! never be bound without being listed or listed without being bound. Entries
+//! whose [`Scope`] is [`Scope::Surface`] are listed for the reference and never
+//! reach the Engine. `Ctrl+/` is bound here (it toggles the reference); `Esc`
+//! is handled by the surface stack, and `F6`, `Tab` and the Interface-scale
+//! keys are bound by `ui::key_bindings`, which a test here checks against this
+//! table so the reference cannot drift from them.
 //!
 //! A key reaches the Engine only through [`command_for`] and then
 //! [`super::dispatch`]. Two guards keep single keys out of text entry and
@@ -32,11 +34,16 @@ actions!(
         ToggleBlackout,
         ToggleAutoPlay,
         OpenOrdo,
+        ToggleReference,
     ]
 );
 
 /// The GPUI key context the Presenter root declares.
 pub const PRESENTER_CONTEXT: &str = "Presenter";
+
+/// `Ctrl+/` stays available in text fields (it is chorded, so it types
+/// nothing) but never in a true modal.
+pub const REFERENCE_PREDICATE: &str = "Presenter && !Modal";
 
 /// Active only inside the Presenter and never while a text field or a modal
 /// dialog anywhere above focus declares its own context (`!X` is false if any
@@ -63,12 +70,36 @@ pub enum CommandId {
     CycleRegion,
     /// `Ctrl+/`: shows or hides the shortcut reference.
     ToggleReference,
+    /// `Tab` / `Shift+Tab`: next or previous control (bound by `ui`).
+    FocusNext,
+    /// `Ctrl+=` / `Ctrl++`: larger Interface scale (bound by `ui`).
+    ScaleUp,
+    /// `Ctrl+-`: smaller Interface scale (bound by `ui`).
+    ScaleDown,
+    /// `Ctrl+0`: Interface scale back to 100% (bound by `ui`).
+    ScaleReset,
 }
 
-/// The reference group an entry is listed under.
+/// The reference group an entry is listed under. Editing and the other
+/// workspaces join when they register keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
+    /// Keys that work everywhere in Ordo.
+    Global,
     Presenter,
+}
+
+impl Group {
+    /// Every group, in the reference's fixed order (the reference moves the
+    /// current workspace to the front).
+    pub const ALL: [Group; 2] = [Group::Global, Group::Presenter];
+
+    pub const fn title(self) -> &'static str {
+        match self {
+            Group::Global => "Global",
+            Group::Presenter => "Presenter",
+        }
+    }
 }
 
 /// Where a key may run (see [`allows`]).
@@ -128,6 +159,18 @@ const fn entry(
         label,
         group: Group::Presenter,
         scope,
+    }
+}
+
+const fn global(
+    id: CommandId,
+    keys: &'static [&'static str],
+    keycaps: &'static str,
+    label: &'static str,
+) -> Entry {
+    Entry {
+        group: Group::Global,
+        ..entry(id, keys, keycaps, label, Scope::Surface)
     }
 }
 
@@ -211,26 +254,47 @@ pub static ENTRIES: &[Entry] = &[
         "Take Preview live",
         Scope::Output,
     ),
-    entry(
+    global(
         CommandId::CloseSurface,
         &["escape"],
         "Esc",
         "Close the open panel",
-        Scope::Surface,
     ),
-    entry(
+    global(
         CommandId::CycleRegion,
         &["f6", "shift-f6"],
         "F6 / Shift+F6",
         "Next or previous region",
-        Scope::Surface,
     ),
-    entry(
+    global(
+        CommandId::FocusNext,
+        &["tab", "shift-tab"],
+        "Tab / Shift+Tab",
+        "Next or previous control",
+    ),
+    global(
         CommandId::ToggleReference,
         &["ctrl-/"],
         "Ctrl+/",
         "Keyboard shortcuts",
-        Scope::Surface,
+    ),
+    global(
+        CommandId::ScaleUp,
+        &["ctrl-=", "ctrl-+"],
+        "Ctrl+= / Ctrl++",
+        "Increase Interface scale",
+    ),
+    global(
+        CommandId::ScaleDown,
+        &["ctrl--"],
+        "Ctrl+-",
+        "Decrease Interface scale",
+    ),
+    global(
+        CommandId::ScaleReset,
+        &["ctrl-0"],
+        "Ctrl+0",
+        "Reset Interface scale",
     ),
 ];
 
@@ -272,7 +336,11 @@ pub fn command_for(id: CommandId) -> Option<Command> {
         CommandId::OpenOrdo
         | CommandId::CloseSurface
         | CommandId::CycleRegion
-        | CommandId::ToggleReference => None,
+        | CommandId::ToggleReference
+        | CommandId::FocusNext
+        | CommandId::ScaleUp
+        | CommandId::ScaleDown
+        | CommandId::ScaleReset => None,
     }
 }
 
@@ -299,33 +367,47 @@ macro_rules! for_each_bound_command {
 }
 pub(crate) use for_each_bound_command;
 
-/// The GPUI action an Output or Operating entry binds, `None` for a Surface
-/// entry (bound elsewhere).
+/// The GPUI action an entry binds here, `None` for a key bound elsewhere
+/// (`Esc`, and the keys `ui::key_bindings` owns).
 fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
     macro_rules! arms {
         ($($name:ident),*) => {
             match id {
                 $(CommandId::$name => Some(Box::new($name) as Box<dyn Action>),)*
-                CommandId::CloseSurface | CommandId::CycleRegion | CommandId::ToggleReference => {
-                    None
-                }
+                CommandId::ToggleReference => Some(Box::new(ToggleReference) as Box<dyn Action>),
+                CommandId::CloseSurface
+                | CommandId::CycleRegion
+                | CommandId::FocusNext
+                | CommandId::ScaleUp
+                | CommandId::ScaleDown
+                | CommandId::ScaleReset => None,
             }
         };
     }
     for_each_bound_command!(arms)
 }
 
-/// The GPUI bindings for every Output and Operating entry, all under
-/// [`BINDING_PREDICATE`].
+/// The GPUI bindings for every entry this module binds: the Output and
+/// Operating keys under [`BINDING_PREDICATE`], and `Ctrl+/` under
+/// [`REFERENCE_PREDICATE`].
 pub fn key_bindings() -> Vec<KeyBinding> {
-    let predicate: Rc<gpui::KeyBindingContextPredicate> = Rc::new(
-        gpui::KeyBindingContextPredicate::parse(BINDING_PREDICATE)
-            .expect("the binding predicate parses"),
-    );
+    let parse = |predicate| {
+        Rc::new(
+            gpui::KeyBindingContextPredicate::parse(predicate)
+                .expect("the binding predicate parses"),
+        )
+    };
+    let single_key = parse(BINDING_PREDICATE);
+    let reference = parse(REFERENCE_PREDICATE);
     let mut bindings = Vec::new();
     for entry in ENTRIES {
         let Some(action) = action_for(entry.id) else {
             continue;
+        };
+        let predicate = if entry.scope == Scope::Surface {
+            reference.clone()
+        } else {
+            single_key.clone()
         };
         for keys in entry.keys {
             bindings.push(
@@ -390,39 +472,71 @@ mod tests {
     }
 
     #[test]
-    fn bindings_cover_every_output_and_operating_entry() {
+    fn bindings_cover_every_entry_this_module_binds() {
         let bindings = key_bindings();
         let bound: BTreeSet<String> = bindings
             .iter()
             .flat_map(|b| b.keystrokes().iter().map(|k| k.inner().unparse()))
             .collect();
         let mut expected = BTreeSet::new();
+        let mut count = 0;
         for entry in ENTRIES {
+            let bound_here =
+                entry.scope != Scope::Surface || entry.id == CommandId::ToggleReference;
             for keys in entry.keys {
-                if entry.scope == Scope::Surface {
-                    assert!(!bound.contains(*keys), "{keys:?} is bound elsewhere");
+                let keystroke = gpui::Keystroke::parse(keys).unwrap().unparse();
+                if bound_here {
+                    expected.insert(keystroke);
+                    count += 1;
                 } else {
-                    expected.insert(gpui::Keystroke::parse(keys).unwrap().unparse());
+                    assert!(!bound.contains(&keystroke), "{keys:?} is bound elsewhere");
                 }
             }
         }
         assert_eq!(bound, expected);
-        assert_eq!(
-            bindings.len(),
-            ENTRIES
-                .iter()
-                .filter(|e| e.scope != Scope::Surface)
-                .map(|e| e.keys.len())
-                .sum::<usize>()
-        );
+        assert_eq!(bindings.len(), count);
     }
 
     #[test]
-    fn every_binding_carries_the_text_entry_and_modal_guard() {
+    fn single_keys_carry_the_text_entry_and_modal_guard_and_ctrl_slash_only_the_modal_one() {
         for binding in key_bindings() {
-            let predicate = binding.predicate().expect("a context predicate");
-            assert_eq!(predicate.to_string(), "Presenter && !TextEntry && !Modal");
+            let predicate = binding
+                .predicate()
+                .expect("a context predicate")
+                .to_string();
+            let reference = binding
+                .keystrokes()
+                .iter()
+                .any(|k| k.inner().unparse() == "ctrl-/");
+            assert_eq!(
+                predicate,
+                if reference {
+                    "Presenter && !Modal"
+                } else {
+                    "Presenter && !TextEntry && !Modal"
+                }
+            );
         }
+    }
+
+    /// The keys `ui` binds are listed here so the reference shows them; this
+    /// keeps the two from drifting in either direction.
+    #[test]
+    fn every_ui_key_is_listed_and_every_listed_ui_key_is_bound() {
+        let ui: BTreeSet<String> = ui::key_bindings()
+            .iter()
+            .flat_map(|b| b.keystrokes().iter().map(|k| k.inner().unparse()))
+            .collect();
+        let listed: BTreeSet<String> = ENTRIES
+            .iter()
+            .filter(|e| {
+                e.group == Group::Global
+                    && !matches!(e.id, CommandId::ToggleReference | CommandId::CloseSurface)
+            })
+            .flat_map(|e| e.keys.iter())
+            .map(|k| gpui::Keystroke::parse(k).unwrap().unparse())
+            .collect();
+        assert_eq!(ui, listed);
     }
 
     /// `ctrl-shift-1` never fired on Linux (see `ui`): no registered key may

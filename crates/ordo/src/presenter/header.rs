@@ -21,7 +21,7 @@ use ui::{
     tokens,
 };
 
-use super::layout::HEADER_HEIGHT;
+use super::{layout::HEADER_HEIGHT, rail::OnPress};
 
 /// What the header says about the congregation display.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,7 +78,11 @@ pub type OnCueView = Rc<dyn Fn(CueView, &mut Window, &mut App)>;
 
 /// The header row. Its height is [`HEADER_HEIGHT`] scaled, and it never
 /// wraps: the title ellipsizes before anything else gives way.
-pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
+pub fn header(
+    model: HeaderModel,
+    on_cue_view: OnCueView,
+    on_reference: OnPress,
+) -> impl IntoElement {
     let environment = model.environment;
     let scale = environment.preferences().scale;
     let palette = tokens::palette(environment.appearance());
@@ -99,6 +103,7 @@ pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
 
     div()
         .id("presenter-header")
+        .debug_selector(|| "presenter-header".into())
         .flex_none()
         .flex()
         .flex_row()
@@ -130,12 +135,43 @@ pub fn header(model: HeaderModel, on_cue_view: OnCueView) -> impl IntoElement {
                 .child(super::dock::marker(shape, health_color, 10.0, environment))
                 .child(model.health.label()),
         )
+        .child(shortcuts_control(
+            model.icon_only,
+            environment,
+            on_reference,
+        ))
         .child(cue_view_control(
             model.cue_view,
             model.icon_only,
             environment,
             on_cue_view,
         ))
+}
+
+/// The labeled Keyboard shortcuts entry (`MVP-PLAN.md` section 8.3, "shortcut
+/// help"). It opens the same panel `Ctrl+/` toggles and never touches Program.
+fn shortcuts_control(
+    icon_only: bool,
+    environment: UiEnvironment,
+    on_reference: OnPress,
+) -> impl IntoElement {
+    let palette = tokens::palette(environment.appearance());
+    let mut button = Button::new(
+        "header-keyboard-shortcuts",
+        crate::shortcut_reference::TITLE,
+        environment,
+    )
+    .icon(ui::assets::icon::CIRCLE_QUESTION_MARK)
+    .quiet()
+    .on_surface(palette.surface)
+    .on_activate(move |window, cx| on_reference(window, cx));
+    if icon_only {
+        button = button.icon_only();
+    }
+    div()
+        .debug_selector(|| "header-shortcuts".into())
+        .flex_none()
+        .child(button)
 }
 
 /// The Grid/List segmented control. Each segment is a Button named for its

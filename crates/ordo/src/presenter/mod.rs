@@ -42,8 +42,8 @@ use std::{collections::BTreeSet, rc::Rc, sync::Arc, time::Duration};
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
-    Context, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task, Window,
-    div, prelude::*, px, rgb,
+    Context, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task,
+    WeakFocusHandle, Window, div, prelude::*, px, rgb,
 };
 use presentation::{
     commands::Command,
@@ -75,9 +75,12 @@ use self::{
     surfaces::{Surface, SurfaceStack},
     timeline::{CueKind, CueModel, GroupModel, TimelineModel},
 };
-use crate::commands::{
-    dispatch,
-    registry::{self, CommandId, FocusContext},
+use crate::{
+    commands::{
+        dispatch,
+        registry::{self, CommandId, FocusContext},
+    },
+    shortcut_reference,
 };
 
 /// Saves preferences through the owner's save path. The shell passes its
@@ -210,6 +213,13 @@ pub struct PresenterView {
     /// Tracked on the Output Dock, so a focused control inside it reads as
     /// the Dock for key policy.
     dock_focus: FocusHandle,
+    /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
+    /// panel reads as `FocusContext::ShortcutReference` for key policy.
+    reference_focus: FocusHandle,
+    reference_scroll: Scroll,
+    /// Where focus was when the reference opened; `Esc` or `Ctrl+/` puts it
+    /// back there (the Cues when that is gone). Session only.
+    reference_return: Option<WeakFocusHandle>,
     /// Set when an Auto-play menu choice closed the menu; the next frame puts
     /// focus on the (possibly replaced) Auto-play control.
     /// The F6 cycle over the three Presenter regions, which reuse the three
@@ -303,6 +313,9 @@ impl PresenterView {
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
             dock_focus: cx.focus_handle(),
+            reference_focus: cx.focus_handle(),
+            reference_scroll: Scroll::new(),
+            reference_return: None,
             regions: RegionRegistry::default(),
             #[cfg(test)]
             text_probe: cx.focus_handle(),
@@ -388,14 +401,17 @@ impl PresenterView {
         result
     }
 
-    /// Where focus is, for key policy. The rail is checked first (an overlay
-    /// sits above everything else), then the Cues, then the Output Dock.
+    /// Where focus is, for key policy. The reference and the rail are checked
+    /// first (they sit above everything else, the reference above the rail),
+    /// then the Cues, then the Output Dock.
     fn focus_context(&self, window: &Window, cx: &gpui::App) -> FocusContext {
         let declares = |name: &str| window.context_stack().iter().any(|c| c.contains(name));
         if declares("Modal") {
             FocusContext::Modal
         } else if declares("TextEntry") {
             FocusContext::TextEntry
+        } else if self.reference_focus.contains_focused(window, cx) {
+            FocusContext::ShortcutReference
         } else if self.rail_focus.contains_focused(window, cx) {
             FocusContext::Rail
         } else if self.timeline_focus.contains_focused(window, cx) {
@@ -452,15 +468,57 @@ impl PresenterView {
     fn close_topmost(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         match self.surfaces.topmost() {
             Some(Surface::RailOverlay) => self.close_rail(window, cx),
-            Some(Surface::ShortcutReference) => {
-                // T1.5d: restore prior focus (it opens this, so it knows it).
-                self.surfaces.close_topmost();
-                self.timeline_focus.focus(window, cx);
-                cx.notify();
-            }
+            Some(Surface::ShortcutReference) => self.close_reference(window, cx),
             None => return false,
         }
         true
+    }
+
+    /// Whether the Keyboard shortcuts reference is open.
+    pub fn reference_open(&self) -> bool {
+        self.surfaces.contains(Surface::ShortcutReference)
+    }
+
+    /// Open the reference (an entry point was pressed, or `Ctrl+/`) and move
+    /// focus into it, remembering where focus was. Opening it again only
+    /// refocuses it. Nothing the Engine owns changes.
+    pub fn open_reference(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.reference_open() {
+            self.reference_return = window.focused(cx).map(|focus| focus.downgrade());
+            self.surfaces.open(Surface::ShortcutReference);
+        }
+        self.reference_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Close the reference and give focus back to where it was, or to the
+    /// Cues when that is gone (a rail overlay that closed meanwhile).
+    pub fn close_reference(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.surfaces.close(Surface::ShortcutReference) {
+            return;
+        }
+        let rail_shown = self.rail_is_pinned || self.rail_open();
+        let back = self
+            .reference_return
+            .take()
+            .and_then(|focus| focus.upgrade())
+            .filter(|focus| *focus != self.reference_focus)
+            .filter(|focus| *focus != self.rail_focus || rail_shown)
+            .unwrap_or_else(|| self.timeline_focus.clone());
+        back.focus(window, cx);
+        cx.notify();
+    }
+
+    /// `Ctrl+/`. Chorded, so it is live in a text field, but a true modal
+    /// owns every key and leaves it alone.
+    fn toggle_reference(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus_context(window, cx) == FocusContext::Modal {
+            cx.propagate();
+        } else if self.reference_open() {
+            self.close_reference(window, cx);
+        } else {
+            self.open_reference(window, cx);
+        }
     }
 
     /// `F6` or `Shift+F6` from inside an open overlay leaves it for another
@@ -1331,6 +1389,15 @@ impl Render for PresenterView {
             })
         };
 
+        // The header and rail footer Keyboard shortcuts entries open the one
+        // panel `Ctrl+/` toggles.
+        let on_open_reference: rail::OnPress = {
+            let view = view.clone();
+            Rc::new(move |window, cx| {
+                view.update(cx, |view, cx| view.open_reference(window, cx))
+                    .ok();
+            })
+        };
         // The rail is on screen already when pinned, so a stale open overlay
         // (the window grew, or the rail was pinned) is dropped, not kept for
         // the next unpin to resurrect.
@@ -1418,6 +1485,7 @@ impl Render for PresenterView {
                     view.update(cx, |view, cx| view.close_rail(window, cx)).ok();
                 })
             },
+            open_reference: on_open_reference.clone(),
         };
         let on_open_rail: rail::OnPress = {
             let view = view.clone();
@@ -1513,6 +1581,7 @@ impl Render for PresenterView {
                 environment,
             },
             on_cue_view,
+            on_open_reference,
         );
 
         let auto_play_height = match layout.dock {
@@ -1662,6 +1731,26 @@ impl Render for PresenterView {
             .adopt(TIMELINE_REGION, &self.timeline_focus, window, cx);
         self.regions
             .adopt(OUTPUT_REGION, &self.dock_focus, window, cx);
+        let reference = self.reference_open().then(|| {
+            shortcut_reference::panel(
+                &shortcut_reference::model(registry::Group::Presenter),
+                shortcut_reference::Placement {
+                    focus: &self.reference_focus,
+                    scroll: &self.reference_scroll,
+                    top: scale.apply(layout::HEADER_HEIGHT),
+                },
+                {
+                    let view = view.clone();
+                    Rc::new(move |window, cx| {
+                        view.update(cx, |view, cx| view.close_reference(window, cx))
+                            .ok();
+                    })
+                },
+                environment,
+                window,
+                cx,
+            )
+        });
         let root = self
             .regions
             .root(window, cx)
@@ -1678,6 +1767,12 @@ impl Render for PresenterView {
             .child(header)
             .child(body)
             .children(rail_overlay)
+            .children(reference)
+            .on_action(
+                cx.listener(|this, _: &registry::ToggleReference, window, cx| {
+                    this.toggle_reference(window, cx)
+                }),
+            )
             .capture_action({
                 let view = view.clone();
                 move |_: &NextRegion, window, cx| {
@@ -3095,6 +3190,176 @@ mod tests {
         assert_eq!(engine_state(&open, cx), before);
         press_keys(cx, "space");
         assert_eq!(live(&open, cx), LiveState::Live);
+    }
+
+    fn reference_open(open: &Open, cx: &VisualTestContext) -> bool {
+        open.view.read_with(cx, |view, _| view.reference_open())
+    }
+
+    fn focus_dock(open: &Open, cx: &mut VisualTestContext) {
+        open.view
+            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
+    }
+
+    #[gpui::test]
+    fn ctrl_slash_toggles_the_reference_and_restores_prior_focus(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        for (from, name) in [
+            (FocusContext::Timeline, "timeline"),
+            (FocusContext::Dock, "dock"),
+        ] {
+            match from {
+                FocusContext::Timeline => open
+                    .view
+                    .update_in(cx, |view, window, cx| view.focus_timeline(window, cx)),
+                _ => focus_dock(&open, cx),
+            }
+            assert_eq!(focus_context_now(&open, cx), from, "{name}");
+            let before = engine_state(&open, cx);
+
+            press_keys(cx, "ctrl-/");
+            assert!(reference_open(&open, cx), "{name}: opened");
+            assert!(present(cx, "shortcut-reference"), "{name}: drawn");
+            assert_eq!(
+                focus_context_now(&open, cx),
+                FocusContext::ShortcutReference,
+                "{name}"
+            );
+            assert_eq!(engine_state(&open, cx), before, "{name}: Program untouched");
+
+            press_keys(cx, "ctrl-/");
+            assert!(!reference_open(&open, cx), "{name}: closed");
+            assert!(!present(cx, "shortcut-reference"), "{name}: gone");
+            assert_eq!(focus_context_now(&open, cx), from, "{name}: focus restored");
+
+            press_keys(cx, "ctrl-/");
+            press_keys(cx, "escape");
+            assert!(!reference_open(&open, cx), "{name}: Esc closes");
+            assert_eq!(focus_context_now(&open, cx), from, "{name}: Esc restores");
+            assert_eq!(engine_state(&open, cx), before, "{name}");
+        }
+    }
+
+    #[gpui::test]
+    fn inside_the_reference_only_f_b_and_space_reach_the_engine(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        open.view
+            .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+        press_keys(cx, "ctrl-/");
+        let before = engine_state(&open, cx);
+        for keys in ["right", "down", "pagedown", "home", "a", "o"] {
+            press_keys(cx, keys);
+            assert_eq!(engine_state(&open, cx), before, "{keys}");
+            assert!(reference_open(&open, cx), "{keys} left it open");
+            assert_eq!(
+                focus_context_now(&open, cx),
+                FocusContext::ShortcutReference,
+                "{keys}"
+            );
+        }
+        press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        press_keys(cx, "f");
+        assert_eq!(live(&open, cx), LiveState::Frozen);
+        press_keys(cx, "space");
+        press_keys(cx, "b");
+        assert_eq!(live(&open, cx), LiveState::Blackout);
+        assert!(reference_open(&open, cx), "the panel is passive");
+    }
+
+    #[gpui::test]
+    fn escape_over_an_open_rail_overlay_closes_only_the_reference(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        open_overlay(&open, cx);
+        press_keys(cx, "ctrl-/");
+        assert!(reference_open(&open, cx));
+        assert!(open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(
+            focus_context_now(&open, cx),
+            FocusContext::ShortcutReference
+        );
+
+        press_keys(cx, "escape");
+        assert!(!reference_open(&open, cx));
+        assert!(
+            open.view.read_with(cx, |view, _| view.rail_open()),
+            "the overlay stays"
+        );
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+
+        press_keys(cx, "escape");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Timeline);
+    }
+
+    #[gpui::test]
+    fn the_header_and_the_rail_footer_open_the_same_panel(cx: &mut TestAppContext) {
+        // Wide: the rail is pinned, so both entry points are on screen.
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+        // Closing restores the control that was focused when it opened: the
+        // header button, then the rail's.
+        for (selector, back) in [
+            ("header-shortcuts", FocusContext::Elsewhere),
+            ("rail-shortcuts", FocusContext::Rail),
+        ] {
+            click(cx, selector);
+            assert!(reference_open(&open, cx), "{selector}");
+            assert_eq!(
+                focus_context_now(&open, cx),
+                FocusContext::ShortcutReference,
+                "{selector}"
+            );
+            click(cx, "shortcut-reference-close");
+            assert!(!reference_open(&open, cx), "{selector}: close button");
+            assert_eq!(focus_context_now(&open, cx), back, "{selector}");
+        }
+        // The footer also shows the `O` binding, from the registry.
+        assert!(present(cx, "rail-focus-hint"));
+    }
+
+    #[gpui::test]
+    fn the_panel_is_bounded_to_the_viewport_at_every_size(cx: &mut TestAppContext) {
+        for case in SIZES.into_iter().chain(SHORT) {
+            let (open, cx) = open(cx, case);
+            open.view
+                .update_in(cx, |view, window, cx| view.open_reference(window, cx));
+            cx.run_until_parked();
+            let panel = bounds(cx, "shortcut-reference");
+            assert!(inside(panel, case.0, case.1), "{case:?} {panel:?}");
+            let header = bounds(cx, "presenter-header");
+            assert!(
+                top(panel) >= bottom(header) - 0.5,
+                "{case:?} below the header"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn ctrl_slash_works_in_a_text_field_but_the_panel_still_holds_no_text_entry(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        open.view
+            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        assert_eq!(focus_context_now(&open, cx), FocusContext::TextEntry);
+        press_keys(cx, "ctrl-/");
+        assert!(reference_open(&open, cx));
+        press_keys(cx, "ctrl-/");
+        assert!(!reference_open(&open, cx));
+        assert_eq!(
+            focus_context_now(&open, cx),
+            FocusContext::TextEntry,
+            "back in the field"
+        );
     }
 
     #[gpui::test]

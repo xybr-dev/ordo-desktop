@@ -35,6 +35,7 @@ pub mod performance;
 pub mod presenter;
 pub mod settings;
 pub mod shell;
+pub mod shortcut_reference;
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
