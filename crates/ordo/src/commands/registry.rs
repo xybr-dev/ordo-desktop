@@ -16,6 +16,7 @@
 
 use gpui::{Action, KeyBinding, actions};
 use presentation::commands::Command;
+use std::rc::Rc;
 
 actions!(
     presenter,
@@ -73,7 +74,8 @@ pub enum Group {
 /// Where a key may run (see [`allows`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
-    /// `F`, `B`, `Space`: also active over passive surfaces.
+    /// `F`, `B`, `Space`: also active over passive surfaces and in the
+    /// Presenter's other controls (the header).
     Output,
     /// Navigation, `A`, `O`: only while the Cues or the Output controls have
     /// focus.
@@ -94,7 +96,8 @@ pub enum FocusContext {
     TextEntry,
     /// A true modal dialog.
     Modal,
-    /// Anywhere else (the header, nothing).
+    /// Anywhere else inside the Presenter (the header, nothing focused):
+    /// Output keys only.
     Elsewhere,
 }
 
@@ -243,7 +246,10 @@ pub fn entry_for(id: CommandId) -> &'static Entry {
 pub fn allows(scope: Scope, context: FocusContext) -> bool {
     use FocusContext::*;
     match scope {
-        Scope::Output => matches!(context, Timeline | Dock | Rail | ShortcutReference),
+        Scope::Output => matches!(
+            context,
+            Timeline | Dock | Rail | ShortcutReference | Elsewhere
+        ),
         Scope::Operating => matches!(context, Timeline | Dock),
         Scope::Surface => false,
     }
@@ -270,30 +276,52 @@ pub fn command_for(id: CommandId) -> Option<Command> {
     }
 }
 
+/// Calls `$callback!` with the name of every command that has a GPUI action.
+/// Each name is both a [`CommandId`] variant and an action type of the same
+/// name, so the action mapping here and the view's listeners are generated
+/// from this one list.
+macro_rules! for_each_bound_command {
+    ($callback:ident) => {
+        $callback! {
+            Previous,
+            Next,
+            PreviousItem,
+            NextItem,
+            First,
+            Last,
+            TakeLive,
+            ToggleFreeze,
+            ToggleBlackout,
+            ToggleAutoPlay,
+            OpenOrdo
+        }
+    };
+}
+pub(crate) use for_each_bound_command;
+
 /// The GPUI action an Output or Operating entry binds, `None` for a Surface
 /// entry (bound elsewhere).
 fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
-    Some(match id {
-        CommandId::Previous => Box::new(Previous),
-        CommandId::Next => Box::new(Next),
-        CommandId::PreviousItem => Box::new(PreviousItem),
-        CommandId::NextItem => Box::new(NextItem),
-        CommandId::First => Box::new(First),
-        CommandId::Last => Box::new(Last),
-        CommandId::TakeLive => Box::new(TakeLive),
-        CommandId::ToggleFreeze => Box::new(ToggleFreeze),
-        CommandId::ToggleBlackout => Box::new(ToggleBlackout),
-        CommandId::ToggleAutoPlay => Box::new(ToggleAutoPlay),
-        CommandId::OpenOrdo => Box::new(OpenOrdo),
-        CommandId::CloseSurface | CommandId::CycleRegion | CommandId::ToggleReference => {
-            return None;
-        }
-    })
+    macro_rules! arms {
+        ($($name:ident),*) => {
+            match id {
+                $(CommandId::$name => Some(Box::new($name) as Box<dyn Action>),)*
+                CommandId::CloseSurface | CommandId::CycleRegion | CommandId::ToggleReference => {
+                    None
+                }
+            }
+        };
+    }
+    for_each_bound_command!(arms)
 }
 
 /// The GPUI bindings for every Output and Operating entry, all under
 /// [`BINDING_PREDICATE`].
 pub fn key_bindings() -> Vec<KeyBinding> {
+    let predicate: Rc<gpui::KeyBindingContextPredicate> = Rc::new(
+        gpui::KeyBindingContextPredicate::parse(BINDING_PREDICATE)
+            .expect("the binding predicate parses"),
+    );
     let mut bindings = Vec::new();
     for entry in ENTRIES {
         let Some(action) = action_for(entry.id) else {
@@ -304,11 +332,7 @@ pub fn key_bindings() -> Vec<KeyBinding> {
                 KeyBinding::load(
                     keys,
                     action.boxed_clone(),
-                    Some(
-                        gpui::KeyBindingContextPredicate::parse(BINDING_PREDICATE)
-                            .expect("the binding predicate parses")
-                            .into(),
-                    ),
+                    Some(predicate.clone()),
                     false,
                     None,
                     &gpui::DummyKeyboardMapper,
@@ -429,13 +453,16 @@ mod tests {
     fn allows_follows_the_policy_table() {
         use FocusContext::*;
         for context in ALL_CONTEXTS {
-            let output = matches!(context, Timeline | Dock | Rail | ShortcutReference);
+            let output = matches!(
+                context,
+                Timeline | Dock | Rail | ShortcutReference | Elsewhere
+            );
             let operating = matches!(context, Timeline | Dock);
             assert_eq!(allows(Scope::Output, context), output, "{context:?}");
             assert_eq!(allows(Scope::Operating, context), operating, "{context:?}");
             assert!(!allows(Scope::Surface, context), "{context:?}");
         }
-        for context in [TextEntry, Modal, Elsewhere] {
+        for context in [TextEntry, Modal] {
             for scope in [Scope::Output, Scope::Operating, Scope::Surface] {
                 assert!(!allows(scope, context), "{scope:?} in {context:?}");
             }

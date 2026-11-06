@@ -80,7 +80,18 @@ actions!(
     [EnableOutput, SimulateDisplayLost, SimulateDisplayReturned]
 );
 
-const KEY_HELP: &str = "Presenter keys come from the command registry · E enable output · D display lost · R display returned";
+/// The window-title key help: every bound registry key, then the lab's own
+/// development keys.
+fn key_help() -> String {
+    use ordo::commands::registry::{ENTRIES, Scope};
+    let mut help: Vec<String> = ENTRIES
+        .iter()
+        .filter(|entry| entry.scope != Scope::Surface)
+        .map(|entry| format!("{} {}", entry.keycaps, entry.label.to_lowercase()))
+        .collect();
+    help.extend(["E enable output", "D display lost", "R display returned"].map(String::from));
+    help.join(" · ")
+}
 
 /// What the command line asked for.
 #[derive(Debug, PartialEq)]
@@ -308,8 +319,9 @@ impl LabRoot {
                     eprintln!("live-control-lab: image {asset:?} failed: {error}");
                 }
                 window.set_window_title(&format!(
-                    "Ordo live-control lab (development only) · Images: {checked} checked, {} failed · {KEY_HELP}",
-                    failures.len()
+                    "Ordo live-control lab (development only) · Images: {checked} checked, {} failed · {}",
+                    failures.len(),
+                    key_help()
                 ));
             })
             .ok();
@@ -492,7 +504,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
                     title: Some(
-                        format!("Ordo live-control lab (development only) · {KEY_HELP}").into(),
+                        format!("Ordo live-control lab (development only) · {}", key_help()).into(),
                     ),
                     ..Default::default()
                 }),

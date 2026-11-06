@@ -189,6 +189,9 @@ pub struct PresenterView {
     /// Test only: a focusable element declaring the `TextEntry` key context.
     #[cfg(test)]
     text_probe: FocusHandle,
+    /// Test only: every key that bubbled up to the Presenter root unhandled.
+    #[cfg(test)]
+    unhandled_keys: Rc<std::cell::RefCell<Vec<String>>>,
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
@@ -239,6 +242,8 @@ impl PresenterView {
             dock_focus: cx.focus_handle(),
             #[cfg(test)]
             text_probe: cx.focus_handle(),
+            #[cfg(test)]
+            unhandled_keys: Rc::default(),
             cue_view: environment.preferences().cue_view,
             status: None,
             save_preferences: None,
@@ -320,7 +325,12 @@ impl PresenterView {
     /// Where focus is, for key policy. The rail is checked first (an overlay
     /// sits above everything else), then the Cues, then the Output Dock.
     fn focus_context(&self, window: &Window, cx: &gpui::App) -> FocusContext {
-        if self.rail_focus.contains_focused(window, cx) {
+        let declares = |name: &str| window.context_stack().iter().any(|c| c.contains(name));
+        if declares("Modal") {
+            FocusContext::Modal
+        } else if declares("TextEntry") {
+            FocusContext::TextEntry
+        } else if self.rail_focus.contains_focused(window, cx) {
             FocusContext::Rail
         } else if self.timeline_focus.contains_focused(window, cx) {
             FocusContext::Timeline
@@ -338,6 +348,9 @@ impl PresenterView {
     fn press(&mut self, id: CommandId, window: &mut Window, cx: &mut Context<Self>) {
         let entry = registry::entry_for(id);
         if !registry::allows(entry.scope, self.focus_context(window, cx)) {
+            // The Engine gets nothing, but the focused control still hears the
+            // key (list arrows, a button's Space).
+            cx.propagate();
             return;
         }
         match registry::command_for(id) {
@@ -1075,7 +1088,8 @@ impl Render for PresenterView {
                     rail::Placement {
                         width,
                         overlay: false,
-                        focus: None,
+                        focus: Some(&self.rail_focus),
+                        closes_on_escape: false,
                     },
                     &self.rail_scroll,
                     &rail_handlers,
@@ -1099,6 +1113,7 @@ impl Render for PresenterView {
                             width: panel_width,
                             overlay: true,
                             focus: Some(&self.rail_focus),
+                            closes_on_escape: true,
                         },
                         &self.rail_scroll,
                         &rail_handlers,
@@ -1127,6 +1142,8 @@ impl Render for PresenterView {
             &self.timeline_focus,
             &timeline_handlers,
             environment,
+            #[cfg(test)]
+            &self.text_probe,
             window,
             cx,
         );
@@ -1266,53 +1283,22 @@ impl Render for PresenterView {
             .child(body)
             .children(rail_overlay);
         #[cfg(test)]
-        let root = root.child(
-            div()
-                .id("text-probe")
-                .key_context("TextEntry")
-                .track_focus(&self.text_probe),
-        );
-        root.on_action(
-            cx.listener(|this, _: &registry::Previous, w, cx| {
-                this.press(CommandId::Previous, w, cx)
-            }),
-        )
-        .on_action(
-            cx.listener(|this, _: &registry::Next, w, cx| this.press(CommandId::Next, w, cx)),
-        )
-        .on_action(cx.listener(|this, _: &registry::PreviousItem, w, cx| {
-            this.press(CommandId::PreviousItem, w, cx)
-        }))
-        .on_action(
-            cx.listener(|this, _: &registry::NextItem, w, cx| {
-                this.press(CommandId::NextItem, w, cx)
-            }),
-        )
-        .on_action(
-            cx.listener(|this, _: &registry::First, w, cx| this.press(CommandId::First, w, cx)),
-        )
-        .on_action(
-            cx.listener(|this, _: &registry::Last, w, cx| this.press(CommandId::Last, w, cx)),
-        )
-        .on_action(
-            cx.listener(|this, _: &registry::TakeLive, w, cx| {
-                this.press(CommandId::TakeLive, w, cx)
-            }),
-        )
-        .on_action(cx.listener(|this, _: &registry::ToggleFreeze, w, cx| {
-            this.press(CommandId::ToggleFreeze, w, cx)
-        }))
-        .on_action(cx.listener(|this, _: &registry::ToggleBlackout, w, cx| {
-            this.press(CommandId::ToggleBlackout, w, cx)
-        }))
-        .on_action(cx.listener(|this, _: &registry::ToggleAutoPlay, w, cx| {
-            this.press(CommandId::ToggleAutoPlay, w, cx)
-        }))
-        .on_action(
-            cx.listener(|this, _: &registry::OpenOrdo, w, cx| {
-                this.press(CommandId::OpenOrdo, w, cx)
-            }),
-        )
+        let root = root.on_key_down({
+            let keys = self.unhandled_keys.clone();
+            move |event, _, _| keys.borrow_mut().push(event.keystroke.key.clone())
+        });
+        macro_rules! listeners {
+            ($($name:ident),*) => {{
+                let root = root;
+                $(
+                    let root = root.on_action(cx.listener(|this, _: &registry::$name, w, cx| {
+                        this.press(CommandId::$name, w, cx)
+                    }));
+                )*
+                root
+            }};
+        }
+        registry::for_each_bound_command!(listeners)
     }
 }
 
@@ -2345,6 +2331,18 @@ mod tests {
         );
     }
 
+    fn focus_context_now(open: &Open, cx: &mut VisualTestContext) -> FocusContext {
+        cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, cx| view.focus_context(window, cx))
+        })
+    }
+
+    fn unhandled_keys(open: &Open, cx: &VisualTestContext) -> Vec<String> {
+        open.view
+            .read_with(cx, |view, _| view.unhandled_keys.borrow().clone())
+    }
+
     #[gpui::test]
     fn rail_focus_leaves_only_f_b_and_space_active(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[2]);
@@ -2353,7 +2351,8 @@ mod tests {
         open_overlay(&open, cx);
         let before = engine_state(&open, cx);
 
-        // Navigation, auto-play and `O` do nothing at all.
+        // Navigation, auto-play and `O` do nothing at all, and `O` neither
+        // reopens nor closes the overlay nor moves focus out of it.
         for keys in ["right", "down", "pageup", "end", "a", "o"] {
             press_keys(cx, keys);
             assert_eq!(engine_state(&open, cx), before, "{keys}");
@@ -2363,6 +2362,11 @@ mod tests {
                 None,
                 "{keys}"
             );
+            assert!(
+                open.view.read_with(cx, |view, _| view.rail_open()),
+                "{keys} left the rail open"
+            );
+            assert_eq!(focus_context_now(&open, cx), FocusContext::Rail, "{keys}");
         }
 
         // Space takes Preview live, then F and B reach the Engine.
@@ -2372,21 +2376,90 @@ mod tests {
         assert!(taken > before.revision());
         press_keys(cx, "f");
         assert!(revision(&open, cx) > taken, "F reached the Engine");
-        let frozen = revision(&open, cx);
+        assert_eq!(live(&open, cx), LiveState::Frozen);
         press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        let live_revision = revision(&open, cx);
         press_keys(cx, "b");
-        assert!(revision(&open, cx) > frozen, "B reached the Engine");
+        assert!(revision(&open, cx) > live_revision, "B reached the Engine");
+        assert_eq!(live(&open, cx), LiveState::Blackout);
+    }
+
+    /// A key the policy refuses reaches the Engine not at all but is still
+    /// heard by whatever is focused: it bubbles on instead of being swallowed.
+    #[gpui::test]
+    fn a_refused_key_propagates_to_the_focused_control(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[2]);
+        bind_registry_keys(cx);
+        open_overlay(&open, cx);
+        let before = engine_state(&open, cx);
+        press_keys(cx, "right");
+        assert_eq!(engine_state(&open, cx), before);
+        assert_eq!(unhandled_keys(&open, cx), ["right"]);
+
+        // An allowed key is consumed by the command and never bubbles.
+        run(&open, cx, Command::EnableOutput).unwrap();
+        press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        assert_eq!(unhandled_keys(&open, cx), ["right"]);
+    }
+
+    #[gpui::test]
+    fn a_pinned_rail_counts_as_rail_focus_and_never_closes_on_escape(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        assert!(present(cx, "presenter-rail"));
+        run(&open, cx, Command::EnableOutput).unwrap();
+        // The pinned panel tracks the same handle as the overlay does. (The
+        // rows are not focus targets and the only button, Unpin, would
+        // remove the rail, so focus is moved the way Tab or F6 will.)
+        open.view
+            .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+        let before = engine_state(&open, cx);
+
+        press_keys(cx, "right");
+        assert_eq!(engine_state(&open, cx), before, "navigation is refused");
+        press_keys(cx, "escape");
+        assert!(present(cx, "presenter-rail"), "Esc keeps the pinned rail");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Rail);
+
+        press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
+        press_keys(cx, "f");
+        assert_eq!(live(&open, cx), LiveState::Frozen);
+        press_keys(cx, "b");
+        assert_eq!(live(&open, cx), LiveState::Blackout);
     }
 
     #[gpui::test]
     fn dock_focus_allows_operating_keys(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
         bind_registry_keys(cx);
-        open.view
-            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx));
+        run(&open, cx, Command::EnableOutput).unwrap();
+        run(&open, cx, Command::Take).unwrap();
+        settle(&open, cx, 1000);
+        click(cx, "button-Freeze");
+        assert_eq!(live(&open, cx), LiveState::Frozen);
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Dock);
         let start = preview_index(&open, cx);
         press_keys(cx, "right");
         assert_eq!(preview_index(&open, cx), start + 1);
+    }
+
+    /// With a header control focused, only the Output keys act.
+    #[gpui::test]
+    fn elsewhere_allows_output_keys_only(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        click(cx, "button-List");
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Elsewhere);
+        let before = engine_state(&open, cx);
+        press_keys(cx, "right");
+        assert_eq!(engine_state(&open, cx), before);
+        press_keys(cx, "space");
+        assert_eq!(live(&open, cx), LiveState::Live);
     }
 
     #[gpui::test]
