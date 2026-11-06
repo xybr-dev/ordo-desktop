@@ -1220,6 +1220,7 @@ impl PresenterView {
         let snapshot = engine.snapshot();
         let state = engine.state();
         let preview = state.preview();
+        let total = snapshot.cue_count();
         let mut groups = Vec::new();
         let mut flat = 0;
         for section in snapshot.sections() {
@@ -1268,6 +1269,9 @@ impl PresenterView {
                         unavailable,
                         air: timeline::air(state, flat),
                         preview: flat == preview,
+                        total,
+                        item_title: item.title().to_owned().into(),
+                        private_context: cue.private_context().map(|text| text.to_owned().into()),
                     });
                     flat += 1;
                 }
