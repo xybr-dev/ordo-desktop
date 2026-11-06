@@ -40,12 +40,17 @@
 //!
 //! Nothing here reads the Engine: the owning view builds the models below and
 //! a click reports the Cue's flat index through one callback, which the view
-//! sends as `Command::GoTo`. When Preview moves, the timeline scrolls just far
-//! enough to keep its Cue in view, and Program's too while Freeze
-//! holds a different Cue, if both fit ([`follow`]); it never scrolls
+//! sends as `Command::GoTo`. When Preview moves by key, the timeline glides to
+//! put its Cue on the middle of the timeline, together with Program's while
+//! Freeze holds a different Cue and both fit ([`follow`]); it never scrolls
 //! otherwise.
 
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     AnyElement, App, Bounds, FocusHandle, FontWeight, IntoElement, ParentElement, Pixels,
@@ -222,6 +227,8 @@ pub struct TimelineModel {
     pub cell_width: f32,
     /// Preview moved since the last frame: bring its Cue into view.
     pub follow_preview: bool,
+    /// The follow in flight, owned by the view so it outlives each frame.
+    pub glide: Glide,
 }
 
 /// The callbacks the timeline reports to.
@@ -247,6 +254,7 @@ pub fn timeline(
     cx: &mut App,
 ) -> AnyElement {
     let scale = environment.preferences().scale;
+    let model_glide = model.glide.clone();
     let geometry = Geometry {
         mode: model.mode,
         columns: model.columns.max(1),
@@ -283,7 +291,12 @@ pub fn timeline(
                     scale.apply(tokens::spacing::GROUP) + super::layout::SCROLLBAR_WIDTH
                 ))
                 .children(groups)
-                .child(tail(scroll, geometry.follow.as_ref(), environment)),
+                .child(tail(
+                    scroll,
+                    geometry.follow.as_ref(),
+                    &model_glide,
+                    environment,
+                )),
         )
         .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
         .into_any_element()
@@ -297,8 +310,14 @@ pub fn timeline(
 ///
 /// When Preview has just moved, the tail also carries the step that brings it
 /// into view ([`follow`]): being the last child, it is laid out after every
-/// Cue has said where it is.
-fn tail(scroll: &Scroll, follow: Option<&Follow>, environment: UiEnvironment) -> AnyElement {
+/// Cue has said where it is. It also carries the [`glide`] that moves the
+/// timeline there.
+fn tail(
+    scroll: &Scroll,
+    follow: Option<&Follow>,
+    glide: &Glide,
+    environment: UiEnvironment,
+) -> AnyElement {
     let handle = scroll.handle();
     let viewport = f32::from(handle.bounds().size.height);
     let last = handle.children_count().saturating_sub(2);
@@ -311,7 +330,8 @@ fn tail(scroll: &Scroll, follow: Option<&Follow>, environment: UiEnvironment) ->
         .w_full()
         .h(px((viewport - last_height).max(0.0)))
         .relative()
-        .children(follow.map(|follow| self::follow(follow, environment)))
+        .children(follow.map(|follow| self::follow(follow, glide, environment)))
+        .child(self::glide(glide, handle.clone()))
         .into_any_element()
 }
 
@@ -845,19 +865,41 @@ fn mark(cue: &CueModel, g: &Geometry) -> Option<AnyElement> {
     )
 }
 
-/// The step that scrolls the timeline, during layout, just far enough to
-/// bring Preview's Cue into view, downward or upward. When Freeze
-/// holds Program on a different Cue, both are kept in view if they fit
-/// together; otherwise Preview wins. It only runs on the frame after Preview
-/// moved, so the operator's own scrolling is never fought.
-fn follow(follow: &Follow, environment: UiEnvironment) -> AnyElement {
+/// A follow in flight: the timeline glides from one offset to another.
+#[derive(Clone, Copy, Debug)]
+struct Flight {
+    from: f32,
+    to: f32,
+    started: Instant,
+    /// The offset the glide set last, so an operator's own scroll, which
+    /// moves it elsewhere, ends the glide instead of being fought.
+    last: f32,
+}
+
+/// The timeline's follow in flight, if any. The Presenter view owns one, so
+/// it lasts from the frame Preview moved until the glide lands.
+#[derive(Clone, Debug, Default)]
+pub struct Glide(Rc<Cell<Option<Flight>>>);
+
+/// The step that scrolls the timeline, during layout, so Preview's Cue sits
+/// on the middle of the timeline: what comes next is always in sight below
+/// it, stepping down or back up. Near either end the timeline stops at its
+/// edge rather than leaving empty space. When Freeze holds Program on a
+/// different Cue, the two are centred together if they fit; otherwise Preview
+/// wins. A Cue taller than the timeline shows its top, under its group
+/// header.
+///
+/// It only runs on the frame after Preview moved, so the operator's own
+/// scrolling is never fought, and hands the move to [`glide`].
+fn follow(follow: &Follow, glide: &Glide, environment: UiEnvironment) -> AnyElement {
     let scale = environment.preferences().scale;
     let below = scale.apply(FOLLOW_MARGIN);
     let above = scale.apply(GROUP_HEAD_HEIGHT + FOLLOW_MARGIN);
     let handle = follow.handle.clone();
     let seen = follow.seen.clone();
+    let glide = glide.clone();
     canvas(
-        move |_, window, _| {
+        move |_, window, cx| {
             let seen = seen.borrow();
             // A folded group draws no Cue: nothing to follow.
             let Some(preview) = seen.preview else {
@@ -865,30 +907,95 @@ fn follow(follow: &Follow, environment: UiEnvironment) -> AnyElement {
             };
             let viewport = handle.bounds();
             let (view_top, view_bottom) = (f32::from(viewport.top()), f32::from(viewport.bottom()));
+            let room = view_bottom - view_top;
             let span = |b: Bounds<Pixels>| (f32::from(b.top()), f32::from(b.bottom()));
             let (mut top, mut bottom) = span(preview);
             if let Some(program) = seen.program {
                 let (program_top, program_bottom) = span(program);
                 let (both_top, both_bottom) = (top.min(program_top), bottom.max(program_bottom));
-                if both_bottom - both_top + above + below <= view_bottom - view_top {
+                if both_bottom - both_top + above + below <= room {
                     (top, bottom) = (both_top, both_bottom);
                 }
             }
             let offset = handle.offset();
             let lowest = -f32::from(handle.max_offset().y);
             let y = f32::from(offset.y);
-            let wanted = if top < view_top + above || bottom - top > view_bottom - view_top {
-                // Above the viewport, or taller than it: its top first.
+            let wanted = if bottom - top + above + below > room {
                 y + (view_top + above - top)
-            } else if bottom > view_bottom - below {
-                y - (bottom - (view_bottom - below))
             } else {
-                return;
+                y + ((view_top + view_bottom) - (top + bottom)) / 2.0
             };
-            let wanted = wanted.clamp(lowest, 0.0);
-            if (wanted - y).abs() >= 0.5 {
+            let pixel = 1.0 / window.scale_factor();
+            let wanted = settled_offset(wanted, lowest, pixel);
+            // Already there, or already gliding there (a step along the same
+            // row mid-glide): restarting the curve would lurch, so leave it.
+            let heading = glide.0.get().map(|flight| flight.to);
+            if (wanted - heading.unwrap_or(y)).abs() <= pixel + f32::EPSILON {
+                return;
+            }
+            if cx.reduce_motion() {
+                // No travel under reduced motion: the timeline is simply there.
+                glide.0.set(None);
                 handle.set_offset(point(offset.x, px(wanted)));
                 window.refresh();
+                return;
+            }
+            // From wherever it is, so a move during a glide turns it around.
+            glide.0.set(Some(Flight {
+                from: y,
+                to: wanted,
+                started: cx.background_executor().now(),
+                last: y,
+            }));
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_0()
+    .into_any_element()
+}
+
+/// Where a follow lands: within the timeline's travel (`lowest..=0`) and on a
+/// whole device pixel (`pixel` logical px). GPUI draws elements on whole
+/// device pixels, so a centre that ends in half a pixel is measured back
+/// rounded on the next step; an unrounded target then differed by half a
+/// pixel each time and the timeline hopped a pixel to and fro along a row.
+fn settled_offset(wanted: f32, lowest: f32, pixel: f32) -> f32 {
+    ((wanted / pixel).round() * pixel).clamp(lowest, 0.0)
+}
+
+/// Moves the timeline along a follow in flight, over `160ms` on the easing
+/// token, as navigation moves (Decision 301). It never holds input: the next
+/// key press moves Preview at once and retargets the glide from where it is.
+fn glide(glide: &Glide, handle: ScrollHandle) -> AnyElement {
+    let glide = glide.clone();
+    canvas(
+        move |_, window, cx| {
+            let Some(flight) = glide.0.get() else {
+                return;
+            };
+            let offset = handle.offset();
+            if (f32::from(offset.y) - flight.last).abs() >= 0.5 {
+                // The operator scrolled: theirs wins.
+                glide.0.set(None);
+                return;
+            }
+            let duration = Duration::from_millis(tokens::motion::STANDARD_DURATION_MS.into());
+            let elapsed = cx
+                .background_executor()
+                .now()
+                .saturating_duration_since(flight.started);
+            let progress = (elapsed.as_secs_f32() / duration.as_secs_f32()).min(1.0);
+            let y = flight.from + (flight.to - flight.from) * motion::easing().sample(progress);
+            handle.set_offset(point(offset.x, px(y)));
+            if progress >= 1.0 {
+                glide.0.set(None);
+                window.refresh();
+            } else {
+                glide.0.set(Some(Flight { last: y, ..flight }));
+                window.request_animation_frame();
             }
         },
         |_, _, _, _| {},
@@ -908,6 +1015,38 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Arc::new(fixture_snapshot().snapshot().clone()))
+    }
+
+    /// Re-centring a Cue measured on whole device pixels, step after step
+    /// along its row, lands on the same offset every time.
+    #[test]
+    fn centring_settles_on_one_whole_pixel_offset() {
+        for scale_factor in [1.0_f32, 1.25, 1.5] {
+            let pixel = 1.0 / scale_factor;
+            // GPUI places the Cue on whole device pixels.
+            let snap = |v: f32| (v * scale_factor).round() / scale_factor;
+            let (content_top, height, view) = (1400.3_f32, 301.0_f32, 1000.0_f32);
+            let centre = |y: f32| {
+                let top = snap(content_top + y);
+                let wanted = y + (view - (top + top + height)) / 2.0;
+                settled_offset(wanted, -5000.0, pixel)
+            };
+            let first = centre(0.0);
+            let mut y = first;
+            for step in 0..6 {
+                let next = centre(y);
+                assert!(
+                    (next - y).abs() <= pixel + f32::EPSILON,
+                    "@{scale_factor}: step {step} moved {y} -> {next}"
+                );
+                y = if (next - y).abs() <= pixel + f32::EPSILON {
+                    y
+                } else {
+                    next
+                };
+            }
+            assert!(((first * scale_factor).round() - first * scale_factor).abs() < 1e-3);
+        }
     }
 
     #[test]
