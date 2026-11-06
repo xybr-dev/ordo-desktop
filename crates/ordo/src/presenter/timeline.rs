@@ -40,14 +40,17 @@
 //!
 //! Nothing here reads the Engine: the owning view builds the models below and
 //! a click reports the Cue's flat index through one callback, which the view
-//! sends as `Command::GoTo`. The timeline never scrolls itself on navigation
-//! (keeping Preview in view is T1.5).
+//! sends as `Command::GoTo`. When Preview moves, the timeline scrolls just far
+//! enough to keep its Cue in view, and Program's too while Freeze
+//! holds a different Cue, if both fit ([`follow`]); it never scrolls
+//! otherwise.
 
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use gpui::{
-    AnyElement, App, FocusHandle, FontWeight, IntoElement, ParentElement, RenderImage, Role,
-    SharedString, Styled, Window, div, prelude::*, px, rgb, svg,
+    AnyElement, App, Bounds, FocusHandle, FontWeight, IntoElement, ParentElement, Pixels,
+    RenderImage, Role, ScrollHandle, SharedString, Styled, Window, canvas, div, point, prelude::*,
+    px, rgb, svg,
 };
 use presentation::state::{EngineState, LiveState, ProgramContent};
 use rendering::Frame;
@@ -217,6 +220,8 @@ pub struct TimelineModel {
     pub columns: usize,
     /// Frame width of a tile (`PresenterLayout::cell_width`).
     pub cell_width: f32,
+    /// Preview moved since the last frame: bring its Cue into view.
+    pub follow_preview: bool,
 }
 
 /// The callbacks the timeline reports to.
@@ -247,6 +252,10 @@ pub fn timeline(
         columns: model.columns.max(1),
         cell_width: model.cell_width,
         environment,
+        follow: model.follow_preview.then(|| Follow {
+            handle: scroll.handle().clone(),
+            seen: Rc::default(),
+        }),
     };
     let groups: Vec<AnyElement> = model
         .groups
@@ -274,7 +283,7 @@ pub fn timeline(
                     scale.apply(tokens::spacing::GROUP) + super::layout::SCROLLBAR_WIDTH
                 ))
                 .children(groups)
-                .child(tail(scroll)),
+                .child(tail(scroll, geometry.follow.as_ref(), environment)),
         )
         .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
         .into_any_element()
@@ -285,7 +294,11 @@ pub fn timeline(
 /// of the timeline. It is the scroll element's last child, after the groups,
 /// so a group's index is still its child index. It is sized from the previous
 /// layout; the surface asks for one more frame when that moved.
-fn tail(scroll: &Scroll) -> AnyElement {
+///
+/// When Preview has just moved, the tail also carries the step that brings it
+/// into view ([`follow`]): being the last child, it is laid out after every
+/// Cue has said where it is.
+fn tail(scroll: &Scroll, follow: Option<&Follow>, environment: UiEnvironment) -> AnyElement {
     let handle = scroll.handle();
     let viewport = f32::from(handle.bounds().size.height);
     let last = handle.children_count().saturating_sub(2);
@@ -297,6 +310,8 @@ fn tail(scroll: &Scroll) -> AnyElement {
         .flex_none()
         .w_full()
         .h(px((viewport - last_height).max(0.0)))
+        .relative()
+        .children(follow.map(|follow| self::follow(follow, environment)))
         .into_any_element()
 }
 
@@ -305,6 +320,8 @@ struct Geometry {
     columns: usize,
     cell_width: f32,
     environment: UiEnvironment,
+    /// Set when Preview's Cue (and Program's, if it fits) must come into view.
+    follow: Option<Follow>,
 }
 
 fn group(
@@ -631,6 +648,8 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
     let tile = div()
         .id(("cue", flat))
         .debug_selector(move || format!("cue-{flat}"))
+        .relative()
+        .children(mark(&cue, g))
         .flex_none()
         .w(px(width))
         .flex()
@@ -773,8 +792,112 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         )
         .children(indicators(&cue, environment))
         .children(program)
-        .children(preview);
+        .children(preview)
+        .children(mark(&cue, g));
     primitives::truncated(row, name, environment).into_any_element()
+}
+
+/// Room kept between the Preview Cue and the timeline's edges when it is
+/// brought into view: below, a little air; above, its group header too.
+const FOLLOW_MARGIN: f32 = 16.0;
+
+/// Where the Preview and Program Cues were laid out this frame.
+#[derive(Default)]
+struct Seen {
+    preview: Option<Bounds<Pixels>>,
+    program: Option<Bounds<Pixels>>,
+}
+
+/// One frame's follow: the timeline's scroll handle, and where the Cues that
+/// must be in view turned out to be.
+struct Follow {
+    handle: ScrollHandle,
+    seen: Rc<RefCell<Seen>>,
+}
+
+/// When Preview has just moved, an invisible layer over the Preview Cue, and
+/// over the Program Cue when Freeze holds a different one, that
+/// records where it was laid out. [`follow`] then uses those bounds.
+fn mark(cue: &CueModel, g: &Geometry) -> Option<AnyElement> {
+    let follow = g.follow.as_ref()?;
+    let preview = cue.preview;
+    if !preview && cue.air.is_none() {
+        return None;
+    }
+    let seen = follow.seen.clone();
+    Some(
+        canvas(
+            move |bounds, _, _| {
+                let mut seen = seen.borrow_mut();
+                if preview {
+                    seen.preview = Some(bounds);
+                } else {
+                    seen.program = Some(bounds);
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
+
+/// The step that scrolls the timeline, during layout, just far enough to
+/// bring Preview's Cue into view, downward or upward. When Freeze
+/// holds Program on a different Cue, both are kept in view if they fit
+/// together; otherwise Preview wins. It only runs on the frame after Preview
+/// moved, so the operator's own scrolling is never fought.
+fn follow(follow: &Follow, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let below = scale.apply(FOLLOW_MARGIN);
+    let above = scale.apply(GROUP_HEAD_HEIGHT + FOLLOW_MARGIN);
+    let handle = follow.handle.clone();
+    let seen = follow.seen.clone();
+    canvas(
+        move |_, window, _| {
+            let seen = seen.borrow();
+            // A folded group draws no Cue: nothing to follow.
+            let Some(preview) = seen.preview else {
+                return;
+            };
+            let viewport = handle.bounds();
+            let (view_top, view_bottom) = (f32::from(viewport.top()), f32::from(viewport.bottom()));
+            let span = |b: Bounds<Pixels>| (f32::from(b.top()), f32::from(b.bottom()));
+            let (mut top, mut bottom) = span(preview);
+            if let Some(program) = seen.program {
+                let (program_top, program_bottom) = span(program);
+                let (both_top, both_bottom) = (top.min(program_top), bottom.max(program_bottom));
+                if both_bottom - both_top + above + below <= view_bottom - view_top {
+                    (top, bottom) = (both_top, both_bottom);
+                }
+            }
+            let offset = handle.offset();
+            let lowest = -f32::from(handle.max_offset().y);
+            let y = f32::from(offset.y);
+            let wanted = if top < view_top + above || bottom - top > view_bottom - view_top {
+                // Above the viewport, or taller than it: its top first.
+                y + (view_top + above - top)
+            } else if bottom > view_bottom - below {
+                y - (bottom - (view_bottom - below))
+            } else {
+                return;
+            };
+            let wanted = wanted.clamp(lowest, 0.0);
+            if (wanted - y).abs() >= 0.5 {
+                handle.set_offset(point(offset.x, px(wanted)));
+                window.refresh();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_0()
+    .into_any_element()
 }
 
 #[cfg(test)]

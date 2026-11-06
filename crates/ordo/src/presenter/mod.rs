@@ -167,6 +167,9 @@ pub struct PresenterView {
     /// set was last requested. A different range after a scroll or a resize
     /// asks for a new set, outside `render`.
     visible_range: (usize, usize),
+    /// The Preview Cue the timeline last brought into view; a different
+    /// Preview on the next frame makes the timeline follow it.
+    followed_preview: Option<usize>,
     /// Whether the rail was drawn pinned on the last frame, so a pin toggle
     /// flips what the operator saw.
     rail_is_pinned: bool,
@@ -216,6 +219,7 @@ impl PresenterView {
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
             visible_range: (0, 0),
+            followed_preview: None,
             rail_is_pinned: false,
             rail_scroll: Scroll::new(),
             timeline_focus: cx.focus_handle(),
@@ -764,7 +768,7 @@ impl PresenterView {
     /// reads the frame store with `peek`, so a paint never changes what the
     /// cache would evict, and composing follows state changes
     /// (`engine_changed`, `request_visible`), never a paint.
-    fn timeline_model(&self, layout: &PresenterLayout) -> TimelineModel {
+    fn timeline_model(&self, layout: &PresenterLayout, follow_preview: bool) -> TimelineModel {
         let engine = &self.engine;
         let frames = &self.frames;
         let snapshot = engine.snapshot();
@@ -836,6 +840,7 @@ impl PresenterView {
             mode: self.cue_view,
             columns: layout.grid_columns as usize,
             cell_width: layout.cell_width,
+            follow_preview,
         }
     }
 }
@@ -858,7 +863,12 @@ impl Render for PresenterView {
             rail: self.rail_choice,
         });
 
-        let timeline_model = self.timeline_model(&layout);
+        // Follow Preview once per move: navigation scrolls the timeline, the
+        // operator's own scrolling never is undone.
+        let preview_now = self.engine.state().preview();
+        let follow_preview = self.followed_preview != Some(preview_now);
+        self.followed_preview = Some(preview_now);
+        let timeline_model = self.timeline_model(&layout, follow_preview);
         let program_view = self.engine.program_view(now);
         let preview_view = self.engine.preview_view(now);
         if program_view.fading || preview_view.fading {
@@ -935,6 +945,9 @@ impl Render for PresenterView {
                 let view = view.clone();
                 Rc::new(move |flat, _, cx| {
                     view.update(cx, |view, cx| {
+                        // A pressed Cue is where the pointer is: the timeline
+                        // stays still under it (only key navigation follows).
+                        view.followed_preview = Some(flat);
                         view.command(Command::GoTo(flat), cx).ok();
                     })
                     .ok();
@@ -2186,6 +2199,94 @@ mod tests {
     }
 
     /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
+    #[gpui::test]
+    fn the_timeline_follows_preview_down_and_back_up(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        let last = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().cue_count() - 1);
+        let inside = |cx: &mut VisualTestContext, flat: usize| {
+            let selector: &'static str = format!("cue-{flat}").leak();
+            let cue = bounds(cx, selector);
+            let timeline = bounds(cx, "cue-timeline");
+            cue.top() >= timeline.top() && cue.bottom() <= timeline.bottom()
+        };
+        for flat in 1..=last {
+            assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+            animate(&open, cx, 0);
+            assert!(inside(cx, flat), "Cue {flat} is in view after Next");
+        }
+        assert!(run(&open, cx, Command::GoTo(0)).is_ok());
+        animate(&open, cx, 0);
+        assert!(
+            inside(cx, 0),
+            "back at the first Cue, the timeline is at the top"
+        );
+
+        // The operator's own scrolling is not undone while Preview stays put.
+        open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+        animate(&open, cx, 0);
+        assert!(
+            !inside(cx, 0),
+            "a jump away from Preview stays where it went"
+        );
+    }
+
+    /// While frozen, the held Program Cue is brought back into view with
+    /// Preview when both fit. Stepping from Cue to Cue keeps both on screen by
+    /// itself; this covers the operator having scrolled them away first.
+    #[gpui::test]
+    fn while_frozen_the_timeline_keeps_program_in_view_with_preview_if_both_fit(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let in_view = |cx: &mut VisualTestContext, flat: usize| {
+            let selector: &'static str = format!("cue-{flat}").leak();
+            let cue = bounds(cx, selector);
+            let timeline = bounds(cx, "cue-timeline");
+            cue.top() >= timeline.top() && cue.bottom() <= timeline.bottom()
+        };
+        // Program held on the first Cue of the Entrance song (group 2).
+        let (held, last) = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            (snapshot.item_start(2).unwrap(), snapshot.cue_count() - 1)
+        });
+        for command in [
+            Command::EnableOutput,
+            Command::GoTo(held),
+            Command::Take,
+            Command::ToggleFreeze,
+        ] {
+            assert!(run(&open, cx, command).is_ok(), "{command:?}");
+        }
+        animate(&open, cx, 0);
+
+        // The operator scrolls far away, then steps Preview on.
+        open.view.update(cx, |view, cx| view.jump_to_group(12, cx));
+        animate(&open, cx, 0);
+        assert!(!in_view(cx, held));
+        // The next group's first Cue: below Program's rows, so following
+        // Preview alone would leave Program above the viewport.
+        let next = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_start(3).unwrap());
+        assert!(run(&open, cx, Command::GoTo(next)).is_ok());
+        animate(&open, cx, 0);
+        assert!(in_view(cx, next), "Preview is in view");
+        assert!(in_view(cx, held), "the held Program Cue came back with it");
+
+        // Too far apart to fit together: Preview wins.
+        assert!(run(&open, cx, Command::GoTo(last)).is_ok());
+        animate(&open, cx, 0);
+        assert!(in_view(cx, last), "Preview is in view");
+        assert!(!in_view(cx, held), "Program gives way when both cannot fit");
+        assert_eq!(
+            open.view
+                .read_with(cx, |view, _| view.engine.state().live()),
+            LiveState::Frozen
+        );
+    }
+
     #[gpui::test]
     fn the_close_button_and_escape_both_close_the_overlay(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
