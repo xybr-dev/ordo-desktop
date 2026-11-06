@@ -866,7 +866,10 @@ cannot accidentally change Program.
       every single-key Presenter command until closed.
 - [x] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
       project/wait/hold/Blackout behavior without exposing private context to
-      the congregation renderer.
+      the congregation renderer. (The accessibility tree is not readable under
+      the GPUI test platform: evidence is `timeline::cue_semantics` plus the
+      congregation-boundary scan; the screen-reader path is the `[MANUAL]`
+      criterion below.)
 - [ ] `[MANUAL]` Keyboard-only and Windows screen-reader checks announce expected
       transitions politely and unexpected safety events urgently without
       duplicate queues.

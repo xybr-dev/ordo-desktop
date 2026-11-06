@@ -234,6 +234,10 @@ pub struct PresenterView {
     /// Presenter's key context once a test asks for it.
     #[cfg(test)]
     text_field: Option<ui::primitives::field::FieldState>,
+    /// Test only: a `ui` overlay host mounted inside the Presenter's key
+    /// context, so a test can open a real dialog there.
+    #[cfg(test)]
+    modal_host: Option<ui::overlay::OverlayHost>,
     /// Test only: every key that bubbled up to the Presenter root unhandled.
     #[cfg(test)]
     unhandled_keys: Rc<std::cell::RefCell<Vec<String>>>,
@@ -330,6 +334,8 @@ impl PresenterView {
             regions: RegionRegistry::default(),
             #[cfg(test)]
             text_field: None,
+            #[cfg(test)]
+            modal_host: None,
             #[cfg(test)]
             unhandled_keys: Rc::default(),
             #[cfg(test)]
@@ -1868,6 +1874,14 @@ impl Render for PresenterView {
                 }
             });
         #[cfg(test)]
+        let root = {
+            let layer = self
+                .modal_host
+                .clone()
+                .map(|host| host.layer(environment, window, cx));
+            root.children(layer)
+        };
+        #[cfg(test)]
         let root = root.on_key_down({
             let keys = self.unhandled_keys.clone();
             move |event, _, _| keys.borrow_mut().push(event.keystroke.key.clone())
@@ -3125,6 +3139,40 @@ mod tests {
         cx.update(|window, cx| state.focus(window, cx));
         cx.run_until_parked();
         state
+    }
+
+    /// Open a real `ui` dialog inside the Presenter (the first call mounts the
+    /// test host) and let it take focus.
+    fn open_modal(open: &Open, cx: &mut VisualTestContext) {
+        let host = open.view.update_in(cx, |view, window, cx| {
+            let host = view
+                .modal_host
+                .get_or_insert_with(|| ui::overlay::OverlayHost::new(cx))
+                .clone();
+            cx.notify();
+            let _ = window;
+            host
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            host.open(
+                ui::overlay::Overlay::dialog("Test dialog").description("A true modal"),
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+    }
+
+    /// Close every test dialog still open.
+    fn close_modals(open: &Open, cx: &mut VisualTestContext) {
+        let host = open.view.read_with(cx, |view, _| view.modal_host.clone());
+        if let Some(host) = host {
+            while cx.update(|_, cx| host.depth(cx)) > 0 {
+                cx.update(|window, cx| host.close_top(window, cx));
+                cx.run_until_parked();
+            }
+        }
     }
 
     fn focus_context_now(open: &Open, cx: &mut VisualTestContext) -> FocusContext {

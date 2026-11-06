@@ -565,14 +565,37 @@ mod tests {
                 "{context} in {chorded}"
             );
         }
-        // Real gpui-base contexts the policy relies on.
-        for real in ["Input", "NumberInput", "Combobox", "Dialog"] {
-            assert!(
-                TEXT_ENTRY_CONTEXTS.contains(&real) || MODAL_CONTEXTS.contains(&real),
-                "{real}"
-            );
+        // The literal context names `gpui-base` 0.7.1 declares, hard-coded so
+        // the lists are checked against the library and not against
+        // themselves (`src/` of the crate):
+        //   input/base/state.rs  `Input`      combobox.rs    `Combobox`
+        //   number_input.rs      `NumberInput` time_field.rs `TimeField`
+        //   dialog.rs            `Dialog`      sheet.rs      `Sheet`
+        for real in ["Input", "NumberInput", "Combobox", "TimeField"] {
+            assert!(TEXT_ENTRY_CONTEXTS.contains(&real), "{real}");
+        }
+        for real in ["Dialog", "Sheet"] {
+            assert!(MODAL_CONTEXTS.contains(&real), "{real}");
         }
         assert!(!single.contains("Root"));
+    }
+
+    /// `gpui-base`'s `OtpInput` declares no key context and reads digits raw,
+    /// so a bound digit key would be stolen from (or leak into) it. No
+    /// Presenter key may therefore be a digit.
+    #[test]
+    fn no_bound_key_is_a_digit() {
+        for entry in ENTRIES {
+            for keys in entry.keys {
+                // Chords (`ctrl-0`) are not typed text; only bare digits matter.
+                let stroke = gpui::Keystroke::parse(keys).unwrap();
+                assert!(
+                    stroke.modifiers.modified() || !stroke.key.chars().all(|c| c.is_ascii_digit()),
+                    "{keys} of {:?} is a digit",
+                    entry.id
+                );
+            }
+        }
     }
 
     /// The keys `ui` binds are listed here so the reference shows them; this

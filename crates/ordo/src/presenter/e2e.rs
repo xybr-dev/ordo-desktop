@@ -242,6 +242,8 @@ enum Where {
     AutoPlayMenu,
     HeaderControl,
     TextField,
+    /// A real `ui` dialog (gpui-base Sheet) opened inside the Presenter.
+    Modal,
 }
 
 impl Where {
@@ -254,6 +256,7 @@ impl Where {
             Where::ShortcutReference => FocusContext::ShortcutReference,
             Where::HeaderControl => FocusContext::Elsewhere,
             Where::TextField => FocusContext::TextEntry,
+            Where::Modal => FocusContext::Modal,
         }
     }
 }
@@ -270,6 +273,8 @@ fn reset(open: &Open, cx: &mut VisualTestContext, now: &mut u64) {
         animate(open, cx, 400);
         assert!(!menu_open(cx), "a press outside closes the open menu");
     }
+    close_modals(open, cx);
+    animate(open, cx, 400);
     open.view.update_in(
         cx,
         |view, window, cx| {
@@ -305,7 +310,6 @@ fn reset(open: &Open, cx: &mut VisualTestContext, now: &mut u64) {
 /// Reset, then move focus to `place`, and check the policy reads it right.
 fn arrange(open: &Open, cx: &mut VisualTestContext, place: Where, now: &mut u64) {
     reset(open, cx, now);
-    bind_registry_keys(cx);
     match place {
         Where::Timeline => focus_timeline_now(open, cx),
         Where::Dock => open
@@ -335,6 +339,7 @@ fn arrange(open: &Open, cx: &mut VisualTestContext, place: Where, now: &mut u64)
             assert!(menu_open(cx), "the Auto-play menu is open");
         }
         Where::HeaderControl => click(cx, "button-List"),
+        Where::Modal => open_modal(open, cx),
         Where::TextField => {
             let field = focus_text_field(open, cx);
             cx.update(|window, cx| field.set_value("", window, cx));
@@ -392,7 +397,12 @@ fn sweep(cx: &mut TestAppContext, case: (f32, f32, InterfaceScale), places: &[Wh
                 // except a true modal, and never touches the Engine.
                 CommandId::ToggleReference => {
                     assert_eq!(after, before, "{tag}: Ctrl+/ never reaches the Engine");
-                    assert_ne!(reference_open(&open, cx), was_open, "{tag}: toggles");
+                    let toggled = reference_open(&open, cx) != was_open;
+                    assert_eq!(
+                        toggled,
+                        place != Where::Modal,
+                        "{tag}: toggles everywhere except under a true modal"
+                    );
                 }
                 // `O` is view-only: it is allowed or not, and shows as focus
                 // arriving in the rail, never as an Engine change.
@@ -400,6 +410,9 @@ fn sweep(cx: &mut TestAppContext, case: (f32, f32, InterfaceScale), places: &[Wh
                     assert_eq!(after, before, "{tag}: O never reaches the Engine");
                     let in_rail = focus_context_now(&open, cx) == FocusContext::Rail;
                     let arrived = in_rail && context != FocusContext::Rail;
+                    if context == FocusContext::Rail {
+                        assert!(in_rail, "{tag}: focus stays in the rail");
+                    }
                     assert_eq!(
                         arrived,
                         registry::allows(entry.scope, context),
@@ -459,6 +472,7 @@ fn wide_every_registered_key_reaches_the_engine_only_where_the_focus_context_all
             Where::AutoPlayMenu,
             Where::HeaderControl,
             Where::TextField,
+            Where::Modal,
         ],
     );
 }
@@ -478,6 +492,7 @@ fn constrained_every_registered_key_reaches_the_engine_only_where_the_focus_cont
             Where::AutoPlayMenu,
             Where::HeaderControl,
             Where::TextField,
+            Where::Modal,
         ],
     );
 }
