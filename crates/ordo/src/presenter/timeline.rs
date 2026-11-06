@@ -926,7 +926,10 @@ fn follow(follow: &Follow, glide: &Glide, environment: UiEnvironment) -> AnyElem
                 y + ((view_top + view_bottom) - (top + bottom)) / 2.0
             };
             let wanted = wanted.clamp(lowest, 0.0);
-            if (wanted - y).abs() < 0.5 {
+            // Already there, or already gliding there (a step along the same
+            // row mid-glide): restarting the curve would lurch, so leave it.
+            let heading = glide.0.get().map(|flight| flight.to);
+            if (wanted - heading.unwrap_or(y)).abs() < 0.5 {
                 return;
             }
             if cx.reduce_motion() {

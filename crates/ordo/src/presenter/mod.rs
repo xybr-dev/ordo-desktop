@@ -2268,6 +2268,78 @@ mod tests {
         assert!(centre_gap(cx, later) < 1.0, "reduced motion: there at once");
     }
 
+    /// Stepping within a row never moves the timeline, whether output is off,
+    /// Live (where Program can stay behind on a frame while Preview is on a
+    /// trigger, Wait or Hold Cue) or frozen: it moves only when Preview's
+    /// row does.
+    #[gpui::test]
+    fn the_timeline_moves_only_when_preview_changes_row(cx: &mut TestAppContext) {
+        for setup in [
+            &[][..],
+            &[Command::EnableOutput, Command::Take][..],
+            &[Command::EnableOutput, Command::Take, Command::ToggleFreeze][..],
+        ] {
+            let (open, cx) = open(cx, SIZES[1]);
+            for command in setup {
+                assert!(run(&open, cx, *command).is_ok(), "{command:?}");
+            }
+            land(&open, cx);
+            let last = open
+                .view
+                .read_with(cx, |view, _| view.engine.snapshot().cue_count() - 1);
+            let row_top = |cx: &mut VisualTestContext, flat: usize| {
+                let selector: &'static str = format!("cue-{flat}").leak();
+                f32::from(bounds(cx, selector).top())
+            };
+            for flat in 1..=last {
+                // Where Preview's row was before the move, in content terms.
+                let before = timeline_offset(&open, cx);
+                let same_row = (row_top(cx, flat) - row_top(cx, flat - 1)).abs() < 0.5;
+                assert!(run(&open, cx, Command::GoTo(flat)).is_ok());
+                land(&open, cx);
+                if same_row {
+                    assert!(
+                        (timeline_offset(&open, cx) - before).abs() < 0.5,
+                        "{setup:?}: Cue {flat} is on the row of {}, yet the timeline moved",
+                        flat - 1
+                    );
+                }
+            }
+        }
+    }
+
+    /// A step within the row during a glide leaves the glide alone: it does
+    /// not restart its curve towards the same place.
+    #[gpui::test]
+    fn a_same_row_step_during_a_glide_does_not_restart_it(cx: &mut TestAppContext) {
+        let mut offsets = Vec::new();
+        for interrupt in [false, true] {
+            let (open, cx) = open(cx, SIZES[1]);
+            let middle = open.view.read_with(cx, |view, _| {
+                let snapshot = view.engine.snapshot();
+                (6..snapshot.item_count() - 1)
+                    .find_map(|g| {
+                        let (start, next) = (snapshot.item_start(g)?, snapshot.item_start(g + 1)?);
+                        (next - start >= 2).then_some(start)
+                    })
+                    .expect("a later group with two Cues")
+            });
+            assert!(run(&open, cx, Command::GoTo(middle)).is_ok());
+            animate(&open, cx, 0);
+            animate(&open, cx, 40);
+            if interrupt {
+                assert!(run(&open, cx, Command::GoTo(middle + 1)).is_ok());
+            }
+            animate(&open, cx, 0);
+            animate(&open, cx, 40);
+            offsets.push(timeline_offset(&open, cx));
+        }
+        assert!(
+            (offsets[0] - offsets[1]).abs() < 0.5,
+            "the glide runs on as if uninterrupted: {offsets:?}"
+        );
+    }
+
     /// The operator's own scroll during a glide wins.
     #[gpui::test]
     fn scrolling_during_a_glide_ends_it(cx: &mut TestAppContext) {
