@@ -161,7 +161,8 @@ pub enum Marker {
 }
 
 impl Marker {
-    fn svg(self) -> &'static str {
+    /// The marker as an inline SVG, filled in `currentColor`.
+    pub fn svg(self) -> &'static str {
         match self {
             Self::Dot => {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg>"#

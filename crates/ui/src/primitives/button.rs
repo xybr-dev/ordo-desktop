@@ -47,6 +47,7 @@ pub struct Button {
     name: Option<SharedString>,
     truncate: bool,
     icon: Option<&'static str>,
+    leading_text: Option<SharedString>,
     icon_trailing: bool,
     icon_turn: f32,
     icon_only: bool,
@@ -74,6 +75,7 @@ impl Button {
             name: None,
             truncate: false,
             icon: None,
+            leading_text: None,
             icon_trailing: false,
             icon_turn: 0.0,
             icon_only: false,
@@ -110,6 +112,14 @@ impl Button {
     /// One bundled Lucide icon, from [`crate::assets::icon`].
     pub fn icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// A short muted value drawn before the label, such as a Mass item's
+    /// number before its title, so the two read as different things. It is
+    /// not part of the label, the accessible name or the selector.
+    pub fn leading_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.leading_text = Some(text.into());
         self
     }
 
@@ -278,6 +288,31 @@ impl Button {
                 }
             }
         });
+        let lead = (!icon_only)
+            .then_some(self.leading_text.clone())
+            .flatten()
+            .map(|lead| {
+                div()
+                    .flex_none()
+                    .font_weight(gpui::FontWeight::NORMAL)
+                    .text_color(rgb(palette.text_muted))
+                    .child(lead)
+                    .into_any_element()
+            });
+        let text = match (lead, text) {
+            (Some(lead), Some(text)) => Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .min_w_0()
+                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                    .child(lead)
+                    .child(text)
+                    .into_any_element(),
+            ),
+            (_, text) => text,
+        };
         let icon_and_label = if self.icon_trailing {
             [text, glyph]
         } else {
