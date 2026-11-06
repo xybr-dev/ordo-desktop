@@ -420,16 +420,14 @@ pub fn timeline(
     // left), so it never changes their layout.
     #[cfg(test)]
     let timeline = timeline.when_some(text_field, |timeline, state| {
-        timeline.child(
-            div().absolute().top_0().left_0().w(px(240.0)).child(
-                ui::primitives::field::Field::new(
-                    "presenter-text-field",
-                    "Test field",
-                    state,
-                    environment,
-                ),
+        timeline.child(div().absolute().top_0().left_0().w(px(240.0)).child(
+            ui::primitives::field::Field::new(
+                "presenter-text-field",
+                "Test field",
+                state,
+                environment,
             ),
-        )
+        ))
     });
     timeline.into_any_element()
 }

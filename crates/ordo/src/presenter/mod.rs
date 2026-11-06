@@ -237,6 +237,9 @@ pub struct PresenterView {
     /// Test only: every key that bubbled up to the Presenter root unhandled.
     #[cfg(test)]
     unhandled_keys: Rc<std::cell::RefCell<Vec<String>>>,
+    /// Test only: every Command the view sent to the Engine, in order.
+    #[cfg(test)]
+    sent: Rc<std::cell::RefCell<Vec<Command>>>,
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
@@ -329,6 +332,8 @@ impl PresenterView {
             text_field: None,
             #[cfg(test)]
             unhandled_keys: Rc::default(),
+            #[cfg(test)]
+            sent: Rc::default(),
             cue_view: environment.preferences().cue_view,
             status: None,
             save_preferences: None,
@@ -395,6 +400,8 @@ impl PresenterView {
         cx: &mut Context<Self>,
     ) -> Result<Outcome, Refusal> {
         let now = (self.clock)();
+        #[cfg(test)]
+        self.sent.borrow_mut().push(command);
         let result = dispatch(&mut self.engine, command, now);
         match result {
             Ok(_) => {

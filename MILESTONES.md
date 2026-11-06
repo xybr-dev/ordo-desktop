@@ -849,22 +849,22 @@ cannot accidentally change Program.
 
 **AC**
 
-- [ ] `[AUTO]` One command registry is the source for registered keys and the
+- [x] `[AUTO]` One command registry is the source for registered keys and the
       visible Keyboard shortcuts reference.
-- [ ] `[UI-AUTO]` `O` opens/focuses the Ordo rail without changing pin state;
+- [x] `[UI-AUTO]` `O` opens/focuses the Ordo rail without changing pin state;
       `Esc` closes only the topmost temporary surface and restores the active
       Cue focus.
-- [ ] `[UI-AUTO]` `A` toggles eligible item auto-play; a visible menu owns Loop
+- [x] `[UI-AUTO]` `A` toggles eligible item auto-play; a visible menu owns Loop
       this section, while ineligible liturgical content explains refusal.
-- [ ] `[UI-AUTO]` `F6` cycles Ordo rail, Cue timeline, and Output controls while
+- [x] `[UI-AUTO]` `F6` cycles Ordo rail, Cue timeline, and Output controls while
       skipping a closed unpinned rail and never changing live state.
-- [ ] `[UI-AUTO]` Passive Ordo-rail and shortcut-reference focus leave only
+- [x] `[UI-AUTO]` Passive Ordo-rail and shortcut-reference focus leave only
       `F`, `B`, and Space active. `A` is active only while focus is in the Cue
       timeline or Output Dock and no text editor, emergency editor, or true
       modal owns focus.
-- [ ] `[UI-AUTO]` A focused text field, emergency editor, or true modal suspends
+- [x] `[UI-AUTO]` A focused text field, emergency editor, or true modal suspends
       every single-key Presenter command until closed.
-- [ ] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
+- [x] `[UI-AUTO]` Cue focus names include position, meaningful text/type, and
       project/wait/hold/Blackout behavior without exposing private context to
       the congregation renderer.
 - [ ] `[MANUAL]` Keyboard-only and Windows screen-reader checks announce expected
