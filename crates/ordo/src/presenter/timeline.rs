@@ -925,11 +925,12 @@ fn follow(follow: &Follow, glide: &Glide, environment: UiEnvironment) -> AnyElem
             } else {
                 y + ((view_top + view_bottom) - (top + bottom)) / 2.0
             };
-            let wanted = wanted.clamp(lowest, 0.0);
+            let pixel = 1.0 / window.scale_factor();
+            let wanted = settled_offset(wanted, lowest, pixel);
             // Already there, or already gliding there (a step along the same
             // row mid-glide): restarting the curve would lurch, so leave it.
             let heading = glide.0.get().map(|flight| flight.to);
-            if (wanted - heading.unwrap_or(y)).abs() < 0.5 {
+            if (wanted - heading.unwrap_or(y)).abs() <= pixel + f32::EPSILON {
                 return;
             }
             if cx.reduce_motion() {
@@ -954,6 +955,15 @@ fn follow(follow: &Follow, glide: &Glide, environment: UiEnvironment) -> AnyElem
     .left_0()
     .size_0()
     .into_any_element()
+}
+
+/// Where a follow lands: within the timeline's travel (`lowest..=0`) and on a
+/// whole device pixel (`pixel` logical px). GPUI draws elements on whole
+/// device pixels, so a centre that ends in half a pixel is measured back
+/// rounded on the next step; an unrounded target then differed by half a
+/// pixel each time and the timeline hopped a pixel to and fro along a row.
+fn settled_offset(wanted: f32, lowest: f32, pixel: f32) -> f32 {
+    ((wanted / pixel).round() * pixel).clamp(lowest, 0.0)
 }
 
 /// Moves the timeline along a follow in flight, over `160ms` on the easing
@@ -1005,6 +1015,38 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Arc::new(fixture_snapshot().snapshot().clone()))
+    }
+
+    /// Re-centring a Cue measured on whole device pixels, step after step
+    /// along its row, lands on the same offset every time.
+    #[test]
+    fn centring_settles_on_one_whole_pixel_offset() {
+        for scale_factor in [1.0_f32, 1.25, 1.5] {
+            let pixel = 1.0 / scale_factor;
+            // GPUI places the Cue on whole device pixels.
+            let snap = |v: f32| (v * scale_factor).round() / scale_factor;
+            let (content_top, height, view) = (1400.3_f32, 301.0_f32, 1000.0_f32);
+            let centre = |y: f32| {
+                let top = snap(content_top + y);
+                let wanted = y + (view - (top + top + height)) / 2.0;
+                settled_offset(wanted, -5000.0, pixel)
+            };
+            let first = centre(0.0);
+            let mut y = first;
+            for step in 0..6 {
+                let next = centre(y);
+                assert!(
+                    (next - y).abs() <= pixel + f32::EPSILON,
+                    "@{scale_factor}: step {step} moved {y} -> {next}"
+                );
+                y = if (next - y).abs() <= pixel + f32::EPSILON {
+                    y
+                } else {
+                    next
+                };
+            }
+            assert!(((first * scale_factor).round() - first * scale_factor).abs() < 1e-3);
+        }
     }
 
     #[test]
