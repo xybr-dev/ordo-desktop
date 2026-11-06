@@ -2202,16 +2202,11 @@ mod tests {
         );
     }
 
-    /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
-    /// Let a follow land: the frame that sees Preview move, the glide's full
-    /// run, and the frame drawn at the final offset.
+    /// Let a follow land: the frame that sees Preview move, many glide time
+    /// constants, and the frame drawn at the final offset.
     fn land(open: &Open, cx: &mut VisualTestContext) {
         animate(open, cx, 0);
-        animate(
-            open,
-            cx,
-            u64::from(tokens::motion::STANDARD_DURATION_MS) + 40,
-        );
+        animate(open, cx, 1000);
         animate(open, cx, 0);
     }
 
@@ -2362,6 +2357,7 @@ mod tests {
         );
     }
 
+    /// Navigation keeps Preview's Cue on screen, scrolling down and back up.
     #[gpui::test]
     fn the_timeline_follows_preview_down_and_back_up(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
