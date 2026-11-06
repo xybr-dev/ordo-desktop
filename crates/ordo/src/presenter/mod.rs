@@ -230,9 +230,10 @@ pub struct PresenterView {
     /// The F6 cycle over the three Presenter regions, which reuse the three
     /// focus handles above (the registry adopts them; it owns no handle here).
     regions: RegionRegistry,
-    /// Test only: a focusable element declaring the `TextEntry` key context.
+    /// Test only: a real `ui` Field the timeline renders inside the
+    /// Presenter's key context once a test asks for it.
     #[cfg(test)]
-    text_probe: FocusHandle,
+    text_field: Option<ui::primitives::field::FieldState>,
     /// Test only: every key that bubbled up to the Presenter root unhandled.
     #[cfg(test)]
     unhandled_keys: Rc<std::cell::RefCell<Vec<String>>>,
@@ -325,7 +326,7 @@ impl PresenterView {
             reference_from_rail: false,
             regions: RegionRegistry::default(),
             #[cfg(test)]
-            text_probe: cx.focus_handle(),
+            text_field: None,
             #[cfg(test)]
             unhandled_keys: Rc::default(),
             cue_view: environment.preferences().cue_view,
@@ -412,10 +413,15 @@ impl PresenterView {
     /// first (they sit above everything else, the reference above the rail),
     /// then the Cues, then the Output Dock.
     fn focus_context(&self, window: &Window, cx: &gpui::App) -> FocusContext {
-        let declares = |name: &str| window.context_stack().iter().any(|c| c.contains(name));
-        if declares("Modal") {
+        let declares = |names: &[&str]| {
+            window
+                .context_stack()
+                .iter()
+                .any(|c| names.iter().any(|name| c.contains(name)))
+        };
+        if declares(registry::MODAL_CONTEXTS) {
             FocusContext::Modal
-        } else if declares("TextEntry") {
+        } else if declares(registry::TEXT_ENTRY_CONTEXTS) {
             FocusContext::TextEntry
         } else if self.reference_focus.contains_focused(window, cx) {
             FocusContext::ShortcutReference
@@ -1602,7 +1608,7 @@ impl Render for PresenterView {
             &timeline_handlers,
             environment,
             #[cfg(test)]
-            &self.text_probe,
+            self.text_field.as_ref(),
             window,
             cx,
         );
@@ -3094,6 +3100,26 @@ mod tests {
         );
     }
 
+    /// Show a real `ui` Field inside the Presenter, focus it and return its
+    /// state (the first call creates it; later calls refocus it).
+    fn focus_text_field(
+        open: &Open,
+        cx: &mut VisualTestContext,
+    ) -> ui::primitives::field::FieldState {
+        let state = open.view.update_in(cx, |view, window, cx| {
+            let state = view
+                .text_field
+                .get_or_insert_with(|| ui::primitives::field::FieldState::new(window, cx))
+                .clone();
+            cx.notify();
+            state
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| state.focus(window, cx));
+        cx.run_until_parked();
+        state
+    }
+
     fn focus_context_now(open: &Open, cx: &mut VisualTestContext) -> FocusContext {
         cx.update(|window, cx| {
             open.view
@@ -3584,8 +3610,7 @@ mod tests {
     ) {
         let (open, cx) = open(cx, SIZES[1]);
         bind_registry_keys(cx);
-        open.view
-            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        focus_text_field(&open, cx);
         assert_eq!(focus_context_now(&open, cx), FocusContext::TextEntry);
         press_keys(cx, "ctrl-/");
         assert!(reference_open(&open, cx));
@@ -3603,8 +3628,7 @@ mod tests {
         let (open, cx) = open(cx, SIZES[1]);
         bind_registry_keys(cx);
         run(&open, cx, Command::EnableOutput).unwrap();
-        open.view
-            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        focus_text_field(&open, cx);
         let before = engine_state(&open, cx);
         for keys in ["f", "b", "o", "space", "right", "a", "home", "pagedown"] {
             press_keys(cx, keys);
@@ -3622,6 +3646,20 @@ mod tests {
             .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
         press_keys(cx, "right");
         assert_ne!(engine_state(&open, cx), before);
+    }
+
+    #[gpui::test]
+    fn a_real_ui_field_takes_the_letters_and_no_engine_command_runs(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        let field = focus_text_field(&open, cx);
+        assert_eq!(focus_context_now(&open, cx), FocusContext::TextEntry);
+        let before = engine_state(&open, cx);
+        press_keys(cx, "f b o a space right");
+        assert_eq!(engine_state(&open, cx), before);
+        assert_eq!(cx.update(|_, cx| field.value(cx)).as_ref(), "fboa ");
+        assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
     }
 
     /// The primary action replaces itself when pressed, so it hands focus to
@@ -3980,8 +4018,7 @@ mod tests {
         bind_registry_keys(cx);
         focus_timeline_now(&open, cx);
         press_keys(cx, "o");
-        open.view
-            .update_in(cx, |view, window, cx| view.text_probe.focus(window, cx));
+        focus_text_field(&open, cx);
         press_keys(cx, "escape");
         assert!(open.view.read_with(cx, |view, _| view.rail_open()));
     }

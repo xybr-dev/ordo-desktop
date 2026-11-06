@@ -12,8 +12,8 @@
 //!
 //! A key reaches the Engine only through [`command_for`] and then
 //! [`super::dispatch`]. Two guards keep single keys out of text entry and
-//! modals: the binding predicate (`Presenter && !TextEntry && !Modal`, evaluated
-//! by GPUI against every context on the focus stack) and [`allows`], which the
+//! modals: the binding predicate ([`binding_predicate`], evaluated by GPUI
+//! against every context on the focus stack) and [`allows`], which the
 //! view checks again before sending anything.
 
 use gpui::{Action, KeyBinding, actions};
@@ -41,14 +41,44 @@ actions!(
 /// The GPUI key context the Presenter root declares.
 pub const PRESENTER_CONTEXT: &str = "Presenter";
 
-/// `Ctrl+/` stays available in text fields (it is chorded, so it types
-/// nothing) but never in a true modal.
-pub const REFERENCE_PREDICATE: &str = "Presenter && !Modal";
+/// Key contexts that mean "the operator is typing". `TextEntry` is Ordo's own
+/// (emergency editor, tests); the rest are what `gpui-base` declares on its
+/// editable controls: `Input` (every text input, which is what a `ui` Field is
+/// built on), `NumberInput`, `Combobox` (type-ahead) and `TimeField` (typed
+/// digits). `TextView` is read-only text and `Select`, `Popover`, `Tree` and
+/// `Root` are not text entry, so they are not listed (`Root` wraps the whole
+/// window and would suspend every key).
+pub const TEXT_ENTRY_CONTEXTS: &[&str] =
+    &["TextEntry", "Input", "NumberInput", "Combobox", "TimeField"];
 
-/// Active only inside the Presenter and never while a text field or a modal
-/// dialog anywhere above focus declares its own context (`!X` is false if any
-/// context on the focus stack matches `X`).
-pub const BINDING_PREDICATE: &str = "Presenter && !TextEntry && !Modal";
+/// Key contexts of true modals, which own every key until closed. `Modal` is
+/// Ordo's own; `Dialog` and `Sheet` are `gpui-base`'s (`DESIGN.md`: "A focused
+/// dialog or slide-over owns focus until closed"). Ordo's own passive
+/// surfaces (the rail overlay, the shortcut reference) declare neither.
+pub const MODAL_CONTEXTS: &[&str] = &["Modal", "Dialog", "Sheet"];
+
+fn predicate(text_entry: bool) -> String {
+    let mut predicate = PRESENTER_CONTEXT.to_owned();
+    let text = TEXT_ENTRY_CONTEXTS.iter().filter(|_| text_entry);
+    for context in text.chain(MODAL_CONTEXTS) {
+        predicate.push_str(" && !");
+        predicate.push_str(context);
+    }
+    predicate
+}
+
+/// `Ctrl+/` stays available in text fields (it is chorded, so it types
+/// nothing) but never in a true modal: `Presenter && !Modal && !Dialog ...`.
+pub fn reference_predicate() -> String {
+    predicate(false)
+}
+
+/// Active only inside the Presenter and never while a text input or a modal
+/// anywhere above focus declares its own context (`!X` is false if any
+/// context on the focus stack matches `X`): `Presenter && !TextEntry && ...`.
+pub fn binding_predicate() -> String {
+    predicate(true)
+}
 
 /// Which table row a key belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -388,17 +418,17 @@ fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
 }
 
 /// The GPUI bindings for every entry this module binds: the Output and
-/// Operating keys under [`BINDING_PREDICATE`], and `Ctrl+/` under
-/// [`REFERENCE_PREDICATE`].
+/// Operating keys under [`binding_predicate`], and `Ctrl+/` under
+/// [`reference_predicate`].
 pub fn key_bindings() -> Vec<KeyBinding> {
-    let parse = |predicate| {
+    let parse = |predicate: &str| {
         Rc::new(
             gpui::KeyBindingContextPredicate::parse(predicate)
                 .expect("the binding predicate parses"),
         )
     };
-    let single_key = parse(BINDING_PREDICATE);
-    let reference = parse(REFERENCE_PREDICATE);
+    let single_key = parse(&binding_predicate());
+    let reference = parse(&reference_predicate());
     let mut bindings = Vec::new();
     for entry in ENTRIES {
         let Some(action) = action_for(entry.id) else {
@@ -454,7 +484,7 @@ mod tests {
             }
         }
         assert!(
-            gpui::KeyBindingContextPredicate::parse(BINDING_PREDICATE).is_ok(),
+            gpui::KeyBindingContextPredicate::parse(&binding_predicate()).is_ok(),
             "the binding predicate parses"
         );
     }
@@ -511,12 +541,38 @@ mod tests {
             assert_eq!(
                 predicate,
                 if reference {
-                    "Presenter && !Modal"
+                    reference_predicate()
                 } else {
-                    "Presenter && !TextEntry && !Modal"
+                    binding_predicate()
                 }
             );
         }
+    }
+
+    #[test]
+    fn predicates_exclude_every_suspending_context() {
+        let single = binding_predicate();
+        let chorded = reference_predicate();
+        for context in TEXT_ENTRY_CONTEXTS.iter().chain(MODAL_CONTEXTS) {
+            let negated = format!("!{context}");
+            assert!(
+                single.split(" && ").any(|term| term == negated),
+                "{context} missing from {single}"
+            );
+            assert_eq!(
+                chorded.split(" && ").any(|term| term == negated),
+                MODAL_CONTEXTS.contains(context),
+                "{context} in {chorded}"
+            );
+        }
+        // Real gpui-base contexts the policy relies on.
+        for real in ["Input", "NumberInput", "Combobox", "Dialog"] {
+            assert!(
+                TEXT_ENTRY_CONTEXTS.contains(&real) || MODAL_CONTEXTS.contains(&real),
+                "{real}"
+            );
+        }
+        assert!(!single.contains("Root"));
     }
 
     /// The keys `ui` binds are listed here so the reference shows them; this
