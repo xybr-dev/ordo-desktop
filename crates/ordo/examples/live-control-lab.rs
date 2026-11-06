@@ -104,6 +104,12 @@ struct Args {
     snapshot_given: bool,
     /// `--measure-memory <out.json>`: run the memory measurement and quit.
     measure_memory: Option<PathBuf>,
+    /// `--measure-animations <out.json>`: measure animation frame pacing and quit.
+    measure_animations: Option<PathBuf>,
+    /// `--cues 30|500`: the fixture the animation measurement runs over.
+    cues: usize,
+    /// `--list` / `--grid`: the Cue view the animation measurement runs in.
+    list_view: bool,
 }
 
 fn default_snapshot() -> PathBuf {
@@ -129,6 +135,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         snapshot: default_snapshot(),
         snapshot_given: false,
         measure_memory: None,
+        measure_animations: None,
+        cues: 500,
+        list_view: false,
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -154,6 +163,22 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let value = args.next().ok_or("--measure-memory needs an output file")?;
                 parsed.measure_memory = Some(PathBuf::from(value));
             }
+            "--measure-animations" => {
+                let value = args
+                    .next()
+                    .ok_or("--measure-animations needs an output file")?;
+                parsed.measure_animations = Some(PathBuf::from(value));
+            }
+            "--cues" => {
+                let value = args.next().ok_or("--cues needs 30 or 500")?;
+                parsed.cues = match value.as_str() {
+                    "30" => 30,
+                    "500" => 500,
+                    _ => return Err("--cues is 30 (the normal-mass fixture) or 500".into()),
+                };
+            }
+            "--list" => parsed.list_view = true,
+            "--grid" => parsed.list_view = false,
             "--snapshot" => {
                 let value = args.next().ok_or("--snapshot needs a directory")?;
                 parsed.snapshot = PathBuf::from(value);
@@ -166,6 +191,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             }
         }
     }
+    if parsed.measure_memory.is_some() && parsed.measure_animations.is_some() {
+        return Err("--measure-memory and --measure-animations are separate runs".into());
+    }
     if parsed.measure_memory.is_some() {
         // The measurement is defined at one size and scale.
         parsed.width = measure::WIDTH;
@@ -173,6 +201,16 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         parsed.scale = InterfaceScale::Percent100;
     }
     Ok(parsed)
+}
+
+fn scale_percent(scale: InterfaceScale) -> u32 {
+    match scale {
+        InterfaceScale::Percent100 => 100,
+        InterfaceScale::Percent125 => 125,
+        InterfaceScale::Percent150 => 150,
+        InterfaceScale::Percent175 => 175,
+        InterfaceScale::Percent200 => 200,
+    }
 }
 
 fn lab_dir() -> PathBuf {
@@ -203,6 +241,10 @@ struct LabRoot {
     measure: Option<measure::Run>,
     /// The measurement's driver task, owned by the root like the load task.
     _measure_task: Option<Task<()>>,
+    /// The animation measurement, until the snapshot is loaded and it starts.
+    animations: Option<animations::Run>,
+    /// The frame recorder the window's canvases feed during that measurement.
+    pacing: Option<Rc<animations::Pacing>>,
 }
 
 impl LabRoot {
@@ -211,6 +253,7 @@ impl LabRoot {
         environment: UiEnvironment,
         save: SavePreferences,
         measure: Option<measure::Run>,
+        animations: Option<animations::Run>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -225,6 +268,8 @@ impl LabRoot {
             _images: None,
             measure,
             _measure_task: None,
+            pacing: animations.as_ref().map(|run| run.pacing.clone()),
+            animations,
         };
         match verified {
             Err(error) => {
@@ -232,6 +277,9 @@ impl LabRoot {
                     "The bundled fonts did not verify, so the Presenter will not open: {error}"
                 );
                 if let Some(run) = root.measure.take() {
+                    run.fail(&message, cx);
+                }
+                if let Some(run) = root.animations.take() {
                     run.fail(&message, cx);
                 }
                 root.stage = Stage::Failed(message.into());
@@ -262,13 +310,16 @@ impl LabRoot {
                 if let Some(run) = self.measure.take() {
                     run.fail(&message, cx);
                 }
+                if let Some(run) = self.animations.take() {
+                    run.fail(&message, cx);
+                }
                 self.stage = Stage::Failed(message.into());
             }
             Ok(snapshot) => {
                 let snapshot = Arc::new(snapshot);
                 // The measurement skips the image check: its transient decodes
                 // would be counted in the memory it is measuring.
-                if self.measure.is_none() {
+                if self.measure.is_none() && self.animations.is_none() {
                     self.check_images(snapshot.clone(), window, cx);
                 }
                 let started = self.started;
@@ -282,6 +333,9 @@ impl LabRoot {
                     view
                 });
                 if let Some(run) = self.measure.take() {
+                    self._measure_task = Some(run.start(view.clone(), window, cx));
+                }
+                if let Some(run) = self.animations.take() {
                     self._measure_task = Some(run.start(view.clone(), window, cx));
                 }
                 // Keys reach the Presenter only from inside it: the Cues
@@ -381,7 +435,9 @@ impl Render for LabRoot {
             .on_action(cx.listener(|this, _: &SimulateDisplayReturned, _, cx| {
                 this.send(Command::DisplayReturned { recognized: true }, cx);
             }))
+            .children(self.pacing.as_ref().map(|pacing| pacing.stamp(false)))
             .child(body)
+            .children(self.pacing.as_ref().map(|pacing| pacing.stamp(true)))
     }
 }
 
@@ -413,7 +469,7 @@ fn main() {
         Err(message) => {
             eprintln!("live-control-lab: {message}");
             eprintln!(
-                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>]"
+                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>] | --measure-animations <out.json> [--size WxH] [--scale N] [--cues 30|500] [--list|--grid]"
             );
             std::process::exit(2);
         }
@@ -421,7 +477,7 @@ fn main() {
 
     // The measurement writes and reads no preferences, so a run depends only on
     // its own arguments.
-    let measuring = args.measure_memory.is_some();
+    let measuring = args.measure_memory.is_some() || args.measure_animations.is_some();
     let preferences_file = PreferencesFile::new(lab_dir().join("preferences"));
     // Before the app loop: a few bytes, read once, restoring the Grid/List choice.
     let restored = if measuring {
@@ -458,7 +514,9 @@ fn main() {
     // under the temp directory, and removes it once the app loop has ended.
     let mut args = args;
     let mut scratch: Option<PathBuf> = None;
-    if args.measure_memory.is_some() && !args.snapshot_given {
+    let wants_synthetic =
+        args.measure_memory.is_some() || (args.measure_animations.is_some() && args.cues == 500);
+    if wants_synthetic && !args.snapshot_given {
         let dir = std::env::temp_dir().join(format!("ordo-live-presenter-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(error) = presentation::test_support::write_synthetic_snapshot(&dir) {
@@ -485,7 +543,24 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(args.width), px(args.height)), cx);
         let snapshot = args.snapshot.clone();
         let mut measure = None;
-        let measure_out = args.measure_memory.clone();
+        let measure_out = args
+            .measure_memory
+            .clone()
+            .or_else(|| args.measure_animations.clone());
+        let mut animations = None;
+        if let Some(out) = args.measure_animations.clone() {
+            measure::arm_timeout_after(cx, out.clone(), animations::TIMEOUT);
+            animations = Some(animations::Run::new(
+                out,
+                animations::Config {
+                    cues_requested: args.cues,
+                    list_view: args.list_view,
+                    scale_percent: scale_percent(args.scale),
+                    width: args.width,
+                    height: args.height,
+                },
+            ));
+        }
         if let Some(out) = args.measure_memory.clone() {
             // Started before the window opens, so the peak covers the load.
             match MemoryWatch::start(cx) {
@@ -512,7 +587,8 @@ fn main() {
             },
             move |window, cx| {
                 cx.new(|cx| {
-                    let root = LabRoot::new(snapshot, environment, save, measure, window, cx);
+                    let root =
+                        LabRoot::new(snapshot, environment, save, measure, animations, window, cx);
                     window.focus(&root.focus_handle(cx), cx);
                     root
                 })
@@ -628,10 +704,15 @@ mod measure {
 
     /// Fails the run with an error document if it has not finished in time.
     pub fn arm_timeout(cx: &mut App, out: PathBuf) {
+        arm_timeout_after(cx, out, TIMEOUT);
+    }
+
+    /// [`arm_timeout`] with an explicit limit.
+    pub fn arm_timeout_after(cx: &mut App, out: PathBuf, limit: Duration) {
         cx.spawn(async move |cx| {
-            cx.background_executor().timer(TIMEOUT).await;
+            cx.background_executor().timer(limit).await;
             cx.update(|cx| {
-                let message = format!("timed out after {} s", TIMEOUT.as_secs());
+                let message = format!("timed out after {} s", limit.as_secs());
                 finish(cx, &out, &error_json(&message), false);
             });
         })
@@ -959,6 +1040,632 @@ mod measure {
     }
 }
 
+/// The animation frame-pacing measurement (`--measure-animations`, #111): open
+/// the real `PresenterView`, then script each animation in turn with idle gaps
+/// and record, while it runs, every drawn frame's interval, the per-frame
+/// render, layout, prepaint and paint cost, and what the frame store did.
+///
+/// A frame is stamped when the last paint canvas of the window runs (before
+/// the GPU present, which Windows issues with a sync interval of 0), so an
+/// interval is the draw cadence the vsync thread drives. Render time comes from
+/// the Presenter's render probe; layout is the time from the end of the last
+/// render to the first prepaint canvas; prepaint and paint are the spans
+/// between the first and last canvas of each phase. The two canvases bracket
+/// the whole window content.
+///
+/// Ownership and shutdown: `main` arms the timeout before the window opens;
+/// the root owns the driver task and the [`Pacing`] recorder; `measure::finish`
+/// is the only exit.
+mod animations {
+    use super::*;
+    use ordo::{
+        performance::{frames::FrameTimer, memory::json_string},
+        presenter::{RenderProbe, RenderStat},
+    };
+
+    /// The run gets this long, then writes an error document and exits nonzero.
+    pub const TIMEOUT: Duration = Duration::from_secs(90);
+    /// Idle time between two scripted presses, with nothing recorded.
+    const GAP: Duration = Duration::from_millis(250);
+    /// How often a hold samples the frame store.
+    const POLL: Duration = Duration::from_millis(8);
+    const SETTLE_POLL: Duration = Duration::from_millis(50);
+    const SETTLE_QUIET_POLLS: usize = 4;
+    const SETTLE_LIMIT: Duration = Duration::from_secs(10);
+    /// The 60 Hz interval the limits are judged against.
+    const FRAME_MS: f64 = 16.7;
+    const DROP_MS: f64 = 25.0;
+    const HITCH_MS: f64 = 33.0;
+
+    fn ms(duration: Duration) -> f64 {
+        duration.as_secs_f64() * 1000.0
+    }
+
+    /// One drawn frame inside a segment.
+    #[derive(Clone, Copy)]
+    struct Frame {
+        interval: Option<f64>,
+        render: f64,
+        layout: f64,
+        prepaint: f64,
+        paint: f64,
+        arrival: bool,
+    }
+
+    impl Frame {
+        fn cpu(&self) -> f64 {
+            self.render + self.layout + self.prepaint + self.paint
+        }
+    }
+
+    #[derive(Default)]
+    struct Inner {
+        open: bool,
+        cmd_at: Option<Instant>,
+        last: Option<Instant>,
+        timer: Option<FrameTimer>,
+        prev_composed: Option<usize>,
+        render: Option<(Instant, Duration, usize)>,
+        prepaint_first: Option<Instant>,
+        prepaint_last: Option<Instant>,
+        paint_first: Option<Instant>,
+        frames: Vec<Frame>,
+        first_frames: Vec<f64>,
+        dropped_1_5x: u64,
+        segments: usize,
+        inactive_frames: usize,
+    }
+
+    /// What one animation recorded.
+    #[derive(Default)]
+    pub struct Capture {
+        frames: Vec<Frame>,
+        first_frames: Vec<f64>,
+        dropped_1_5x: u64,
+        segments: usize,
+        inactive_frames: usize,
+    }
+
+    /// The recorder the window's canvases and the render probe feed.
+    #[derive(Default)]
+    pub struct Pacing(RefCell<Inner>);
+
+    impl Pacing {
+        pub fn probe(self: &Rc<Self>) -> RenderProbe {
+            let this = self.clone();
+            Rc::new(move |stat: RenderStat| {
+                this.0.borrow_mut().render = Some((Instant::now(), stat.render, stat.composed));
+            })
+        }
+
+        /// A zero-size canvas stamping the prepaint and paint phases. The one
+        /// placed first in the window is `last == false`.
+        pub fn stamp(self: &Rc<Self>, last: bool) -> gpui::AnyElement {
+            let (prepaint, paint) = (self.clone(), self.clone());
+            gpui::canvas(
+                move |_, _, _| {
+                    let now = Instant::now();
+                    let mut inner = prepaint.0.borrow_mut();
+                    if last {
+                        inner.prepaint_last = Some(now);
+                    } else {
+                        inner.prepaint_first = Some(now);
+                    }
+                },
+                move |_, _, window, _| {
+                    let now = Instant::now();
+                    let mut inner = paint.0.borrow_mut();
+                    if last {
+                        inner.finish_frame(now, window.is_window_active());
+                    } else {
+                        inner.paint_first = Some(now);
+                    }
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_0()
+            .into_any_element()
+        }
+
+        fn begin_segment(&self, composed: usize) {
+            let mut inner = self.0.borrow_mut();
+            inner.open = true;
+            inner.cmd_at = Some(Instant::now());
+            inner.last = None;
+            inner.timer = Some(FrameTimer::with_expected(
+                Duration::from_micros(16_700),
+                1.5,
+            ));
+            inner.prev_composed = Some(composed);
+            inner.segments += 1;
+        }
+
+        fn end_segment(&self) {
+            let mut inner = self.0.borrow_mut();
+            inner.open = false;
+            if let Some(timer) = inner.timer.take() {
+                inner.dropped_1_5x += timer.dropped_frames();
+            }
+        }
+
+        fn take(&self) -> Capture {
+            let mut inner = self.0.borrow_mut();
+            Capture {
+                frames: std::mem::take(&mut inner.frames),
+                first_frames: std::mem::take(&mut inner.first_frames),
+                dropped_1_5x: std::mem::take(&mut inner.dropped_1_5x),
+                segments: std::mem::take(&mut inner.segments),
+                inactive_frames: std::mem::take(&mut inner.inactive_frames),
+            }
+        }
+    }
+
+    impl Inner {
+        fn finish_frame(&mut self, now: Instant, active: bool) {
+            let render = self.render.take();
+            let (first, last_prepaint, paint_first) = (
+                self.prepaint_first.take(),
+                self.prepaint_last.take(),
+                self.paint_first.take(),
+            );
+            if !self.open {
+                return;
+            }
+            let span = |from: Option<Instant>, to: Option<Instant>| match (from, to) {
+                (Some(from), Some(to)) => ms(to.saturating_duration_since(from)),
+                _ => 0.0,
+            };
+            let (render_ms, layout_ms, arrival) = match render {
+                Some((ended, took, composed)) => {
+                    let arrival = self.prev_composed != Some(composed);
+                    self.prev_composed = Some(composed);
+                    (ms(took), span(Some(ended), first), arrival)
+                }
+                None => (0.0, 0.0, false),
+            };
+            if !active {
+                self.inactive_frames += 1;
+            }
+            if let Some(timer) = self.timer.as_mut() {
+                timer.record_frame(now);
+            }
+            let interval = self
+                .last
+                .map(|last| ms(now.saturating_duration_since(last)));
+            if interval.is_none()
+                && let Some(at) = self.cmd_at
+            {
+                self.first_frames
+                    .push(ms(now.saturating_duration_since(at)));
+            }
+            self.last = Some(now);
+            self.frames.push(Frame {
+                interval,
+                render: render_ms,
+                layout: layout_ms,
+                prepaint: span(first, last_prepaint),
+                paint: span(paint_first, Some(now)),
+                arrival,
+            });
+        }
+    }
+
+    /// Nearest-rank percentile of already sorted `values`; 0 when empty.
+    fn percentile(sorted: &[f64], p: f64) -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
+        let rank = ((p / 100.0) * sorted.len() as f64).ceil().max(1.0) as usize;
+        sorted[rank.min(sorted.len()) - 1]
+    }
+
+    fn summary(mut values: Vec<f64>) -> String {
+        values.sort_by(|a, b| a.total_cmp(b));
+        format!(
+            "{{\"p50\":{:.2},\"p95\":{:.2},\"p99\":{:.2},\"max\":{:.2}}}",
+            percentile(&values, 50.0),
+            percentile(&values, 95.0),
+            percentile(&values, 99.0),
+            values.last().copied().unwrap_or(0.0),
+        )
+    }
+
+    /// The frame store's counters at one instant.
+    #[derive(Clone, Copy, Default)]
+    struct Counters {
+        composed: usize,
+        full: usize,
+        thumb: usize,
+        jobs: usize,
+        upgrading: usize,
+    }
+
+    fn counters(view: &Entity<PresenterView>, cx: &mut AsyncWindowContext) -> Counters {
+        view.read_with(cx, |view, _| {
+            let frames = view.frames();
+            let (full, thumb) = frames.image_counts();
+            Counters {
+                composed: frames.composed_count(),
+                full,
+                thumb,
+                jobs: frames.jobs_in_flight(),
+                upgrading: frames.upgrading(),
+            }
+        })
+    }
+
+    async fn settle(view: &Entity<PresenterView>, cx: &mut AsyncWindowContext) -> bool {
+        let background = cx.background_executor().clone();
+        let started = Instant::now();
+        let mut quiet = 0;
+        while quiet < SETTLE_QUIET_POLLS {
+            if started.elapsed() > SETTLE_LIMIT {
+                return false;
+            }
+            background.timer(SETTLE_POLL).await;
+            let now = counters(view, cx);
+            quiet = if now.jobs == 0 && now.upgrading == 0 {
+                quiet + 1
+            } else {
+                0
+            };
+        }
+        true
+    }
+
+    #[derive(Clone, Copy)]
+    enum Step {
+        Command(Command),
+        OpenRail,
+        CloseRail,
+        ToggleGroup(usize),
+    }
+
+    struct Script {
+        name: &'static str,
+        what: &'static str,
+        hold: Duration,
+        steps: Vec<Step>,
+        /// Fold every group first: a diagnostic that shows how much of the
+        /// per-frame cost is the Cue tiles.
+        fold_all: bool,
+    }
+
+    fn scripts(groups: usize) -> Vec<Script> {
+        use Command::*;
+        let c = Step::Command;
+        let group = |g: usize| Step::ToggleGroup(g % groups.max(1));
+        vec![
+            Script {
+                name: "timeline_glide",
+                what: "Next, NextItem, Last, PreviousItem and First across group boundaries",
+                hold: Duration::from_millis(450),
+                steps: [
+                    Next,
+                    Next,
+                    Next,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                    Next,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                    Last,
+                    PreviousItem,
+                    PreviousItem,
+                    First,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                    NextItem,
+                ]
+                .map(c)
+                .to_vec(),
+                fold_all: false,
+            },
+            Script {
+                name: "rail_overlay",
+                what: "open then close the rail overlay (rail unpinned)",
+                hold: Duration::from_millis(500),
+                steps: [Step::OpenRail, Step::CloseRail].repeat(4),
+                fold_all: false,
+            },
+            Script {
+                name: "group_fold",
+                what: "fold then unfold Cue groups",
+                hold: Duration::from_millis(450),
+                steps: vec![
+                    group(1),
+                    group(1),
+                    group(3),
+                    group(3),
+                    group(0),
+                    group(0),
+                    group(2),
+                    group(2),
+                ],
+                fold_all: false,
+            },
+            Script {
+                name: "output_fades",
+                what: "EnableOutput, Take, Blackout on and off (500 ms fades)",
+                hold: Duration::from_millis(750),
+                steps: [
+                    EnableOutput,
+                    Next,
+                    Take,
+                    ToggleBlackout,
+                    ToggleBlackout,
+                    Next,
+                    Take,
+                    Next,
+                    Take,
+                    ToggleBlackout,
+                    ToggleBlackout,
+                ]
+                .map(c)
+                .to_vec(),
+                fold_all: false,
+            },
+            Script {
+                name: "output_fades_all_folded",
+                what: "diagnostic: the output fades again with every group folded",
+                hold: Duration::from_millis(750),
+                steps: [
+                    Next,
+                    Take,
+                    ToggleBlackout,
+                    ToggleBlackout,
+                    Next,
+                    Take,
+                    ToggleBlackout,
+                    ToggleBlackout,
+                ]
+                .map(c)
+                .to_vec(),
+                fold_all: true,
+            },
+        ]
+    }
+
+    /// The command-line facts the document records.
+    pub struct Config {
+        pub cues_requested: usize,
+        pub list_view: bool,
+        pub scale_percent: u32,
+        pub width: f32,
+        pub height: f32,
+    }
+
+    pub struct Run {
+        pub out: PathBuf,
+        pub config: Config,
+        pub pacing: Rc<Pacing>,
+    }
+
+    impl Run {
+        pub fn new(out: PathBuf, config: Config) -> Self {
+            Self {
+                out,
+                config,
+                pacing: Rc::new(Pacing::default()),
+            }
+        }
+
+        pub fn fail(self, message: &str, cx: &mut App) {
+            measure::finish(cx, &self.out, &measure::error_json(message), false);
+        }
+
+        pub fn start(
+            self,
+            view: Entity<PresenterView>,
+            window: &Window,
+            cx: &mut Context<LabRoot>,
+        ) -> Task<()> {
+            view.update(cx, |view, _| view.set_render_probe(self.pacing.probe()));
+            cx.spawn_in(window, async move |_, cx| {
+                let result = drive(&self, &view, cx).await;
+                cx.update(|_, cx| match &result {
+                    Ok(document) => measure::finish(cx, &self.out, document, true),
+                    Err(message) => {
+                        measure::finish(cx, &self.out, &measure::error_json(message), false);
+                    }
+                })
+                .ok();
+            })
+        }
+    }
+
+    fn pct(part: usize, whole: usize) -> f64 {
+        if whole == 0 {
+            0.0
+        } else {
+            part as f64 * 100.0 / whole as f64
+        }
+    }
+
+    fn animation_json(
+        script: &Script,
+        applicable: bool,
+        capture: Capture,
+        before: Counters,
+        after: Counters,
+        jobs_max: usize,
+    ) -> String {
+        let intervals: Vec<f64> = capture.frames.iter().filter_map(|f| f.interval).collect();
+        let over = |limit: f64| intervals.iter().filter(|v| **v > limit).count();
+        let arrivals: Vec<&Frame> = capture.frames.iter().filter(|f| f.arrival).collect();
+        let max_of = |values: &mut dyn Iterator<Item = f64>| values.fold(0.0_f64, f64::max);
+        let column = |select: fn(&Frame) -> f64| -> String {
+            summary(capture.frames.iter().map(select).collect())
+        };
+        format!(
+            "{{\"name\":{},\"what\":{},\"applicable\":{applicable},\"segments\":{},\"frames\":{},\"intervals\":{},\"interval_ms\":{},\"over_16_7ms_pct\":{:.1},\"over_25ms\":{},\"dropped_1_5x_frametimer\":{},\"over_33ms\":{},\"first_frame_ms\":{},\"render_ms\":{},\"layout_ms\":{},\"prepaint_ms\":{},\"paint_ms\":{},\"cpu_ms\":{},\"store\":{{\"composed_delta\":{},\"thumb_images_delta\":{},\"full_images_delta\":{},\"jobs_in_flight_max\":{jobs_max},\"frames_with_arrival\":{},\"max_interval_with_arrival_ms\":{:.2},\"max_cpu_with_arrival_ms\":{:.2}}},\"inactive_window_frames\":{}}}",
+            json_string(script.name),
+            json_string(script.what),
+            capture.segments,
+            capture.frames.len(),
+            intervals.len(),
+            summary(intervals.clone()),
+            pct(over(FRAME_MS), intervals.len()),
+            over(DROP_MS),
+            capture.dropped_1_5x,
+            over(HITCH_MS),
+            summary(capture.first_frames.clone()),
+            column(|f| f.render),
+            column(|f| f.layout),
+            column(|f| f.prepaint),
+            column(|f| f.paint),
+            column(|f| f.cpu()),
+            after.composed.saturating_sub(before.composed),
+            after.thumb as i64 - before.thumb as i64,
+            after.full as i64 - before.full as i64,
+            arrivals.len(),
+            max_of(&mut arrivals.iter().filter_map(|f| f.interval)),
+            max_of(&mut arrivals.iter().map(|f| f.cpu())),
+            capture.inactive_frames,
+        )
+    }
+
+    fn gone<E: std::fmt::Display>(error: E) -> String {
+        format!("the Presenter is gone: {error}")
+    }
+
+    async fn drive(
+        run: &Run,
+        view: &Entity<PresenterView>,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<String, String> {
+        let cue_view = if run.config.list_view {
+            CueView::List
+        } else {
+            CueView::Grid
+        };
+        let (cues, groups, viewport, scale_factor, active, maximized, bounds) = view
+            .update_in(cx, |view, window, cx| {
+                view.set_cue_view(cue_view, cx);
+                view.set_rail_choice(RailChoice::Pinned, cx);
+                let snapshot = view.engine().snapshot();
+                let viewport = window.viewport_size();
+                (
+                    snapshot.cue_count(),
+                    snapshot.item_count(),
+                    (f32::from(viewport.width), f32::from(viewport.height)),
+                    window.scale_factor(),
+                    window.is_window_active(),
+                    window.is_maximized(),
+                    format!("{:?}", window.window_bounds()),
+                )
+            })
+            .map_err(gone)?;
+        let background = cx.background_executor().clone();
+        settle(view, cx).await;
+        // A few idle frames first, so the first animation is not the first draw.
+        background.timer(Duration::from_millis(500)).await;
+
+        let mut animations = Vec::new();
+        for script in scripts(groups) {
+            // Each animation starts from a settled store at the first Cue.
+            view.update_in(cx, |view, window, cx| {
+                view.close_rail(window, cx);
+                view.set_rail_choice(
+                    if script.name == "rail_overlay" {
+                        RailChoice::Unpinned
+                    } else {
+                        RailChoice::Pinned
+                    },
+                    cx,
+                );
+                if script.name != "output_fades" && !script.fold_all {
+                    view.command(Command::First, cx).ok();
+                }
+                if script.fold_all {
+                    for group in 0..groups {
+                        if !view.group_collapsed(group) {
+                            view.toggle_group(group, cx);
+                        }
+                    }
+                }
+            })
+            .map_err(gone)?;
+            background.timer(Duration::from_millis(600)).await;
+            settle(view, cx).await;
+            background.timer(Duration::from_millis(300)).await;
+
+            let before = counters(view, cx);
+            let mut jobs_max = 0;
+            let mut applicable = script.name != "rail_overlay";
+            let _ = run.pacing.take();
+            for step in &script.steps {
+                run.pacing.begin_segment(counters(view, cx).composed);
+                let opened = view
+                    .update_in(cx, |view, window, cx| match *step {
+                        Step::Command(command) => {
+                            view.command(command, cx).ok();
+                            false
+                        }
+                        Step::OpenRail => {
+                            view.open_rail(window, cx);
+                            true
+                        }
+                        Step::CloseRail => {
+                            view.close_rail(window, cx);
+                            false
+                        }
+                        Step::ToggleGroup(group) => {
+                            view.toggle_group(group, cx);
+                            false
+                        }
+                    })
+                    .map_err(gone)?;
+                let until = Instant::now() + script.hold;
+                while Instant::now() < until {
+                    background.timer(POLL).await;
+                    jobs_max = jobs_max.max(counters(view, cx).jobs);
+                }
+                if opened && view.read_with(cx, |view, _| view.rail_open()) {
+                    applicable = true;
+                }
+                run.pacing.end_segment();
+                background.timer(GAP).await;
+            }
+            let after = counters(view, cx);
+            animations.push(animation_json(
+                &script,
+                applicable,
+                run.pacing.take(),
+                before,
+                after,
+                jobs_max,
+            ));
+        }
+
+        Ok(format!(
+            "{{\"mode\":\"animation-pacing\",\"issue\":111,\"profile\":{},\"window\":{},\"viewport\":{},\"scale_percent\":{},\"scale_factor\":{scale_factor},\"cue_view\":{},\"cues_requested\":{},\"cue_count\":{cues},\"groups\":{groups},\"window_active_at_start\":{active},\"window_maximized\":{maximized},\"window_bounds\":{},\"limits_ms\":{{\"frame\":{FRAME_MS},\"dropped\":{DROP_MS},\"hitch\":{HITCH_MS}}},\"note\":{},\"animations\":[{}]}}",
+            json_string(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }),
+            json_string(&format!("{}x{}", run.config.width, run.config.height)),
+            json_string(&format!("{}x{}", viewport.0, viewport.1)),
+            run.config.scale_percent,
+            json_string(if run.config.list_view { "list" } else { "grid" }),
+            run.config.cues_requested,
+            json_string(&bounds),
+            json_string(
+                "intervals are between paint stamps of consecutive drawn frames inside one scripted press; first_frame_ms is press to first drawn frame"
+            ),
+            animations.join(","),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1007,6 +1714,30 @@ mod tests {
     }
 
     #[test]
+    fn measure_animations_takes_size_scale_cues_and_view() {
+        let args = parse(&[
+            "--measure-animations",
+            "anim.json",
+            "--size",
+            "1920x1080",
+            "--scale",
+            "200",
+            "--cues",
+            "30",
+            "--list",
+        ])
+        .unwrap();
+        assert_eq!(args.measure_animations, Some(PathBuf::from("anim.json")));
+        assert_eq!((args.width, args.height), (1920.0, 1080.0));
+        assert_eq!(args.scale, InterfaceScale::Percent200);
+        assert_eq!(args.cues, 30);
+        assert!(args.list_view);
+        let defaults = parse(&["--measure-animations", "a.json"]).unwrap();
+        assert_eq!((defaults.cues, defaults.list_view), (500, false));
+        assert_eq!((defaults.width, defaults.height), (1366.0, 768.0));
+    }
+
+    #[test]
     fn bad_arguments_are_refused_with_a_reason() {
         for bad in [
             &["--size"][..],
@@ -1016,6 +1747,15 @@ mod tests {
             &["--frobnicate"],
             &["--measure-memory"],
             &["--snapshot"],
+            &["--measure-animations"],
+            &["--cues"],
+            &["--cues", "40"],
+            &[
+                "--measure-memory",
+                "a.json",
+                "--measure-animations",
+                "b.json",
+            ],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }

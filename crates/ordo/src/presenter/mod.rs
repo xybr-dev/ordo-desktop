@@ -38,7 +38,12 @@ pub mod rail;
 pub mod surfaces;
 pub mod timeline;
 
-use std::{collections::BTreeSet, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
@@ -87,6 +92,21 @@ use crate::{
 /// background-worker saver; the lab passes one that writes under
 /// `target/live-control-lab/`.
 pub type SavePreferences = Rc<dyn Fn(UiPreferences)>;
+
+/// What one `render` of the Presenter cost, handed to a [`RenderProbe`].
+#[derive(Clone, Copy, Debug)]
+pub struct RenderStat {
+    /// Wall time of building the element tree (not layout, prepaint or paint).
+    pub render: Duration,
+    /// Frames the store has composed so far, so a probe sees when a thumbnail
+    /// arrived between two renders.
+    pub composed: usize,
+    /// Frame jobs in flight when the render ended.
+    pub jobs_in_flight: usize,
+}
+
+/// Measurement hook: called after every render. Only the labs set one.
+pub type RenderProbe = Rc<dyn Fn(RenderStat)>;
 
 /// The operator-facing sentence for a refusal. A refusal says what to do
 /// next in plain words; it never blames the operator and never shows the
@@ -171,6 +191,8 @@ impl Wanted {
 
 /// The Presenter: header, rail, Cue timeline and Output Dock over one Engine.
 pub struct PresenterView {
+    /// Reports each render's cost; `None` outside the measurement labs.
+    render_probe: Option<RenderProbe>,
     snapshot: Arc<LoadedSnapshot>,
     engine: Engine,
     frames: PresenterFrames,
@@ -307,6 +329,7 @@ impl PresenterView {
     ) -> Self {
         let engine = Engine::new(Arc::new(snapshot.snapshot().clone()));
         let mut view = Self {
+            render_probe: None,
             frames: PresenterFrames::new(snapshot.clone()),
             snapshot,
             engine,
@@ -368,6 +391,11 @@ impl PresenterView {
 
     /// Where a Grid/List change is saved. Without one the choice lasts for
     /// the session.
+    /// Report every render's cost to `probe` (measurement labs only).
+    pub fn set_render_probe(&mut self, probe: RenderProbe) {
+        self.render_probe = Some(probe);
+    }
+
     pub fn set_save_preferences(&mut self, save: SavePreferences) {
         self.save_preferences = Some(save);
     }
@@ -1114,6 +1142,11 @@ impl PresenterView {
         cx.notify();
     }
 
+    /// Whether a group is folded.
+    pub fn group_collapsed(&self, group: usize) -> bool {
+        self.collapsed.contains(&group)
+    }
+
     /// Fold or unfold a group. View state only.
     pub fn toggle_group(&mut self, group: usize, cx: &mut Context<Self>) {
         if !self.collapsed.remove(&group) {
@@ -1333,6 +1366,25 @@ impl PresenterView {
 
 impl Render for PresenterView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let started = Instant::now();
+        let element = self.build_view(window, cx);
+        if let Some(probe) = &self.render_probe {
+            probe(RenderStat {
+                render: started.elapsed(),
+                composed: self.frames.composed_count(),
+                jobs_in_flight: self.frames.jobs_in_flight(),
+            });
+        }
+        element
+    }
+}
+
+impl PresenterView {
+    fn build_view(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         self.absorb_failures(cx);
         // A held frame may have become Ready since the last paint: drop a
         // timer that has nothing left to announce.
