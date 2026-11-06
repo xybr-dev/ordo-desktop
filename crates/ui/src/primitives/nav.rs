@@ -14,12 +14,7 @@ use gpui::{
 };
 use gpui_base::motion::transition;
 
-use crate::{
-    environment::UiEnvironment,
-    motion,
-    primitives::{button::TOOLTIP_SHOW_DELAY, button::tooltip_view, focus_visible},
-    tokens,
-};
+use crate::{environment::UiEnvironment, motion, primitives::focus_visible, tokens};
 
 /// The mockup's rail entry: at least one label tall, with its content centred.
 pub const ENTRY_MIN_HEIGHT: f32 = 54.0;
@@ -179,9 +174,7 @@ impl RenderOnce for NavEntry {
                 control.on_click(move |_, window, cx| activate(window, cx))
             })
             .when_some(tooltip, |control, tooltip| {
-                control
-                    .tooltip_show_delay(TOOLTIP_SHOW_DELAY)
-                    .tooltip(move |_, cx| tooltip_view(tooltip.clone(), environment, cx))
+                super::tooltip(control, tooltip, environment)
             })
             .flex()
             .flex_col()

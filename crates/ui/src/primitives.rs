@@ -13,9 +13,14 @@ pub mod nav;
 pub mod record;
 pub mod selection;
 
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
 use gpui::{
-    BoxShadow, IntoElement, ParentElement, SharedString, Styled, div, point, prelude::*, px, rgb,
-    svg,
+    Bounds, BoxShadow, IntoElement, ParentElement, Pixels, SharedString, Styled, canvas, div,
+    point, prelude::*, px, rgb, svg,
 };
 
 use crate::{environment::UiEnvironment, tokens};
@@ -113,15 +118,73 @@ pub fn focus_visible<E: gpui::InteractiveElement>(
 /// keyboard modality — see the truncation entry under **Pinned platform
 /// limitations** in `docs/qualification/GPUI-BASE-T0.3.md`. The full text still
 /// reaches AccessKit through the value's accessible name.
-pub fn truncated<E: gpui::StatefulInteractiveElement>(
+pub fn truncated<E: gpui::StatefulInteractiveElement + ParentElement>(
+    element: E,
+    text: impl Into<SharedString>,
+    environment: UiEnvironment,
+) -> E {
+    tooltip(element, text, environment)
+}
+
+/// Where a tooltip's source element was laid out on the frame being drawn.
+/// `None` once the tooltip has read it, so a source that was not drawn on a
+/// frame (scrolled out, folded away) reads as gone.
+pub(crate) type SourceBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
+
+/// The slot a tooltip builder reads its source's lasting record through.
+pub(crate) type SourceSlot = Rc<RefCell<Option<SourceBounds>>>;
+
+/// The one way Ordo attaches a tooltip: the shared look and show delay, and a
+/// guard against stale tooltips.
+///
+/// GPUI decides whether a tooltip is shown from where its element was when the
+/// pointer came to rest, and keeps those bounds while the tooltip waits and
+/// while it is up. When the content scrolls under a still pointer (the wheel
+/// during the delay, or the timeline following Preview), that old rectangle
+/// still holds the pointer, so the old element's text appears over whatever
+/// is there now. Upstream, a wheel event cancels a shown tooltip but not one
+/// still waiting.
+///
+/// So the element also records where it is on every frame, through an
+/// invisible layer, and the tooltip draws only while the pointer is over that
+/// current rectangle. GPUI still owns showing and hiding, so this can only
+/// ever suppress a tooltip, never add one. The record lives in element state,
+/// because GPUI keeps the builder from the frame the pointer came to rest and
+/// only state keyed to the element reaches that frame's closures.
+///
+/// ponytail: remove the guard once the pinned GPUI checks hover against the
+/// element's current bounds.
+pub fn tooltip<E: gpui::StatefulInteractiveElement + ParentElement>(
     element: E,
     text: impl Into<SharedString>,
     environment: UiEnvironment,
 ) -> E {
     let text = text.into();
+    // Filled in during this frame's prepaint with the element's lasting record.
+    let slot = SourceSlot::default();
     element
         .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
-        .tooltip(move |_, cx| button::tooltip_view(text.clone(), environment, cx))
+        .tooltip({
+            let slot = slot.clone();
+            move |_, cx| button::tooltip_view(text.clone(), Some(slot.clone()), environment, cx)
+        })
+        .child(
+            canvas(
+                move |bounds, window, cx| {
+                    let record = window
+                        .use_keyed_state("tooltip-source", cx, |_, _| SourceBounds::default())
+                        .read(cx)
+                        .clone();
+                    record.set(Some(bounds.intersect(&window.content_mask().bounds)));
+                    *slot.borrow_mut() = Some(record);
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
 }
 
 /// A persistent line of explanation beside a control: an icon, then the state

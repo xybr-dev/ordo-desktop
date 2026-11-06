@@ -337,9 +337,7 @@ impl Button {
                 control.on_click(move |_, window, cx| activate(window, cx))
             })
             .when_some(tooltip, |control, tooltip| {
-                control
-                    .tooltip_show_delay(TOOLTIP_SHOW_DELAY)
-                    .tooltip(move |_, cx| tooltip_view(tooltip.clone(), self.environment, cx))
+                super::tooltip(control, tooltip, self.environment)
             })
             .flex()
             .flex_row()
@@ -442,8 +440,11 @@ impl RenderOnce for Button {
     }
 }
 
+/// The tooltip's look. With `source`, it draws only while the pointer is over
+/// where its element is on this frame (see [`super::tooltip`]).
 pub(crate) fn tooltip_view(
     text: SharedString,
+    source: Option<super::SourceSlot>,
     environment: UiEnvironment,
     cx: &mut App,
 ) -> AnyView {
@@ -451,6 +452,7 @@ pub(crate) fn tooltip_view(
     let scale = environment.preferences().scale;
     cx.new(move |_| TooltipView {
         text: text.clone(),
+        source: source.clone(),
         palette,
         scale,
     })
@@ -459,12 +461,28 @@ pub(crate) fn tooltip_view(
 
 struct TooltipView {
     text: SharedString,
+    source: Option<super::SourceSlot>,
     palette: tokens::Palette,
     scale: crate::environment::InterfaceScale,
 }
 
-impl gpui::Render for TooltipView {
-    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+impl TooltipView {
+    /// Whether the pointer is over the source element as it was laid out on
+    /// this frame. The record is taken, so a frame that did not draw the
+    /// source leaves nothing behind for the next one to trust.
+    fn over_source(&self, window: &Window) -> bool {
+        let Some(source) = &self.source else {
+            return true;
+        };
+        let record = source.borrow().clone();
+        record
+            .and_then(|record| record.take())
+            .is_some_and(|bounds| bounds.contains(&window.mouse_position()))
+    }
+}
+
+impl TooltipView {
+    fn content(&self) -> gpui::Stateful<gpui::Div> {
         div()
             .id("control-tooltip")
             .role(gpui::Role::Tooltip)
@@ -482,13 +500,24 @@ impl gpui::Render for TooltipView {
     }
 }
 
+impl gpui::Render for TooltipView {
+    fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        // Nothing at all, not even an accessible node, for a stale tooltip.
+        if self.over_source(window) {
+            self.content().into_any_element()
+        } else {
+            div().into_any_element()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::environment::{ResolvedAppearance, UiPreferences};
     use gpui::{
         Context, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, Render, TestAppContext, accesskit,
-        canvas,
+        canvas, point,
     };
     use std::{
         cell::Cell,
@@ -534,17 +563,91 @@ mod tests {
         cx.simulate_event(KeyUpEvent { keystroke });
     }
 
+    /// Two buttons below a spacer whose height the test changes without any
+    /// pointer event, as a scroll under a resting pointer does.
+    struct Shifted {
+        shift: Rc<Cell<f32>>,
+    }
+
+    impl Render for Shifted {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(div().h(px(self.shift.get())))
+                .child(Button::new("first", "First", environment()).tooltip("First"))
+                .child(Button::new("second", "Second", environment()).tooltip("Second"))
+        }
+    }
+
+    fn shift(cx: &mut gpui::VisualTestContext, shift: &Cell<f32>, to: f32) {
+        shift.set(to);
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+
+    /// GPUI keeps the bounds an element had when the pointer came to rest;
+    /// Ordo's guard keeps a tooltip from outliving its element moving away.
+    #[gpui::test]
+    fn a_tooltip_never_outlives_its_element_moving_out_from_under_the_pointer(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init).unwrap();
+        let shifted = Rc::new(Cell::new(200.0));
+        let (_, cx) = cx.add_window_view({
+            let shift = shifted.clone();
+            move |_, _| Shifted { shift }
+        });
+        cx.run_until_parked();
+        let first = cx.debug_bounds("button-First").expect("renders").center();
+
+        // Shown, then the content moves away under the still pointer.
+        cx.simulate_mouse_move(first, None, Modifiers::default());
+        cx.executor().advance_clock(TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_some(),
+            "shown at rest"
+        );
+        shift(cx, &shifted, 0.0);
+        assert!(
+            cx.debug_bounds("control-tooltip").is_none(),
+            "a shown tooltip goes when its element moves away"
+        );
+
+        // Waiting to show when the content moves: it never appears.
+        shift(cx, &shifted, 200.0);
+        cx.simulate_mouse_move(first + point(px(1.0), px(0.0)), None, Modifiers::default());
+        cx.executor().advance_clock(TOOLTIP_SHOW_DELAY / 2);
+        shift(cx, &shifted, 0.0);
+        cx.executor().advance_clock(TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_none(),
+            "a waiting tooltip does not appear over what moved in"
+        );
+
+        // And the guard never stands in the way of the element now there.
+        let second = cx.debug_bounds("button-Second").expect("renders").center();
+        cx.simulate_mouse_move(second, None, Modifiers::default());
+        cx.executor().advance_clock(TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("control-tooltip").is_some());
+    }
+
     #[gpui::test]
     fn tooltip_node_exposes_its_full_name(cx: &mut gpui::TestAppContext) {
-        use gpui::{Element, Render};
+        use gpui::Element;
         let (view, cx) = cx.add_window_view(|_, _| TooltipView {
             text: "Open Inspector".into(),
+            source: None,
             palette: tokens::palette(environment().appearance()),
             scale: environment().preferences().scale,
         });
-        cx.update(|window, cx| {
-            view.update(cx, |view, cx| {
-                let element = view.render(window, cx).into_element();
+        cx.update(|_, cx| {
+            view.update(cx, |view, _| {
+                let element = view.content().into_element();
                 let mut node = gpui::accesskit::Node::new(element.a11y_role().unwrap());
                 element.write_a11y_info(&mut node);
                 assert_eq!(node.role(), gpui::Role::Tooltip);

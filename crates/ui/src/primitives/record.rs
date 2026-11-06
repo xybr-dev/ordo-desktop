@@ -13,11 +13,7 @@ use gpui::{
     Window, div, prelude::*, px, rgb, svg,
 };
 
-use crate::{
-    environment::UiEnvironment,
-    primitives::{button, focus_visible},
-    tokens,
-};
+use crate::{environment::UiEnvironment, primitives::focus_visible, tokens};
 
 type Activate = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -94,14 +90,12 @@ impl RenderOnce for RecordRow {
         let scale = self.environment.preferences().scale;
         let name = self.name.clone();
         let environment = self.environment;
-        let control = gpui_base::Button::new(self.id)
+        let control = super::tooltip(gpui_base::Button::new(self.id), name.clone(), environment)
             .debug_selector({
                 let name = name.clone();
                 move || format!("record-{name}")
             })
             .accessibility_label(name.clone())
-            .tooltip_show_delay(button::TOOLTIP_SHOW_DELAY)
-            .tooltip(move |_, cx| button::tooltip_view(name.clone(), environment, cx))
             .when_some(self.on_activate, |row, activate| {
                 row.on_click(move |_, window, cx| activate(window, cx))
             })
