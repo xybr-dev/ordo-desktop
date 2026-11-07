@@ -914,11 +914,17 @@ keeping congregation exposure deliberate and fail-closed.
       second audited `unsafe` module, so a decision amending Decision 269 is
       accepted first and `cargo xtask verify` allows exactly the two named
       modules. Scope, blast radius, and rejected alternatives: issue #81.
-- [ ] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
+- [x] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
       and recovery work in packaged Windows builds.
+      (Reviewed on `8db612c`, dev PC, 2026-11-07. The cursor locator is verified; the
+      pointer hiding over the congregation window lands in #131 with its own manual
+      check.)
 - [ ] `[MANUAL]` On the church projector's real cabling (including any
       extender or switch), unplugging and replugging it is recognized as the
       same display, and a different display is refused.
+      (Deferred: same-display replug passes on the dev PC with an external
+      monitor; the church cabling is #129 and the different-display refusal is
+      #133.)
 
 **E2E** `[UI-AUTO]` — Enter Presenter from a fixture host, rehearse with no
 output window, enable fake output, take a Cue live, attempt exit and cancel,
