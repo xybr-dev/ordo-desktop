@@ -154,12 +154,19 @@ Keep the window on screen and unoccluded while it runs (about 45 s).
 
 ## After timeline virtualisation (step 3)
 
-The timeline now lays out only the groups within one viewport of the visible
-span, plus the Preview and Program groups; every other open group is one spacer
-`div` of exactly its height. The height is computed by the layout model, per
+The timeline now lays out only the groups within one timeline height (its own
+bounds, not the window's) of the visible span, plus the Preview and Program
+groups; every other open group is one spacer `div` of exactly its height. A
+group that is folding or unfolding counts at the height it has on screen at
+that moment, so the groups below it stay laid out while it moves. The height is computed by the layout model, per
 authored length rounded to device pixels as GPUI rounds them, so a spacer and
 the group it replaces are the same height to the device pixel and nothing moves
 when one swaps for the other. Every group is still one child at its own index.
+Accessibility: a group away from the viewport is a spacer, so its header (the
+Expand or Collapse button) is not in the accessibility tree until the group
+comes near the viewport. Screen-reader users reach any group through the
+timeline's active-descendant name; whether that is enough is an open decision
+for the owner.
 Measured on 2026-11-07 with the same release lab and monitor (75 Hz, 13.3 ms),
 the same 16-process matrix, now with real window sizes (1366x768 and 1920x1048
 viewport). Raw documents were kept outside the repository.
