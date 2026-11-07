@@ -8,6 +8,8 @@ use gpui::{
 
 struct Region {
     focus: FocusHandle,
+    /// Created by `region` (true) or adopted from the caller (false).
+    owned: bool,
     remembered: Rc<RefCell<Option<WeakFocusHandle>>>,
     _subscription: Subscription,
 }
@@ -35,20 +37,14 @@ impl RegionRegistry {
         cx: &mut App,
     ) -> gpui::Stateful<gpui::Div> {
         let name = name.into();
-        let region = self.regions.entry(name.clone()).or_insert_with(|| {
-            let focus = cx.focus_handle();
-            let remembered = Rc::new(RefCell::new(None));
-            let saved = remembered.clone();
-            let container = focus.downgrade();
-            let subscription = window.on_focus_out(&focus, cx, move |event, _, _| {
-                *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
-            });
-            Region {
-                focus,
-                remembered,
-                _subscription: subscription,
-            }
-        });
+        let region = self
+            .regions
+            .entry(name.clone())
+            .or_insert_with(|| new_region(cx.focus_handle(), true, window, cx));
+        debug_assert!(
+            region.owned,
+            "region name already adopted, not created: {name}"
+        );
         debug_assert!(
             self.visible.iter().all(|(focus, _)| focus != &region.focus),
             "duplicate region name: {name}"
@@ -56,6 +52,43 @@ impl RegionRegistry {
         self.visible
             .push((region.focus.clone(), region.remembered.clone()));
         region_container(name, &region.focus)
+    }
+
+    /// Gives a region the next place in the cycle using a focus handle the
+    /// caller already tracks on its own element, instead of a container this
+    /// registry creates. For a view that owns its handles and key policy (the
+    /// Presenter). The caller labels the element itself with [`label_region`].
+    /// The handle must be tracked on a descendant of [`RegionRegistry::root`]'s
+    /// element, or F6 cannot reach the cycle from inside it. A handle that
+    /// replaces an earlier one under the same name starts with no remembered
+    /// target. Do not use one name with both `region` and `adopt`.
+    pub fn adopt(
+        &mut self,
+        name: impl Into<SharedString>,
+        focus: &FocusHandle,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let name = name.into();
+        if let Some(existing) = self.regions.get(&name) {
+            debug_assert!(
+                !existing.owned,
+                "region name already created, not adopted: {name}"
+            );
+            if &existing.focus != focus {
+                self.regions.remove(&name);
+            }
+        }
+        let region = self
+            .regions
+            .entry(name.clone())
+            .or_insert_with(|| new_region(focus.clone(), false, window, cx));
+        debug_assert!(
+            self.visible.iter().all(|(focus, _)| focus != &region.focus),
+            "duplicate region name: {name}"
+        );
+        self.visible
+            .push((region.focus.clone(), region.remembered.clone()));
     }
 
     /// The root for the regions wrapped since the last call, which it must
@@ -100,10 +133,33 @@ impl RegionRegistry {
     }
 }
 
+fn new_region(focus: FocusHandle, owned: bool, window: &mut Window, cx: &mut App) -> Region {
+    let remembered = Rc::new(RefCell::new(None));
+    let saved = remembered.clone();
+    let container = focus.downgrade();
+    let subscription = window.on_focus_out(&focus, cx, move |event, _, _| {
+        *saved.borrow_mut() = Some(event.blurred).filter(|target| target != &container);
+    });
+    Region {
+        focus,
+        owned,
+        remembered,
+        _subscription: subscription,
+    }
+}
+
 fn region_container(name: SharedString, focus: &FocusHandle) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(name.clone())
-        .track_focus(focus)
+    label_region(div().id(name.clone()).track_focus(focus), name)
+}
+
+/// The accessible identity of an F6 region: a region role, its fixed visible
+/// name, and the keys that move between regions. [`RegionRegistry::region`]
+/// applies it itself; apply it to the element that tracks an adopted handle.
+pub fn label_region<E: gpui::StatefulInteractiveElement>(
+    element: E,
+    name: impl Into<SharedString>,
+) -> E {
+    element
         .role(gpui::Role::Region)
         .aria_label(name)
         .aria_keyshortcuts("F6 Shift+F6")
@@ -406,6 +462,19 @@ mod tests {
             assert_eq!(node.role(), Role::Region);
             assert_eq!(node.label(), Some("Main editor"));
             assert_eq!(node.keyboard_shortcut(), Some("F6 Shift+F6"));
+        });
+    }
+
+    #[gpui::test]
+    fn a_labelled_adopted_region_has_the_same_node(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let element = label_region(div().id("Cue timeline"), "Cue timeline");
+            let mut node = Node::new(element.a11y_role().unwrap());
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.role(), Role::Region);
+            assert_eq!(node.label(), Some("Cue timeline"));
+            assert_eq!(node.keyboard_shortcut(), Some("F6 Shift+F6"));
+            let _ = cx;
         });
     }
 }

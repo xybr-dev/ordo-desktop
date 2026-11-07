@@ -28,6 +28,7 @@ use gpui::{
     Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use ui::{
+    accessibility::label_region,
     assets::icon,
     environment::UiEnvironment,
     motion::{self, Entrance},
@@ -57,6 +58,8 @@ pub struct RailItem {
     pub title: SharedString,
     /// The item that owns the Preview Cue.
     pub current: bool,
+    /// The keyboard cursor is here (only while the rail has focus).
+    pub cursor: bool,
 }
 
 /// One of the Mass sections.
@@ -93,14 +96,12 @@ pub struct Handlers {
 /// Where and how the panel is drawn.
 pub struct Placement<'a> {
     pub width: f32,
-    /// In the overlay: adds the close button and Escape handling.
+    /// In the overlay: adds the close button. Escape is owned by the Presenter's
+    /// surface stack, not the panel.
     pub overlay: bool,
     /// The handle tracking focus inside the panel, so the owner can tell
     /// when the rail has focus and move focus to it when the overlay opens.
     pub focus: Option<&'a FocusHandle>,
-    /// Whether Escape, heard while focus is inside the panel, closes it. True
-    /// for the overlay only: a pinned rail never collapses.
-    pub closes_on_escape: bool,
 }
 
 /// The rail panel: header, then the sections and their items in a scrolling
@@ -118,7 +119,6 @@ pub fn panel(
         width,
         overlay,
         focus,
-        closes_on_escape,
     } = placement;
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
@@ -215,17 +215,8 @@ pub fn panel(
         } else {
             palette.border
         }))
-        .when_some(focus, |panel, focus| panel.track_focus(focus))
-        .when(closes_on_escape, |panel| {
-            panel.on_key_down({
-                let close = handlers.close.clone();
-                move |event, window, cx| {
-                    if event.keystroke.key == "escape" {
-                        close(window, cx);
-                        cx.stop_propagation();
-                    }
-                }
-            })
+        .when_some(focus, |panel, focus| {
+            label_region(panel.track_focus(focus), super::RAIL_REGION)
         })
         .child(header)
         .child(
@@ -277,6 +268,17 @@ fn item_row(item: RailItem, handlers: &Handlers, environment: UiEnvironment) -> 
         .role(Role::Button)
         .aria_label(name.clone())
         .on_click(move |_, window, cx| jump(index, window, cx))
+        .when(item.cursor, |row| row.aria_selected(true))
+        // The keyboard cursor: the focus ring drawn inside the row, so the
+        // rows never shift as it moves.
+        .children(item.cursor.then(|| {
+            div()
+                .debug_selector(move || format!("rail-item-{index}-cursor"))
+                .absolute()
+                .inset_0()
+                .border(px(tokens::border::FOCUS_OUTER))
+                .border_color(rgb(palette.focus))
+        }))
         // The current item's neutral leading bar (Decision 295), so the mark
         // is a shape and not a fill alone.
         .children(item.current.then(|| {
