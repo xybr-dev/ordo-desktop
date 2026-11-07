@@ -8,11 +8,13 @@ tags: [storage]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [314]
 sources: []
 ---
 
 # Interrupted-session recovery
+
+> **Amended by Decision [314](0314-compact-recovery-journal-v2.md).** The journal is a compact state record (`recovery-journal` v2), written on a worker; stale, torn and mismatched records are rejected.
 
 - During presentation, Ordo continuously journals the active Mass, selected cue, Program frame, Preview frame, Freeze/Blackout/Live state, and emergency inserts/overrides.
 - After an unexpected termination, Ordo immediately reopens the interrupted Mass in Presenter Mode and restores whether congregation output had been enabled.

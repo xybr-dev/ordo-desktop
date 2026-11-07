@@ -43,7 +43,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0011](0011-program-preview-freeze-and-blackout-semantics.md) | Program, Preview, Freeze, and Blackout semantics | accepted, amended by [0169](0169-inspector-navigation-follows-the-selected-mass-item-s-cue.md), [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 | presenter |
 | [0012](0012-safe-live-operations.md) | Safe live operations | accepted, amended by [0273](0273-f-and-b-toggle-and-releasing-either-takes-preview-live.md) | 2026-08-29 |  |
 | [0013](0013-mvp-permissions.md) | MVP permissions | accepted | 2026-08-29 |  |
-| [0014](0014-interrupted-session-recovery.md) | Interrupted-session recovery | accepted | 2026-08-29 | storage |
+| [0014](0014-interrupted-session-recovery.md) | Interrupted-session recovery | accepted, amended by [0314](0314-compact-recovery-journal-v2.md) | 2026-08-29 | storage |
 | [0015](0015-emergency-powerpoint-export.md) | Emergency PowerPoint export | accepted | 2026-08-29 | transfer |
 | [0016](0016-structured-song-import-boundary.md) | Structured song import boundary | accepted | 2026-08-29 | songs, transfer |
 | [0017](0017-local-storage-and-portable-transfer.md) | Local storage and portable transfer | accepted, amended by [0180](0180-celebration-scoped-portable-transfer.md), [0268](0268-make-ordo-windows-only-for-the-mvp-and-defer-linux.md) | 2026-08-29 | storage, transfer |
@@ -343,5 +343,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0311](0311-presentation-snapshot-manifest-v2-in-json.md) | Presentation snapshot manifest v2 in JSON | accepted | 2026-11-04 | presentation, contracts, snapshot |
 | [0312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md) | Allow a second audited unsafe module for monitor identity | accepted | 2026-11-07 | platform, display |
 | [0313](0313-hide-the-pointer-over-the-congregation-window.md) | Hide the pointer over the congregation window | accepted | 2026-11-07 | display, gpui, presenter |
+| [0314](0314-compact-recovery-journal-v2.md) | Compact recovery journal v2 | accepted | 2026-11-07 | presenter, storage, contracts |
 
 <!-- adr-index:end -->
