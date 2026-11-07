@@ -8,6 +8,7 @@
 mod control;
 pub mod gpui_adapter;
 mod in_memory;
+pub mod monitor_identity;
 mod output_controller;
 
 pub use control::{
@@ -592,6 +593,70 @@ mod tests {
         assert_eq!(
             PlacementBounds::from(DisplayBounds::new(-1280, 0, 1280, 720)),
             PlacementBounds::new(-1280.0, 0.0, 1280.0, 720.0)
+        );
+    }
+
+    fn two_display_topology(congregation: DetectedDisplay) -> Topology {
+        Topology::new(
+            vec![display(1, 0, 0, 1920, 1080), congregation],
+            Some(DisplayId::new(1)),
+        )
+    }
+
+    #[test]
+    fn same_resolution_and_same_monitor_name_is_recognized() {
+        let saved = named(display(2, 1920, 0, 1920, 1080), "Epson (EPS/0x0123)", None).evidence;
+        let topology = two_display_topology(named(
+            display(9, 1920, 0, 1920, 1080),
+            "Epson (EPS/0x0123)",
+            None,
+        ));
+        assert_eq!(
+            recognize(&saved, &topology),
+            Recognition::Recognized(DisplayId::new(9))
+        );
+    }
+
+    #[test]
+    fn same_resolution_but_a_different_monitor_name_is_refused() {
+        let saved = named(display(2, 1920, 0, 1920, 1080), "Epson (EPS/0x0123)", None).evidence;
+        let topology = two_display_topology(named(
+            display(9, 1920, 0, 1920, 1080),
+            "Sony TV (SNY/0x0456)",
+            None,
+        ));
+        assert_eq!(recognize(&saved, &topology), Recognition::Missing);
+    }
+
+    #[test]
+    fn unnamed_on_both_sides_falls_back_to_the_resolution_rule() {
+        let saved = display(2, 1920, 0, 1920, 1080).evidence;
+        let topology = two_display_topology(display(9, 1920, 0, 1920, 1080));
+        assert_eq!(
+            recognize(&saved, &topology),
+            Recognition::Recognized(DisplayId::new(9))
+        );
+    }
+
+    #[test]
+    fn a_saved_name_is_refused_when_the_reading_has_no_name() {
+        // `identifies` requires a saved name to be confirmed, and an unnamed
+        // display cannot confirm it, so a failed or generic reading refuses
+        // rather than guesses. The reverse (unnamed save, named reading)
+        // still recognizes by resolution.
+        let saved = named(display(2, 1920, 0, 1920, 1080), "Epson (EPS/0x0123)", None).evidence;
+        let unnamed = two_display_topology(display(9, 1920, 0, 1920, 1080));
+        assert_eq!(recognize(&saved, &unnamed), Recognition::Missing);
+
+        let saved_unnamed = display(2, 1920, 0, 1920, 1080).evidence;
+        let named_now = two_display_topology(named(
+            display(9, 1920, 0, 1920, 1080),
+            "Epson (EPS/0x0123)",
+            None,
+        ));
+        assert_eq!(
+            recognize(&saved_unnamed, &named_now),
+            Recognition::Recognized(DisplayId::new(9))
         );
     }
 

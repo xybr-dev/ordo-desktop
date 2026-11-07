@@ -9,12 +9,14 @@
 //! Logical bounds are fractional at scales such as 150%. They are kept exact
 //! in [`PlacementBounds`] for placing windows, and only rounded for evidence.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{App, Bounds, Pixels, PlatformDisplay, point, px, size};
 
 use super::{
     DetectedDisplay, DisplayAdapter, DisplayEvidence, DisplayId, PlacementBounds, Topology,
+    monitor_identity,
 };
 
 impl From<gpui::DisplayId> for DisplayId {
@@ -57,14 +59,25 @@ pub fn topology_from_gpui(cx: &App, operator: Option<gpui::DisplayId>) -> Topolo
 }
 
 /// Translates platform displays, for callers holding a `Platform` directly.
+/// Monitor names are read from the OS here, once per topology read.
 pub fn topology_from_displays(
     displays: &[Rc<dyn PlatformDisplay>],
     operator: Option<gpui::DisplayId>,
 ) -> Topology {
+    topology_with_names(displays, operator, &monitor_identity::read())
+}
+
+/// [`topology_from_displays`] with monitor names supplied, keyed by display
+/// uuid string. A display whose uuid has no entry carries no name.
+pub fn topology_with_names(
+    displays: &[Rc<dyn PlatformDisplay>],
+    operator: Option<gpui::DisplayId>,
+    names: &HashMap<String, String>,
+) -> Topology {
     Topology::new(
         displays
             .iter()
-            .map(|display| detected(display.id(), display.uuid().ok(), display.bounds()))
+            .map(|display| detected(display.id(), display.uuid().ok(), display.bounds(), names))
             .collect(),
         operator.map(DisplayId::from),
     )
@@ -137,13 +150,15 @@ fn detected(
     id: gpui::DisplayId,
     uuid: Option<impl ToString>,
     bounds: Bounds<Pixels>,
+    names: &HashMap<String, String>,
 ) -> DetectedDisplay {
     let placement = PlacementBounds::from(bounds);
+    let uuid = uuid.map(|uuid| uuid.to_string());
     DetectedDisplay {
         id: id.into(),
         evidence: DisplayEvidence {
-            name: None,
-            uuid: uuid.map(|uuid| uuid.to_string()),
+            name: uuid.as_ref().and_then(|uuid| names.get(uuid)).cloned(),
+            uuid,
             bounds: placement.rounded(),
         },
         placement,
@@ -312,7 +327,12 @@ mod tests {
     #[test]
     fn translation_keeps_uuid_placement_and_has_no_name() {
         let placement = PlacementBounds::new(0.0, 0.0, 1920.0, 1080.0);
-        let display = detected(gpui::DisplayId::new(7), Some("abc"), placement.into());
+        let display = detected(
+            gpui::DisplayId::new(7),
+            Some("abc"),
+            placement.into(),
+            &HashMap::new(),
+        );
         assert_eq!(display.id, DisplayId::new(7));
         assert_eq!(display.evidence.uuid.as_deref(), Some("abc"));
         assert_eq!(display.evidence.name, None);
@@ -321,5 +341,23 @@ mod tests {
             DisplayBounds::new(0, 0, 1920, 1080)
         );
         assert_eq!(display.placement, placement);
+    }
+
+    #[test]
+    fn monitor_name_is_filled_from_the_map_by_uuid() {
+        let names = HashMap::from([
+            ("abc".to_owned(), "EPSON PJ (EPS/0x0123)".to_owned()),
+            ("other".to_owned(), "Elsewhere".to_owned()),
+        ]);
+        let bounds: Bounds<Pixels> = PlacementBounds::new(0.0, 0.0, 1920.0, 1080.0).into();
+        let known = detected(gpui::DisplayId::new(1), Some("abc"), bounds, &names);
+        assert_eq!(
+            known.evidence.name.as_deref(),
+            Some("EPSON PJ (EPS/0x0123)")
+        );
+        let unknown = detected(gpui::DisplayId::new(2), Some("zzz"), bounds, &names);
+        assert_eq!(unknown.evidence.name, None);
+        let no_uuid = detected(gpui::DisplayId::new(3), None::<&str>, bounds, &names);
+        assert_eq!(no_uuid.evidence.name, None);
     }
 }
