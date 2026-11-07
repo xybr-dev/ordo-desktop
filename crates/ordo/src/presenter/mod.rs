@@ -1418,6 +1418,21 @@ impl Render for PresenterView {
                     .ok();
             })
         };
+        // The header entry is a place to click, not to work: closing the
+        // panel returns focus to the Cues, as Grid/List does, not to the
+        // header button where the arrows and `O` do nothing.
+        let on_open_reference_from_header: rail::OnPress = {
+            let view = view.clone();
+            Rc::new(move |window, cx| {
+                view.update(cx, |view, cx| {
+                    if !view.reference_open() {
+                        view.timeline_focus.focus(window, cx);
+                    }
+                    view.open_reference(window, cx);
+                })
+                .ok();
+            })
+        };
         // The rail is on screen already when pinned, so a stale open overlay
         // (the window grew, or the rail was pinned) is dropped, not kept for
         // the next unpin to resurrect.
@@ -1601,7 +1616,7 @@ impl Render for PresenterView {
                 environment,
             },
             on_cue_view,
-            on_open_reference,
+            on_open_reference_from_header,
         );
 
         let auto_play_height = match layout.dock {
@@ -3336,10 +3351,10 @@ mod tests {
         bind_registry_keys(cx);
         open.view
             .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
-        // Closing restores the control that was focused when it opened: the
-        // header button, then the rail's.
+        // Closing from the header returns to the Cues (the header button is
+        // no place for the keys); from the rail footer, to the rail.
         for (selector, back) in [
-            ("header-shortcuts", FocusContext::Elsewhere),
+            ("header-shortcuts", FocusContext::Timeline),
             ("rail-shortcuts", FocusContext::Rail),
         ] {
             click(cx, selector);
@@ -3355,6 +3370,27 @@ mod tests {
         }
         // The footer also shows the `O` binding, from the registry.
         assert!(present(cx, "rail-focus-hint"));
+    }
+
+    /// Opened from the header and closed with the mouse or `Esc`, the panel
+    /// leaves the arrows working on the Cues.
+    #[gpui::test]
+    fn the_header_entry_returns_the_keys_to_the_cues(cx: &mut TestAppContext) {
+        for close in ["shortcut-reference-close", "escape"] {
+            let (open, cx) = open(cx, SIZES[1]);
+            bind_registry_keys(cx);
+            click(cx, "header-shortcuts");
+            assert!(reference_open(&open, cx), "{close}");
+            if close == "escape" {
+                press_keys(cx, "escape");
+            } else {
+                click(cx, close);
+            }
+            assert!(!reference_open(&open, cx), "{close}");
+            let before = preview_index(&open, cx);
+            press_keys(cx, "right");
+            assert_eq!(preview_index(&open, cx), before + 1, "{close}");
+        }
     }
 
     #[gpui::test]
