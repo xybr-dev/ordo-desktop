@@ -91,6 +91,8 @@ pub struct Handlers {
     pub jump: OnJump,
     pub toggle_pin: OnPress,
     pub close: OnPress,
+    /// The footer's Keyboard shortcuts control.
+    pub open_reference: OnPress,
 }
 
 /// Where and how the panel is drawn.
@@ -233,8 +235,55 @@ pub fn panel(
                         .children(body),
                 )
                 .children(scroll.indicator("rail", 0.0, window, cx, environment)),
-        );
+        )
+        .child(footer(handlers, environment));
     panel.into_any_element()
+}
+
+/// The footer: the `O` binding that opened the rail (Decision 66) and the
+/// labeled Keyboard shortcuts entry (Decision 232). The binding's keycap text
+/// comes from the registry, so it cannot drift.
+fn footer(handlers: &Handlers, environment: UiEnvironment) -> AnyElement {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    let open_reference = handlers.open_reference.clone();
+    div()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .p(px(scale.apply(tokens::spacing::RELATED)))
+        .border_t(px(tokens::border::SEPARATOR))
+        .border_color(rgb(palette.border))
+        .child(
+            div()
+                .debug_selector(|| "rail-focus-hint".into())
+                .truncate()
+                .text_color(rgb(palette.text_muted))
+                .text_size(px(scale.apply(tokens::typography::META.size)))
+                .child(format!(
+                    "{} \u{b7} Focus Ordo",
+                    crate::commands::registry::entry_for(
+                        crate::commands::registry::CommandId::OpenOrdo
+                    )
+                    .keycaps
+                )),
+        )
+        .child(
+            div().debug_selector(|| "rail-shortcuts".into()).child(
+                Button::new(
+                    "rail-keyboard-shortcuts",
+                    crate::shortcut_reference::TITLE,
+                    environment,
+                )
+                .quiet()
+                .stretch()
+                .truncate()
+                .on_surface(palette.surface)
+                .on_activate(move |window, cx| open_reference(window, cx)),
+            ),
+        )
+        .into_any_element()
 }
 
 fn item_row(item: RailItem, handlers: &Handlers, environment: UiEnvironment) -> AnyElement {

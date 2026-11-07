@@ -182,6 +182,116 @@ pub struct CueModel {
     pub unavailable: Option<SharedString>,
     pub air: Option<Air>,
     pub preview: bool,
+    /// How many Cues the Mass has, for "Cue 12 of 48".
+    pub total: usize,
+    /// The Mass item the Cue belongs to.
+    pub item_title: SharedString,
+    /// Text only the operator may read (a trigger's phrase, what a Wait is
+    /// for). It reaches the operator's accessible description and nothing
+    /// else: it is never drawn on a tile, never in a tooltip, never in a
+    /// frame.
+    pub private_context: Option<SharedString>,
+}
+
+/// The accessible name of a Cue tile or row, operator side only.
+///
+/// It leads with the position ("Cue 12 of 48"), then the Mass item and the
+/// Cue's number, then what the Cue does: "Project" for a frame, and for the
+/// operator-only kinds their behaviour (Trigger and Hold give black output,
+/// Wait leaves Program unchanged), then the Program and Preview markers. The
+/// operator-only private context is never part of the name: it is the
+/// description ([`cue_accessible_description`]), which assistive technology
+/// announces after the name (`DESIGN.md`, Assistive Semantics). Pure and
+/// Engine-free.
+///
+/// Congregation boundary: this lives in the `ordo` presenter module, and the
+/// `rendering` crate (which composes everything the congregation output
+/// draws) cannot depend on `ordo`, so it can never read this text or the
+/// private context it carries.
+pub fn cue_accessible_name(cue: &CueModel) -> SharedString {
+    let mut name = format!(
+        "Cue {} of {}, {} {}: ",
+        cue.flat + 1,
+        cue.total,
+        cue.number,
+        cue.item_title
+    );
+    match (&cue.unavailable, cue.kind) {
+        (Some(reason), _) => {
+            name.push_str(&format!(
+                "Unavailable, {}, cannot go live: {reason}",
+                cue.label
+            ));
+        }
+        (None, CueKind::Slide) => name.push_str(&format!("Project, {}", cue.label)),
+        (None, CueKind::Trigger) => {
+            name.push_str(&format!("Trigger, {}, black output", cue.label));
+        }
+        (None, CueKind::Wait) => {
+            name.push_str(&format!("Wait, {}, Program unchanged", cue.label));
+        }
+        (None, CueKind::Hold) => {
+            name.push_str(&format!("Hold, {}, black output", cue.label));
+        }
+        (None, CueKind::Unavailable) => {
+            name.push_str(&format!("Unavailable, {}, cannot go live", cue.label));
+        }
+    }
+    match cue.air {
+        Some(Air::Program) => name.push_str(", Program"),
+        Some(Air::Held) => name.push_str(", Held"),
+        None => {}
+    }
+    if cue.preview {
+        name.push_str(", Preview");
+    }
+    name.into()
+}
+
+/// The accessible description of a Cue: its operator-only private context in
+/// full (a trigger's phrase, what a Wait is for), or none. Operator side only,
+/// like the name; never drawn, never a tooltip, never in a frame.
+pub fn cue_accessible_description(cue: &CueModel) -> Option<SharedString> {
+    cue.private_context
+        .as_ref()
+        .filter(|context| !context.trim().is_empty())
+        .cloned()
+}
+
+/// What a Cue tile or row tells assistive technology: one value the renderer
+/// applies and the tests read, so the two cannot differ.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CueSemantics {
+    pub name: SharedString,
+    pub description: Option<SharedString>,
+    /// Whether this is the Preview Cue (`aria-selected`).
+    pub selected: bool,
+    /// Whether the timeline, which keeps keyboard focus, reports this Cue as
+    /// its active descendant: the Preview Cue.
+    pub active_descendant: bool,
+}
+
+pub fn cue_semantics(cue: &CueModel) -> CueSemantics {
+    CueSemantics {
+        name: cue_accessible_name(cue),
+        description: cue_accessible_description(cue),
+        selected: cue.preview,
+        active_descendant: cue.preview,
+    }
+}
+
+/// The Cue (flat index) the timeline reports as its active descendant: the
+/// Preview Cue, when its group is open. A folded group draws no Cue and so no
+/// node; GPUI then leaves the timeline container itself as the focused node, so
+/// nothing dangles.
+pub fn active_descendant(model: &TimelineModel) -> Option<usize> {
+    model
+        .groups
+        .iter()
+        .filter(|group| !group.collapsed)
+        .flat_map(|group| &group.cues)
+        .find(|cue| cue_semantics(cue).active_descendant)
+        .map(|cue| cue.flat)
 }
 
 impl CueModel {
@@ -193,7 +303,8 @@ impl CueModel {
         }
     }
 
-    /// The full accessible name: number, caption and every indicator.
+    /// The full visible text of a tile: number, caption and every indicator.
+    /// It is the hover text. The accessible name is [`cue_accessible_name`].
     fn name(&self) -> SharedString {
         let mut name = format!("{} {}", self.number, self.caption());
         match self.air {
@@ -681,6 +792,7 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .children(indicators(&cue, environment));
 
     let name = cue.name();
+    let semantics = cue_semantics(&cue);
     let go_to = handlers.go_to.clone();
     let tile = div()
         .id(("cue", flat))
@@ -693,7 +805,16 @@ fn tile(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .flex_col()
         .cursor_pointer()
         .role(Role::Button)
-        .aria_label(name.clone())
+        .aria_label(semantics.name)
+        .aria_selected(semantics.selected)
+        .when_some(semantics.description, |tile, text| {
+            tile.aria_description(text)
+        })
+        // Focus stays on the timeline as one tab stop; assistive technology
+        // hears the Preview Cue as the focused item.
+        .when(semantics.active_descendant, |tile| {
+            tile.aria_active_descendant()
+        })
         .on_click(move |_, window, cx| go_to(flat, window, cx))
         .child(wrap)
         .child(bar)
@@ -774,6 +895,7 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
             .into_any_element(),
     };
     let name = cue.name();
+    let semantics = cue_semantics(&cue);
     let go_to = handlers.go_to.clone();
     let row = div()
         .id(("cue", flat))
@@ -796,7 +918,14 @@ fn row(cue: CueModel, g: &Geometry, handlers: &Handlers) -> AnyElement {
         .hover(|style| style.bg(rgb(palette.surface_secondary)))
         .cursor_pointer()
         .role(Role::Button)
-        .aria_label(name.clone())
+        .aria_label(semantics.name)
+        .aria_selected(semantics.selected)
+        .when_some(semantics.description, |row, text| {
+            row.aria_description(text)
+        })
+        .when(semantics.active_descendant, |row| {
+            row.aria_active_descendant()
+        })
         .on_click(move |_, window, cx| go_to(flat, window, cx))
         .child(
             // A fixed column, so the thumbnails and markers line up whether
@@ -1093,18 +1222,30 @@ mod tests {
         }
     }
 
+    fn cue(flat: usize, kind: CueKind) -> CueModel {
+        CueModel {
+            flat,
+            number: format!("2.{}", flat + 1).into(),
+            label: "Verse".into(),
+            kind,
+            frame: None,
+            image: None,
+            unavailable: None,
+            air: None,
+            preview: false,
+            total: 48,
+            item_title: "Gloria".into(),
+            private_context: None,
+        }
+    }
+
     #[test]
     fn a_caption_names_the_reason_and_every_indicator() {
         let cue = CueModel {
-            flat: 3,
-            number: "2.1".into(),
-            label: "Verse".into(),
-            kind: CueKind::Unavailable,
-            frame: None,
-            image: None,
             unavailable: Some("the frame could not be prepared".into()),
             air: Some(Air::Held),
             preview: true,
+            ..cue(3, CueKind::Unavailable)
         };
         assert_eq!(
             cue.caption(),
@@ -1112,7 +1253,130 @@ mod tests {
         );
         assert_eq!(
             cue.name(),
-            "2.1 Unavailable \u{b7} the frame could not be prepared, Held, Preview"
+            "2.4 Unavailable \u{b7} the frame could not be prepared, Held, Preview"
         );
+    }
+
+    #[test]
+    fn a_project_cue_is_named_by_position_item_and_what_it_projects() {
+        let mut slide = cue(11, CueKind::Slide);
+        slide.preview = true;
+        slide.air = Some(Air::Program);
+        assert_eq!(
+            cue_accessible_name(&slide),
+            "Cue 12 of 48, 2.12 Gloria: Project, Verse, Program, Preview"
+        );
+    }
+
+    #[test]
+    fn the_first_and_last_cue_carry_their_position() {
+        let first = cue(0, CueKind::Slide);
+        assert!(cue_accessible_name(&first).starts_with("Cue 1 of 48, "));
+        let last = cue(47, CueKind::Slide);
+        assert!(cue_accessible_name(&last).starts_with("Cue 48 of 48, "));
+    }
+
+    #[test]
+    fn wait_hold_and_trigger_cues_name_their_behaviour_without_the_private_context() {
+        let mut wait = cue(4, CueKind::Wait);
+        wait.private_context = Some("Priest incenses the altar".into());
+        assert_eq!(
+            cue_accessible_name(&wait),
+            "Cue 5 of 48, 2.5 Gloria: Wait, Verse, Program unchanged"
+        );
+        let hold = cue(5, CueKind::Hold);
+        assert_eq!(
+            cue_accessible_name(&hold),
+            "Cue 6 of 48, 2.6 Gloria: Hold, Verse, black output"
+        );
+        let mut trigger = cue(6, CueKind::Trigger);
+        trigger.private_context = Some("Let us proclaim the mystery of faith".into());
+        assert_eq!(
+            cue_accessible_name(&trigger),
+            "Cue 7 of 48, 2.7 Gloria: Trigger, Verse, black output"
+        );
+        assert_eq!(
+            cue_accessible_description(&trigger).as_deref(),
+            Some("Let us proclaim the mystery of faith")
+        );
+    }
+
+    #[test]
+    fn an_unavailable_cue_says_why_it_cannot_go_live() {
+        let mut unavailable = cue(2, CueKind::Unavailable);
+        unavailable.unavailable = Some("the frame could not be prepared".into());
+        assert_eq!(
+            cue_accessible_name(&unavailable),
+            "Cue 3 of 48, 2.3 Gloria: Unavailable, Verse, cannot go live: the frame could not be prepared"
+        );
+    }
+
+    /// Private context is for the operator's description alone: not in the
+    /// name, the visible caption or the hover text, and never cut.
+    #[test]
+    fn private_context_appears_only_in_the_operator_description() {
+        let secret = "Quietly ask the sacristan about the candles";
+        let mut wait = cue(4, CueKind::Wait);
+        assert_eq!(cue_accessible_description(&wait), None);
+        wait.private_context = Some(secret.into());
+        assert_eq!(cue_accessible_description(&wait).as_deref(), Some(secret));
+        assert!(!cue_accessible_name(&wait).contains(secret));
+        assert!(!wait.caption().contains(secret));
+        assert!(!wait.name().contains(secret));
+
+        let long = "word ".repeat(40);
+        wait.private_context = Some(long.clone().into());
+        assert_eq!(
+            cue_accessible_description(&wait).as_deref(),
+            Some(long.as_str())
+        );
+        assert!(cue_accessible_name(&wait).chars().count() < 80);
+    }
+
+    /// Crate-boundary check: the code that composes or hands over everything
+    /// the congregation sees must never mention the operator's Cue names or
+    /// the private context. (`rendering` cannot depend on `ordo`, so this
+    /// guards against the text being copied across by hand.) Only identifiers
+    /// that exist are listed: the name and description builders, the model
+    /// field, and the accessible-description call that carries it.
+    #[test]
+    fn the_congregation_side_never_reads_cue_names_or_private_context() {
+        const GUARDED: [&str; 4] = [
+            "cue_accessible_name",
+            "cue_accessible_description",
+            "private_context",
+            "aria_description",
+        ];
+        fn scan(dir: &std::path::Path, hits: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    scan(&path, hits);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for word in GUARDED {
+                        if text.contains(word) {
+                            hits.push(format!("{} mentions {word}", path.display()));
+                        }
+                    }
+                }
+            }
+        }
+        let ordo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut hits = Vec::new();
+        scan(&ordo.join("../rendering/src"), &mut hits);
+        for file in [
+            "src/output.rs",
+            "src/canonical.rs",
+            "src/canonical_views.rs",
+        ] {
+            let text = std::fs::read_to_string(ordo.join(file)).unwrap();
+            for word in GUARDED {
+                if text.contains(word) {
+                    hits.push(format!("{file} mentions {word}"));
+                }
+            }
+        }
+        assert!(hits.is_empty(), "{hits:#?}");
     }
 }
