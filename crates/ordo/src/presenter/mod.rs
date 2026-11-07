@@ -935,13 +935,38 @@ impl PresenterView {
         self.rail_scroll.handle().scroll_to_item(row);
     }
 
-    /// `Enter` in the rail jumps to the cursor's item, as a click on it does.
+    /// `Enter` in the rail goes to the cursor's item from the keyboard: it
+    /// closes an overlay rail, moves Preview to the item's first Cue and
+    /// gives the keys back to the Cues, so the operator carries on there
+    /// without the mouse. A Live output is frozen first, so Program keeps
+    /// showing what it showed instead of following Preview across the Mass;
+    /// a Frozen, blacked-out or disabled output is left as it is. Enter on
+    /// the item that already holds Preview only returns focus. A click on an
+    /// item stays a plain jump (`jump_to_group`).
     fn activate_rail_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(item) = self.rail_cursor else {
             return false;
         };
-        self.jump_to_group(item, cx);
+        let first_cue = self
+            .engine
+            .snapshot()
+            .positions()
+            .iter()
+            .position(|position| position.item_flat == item);
+        match first_cue {
+            Some(cue) if self.preview_item() != Some(item) => {
+                if self.engine.state().live() == LiveState::Live {
+                    // Freeze is refused only off Live, ruled out above.
+                    self.command(Command::ToggleFreeze, cx).ok();
+                }
+                // Preview is followed into view like any navigation.
+                self.command(Command::GoTo(cue), cx).ok();
+            }
+            _ => self.jump_to_group(item, cx),
+        }
         self.close_rail(window, cx);
+        self.timeline_focus.focus(window, cx);
+        cx.notify();
         true
     }
 
@@ -2611,40 +2636,94 @@ mod tests {
             press_keys(cx, "home");
             press_keys(cx, "down");
             press_keys(cx, "enter");
-            // The overlay closes on a jump; a pinned rail keeps focus.
+            // Enter returns the keys to the Cues; an overlay closes.
             let (pinned, overlay_open) = open
                 .view
                 .read_with(cx, |view, _| (view.rail_is_pinned, view.rail_open()));
-            assert!(
-                pinned || !overlay_open,
-                "{size:?}: enter jumps like a click"
-            );
-            if pinned {
-                // F6 round to the rail again starts the ring on Preview's item.
-                open.view
-                    .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
-                cx.run_until_parked();
-                open.view
-                    .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
-                cx.run_until_parked();
-                assert!(
-                    cx.debug_bounds("rail-item-0-cursor").is_some(),
-                    "{size:?}: focus in"
-                );
-            }
-            open.view
-                .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
-            cx.run_until_parked();
+            assert!(pinned || !overlay_open, "{size:?}: an overlay closes");
             assert!(
                 cx.debug_bounds("rail-item-1-cursor").is_none(),
                 "{size:?}: ring left with focus"
             );
-            assert_eq!(
-                preview_index(&open, cx),
-                preview,
-                "{size:?}: Preview unchanged"
-            );
+            if pinned {
+                // Back into the rail, the ring starts on Preview's new item.
+                open.view
+                    .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
+                cx.run_until_parked();
+                assert!(
+                    cx.debug_bounds("rail-item-1-cursor").is_some(),
+                    "{size:?}: focus in"
+                );
+            }
         }
+    }
+
+    /// The first Cue of a Mass item, by its flat rail index.
+    fn first_cue_of(open: &Open, cx: &VisualTestContext, item: usize) -> usize {
+        open.view.read_with(cx, |view, _| {
+            view.engine
+                .snapshot()
+                .positions()
+                .iter()
+                .position(|position| position.item_flat == item)
+                .expect("the item has Cues")
+        })
+    }
+
+    /// `Enter` on a rail item, keyboard only: Preview moves to the item's
+    /// first Cue, the keys go back to the Cues, and a Live output is frozen
+    /// so Program stays put. Frozen and Blackout are left as they are.
+    #[gpui::test]
+    fn enter_in_the_rail_selects_the_item_and_returns_to_the_cues(cx: &mut TestAppContext) {
+        for (size, setup, after) in [
+            (SIZES[0], None, LiveState::Frozen),
+            (SIZES[1], None, LiveState::Frozen),
+            (SIZES[0], Some(Command::ToggleFreeze), LiveState::Frozen),
+            (SIZES[0], Some(Command::ToggleBlackout), LiveState::Blackout),
+        ] {
+            let (open, cx) = open(cx, size);
+            bind_registry_keys(cx);
+            run(&open, cx, Command::EnableOutput).unwrap();
+            run(&open, cx, Command::Take).unwrap();
+            if let Some(command) = setup {
+                run(&open, cx, command).unwrap();
+            }
+            let program = engine_state(&open, cx).program();
+            open.view
+                .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+            cx.run_until_parked();
+            press_keys(cx, "o");
+            press_keys(cx, "down");
+            press_keys(cx, "down");
+            press_keys(cx, "down");
+            press_keys(cx, "enter");
+            let target = first_cue_of(&open, cx, 3);
+            let case = format!("{size:?} {setup:?}");
+            assert_eq!(preview_index(&open, cx), target, "{case}: Preview");
+            let state = engine_state(&open, cx);
+            assert_eq!(state.live(), after, "{case}: output state");
+            assert_eq!(state.program(), program, "{case}: Program held");
+            assert_eq!(
+                focus_context_now(&open, cx),
+                FocusContext::Timeline,
+                "{case}: keys back on the Cues"
+            );
+            press_keys(cx, "right");
+            assert_eq!(preview_index(&open, cx), target + 1, "{case}: arrows work");
+        }
+    }
+
+    /// A click on a rail item stays a plain jump: Preview and the output are
+    /// unchanged.
+    #[gpui::test]
+    fn a_click_in_the_rail_only_jumps(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        bind_registry_keys(cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        run(&open, cx, Command::Take).unwrap();
+        let before = engine_state(&open, cx);
+        click(cx, "rail-item-3");
+        assert_eq!(engine_state(&open, cx), before);
     }
 
     #[gpui::test]
