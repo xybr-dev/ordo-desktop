@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/recovery-journal/v2.schema.json",
+  "title": "Presentation recovery journal v2",
+  "description": "Compact crash-recovery state of one Presentation session; each write replaces the previous record whole. record_sha256 is the SHA-256 of the record's canonical JSON with the record_sha256 member removed. Canonical JSON is the codec's own serialization: members in the order schema_version, session_id, seq, written_at, snapshot, preview, program, state, output, ended (nested members in the order of their properties below), no whitespace, serde_json string escaping.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ended",
+    "output",
+    "preview",
+    "program",
+    "record_sha256",
+    "schema_version",
+    "seq",
+    "session_id",
+    "snapshot",
+    "state",
+    "written_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Payload contract version; 2 in v2."
+    },
+    "session_id": {
+      "$ref": "#/$defs/uuid",
+      "description": "UUID of the Presentation session the record belongs to."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Strictly increasing within a session; a record that does not advance it is dropped by the writer."
+    },
+    "written_at": {
+      "$ref": "#/$defs/timestamp",
+      "description": "UTC time the record was written."
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "manifest_hash",
+        "source_dir"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "SnapshotId of the Presentation snapshot."
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the exact snapshot.json bytes."
+        },
+        "source_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory the snapshot was loaded from."
+        }
+      }
+    },
+    "preview": {
+      "$ref": "#/$defs/cue_ref",
+      "description": "The Cue on Preview."
+    },
+    "program": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cue_ref"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The last valid Program Cue, or null when nothing was ever live."
+    },
+    "state": {
+      "enum": [
+        "output-disabled",
+        "enabled-black",
+        "live",
+        "frozen",
+        "blackout",
+        "disconnected"
+      ],
+      "description": "The live state when the record was written."
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "display",
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "display": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/display"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Evidence for the display the output was assigned to, or null."
+        }
+      }
+    },
+    "ended": {
+      "type": "boolean",
+      "description": "True only on a clean end; such a record is stale."
+    },
+    "record_sha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of the canonical record without this member; catches tearing."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of exact bytes."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "RFC 3339 UTC timestamp without fraction."
+    },
+    "cue_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cue_id"
+      ],
+      "properties": {
+        "cue_id": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bounds",
+        "name",
+        "uuid"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uuid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "y": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub mod cache;
 pub mod commands;
 pub mod engine;
+pub mod journal;
 pub mod presenter;
 pub mod snapshot_reader;
 pub mod state;

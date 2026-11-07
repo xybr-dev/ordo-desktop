@@ -67,7 +67,11 @@ not exist.
 | `diagnostic-report` | `diagnostic-report` | always opened read-only |
 
 `snapshot-manifest` and `recovery-journal` have schemas but are not container
-kinds (`snapshot-manifest` v1 and v2 are separate frozen schemas, see section 5): the first is embedded in a Celebration Package, the second is a local file.
+kinds (`snapshot-manifest` v1 and v2, and `recovery-journal` v1 and v2, are
+separate schemas, see section 5): the first is embedded in a Celebration Package,
+the second is a local file. `recovery-journal` v1 is frozen and the application
+never reads it; v2 (Decision 314) is the compact state record the application
+writes and reads.
 
 ## 5. Versioning and unknown versions
 
@@ -91,6 +95,12 @@ kinds (`snapshot-manifest` v1 and v2 are separate frozen schemas, see section 5)
   v2 reader refuses a v1 document (and any other version) with the compatible-version
   message, for example `requires an Ordo version supporting snapshot-manifest v1;
   this build supports v2`; it never reads it as a v2 document.
+- `recovery-journal` also has two versions. v1 (`schema_version` 1) is the frozen
+  append-only action log; the application never reads it. v2 (`schema_version` 2,
+  Decision 314, `contracts/recovery-journal/v2.schema.json`) is a compact state
+  record that each write replaces whole. A v2 reader reports any other
+  `schema_version` as an unknown version before it checks the rest of the shape,
+  and rejects it rather than guessing.
 
 ## 6. Payload contracts: shape and references
 
@@ -108,7 +118,8 @@ checks beyond shape.
 | `celebration-package` | every snapshot asset is listed in the package `assets` with identical path, size, and sha256 (a missing id is `missing-reference`, a difference is `hash-mismatch`) | `package_version.fingerprint` = fingerprint of the snapshot `id`s |
 | `parish-backup` | `parish.logo_asset_id`, when present, names an asset | `assets_fingerprint` = fingerprint of `database.sha256` and all `assets[].sha256` |
 | `diagnostic-report` | each log `asset_id` names an asset of the report | `assets_fingerprint` = fingerprint of all `assets[].sha256` |
-| `recovery-journal` | `cue_position.last_entry_seq` equals the last entry `seq` (0 when there are none) | `entries_fingerprint` = SHA-256 of one line per entry, in order: `seq`, TAB, `kind`, TAB, `cue_index`, LF |
+| `recovery-journal` v2 | none beyond shape; `cue_id` and snapshot identity are checked against the loaded snapshot by the journal module, not by the schema | `record_sha256` = SHA-256 of the record's canonical JSON with the `record_sha256` member removed. Canonical is the codec's own serialization: members in schema order, no whitespace, `serde_json` string escaping |
+| `recovery-journal` v1 (frozen) | `cue_position.last_entry_seq` equals the last entry `seq` (0 when there are none) | `entries_fingerprint` = SHA-256 of one line per entry, in order: `seq`, TAB, `kind`, TAB, `cue_index`, LF |
 
 **Fingerprint rule.** Used by `snapshot-manifest` (v1 and v2), `celebration-package`,
 `parish-backup`, and `diagnostic-report`: take the listed values, sort them by
