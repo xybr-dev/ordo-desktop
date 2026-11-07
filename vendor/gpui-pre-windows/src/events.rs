@@ -1207,7 +1207,12 @@ impl WindowsWindowInner {
         {
             return None;
         }
-        let cursor = if self.state.cursor_visible.load(Ordering::Relaxed) {
+        // ORDO PATCH: hide the pointer over a window opened without focus, the
+        // congregation output (Decision 313). Windows asks only the window under
+        // the pointer, so it shows again as soon as it leaves.
+        let cursor = if self.hides_pointer {
+            None
+        } else if self.state.cursor_visible.load(Ordering::Relaxed) {
             self.state.current_cursor.get()
         } else {
             None

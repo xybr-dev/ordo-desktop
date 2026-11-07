@@ -103,6 +103,9 @@ pub(crate) struct WindowsWindowInner {
     pub(crate) is_movable: bool,
     pub(crate) is_resizable: bool,
     pub(crate) is_minimizable: bool,
+    // ORDO PATCH: hide the pointer over a window opened without focus
+    // (Decision 313). See vendor/README.md.
+    pub(crate) hides_pointer: bool,
     pub(crate) executor: ForegroundExecutor,
     pub(crate) validation_number: usize,
     pub(crate) main_receiver: PriorityQueueReceiver<RunnableVariant>,
@@ -292,6 +295,7 @@ impl WindowsWindowInner {
             is_movable: context.is_movable,
             is_resizable: context.is_resizable,
             is_minimizable: context.is_minimizable,
+            hides_pointer: context.hides_pointer,
             executor: context.executor.clone(),
             validation_number: context.validation_number,
             main_receiver: context.main_receiver.clone(),
@@ -417,6 +421,7 @@ struct WindowCreateContext {
     is_movable: bool,
     is_resizable: bool,
     is_minimizable: bool,
+    hides_pointer: bool,
     min_size: Option<Size<Pixels>>,
     executor: ForegroundExecutor,
     current_cursor: Option<HCURSOR>,
@@ -530,6 +535,7 @@ impl WindowsWindow {
             is_movable: params.is_movable,
             is_resizable: params.is_resizable,
             is_minimizable: params.is_minimizable,
+            hides_pointer: !params.focus,
             min_size: params.window_min_size,
             executor,
             current_cursor,
