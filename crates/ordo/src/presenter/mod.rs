@@ -533,7 +533,14 @@ impl PresenterView {
     /// `F6` or `Shift+F6` from inside an open overlay leaves it for another
     /// region, so the overlay closes (no keys act under a scrim). Focus is
     /// not moved here: the region cycle that follows chooses where it goes.
-    fn leave_overlay_by_region_key(&mut self, window: &Window, cx: &mut Context<Self>) {
+    ///
+    /// From the Keyboard shortcuts panel the panel closes the same way and
+    /// gives focus back to where it was first, so the cycle moves on from
+    /// there (the panel is not a region of its own).
+    fn leave_overlay_by_region_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.reference_focus.contains_focused(window, cx) {
+            self.close_reference(window, cx);
+        }
         if self.rail_focus.contains_focused(window, cx) && self.surfaces.close(Surface::RailOverlay)
         {
             cx.notify();
@@ -3987,6 +3994,26 @@ mod tests {
         press_keys(cx, "escape");
         assert!(timeline_has_focus(&open, cx));
         assert_eq!(engine_state(&open, cx), before);
+    }
+
+    /// F6 from the Keyboard shortcuts panel closes it and moves on from
+    /// where focus was before it opened.
+    #[gpui::test]
+    fn f6_from_the_shortcut_reference_closes_it_and_moves_on(cx: &mut TestAppContext) {
+        for (keys, expected) in [("f6", FocusContext::Dock), ("shift-f6", FocusContext::Rail)] {
+            let (open, cx) = open(cx, SIZES[0]);
+            bind_registry_keys(cx);
+            focus_timeline_now(&open, cx);
+            cx.run_until_parked();
+            press_keys(cx, "ctrl-/");
+            assert!(open.view.read_with(cx, |view, _| view.reference_open()));
+            press_keys(cx, keys);
+            assert!(
+                !open.view.read_with(cx, |view, _| view.reference_open()),
+                "{keys}"
+            );
+            assert_eq!(focus_context_now(&open, cx), expected, "{keys}");
+        }
     }
 
     #[gpui::test]
