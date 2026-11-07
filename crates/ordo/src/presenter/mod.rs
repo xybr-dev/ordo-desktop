@@ -93,12 +93,26 @@ use crate::{
     shortcut_reference,
 };
 
-/// The committed `normal-mass` snapshot the Presenter opens on until Preflight
-/// and the real Mass export exist: the lab's default and the shell's entry.
+/// The `normal-mass` snapshot the Presenter opens on until Preflight and the
+/// real Mass export exist: the lab's default and the shell's entry.
+///
+/// A packaged build copied to another PC has no source tree, so a
+/// `fixtures/normal-mass` folder beside the executable wins when it exists;
+/// otherwise the committed fixture is found from the build's source tree.
 pub fn fixture_snapshot_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/presentations/normal-mass")
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(BESIDE_EXE_FIXTURE)));
+    beside_exe
+        .filter(|dir| dir.join("snapshot.json").is_file())
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/presentations/normal-mass")
+        })
 }
+
+/// Where a packaged kit puts the fixture, relative to the executable.
+const BESIDE_EXE_FIXTURE: &str = "fixtures/normal-mass";
 
 /// Saves preferences through the owner's save path. The shell passes its
 /// background-worker saver; the lab passes one that writes under
@@ -119,6 +133,38 @@ pub struct RenderStat {
 
 /// Measurement hook: called after every render. Only the labs set one.
 pub type RenderProbe = Rc<dyn Fn(RenderStat)>;
+
+/// A surface whose paint a [`PaintProbe`] stamps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaintedSurface {
+    Preview,
+    Program,
+    /// The congregation window.
+    Congregation,
+}
+
+/// Measurement hook: called from a zero-size canvas laid after each surface,
+/// so it runs when that surface paints, with the frame the surface drew and the
+/// window it painted in. Only the labs set one; with none, no canvas is built.
+pub type PaintProbe = Rc<dyn Fn(PaintedSurface, Option<&Arc<rendering::Frame>>, &Window)>;
+
+/// A zero-size canvas that reports the paint of `surface` to `probe`.
+pub(crate) fn paint_stamp(
+    probe: &PaintProbe,
+    surface: PaintedSurface,
+    frame: Option<Arc<rendering::Frame>>,
+) -> gpui::AnyElement {
+    let probe = probe.clone();
+    gpui::canvas(
+        |_, _, _| (),
+        move |_, (), window, _| probe(surface, frame.as_ref(), window),
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_0()
+    .into_any_element()
+}
 
 /// The operator-facing sentence for a refusal. A refusal says what to do
 /// next in plain words; it never blames the operator and never shows the
@@ -218,6 +264,8 @@ impl Wanted {
 pub struct PresenterView {
     /// Reports each render's cost; `None` outside the measurement labs.
     render_probe: Option<RenderProbe>,
+    /// Stamps each surface's paint; `None` outside the measurement labs.
+    paint_probe: Option<PaintProbe>,
     snapshot: Arc<LoadedSnapshot>,
     engine: Engine,
     frames: PresenterFrames,
@@ -383,6 +431,7 @@ impl PresenterView {
         let engine = Engine::new(Arc::new(snapshot.snapshot().clone()));
         let mut view = Self {
             render_probe: None,
+            paint_probe: None,
             frames: PresenterFrames::new(snapshot.clone()),
             snapshot,
             engine,
@@ -480,6 +529,12 @@ impl PresenterView {
     /// Report every render's cost to `probe` (measurement labs only).
     pub fn set_render_probe(&mut self, probe: RenderProbe) {
         self.render_probe = Some(probe);
+    }
+
+    /// Stamp the paint of Preview, Program and the congregation window
+    /// (measurement labs only).
+    pub fn set_paint_probe(&mut self, probe: PaintProbe) {
+        self.paint_probe = Some(probe);
     }
 
     pub fn set_save_preferences(&mut self, save: SavePreferences) {
@@ -686,7 +741,7 @@ impl PresenterView {
     /// Enable Output with a congregation display wired in: open the passive
     /// window first, then tell the Engine, so Program is black before `Space`
     /// can take anything. A refusal is shown as the status and sends nothing.
-    fn enable_output(&mut self, window: &Window, cx: &mut Context<Self>) {
+    pub fn enable_output(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !self.open_output_window(window, cx) {
             return;
         }
@@ -710,6 +765,7 @@ impl PresenterView {
             self.program_drawn.clone(),
             self.environment,
             operator,
+            self.paint_probe.clone(),
             cx,
         );
         self.output = Some(output);
@@ -1863,6 +1919,15 @@ impl PresenterView {
         let preview =
             self.preview_model(preview_shown, self.is_preparing(self.preview_wanted, now));
         let controls = self.controls(now);
+        // Lab only: stamps that report when each monitor paints.
+        let mut program_stamp = self
+            .paint_probe
+            .as_ref()
+            .map(|probe| paint_stamp(probe, PaintedSurface::Program, program.shown.frame.clone()));
+        let mut preview_stamp = self
+            .paint_probe
+            .as_ref()
+            .map(|probe| paint_stamp(probe, PaintedSurface::Preview, preview.shown.frame.clone()));
 
         let view = cx.entity().downgrade();
         let on_command: OnCommand = {
@@ -2180,7 +2245,9 @@ impl PresenterView {
                     .gap(px(scale.apply(layout::dock_gap(layout.regime))))
                     .bg(rgb(palette.surface))
                     .child(dock::program_monitor(&program, monitor_width, environment))
+                    .children(program_stamp.take())
                     .child(dock::preview_monitor(&preview, monitor_width, environment))
+                    .children(preview_stamp.take())
                     .child(dock::output_status(
                         controls.status.clone(),
                         controls.live,
@@ -2216,7 +2283,9 @@ impl PresenterView {
                     .px(px(scale.apply(BAND_GUTTER)))
                     .pt(px(scale.apply(BAND_TOP_PADDING)))
                     .child(dock::program_monitor(&program, monitor_width, environment))
-                    .child(dock::preview_monitor(&preview, monitor_width, environment));
+                    .children(program_stamp.take())
+                    .child(dock::preview_monitor(&preview, monitor_width, environment))
+                    .children(preview_stamp.take());
                 let controls_row = div()
                     .id("band-controls")
                     .flex_none()

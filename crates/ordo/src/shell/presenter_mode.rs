@@ -61,11 +61,15 @@ impl ShellView {
         if self.mode.is_presenter() || self.presenter_load.is_some() {
             return;
         }
-        let directory = crate::presenter::fixture_snapshot_dir();
         self.presenter_load = Some(cx.spawn_in(window, async move |this, cx| {
+            // Finding the fixture touches the filesystem, so it runs with the
+            // read, off the GPUI thread.
             let loaded = cx
                 .background_executor()
-                .spawn(async move { read_snapshot(&DirectorySource::new(directory)) })
+                .spawn(async move {
+                    let directory = crate::presenter::fixture_snapshot_dir();
+                    read_snapshot(&DirectorySource::new(directory))
+                })
                 .await;
             this.update_in(cx, |shell, window, cx| {
                 shell.presenter_loaded(loaded, window, cx)
