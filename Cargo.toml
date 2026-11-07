@@ -42,12 +42,15 @@ presentation = { path = "crates/presentation" }
 ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
+# Only for the v5 (SHA-1) uuid that GPUI derives for Windows displays; already in
+# the lockfile through GPUI, so this adds no new crate.
+uuid = { version = "=1.25.0", default-features = false, features = ["v5"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 # `deflate-flate2`, not `deflate`: zip 9's `deflate` forces flate2's zlib-rs backend
 # workspace-wide, which changes every PNG the spikes encode (T0.9 pins their
 # hashes). This keeps the miniz_oxide backend zip 2.4.2 compressed with.
 zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Devices_Display", "Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # GPUI comes from Longbridge's exactly pinned `gpui-pre` crates.io snapshot of
 # Zed, the same snapshot `gpui-base` is built against (T0.4a,
