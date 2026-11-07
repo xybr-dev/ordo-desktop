@@ -171,11 +171,7 @@ impl RailView {
     /// The style the cached view is laid out at: the rail's width, stretched
     /// to the row's height (a cached view is not measured from its content).
     pub fn style(width: f32) -> StyleRefinement {
-        let mut style = StyleRefinement::default();
-        style.flex_grow = Some(0.0);
-        style.flex_shrink = Some(0.0);
-        style.size.width = Some(px(width).into());
-        style
+        StyleRefinement::default().flex_none().w(px(width))
     }
 }
 
