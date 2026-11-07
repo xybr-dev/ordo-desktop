@@ -37,13 +37,15 @@ outside the repository.
 
 ## Limits of the measurement
 
-- **The window size was not honoured (fixed in step 3).** On this machine the
-  lab window opened maximized whatever `--size` said (`window_bounds` was
+- **The window size was not honoured in the "before" runs.** On this machine
+  the lab window opened maximized whatever `--size` said (`window_bounds` was
   `Maximized`, viewport 1920x1025), so the 1366x768 and 1920x1080 rows of the
   "before" figures are the same window and act as a repeat run. The 200% scale
-  did change the layout (an effective 960x512). Step 3 made a measuring window
-  non-maximizable, which keeps its bounds: 1366x768 gives a 1366x768 viewport
-  and 1920x1080 gives 1920x1048 (the display clamps it).
+  did change the layout (an effective 960x512). The cause was a Windows setting
+  on the measuring machine that opens every app maximized, not Ordo. Later runs
+  were made with it off: 1366x768 gives a 1366x768 viewport and 1920x1080 gives
+  1920x1048 (the display clamps it). The lab warns when its window opens
+  maximized, and the report records `window_maximized`.
 - The window was on screen and active in every run (`window_active_at_start`
   true, no inactive frames counted).
 - The monitor is 75 Hz, so one frame is 13.3 ms. The 16.7 ms bar of the issue

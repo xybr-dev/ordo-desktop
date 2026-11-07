@@ -577,11 +577,6 @@ fn main() {
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                // A measurement is judged at the size it asked for. On
-                // Windows the first window of a process opened maximized
-                // whatever its bounds said, so a measuring window has no
-                // maximize box and keeps its bounds (#111).
-                is_resizable: !(args.measure_memory.is_some() || args.measure_animations.is_some()),
                 titlebar: Some(TitlebarOptions {
                     title: Some(
                         format!("Ordo live-control lab (development only) · {}", key_help()).into(),
@@ -1568,6 +1563,14 @@ mod animations {
                 )
             })
             .map_err(gone)?;
+        // A measurement is judged at the size it asked for. A Windows setting
+        // that opens every app maximized overrides `--size`; the report keeps
+        // `window_maximized` so such a run can be told apart.
+        if maximized {
+            eprintln!(
+                "warning: the lab window opened maximized, so --size was not honoured;                  turn off opening apps maximized and measure again"
+            );
+        }
         let background = cx.background_executor().clone();
         settle(view, cx).await;
         // A few idle frames first, so the first animation is not the first draw.
