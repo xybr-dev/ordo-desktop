@@ -244,12 +244,14 @@ pub struct Handlers {
 /// to the top. The groups are the scroll element's only children, so a
 /// group's index is also its child index for `scroll_to_top_of_item`. `focus`
 /// is where focus returns when the rail overlay closes.
+#[cfg_attr(test, allow(clippy::too_many_arguments))]
 pub fn timeline(
     model: TimelineModel,
     scroll: &Scroll,
     focus: &FocusHandle,
     handlers: &Handlers,
     environment: UiEnvironment,
+    #[cfg(test)] text_probe: &FocusHandle,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -296,6 +298,8 @@ pub fn timeline(
                     geometry.follow.as_ref(),
                     &model_glide,
                     environment,
+                    #[cfg(test)]
+                    text_probe,
                 )),
         )
         .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
@@ -317,6 +321,7 @@ fn tail(
     follow: Option<&Follow>,
     glide: &Glide,
     environment: UiEnvironment,
+    #[cfg(test)] text_probe: &FocusHandle,
 ) -> AnyElement {
     let handle = scroll.handle();
     let viewport = f32::from(handle.bounds().size.height);
@@ -324,15 +329,25 @@ fn tail(
     let last_height = handle
         .bounds_for_item(last)
         .map_or(0.0, |bounds| f32::from(bounds.size.height));
-    div()
+    let tail = div()
         .debug_selector(|| "timeline-tail".into())
         .flex_none()
         .w_full()
         .h(px((viewport - last_height).max(0.0)))
         .relative()
         .children(follow.map(|follow| self::follow(follow, glide, environment)))
-        .child(self::glide(glide, handle.clone()))
-        .into_any_element()
+        .child(self::glide(glide, handle.clone()));
+    // Test only, inside the Cues so that only the binding predicate (and the
+    // context check) can keep a key from the Engine. WP6 replaces this probe
+    // with a real text field.
+    #[cfg(test)]
+    let tail = tail.child(
+        div()
+            .id("text-probe")
+            .key_context("TextEntry")
+            .track_focus(text_probe),
+    );
+    tail.into_any_element()
 }
 
 struct Geometry {

@@ -77,19 +77,21 @@ use ui::{
 
 actions!(
     live_control_lab,
-    [
-        PreviousCue,
-        NextCue,
-        TakeLive,
-        ToggleFreeze,
-        ToggleBlackout,
-        EnableOutput,
-        SimulateDisplayLost,
-        SimulateDisplayReturned,
-    ]
+    [EnableOutput, SimulateDisplayLost, SimulateDisplayReturned]
 );
 
-const KEY_HELP: &str = "Left/Right Cue · Space take live · F freeze · B blackout · E enable output · D display lost · R display returned";
+/// The window-title key help: every bound registry key, then the lab's own
+/// development keys.
+fn key_help() -> String {
+    use ordo::commands::registry::{ENTRIES, Scope};
+    let mut help: Vec<String> = ENTRIES
+        .iter()
+        .filter(|entry| entry.scope != Scope::Surface)
+        .map(|entry| format!("{} {}", entry.keycaps, entry.label.to_lowercase()))
+        .collect();
+    help.extend(["E enable output", "D display lost", "R display returned"].map(String::from));
+    help.join(" · ")
+}
 
 /// What the command line asked for.
 #[derive(Debug, PartialEq)]
@@ -282,10 +284,15 @@ impl LabRoot {
                 if let Some(run) = self.measure.take() {
                     self._measure_task = Some(run.start(view.clone(), window, cx));
                 }
+                // Keys reach the Presenter only from inside it: the Cues
+                // hold focus, and the lab root above still answers E, D, R.
+                view.update(cx, |view, cx| view.focus_timeline(window, cx));
                 self.stage = Stage::Ready(view);
             }
         }
-        window.focus(&self.focus, cx);
+        if !matches!(self.stage, Stage::Ready(_)) {
+            window.focus(&self.focus, cx);
+        }
         cx.notify();
     }
 
@@ -312,8 +319,9 @@ impl LabRoot {
                     eprintln!("live-control-lab: image {asset:?} failed: {error}");
                 }
                 window.set_window_title(&format!(
-                    "Ordo live-control lab (development only) · Images: {checked} checked, {} failed · {KEY_HELP}",
-                    failures.len()
+                    "Ordo live-control lab (development only) · Images: {checked} checked, {} failed · {}",
+                    failures.len(),
+                    key_help()
                 ));
             })
             .ok();
@@ -364,15 +372,6 @@ impl Render for LabRoot {
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
             .font_family(tokens::typography::OPERATOR_FAMILY)
-            .on_action(cx.listener(|this, _: &PreviousCue, _, cx| this.send(Command::Previous, cx)))
-            .on_action(cx.listener(|this, _: &NextCue, _, cx| this.send(Command::Next, cx)))
-            .on_action(cx.listener(|this, _: &TakeLive, _, cx| this.send(Command::Take, cx)))
-            .on_action(
-                cx.listener(|this, _: &ToggleFreeze, _, cx| this.send(Command::ToggleFreeze, cx)),
-            )
-            .on_action(cx.listener(|this, _: &ToggleBlackout, _, cx| {
-                this.send(Command::ToggleBlackout, cx);
-            }))
             .on_action(
                 cx.listener(|this, _: &EnableOutput, _, cx| this.send(Command::EnableOutput, cx)),
             )
@@ -477,12 +476,8 @@ fn main() {
             cx.quit();
             return;
         }
+        cx.bind_keys(ordo::commands::registry::key_bindings());
         cx.bind_keys([
-            KeyBinding::new("left", PreviousCue, None),
-            KeyBinding::new("right", NextCue, None),
-            KeyBinding::new("space", TakeLive, None),
-            KeyBinding::new("f", ToggleFreeze, None),
-            KeyBinding::new("b", ToggleBlackout, None),
             KeyBinding::new("e", EnableOutput, None),
             KeyBinding::new("d", SimulateDisplayLost, None),
             KeyBinding::new("r", SimulateDisplayReturned, None),
@@ -509,7 +504,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
                     title: Some(
-                        format!("Ordo live-control lab (development only) · {KEY_HELP}").into(),
+                        format!("Ordo live-control lab (development only) · {}", key_help()).into(),
                     ),
                     ..Default::default()
                 }),
