@@ -237,6 +237,9 @@ pub struct PresenterView {
     /// Redraws Program's auto-play countdown while a run is going (see
     /// `tick_auto_play_indicator`). Dropped, and so stopped, when it ends.
     auto_play_ticker: Option<Task<()>>,
+    /// Program's progress bar at full length, in device pixels, from the last
+    /// draw; it sets how often the bar is redrawn.
+    auto_play_bar_px: f32,
     /// The last frame each monitor finished drawing, kept while its
     /// replacement is still composing (the consumer rule in
     /// `rendering::frame_cache`).
@@ -244,9 +247,27 @@ pub struct PresenterView {
     last_preview: Shown,
 }
 
-/// How often Program's auto-play countdown and progress bar are redrawn: 4
-/// times a second keeps the bar moving without a frame every vsync.
-const AUTO_PLAY_INDICATOR_MS: u64 = 250;
+/// The shortest wait between auto-play indicator redraws, about one 60 Hz
+/// frame: a short Cue on a wide monitor moves the bar a pixel more often
+/// than that, and a faster redraw would not show.
+const AUTO_PLAY_MIN_REDRAW_MS: u64 = 16;
+
+/// How long until Program's auto-play indicator next looks different: the
+/// bar grows by one device pixel, or the countdown's whole second changes,
+/// whichever comes first. `None` when nothing moves (no duration to count).
+fn auto_play_redraw_ms(remaining_ms: Option<u64>, duration_ms: u64, bar_px: f32) -> Option<u64> {
+    let remaining = remaining_ms?;
+    let to_next_second = match remaining % 1000 {
+        0 => 1000,
+        ms => ms,
+    };
+    let per_pixel = if bar_px >= 1.0 && duration_ms > 0 {
+        (duration_ms as f64 / f64::from(bar_px)) as u64
+    } else {
+        u64::MAX
+    };
+    Some(per_pixel.min(to_next_second).max(AUTO_PLAY_MIN_REDRAW_MS))
+}
 
 /// The F6 regions, from a fixed vocabulary, in reading order.
 pub(super) const RAIL_REGION: &str = "Ordo rail";
@@ -295,6 +316,7 @@ impl PresenterView {
             preview_wanted: Wanted::default(),
             preparing_timer: None,
             auto_play_ticker: None,
+            auto_play_bar_px: 0.0,
             last_program: Shown::default(),
             last_preview: Shown::default(),
         };
@@ -663,9 +685,10 @@ impl PresenterView {
         self.timer = Some((deadline, task));
     }
 
-    /// While an auto-play run is going, redraw a few times a second so
-    /// Program's AUTO countdown and progress bar move; no task otherwise, so
-    /// an idle Presenter draws nothing.
+    /// While an auto-play run is going, redraw Program each time its AUTO
+    /// countdown or progress bar would change (`auto_play_redraw_ms`), so the
+    /// bar moves a pixel at a time; no task otherwise, so an idle Presenter
+    /// draws nothing.
     fn tick_auto_play_indicator(&mut self, cx: &mut Context<Self>) {
         if self.engine.state().auto_play().is_none() {
             self.auto_play_ticker = None;
@@ -676,14 +699,30 @@ impl PresenterView {
         }
         self.auto_play_ticker = Some(cx.spawn(async move |this, cx| {
             loop {
+                let Ok(Some(wait)) = this.update(cx, |view, _| view.auto_play_redraw_wait()) else {
+                    break;
+                };
                 cx.background_executor()
-                    .timer(Duration::from_millis(AUTO_PLAY_INDICATOR_MS))
+                    .timer(Duration::from_millis(wait))
                     .await;
                 if this.update(cx, |_, cx| cx.notify()).is_err() {
                     break;
                 }
             }
         }));
+    }
+
+    /// The wait before the auto-play indicator next changes, or `None` when
+    /// the run has stopped or its Cue has no duration to count down.
+    fn auto_play_redraw_wait(&self) -> Option<u64> {
+        let run = self.engine.state().auto_play()?;
+        let duration = run.duration_ms?;
+        let elapsed = (self.clock)().0.saturating_sub(run.cue_started.0);
+        auto_play_redraw_ms(
+            Some(duration.saturating_sub(elapsed)),
+            duration,
+            self.auto_play_bar_px,
+        )
     }
 
     /// True when `wanted` has been pending for at least the threshold.
@@ -1212,6 +1251,11 @@ impl Render for PresenterView {
             scale,
             rail: self.rail_choice,
         });
+        self.auto_play_bar_px = match layout.dock {
+            DockLayout::Side { monitor_width, .. } | DockLayout::Band { monitor_width } => {
+                monitor_width * window.scale_factor()
+            }
+        };
 
         // Follow Preview once per move: navigation scrolls the timeline, the
         // operator's own scrolling never is undone.
@@ -4154,6 +4198,26 @@ mod tests {
             open.view
                 .read_with(cx, |view, _| view.auto_play_ticker.is_none())
         );
+    }
+
+    /// The bar is redrawn when it would grow by a pixel or the countdown's
+    /// second changes, never faster than about one 60 Hz frame, and not at
+    /// all on a Cue with nothing to count.
+    #[test]
+    fn the_auto_play_indicator_redraws_per_pixel_or_second() {
+        // 10 s across 400 px: a pixel every 25 ms.
+        assert_eq!(auto_play_redraw_ms(Some(9_500), 10_000, 400.0), Some(25));
+        // 60 s across 400 px: 150 ms a pixel, but the second turns sooner.
+        assert_eq!(auto_play_redraw_ms(Some(30_100), 60_000, 400.0), Some(100));
+        assert_eq!(auto_play_redraw_ms(Some(30_000), 60_000, 400.0), Some(150));
+        // 2 s across 1000 device px: 2 ms a pixel, held to one frame.
+        assert_eq!(
+            auto_play_redraw_ms(Some(1_500), 2_000, 1_000.0),
+            Some(AUTO_PLAY_MIN_REDRAW_MS)
+        );
+        // Before the first draw the bar's length is unknown: the second rules.
+        assert_eq!(auto_play_redraw_ms(Some(4_250), 5_000, 0.0), Some(250));
+        assert_eq!(auto_play_redraw_ms(None, 5_000, 400.0), None);
     }
 
     #[gpui::test]
