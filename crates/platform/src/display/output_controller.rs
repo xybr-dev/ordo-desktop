@@ -12,7 +12,7 @@
 
 use super::{
     AssignError, DisplayControl, DisplayEvent, DisplayId, DisplayStatus, EnableError,
-    OutputLifecycle, OutputPlacement, Topology,
+    OutputLifecycle, OutputPlacement, Recognition, Topology,
 };
 
 /// Why output was not opened.
@@ -25,6 +25,9 @@ pub enum OutputRefusal {
     /// The assigned display cannot be used now: it is missing, ambiguous, or
     /// the operator display cannot be told apart from the rest.
     Unavailable,
+    /// Output was lost with its display, and the display now connected is not
+    /// that one (Decision 272). Recovery goes through Select display.
+    DifferentDisplay,
 }
 
 impl OutputRefusal {
@@ -34,6 +37,7 @@ impl OutputRefusal {
             Self::NoDisplay => "No congregation display found — rehearsing on Preview",
             Self::SelectDisplay => "Select the congregation display before enabling output",
             Self::Unavailable => "The assigned congregation display is not available",
+            Self::DifferentDisplay => "A different display is connected — choose Select display",
         }
     }
 }
@@ -81,6 +85,9 @@ impl OutputController {
     /// the lifecycle is already enabled; a caller whose window then fails to
     /// open must call [`Self::disable`].
     pub fn enable(&mut self, topology: Topology) -> OutputAction {
+        if self.is_disconnected() {
+            return self.resume(topology);
+        }
         self.control.refresh(topology);
         let topology = self.control.topology();
         if topology.displays().is_empty() {
@@ -113,6 +120,37 @@ impl OutputController {
             Ok(placement) => OutputAction::Open(placement),
             Err(EnableError::NotAssigned) => OutputAction::Refuse(OutputRefusal::SelectDisplay),
             Err(_) => OutputAction::Refuse(OutputRefusal::Unavailable),
+        }
+    }
+
+    /// Whether output was lost with its display and not yet resumed.
+    pub fn is_disconnected(&self) -> bool {
+        matches!(self.control.output(), OutputLifecycle::Disconnected { .. })
+    }
+
+    /// Resumes output lost with its display (Decision 272), given a fresh
+    /// snapshot. Only the same recognized congregation display opens. Any
+    /// other display refuses with `DifferentDisplay`, including one with the
+    /// same resolution but another monitor identity, and the lifecycle stays
+    /// disconnected. Without a connected candidate it refuses as
+    /// `Unavailable`. Several matches refuse with `SelectDisplay`. Without a
+    /// disconnected output this is [`Self::enable`].
+    pub fn resume(&mut self, topology: Topology) -> OutputAction {
+        if !self.is_disconnected() {
+            return self.enable(topology);
+        }
+        self.control.refresh(topology);
+        let topology = self.control.topology();
+        if topology.operator().is_none() || topology.candidates().next().is_none() {
+            return OutputAction::Refuse(OutputRefusal::Unavailable);
+        }
+        match self.control.recognition() {
+            Recognition::Recognized(_) => match self.control.enable_output() {
+                Ok(placement) => OutputAction::Open(placement),
+                Err(_) => OutputAction::Refuse(OutputRefusal::Unavailable),
+            },
+            Recognition::Ambiguous(_) => OutputAction::Refuse(OutputRefusal::SelectDisplay),
+            Recognition::Missing => OutputAction::Refuse(OutputRefusal::DifferentDisplay),
         }
     }
 
@@ -237,6 +275,92 @@ mod tests {
             panic!("the other display opens");
         };
         assert_ne!(placement.display, DisplayId::new(1));
+    }
+
+    fn lost_projector() -> OutputController {
+        let mut controller = OutputController::new(pair());
+        assert!(matches!(controller.enable(pair()), OutputAction::Open(_)));
+        let alone = topology(vec![display(1, 0, 0, 1920, 1080)], 1);
+        let events = controller.refresh(alone);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, DisplayEvent::OutputDisconnected { .. }))
+        );
+        assert!(controller.is_disconnected());
+        controller
+    }
+
+    #[test]
+    fn resume_reopens_on_the_same_recognized_display() {
+        let mut controller = lost_projector();
+        // The same display comes back under a new operating-system id.
+        let back = topology(
+            vec![display(1, 0, 0, 1920, 1080), display(7, 1920, 0, 1280, 720)],
+            1,
+        );
+        let OutputAction::Open(placement) = controller.resume(back) else {
+            panic!("the same display resumes");
+        };
+        assert_eq!(placement.display, DisplayId::new(7));
+        assert!(controller.is_enabled());
+    }
+
+    #[test]
+    fn resume_refuses_a_different_display_and_stays_disconnected() {
+        use super::super::test_support::named;
+        let mut controller = OutputController::new(Topology::new(
+            vec![
+                display(1, 0, 0, 1920, 1080),
+                named(display(2, 1920, 0, 1280, 720), "Projector", None),
+            ],
+            Some(DisplayId::new(1)),
+        ));
+        assert!(matches!(
+            controller.enable(controller.control().topology().clone()),
+            OutputAction::Open(_)
+        ));
+        controller.refresh(topology(vec![display(1, 0, 0, 1920, 1080)], 1));
+        let other = Topology::new(
+            vec![
+                display(1, 0, 0, 1920, 1080),
+                named(display(5, 1920, 0, 1280, 720), "Other TV", None),
+            ],
+            Some(DisplayId::new(1)),
+        );
+        assert_eq!(
+            controller.resume(other.clone()),
+            OutputAction::Refuse(OutputRefusal::DifferentDisplay)
+        );
+        // Enable from Disconnected obeys the same rule.
+        assert_eq!(
+            controller.enable(other),
+            OutputAction::Refuse(OutputRefusal::DifferentDisplay)
+        );
+        assert!(controller.is_disconnected());
+        assert!(!controller.is_enabled());
+    }
+
+    #[test]
+    fn resume_without_a_candidate_is_unavailable() {
+        let mut controller = lost_projector();
+        assert_eq!(
+            controller.resume(topology(vec![display(1, 0, 0, 1920, 1080)], 1)),
+            OutputAction::Refuse(OutputRefusal::Unavailable)
+        );
+        assert!(controller.is_disconnected());
+    }
+
+    #[test]
+    fn resume_never_opens_on_the_operator_display() {
+        let mut controller = lost_projector();
+        // Only the operator display is left, and it has the projector's
+        // resolution: it must not be taken for the congregation display.
+        let lookalike = topology(vec![display(1, 1920, 0, 1280, 720)], 1);
+        assert!(!matches!(
+            controller.resume(lookalike),
+            OutputAction::Open(_)
+        ));
     }
 
     #[test]
