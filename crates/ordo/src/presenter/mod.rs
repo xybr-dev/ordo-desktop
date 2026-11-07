@@ -93,12 +93,26 @@ use crate::{
     shortcut_reference,
 };
 
-/// The committed `normal-mass` snapshot the Presenter opens on until Preflight
-/// and the real Mass export exist: the lab's default and the shell's entry.
+/// The `normal-mass` snapshot the Presenter opens on until Preflight and the
+/// real Mass export exist: the lab's default and the shell's entry.
+///
+/// A packaged build copied to another PC has no source tree, so a
+/// `fixtures/normal-mass` folder beside the executable wins when it exists;
+/// otherwise the committed fixture is found from the build's source tree.
 pub fn fixture_snapshot_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/presentations/normal-mass")
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(BESIDE_EXE_FIXTURE)));
+    beside_exe
+        .filter(|dir| dir.join("snapshot.json").is_file())
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/presentations/normal-mass")
+        })
 }
+
+/// Where a packaged kit puts the fixture, relative to the executable.
+const BESIDE_EXE_FIXTURE: &str = "fixtures/normal-mass";
 
 /// Saves preferences through the owner's save path. The shell passes its
 /// background-worker saver; the lab passes one that writes under
