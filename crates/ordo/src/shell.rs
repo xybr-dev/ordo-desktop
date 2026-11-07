@@ -21,6 +21,7 @@
 pub mod fixtures;
 mod masses;
 mod presenter_mode;
+pub(crate) mod quit;
 pub mod rail;
 
 use std::{mem, rc::Rc, time::Instant};
@@ -131,6 +132,10 @@ pub struct ShellView {
     /// slides in from.
     page_tab: Option<usize>,
     overlays: OverlayHost,
+    /// Initial focus of the quit confirmation: **Quit**.
+    quit_focus: gpui::FocusHandle,
+    /// The operator confirmed quitting; the close that follows is let through.
+    quit_confirmed: bool,
     environment: UiEnvironment,
     preferences_restore_pending: bool,
     appearance_changed_since_startup: bool,
@@ -194,6 +199,11 @@ impl ShellView {
                 cx,
             )
         };
+        let shell = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| match shell.upgrade() {
+            Some(shell) => shell.update(cx, |shell, cx| shell.allow_close(window, cx)),
+            None => true,
+        });
         Self {
             build_identity,
             destination: Destination::default(),
@@ -210,6 +220,8 @@ impl ShellView {
             page: (0, PageChange::Destination),
             page_tab: Some(0),
             overlays: OverlayHost::new(cx),
+            quit_focus: cx.focus_handle(),
+            quit_confirmed: false,
             environment,
             preferences_restore_pending: save_preferences.is_some(),
             appearance_changed_since_startup: false,
@@ -226,6 +238,47 @@ impl ShellView {
             _presenter_exit: None,
             return_focus: None,
         }
+    }
+
+    /// The operator window was asked to close (Alt+F4, the close button).
+    /// A close the operator already confirmed goes through; any other opens
+    /// the **Quit Ordo?** dialog, once, and is cancelled.
+    pub(crate) fn allow_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.quit_confirmed {
+            return true;
+        }
+        let shell = cx.entity().downgrade();
+        let on_quit = move |window: &mut Window, cx: &mut App| {
+            shell
+                .update(cx, |shell, cx| shell.confirm_quit(window, cx))
+                .ok();
+        };
+        match self.presenter.clone() {
+            Some(presenter) => {
+                presenter.update(cx, |view, cx| view.request_quit(window, cx, on_quit));
+            }
+            // Presenter Mode is still reading its snapshot: no layer is
+            // mounted to ask on, and there is no output to protect.
+            None if self.mode.is_presenter() => return true,
+            None => {
+                if self.overlays.top(cx).as_deref() != Some(quit::TITLE) {
+                    let overlay = quit::confirmation(&self.quit_focus, false, on_quit);
+                    self.overlays.open(overlay, window, cx);
+                    cx.notify();
+                }
+            }
+        }
+        false
+    }
+
+    /// Quit was chosen. The output is taken down safely first, then the
+    /// window closes, which runs the existing shutdown path unchanged.
+    fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(presenter) = self.presenter.clone() {
+            presenter.update(cx, |view, cx| view.close_output_safely(cx));
+        }
+        self.quit_confirmed = true;
+        window.remove_window();
     }
 
     /// Mirrors the congregation-output controller's cursor locator into this
@@ -1253,6 +1306,7 @@ mod tests {
     use ui::environment::InterfaceScale;
 
     mod output_lifecycle_e2e;
+    mod quit_confirmation;
 
     /// Real key down/up pairs, because a primitive's own raw handlers are half
     /// of what the shell is composing.

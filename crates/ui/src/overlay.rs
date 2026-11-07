@@ -241,6 +241,9 @@ struct Entry {
     /// Whatever had focus when this opened, which is what closing gives it
     /// back to — the invoker for a first surface, the parent for a nested one.
     invoker: Option<FocusHandle>,
+    /// The footer's action buttons, in visual order (secondary, primary), so
+    /// the arrow keys can move between them.
+    actions: [FocusHandle; 2],
     scroll: Scroll,
     /// Already closed as far as a caller is concerned, and kept mounted only
     /// while it plays its exit. Its pending removal takes this entry alone, so
@@ -376,6 +379,12 @@ impl OverlayHost {
         let invoker = window.focused(cx);
         let focus = cx.focus_handle();
         let initial = overlay.primary_focus.clone();
+        let actions = [
+            cx.focus_handle().tab_stop(true),
+            initial
+                .clone()
+                .unwrap_or_else(|| cx.focus_handle().tab_stop(true)),
+        ];
         self.0.update(cx, |host, cx| {
             let id = host.next;
             host.next += 1;
@@ -384,6 +393,7 @@ impl OverlayHost {
                 overlay,
                 focus: focus.clone(),
                 invoker,
+                actions,
                 scroll: Scroll::new(),
                 closing: false,
                 entered: std::cell::Cell::new(false),
@@ -590,9 +600,10 @@ impl OverlayHost {
         // A surface with an open surface above it is the one that recedes; a
         // surface with only a leaving one above it has the operator back.
         let covered = host.entries[index + 1..].iter().any(|entry| !entry.closing);
-        let (overlay, focus, scroll, closing) = (
+        let (overlay, focus, actions, scroll, closing) = (
             entry.overlay.clone(),
             entry.focus.clone(),
+            entry.actions.clone(),
             entry.scroll.clone(),
             entry.closing,
         );
@@ -723,7 +734,7 @@ impl OverlayHost {
             })
             .child(self.header(&overlay, id, environment))
             .child(body)
-            .children(self.footer(&overlay, id, environment));
+            .children(self.footer(&overlay, id, &actions, environment));
         let surface = div()
             .absolute()
             .map(|d| match overlay.kind {
@@ -953,6 +964,7 @@ impl OverlayHost {
         &self,
         overlay: &Overlay,
         id: usize,
+        actions: &[FocusHandle; 2],
         environment: UiEnvironment,
     ) -> Option<impl IntoElement + use<>> {
         if overlay.primary.is_none() && overlay.secondary.is_none() {
@@ -966,7 +978,7 @@ impl OverlayHost {
         let action = |slot: Option<(SharedString, Activate)>, quiet: bool| {
             slot.map(|(label, activate)| {
                 let take = self.take(id, activate);
-                let tracked = (!quiet).then(|| overlay.primary_focus.clone()).flatten();
+                let tracked = actions[usize::from(!quiet)].clone();
                 Button::new(
                     (
                         if quiet {
@@ -980,13 +992,36 @@ impl OverlayHost {
                     environment,
                 )
                 .when(quiet, Button::quiet)
-                .when_some(tracked, |button, handle| button.track_focus(&handle))
+                .track_focus(&tracked)
                 .on_surface(palette.surface)
                 .on_activate(move |window, cx| take(window, cx))
             })
         };
+        let present: Vec<FocusHandle> = [
+            overlay.secondary.is_some().then(|| actions[0].clone()),
+            overlay.primary.is_some().then(|| actions[1].clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         Some(
             div()
+                .id(("overlay-actions", id))
+                // The arrow keys walk the action buttons, wrapping; Tab is
+                // untouched.
+                .on_key_down(move |event, window, cx| {
+                    let step = match event.keystroke.key.as_str() {
+                        "left" | "up" => present.len() - 1,
+                        "right" | "down" => 1,
+                        _ => return,
+                    };
+                    let Some(at) = present.iter().position(|handle| handle.is_focused(window))
+                    else {
+                        return;
+                    };
+                    present[(at + step) % present.len()].focus(window, cx);
+                    cx.stop_propagation();
+                })
                 .flex_none()
                 .flex()
                 .justify_end()
@@ -1484,6 +1519,53 @@ mod tests {
         let invoker = cx.debug_bounds("button-Open").expect("the invoker renders");
         cx.simulate_click(invoker.center(), Modifiers::default());
         cx.run_until_parked();
+    }
+
+    /// Opens a Quit/Cancel dialog, where Quit holds initial focus. Returns the
+    /// action handles in visual order (Cancel, Quit).
+    fn open_two_action_dialog(
+        view: &Entity<Harness>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> [FocusHandle; 2] {
+        let quit = cx.update(|_, cx| cx.focus_handle().tab_stop(true));
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::dialog("Quit?")
+                    .primary("Quit", |_, _| {})
+                    .primary_focus(&quit)
+                    .secondary("Cancel", |_, _| {}),
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let cancel = view.read_with(cx, |view, cx| {
+            view.host.0.read(cx).entries.last().unwrap().actions[0].clone()
+        });
+        [cancel, quit]
+    }
+
+    #[gpui::test]
+    fn arrow_keys_move_focus_between_a_dialogs_actions_and_wrap(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let [cancel, quit] = open_two_action_dialog(&view, cx);
+        cx.update(|window, _| assert!(quit.is_focused(window), "the primary holds focus"));
+        for (key, expect_cancel) in [
+            ("left", true),
+            ("left", false),
+            ("right", true),
+            ("right", false),
+            ("up", true),
+            ("down", false),
+        ] {
+            cx.simulate_keystrokes(key);
+            cx.update(|window, _| {
+                assert_eq!(cancel.is_focused(window), expect_cancel, "after {key}");
+                assert_eq!(quit.is_focused(window), !expect_cancel, "after {key}");
+            });
+        }
     }
 
     #[gpui::test]

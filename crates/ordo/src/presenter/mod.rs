@@ -49,8 +49,8 @@ use std::{
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
-    Context, Entity, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task,
-    WeakFocusHandle, Window, div, prelude::*, px, rgb,
+    App, Context, Entity, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled,
+    Task, WeakFocusHandle, Window, div, prelude::*, px, rgb,
 };
 use presentation::{
     commands::Command,
@@ -278,6 +278,8 @@ pub struct PresenterView {
     overlays: ui::overlay::OverlayHost,
     /// Initial focus of that confirmation: **Stay in Presenter**.
     stay_focus: FocusHandle,
+    /// Initial focus of the quit confirmation: **Quit**.
+    quit_focus: FocusHandle,
     /// What the owner plugs into a planned exit (no-ops until set).
     hooks: SessionHooks,
     /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
@@ -407,6 +409,7 @@ impl PresenterView {
             dock_focus: cx.focus_handle(),
             overlays: ui::overlay::OverlayHost::new(cx),
             stay_focus: cx.focus_handle(),
+            quit_focus: cx.focus_handle(),
             hooks: SessionHooks::default(),
             reference_focus: cx.focus_handle(),
             reference_close_focus: cx.focus_handle(),
@@ -918,6 +921,12 @@ impl PresenterView {
         self.hooks = hooks;
     }
 
+    /// Test only: the title of the dialog on top of this layer.
+    #[cfg(test)]
+    pub(crate) fn overlay_top(&self, cx: &gpui::App) -> Option<SharedString> {
+        self.overlays.top(cx)
+    }
+
     /// Whether the **End presentation?** confirmation is open.
     pub fn exit_confirmation_open(&self, cx: &gpui::App) -> bool {
         self.overlays.depth(cx) > 0
@@ -952,6 +961,16 @@ impl PresenterView {
     /// owner is asked to leave. Each step is a hook or an Engine command, so
     /// nothing here waits on the platform.
     fn end_presentation(&mut self, cx: &mut Context<Self>) {
+        self.close_output_safely(cx);
+        // T1.7: mark the session complete and clear recovery
+        (self.hooks.on_session_ended)();
+        cx.emit(ExitRequested);
+    }
+
+    /// The safe shutdown of the output: blackout if Live or Frozen, close the
+    /// congregation window, run the owner's hook, then `DisableOutput`. Shared
+    /// by ending the presentation and by quitting Ordo.
+    pub(crate) fn close_output_safely(&mut self, cx: &mut Context<Self>) {
         if matches!(
             self.engine.state().live(),
             LiveState::Live | LiveState::Frozen
@@ -961,9 +980,24 @@ impl PresenterView {
         self.close_output_window(cx);
         (self.hooks.close_output)(&self.engine);
         self.command(Command::DisableOutput, cx).ok();
-        // T1.7: mark the session complete and clear recovery
-        (self.hooks.on_session_ended)();
-        cx.emit(ExitRequested);
+    }
+
+    /// The operator window was asked to close. Ask first on this layer (the
+    /// shell's is not mounted in Presenter Mode); once only. `on_quit` is the
+    /// owner's confirmed quit, which takes the output down and closes the window.
+    pub(crate) fn request_quit(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        on_quit: impl Fn(&mut Window, &mut App) + 'static,
+    ) {
+        if self.overlays.top(cx).as_deref() == Some(crate::shell::quit::TITLE) {
+            return;
+        }
+        let enabled = self.engine.state().live() != LiveState::OutputDisabled;
+        let overlay = crate::shell::quit::confirmation(&self.quit_focus, enabled, on_quit);
+        self.overlays.open(overlay, window, cx);
+        cx.notify();
     }
 
     /// Give focus to the Cues, where the keys are live. The owner calls this
