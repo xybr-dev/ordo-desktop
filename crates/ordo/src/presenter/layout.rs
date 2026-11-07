@@ -52,22 +52,35 @@ pub const DOCK_STATUS_HEIGHT: f32 = 32.0;
 pub const DOCK_FREEZE_BLACKOUT_HEIGHT: f32 = 40.0;
 /// Primary action button (spec: 48; kit `--o-h-presenter`).
 pub const DOCK_PRIMARY_HEIGHT: f32 = 48.0;
+/// Auto-play control row beneath the primary action in the Side dock (T1.5c).
+/// The mockups are silent on where auto-play lives, so it takes its own row
+/// under the three controls that must never move.
+pub const DOCK_AUTO_PLAY_HEIGHT: f32 = 40.0;
+/// Width of the Auto-play control at the right end of the Band's status row.
+/// The Band's Freeze/Blackout and primary columns keep their T1.4 widths, and
+/// the control adds no height: it shares the status row.
+pub const BAND_AUTO_PLAY_WIDTH: f32 = 208.0;
 /// Label row above each monitor (kit `.pr-mon-head`: 14 px text, rounded up
 /// to 24 to leave room for the state glyph). An approximation of the kit's
 /// DOM-measured overflow, not a kit token.
 pub const MONITOR_LABEL_HEIGHT: f32 = 24.0;
-/// Items stacked in the dock: two monitors, status, Freeze/Blackout, primary.
-const DOCK_ITEM_COUNT: f32 = 5.0;
+/// Items stacked in the dock: two monitors, status, Freeze/Blackout, primary,
+/// auto-play.
+const DOCK_ITEM_COUNT: f32 = 6.0;
 /// Monitors stacked in the Side dock (Program and Preview).
 const DOCK_MONITOR_COUNT: f32 = 2.0;
 
-/// Controls that never shrink: status, Freeze/Blackout and the primary action.
+/// Controls that never shrink: status, Freeze/Blackout, the primary action and
+/// the auto-play control.
 pub const DOCK_CONTROLS_HEIGHT: f32 =
-    DOCK_STATUS_HEIGHT + DOCK_FREEZE_BLACKOUT_HEIGHT + DOCK_PRIMARY_HEIGHT;
+    DOCK_STATUS_HEIGHT + DOCK_FREEZE_BLACKOUT_HEIGHT + DOCK_PRIMARY_HEIGHT + DOCK_AUTO_PLAY_HEIGHT;
 
 /// Height the Side dock reserves for everything except the two 16:9 slides:
 /// header, both label rows with their gaps, the never-shrinking controls, the
-/// gaps between the five dock items and the dock's own top and bottom padding.
+/// gaps between the six dock items and the dock's own top and bottom padding.
+/// The sixth item's 40 px row shrinks the Side monitors at 1366x600@100%
+/// (about 277 to 235 px wide); DESIGN.md allows monitors to shrink before any
+/// control does.
 /// The kit measures this overflow in the DOM (`dockEl.scrollHeight`); this
 /// sum approximates it and is not a kit token.
 ///

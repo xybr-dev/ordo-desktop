@@ -255,6 +255,44 @@ impl State {
         field.set_value(self.choices[i].label.clone(), window, cx);
     }
 
+    /// Replaces the collection in place, so the trigger, the popup and the
+    /// focus they hold survive a change in the words or in what is available.
+    /// The selection and the arrows' resting place are kept when they still
+    /// point at an eligible choice. A popup that is open stays open, and focus
+    /// that was on one of its choices moves to the active choice of the new set,
+    /// since the old handles are dropped.
+    fn set_choices(&mut self, choices: Vec<Choice>, window: &mut Window, cx: &mut Context<Self>) {
+        let same = self.choices.len() == choices.len()
+            && self
+                .choices
+                .iter()
+                .zip(&choices)
+                .all(|(a, b)| a.label == b.label && a.availability == b.availability);
+        if same {
+            return;
+        }
+        let choice_had_focus = self.focus.iter().any(|handle| handle.is_focused(window));
+        self.focus = choices.iter().map(|_| cx.focus_handle()).collect();
+        self.choices = choices;
+        self.selected = self.selected.filter(|&i| i < self.choices.len());
+        self.active = self
+            .active
+            .filter(|&i| {
+                self.choices
+                    .get(i)
+                    .is_some_and(|c| !c.availability.is_disabled())
+            })
+            .or_else(|| {
+                self.choices
+                    .iter()
+                    .position(|c| !c.availability.is_disabled())
+            });
+        if self.open && choice_had_focus {
+            self.focus_active(window, cx);
+        }
+        cx.notify();
+    }
+
     fn focus_active(&self, window: &mut Window, cx: &mut App) {
         let Some(i) = self.active_choice(cx) else {
             return;
@@ -356,6 +394,12 @@ impl SelectionState {
             State::new(choices, selected, Some(field), cx)
         }))
     }
+    /// Replaces the choices while keeping the state, its trigger and its focus
+    /// (see `State::set_choices`). A no-op when nothing changed.
+    pub fn set_choices(&self, choices: Vec<Choice>, window: &mut Window, cx: &mut App) {
+        self.0
+            .update(cx, |state, cx| state.set_choices(choices, window, cx));
+    }
     /// What the operator has typed into a Combobox, which may be a value the
     /// collection does not contain. Accepting one is the caller's decision.
     pub fn text(&self, cx: &App) -> Option<SharedString> {
@@ -439,6 +483,9 @@ struct Control {
     surface: u32,
     kind: Kind,
     clearable: bool,
+    /// The trigger takes the whole width of its slot instead of its content
+    /// width (capped at 320 px).
+    fill: bool,
     on_select: Option<OnSelect>,
 }
 
@@ -462,11 +509,18 @@ macro_rules! control {
                     surface: tokens::palette(environment.appearance()).background,
                     kind: Kind::$kind,
                     clearable: true,
+                    fill: false,
                     on_select: None,
                 })
             }
             pub fn on_surface(mut self, surface: u32) -> Self {
                 self.0.surface = surface;
+                self
+            }
+            /// Stretch the trigger across its slot, like a primary button in
+            /// a column, instead of sizing it to its words.
+            pub fn fill_width(mut self) -> Self {
+                self.0.fill = true;
                 self
             }
             /// Reports a selection the operator made *through this control*:
@@ -860,10 +914,16 @@ impl Control {
             .track_focus(&handle)
             .aria_expanded(open)
             .when(self.kind == Kind::Select, |b| b.aria_value(value))
-            .max_w(px(scale
-                .apply(320.0)
-                .min(f32::from(window.viewport_size().width) - 32.0)
-                .max(0.0)))
+            .map(|trigger| {
+                if self.fill {
+                    trigger.w_full()
+                } else {
+                    trigger.max_w(px(scale
+                        .apply(320.0)
+                        .min(f32::from(window.viewport_size().width) - 32.0)
+                        .max(0.0)))
+                }
+            })
     }
 
     /// The Combobox's trigger: an Ordo Field, plus the key and pointer
@@ -1303,6 +1363,7 @@ mod tests {
                         state: self.state.clone(),
                         kind: self.kind,
                         clearable: true,
+                        fill: false,
                         on_select: Some({
                             let activations = self.activations.clone();
                             let cleared = self.cleared.clone();
@@ -1480,6 +1541,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Menu,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -1943,6 +2005,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Combobox,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -2021,6 +2084,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Combobox,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),

@@ -16,7 +16,10 @@ use gpui::{
     AnyElement, App, IntoElement, ParentElement, RenderImage, SharedString, Styled, Window, div,
     prelude::*, px, rgb, svg,
 };
-use presentation::{commands::Command, state::LiveState};
+use presentation::{
+    commands::Command,
+    state::{AutoPlayScope, LiveState},
+};
 use rendering::Frame;
 use std::sync::Arc;
 use ui::{
@@ -26,6 +29,7 @@ use ui::{
         self, Availability,
         button::{Button, Tone},
         record::Marker,
+        selection::{Choice, Menu, SelectionState},
     },
     tokens,
 };
@@ -127,6 +131,66 @@ pub struct ProgramModel {
     /// The wanted frame has been pending past the slow-frame threshold.
     /// Operator-only: it adds the "Preparing…" badge to this monitor.
     pub preparing: bool,
+    /// An auto-play run is going: the AUTO badge beside the state word and
+    /// the progress bar along the monitor's foot.
+    pub auto_play: Option<AutoPlayIndicator>,
+}
+
+/// How far the current Cue of an auto-play run has gone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AutoPlayIndicator {
+    /// Until the run advances; `None` on a Cue it cannot advance from (a
+    /// trigger, Hold, Wait or an unavailable Cue).
+    pub remaining_ms: Option<u64>,
+    /// The share of the current Cue's time that has passed, 0 to 1.
+    pub progress: Option<f32>,
+}
+
+/// The badge's words: AUTO, and the time to the next step as m:ss, rounded
+/// up so it never reads 0:00 before the step.
+pub fn auto_play_badge_text(indicator: AutoPlayIndicator) -> String {
+    match indicator.remaining_ms {
+        Some(ms) => {
+            let secs = ms.div_ceil(1000);
+            format!("AUTO {}:{:02}", secs / 60, secs % 60)
+        }
+        None => "AUTO".to_owned(),
+    }
+}
+
+/// The operator-only AUTO badge beside Program's state word.
+fn auto_play_badge(indicator: AutoPlayIndicator, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let c = colors(environment);
+    div()
+        .debug_selector(|| "program-auto-play".into())
+        .flex_none()
+        .px(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .rounded(px(scale.apply(tokens::radius::CONTROL)))
+        .border(px(tokens::border::SEPARATOR))
+        .border_color(rgb(c.live))
+        .text_color(rgb(c.live))
+        .text_size(px(scale.apply(tokens::typography::META.size)))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .child(auto_play_badge_text(indicator))
+        .into_any_element()
+}
+
+/// The run's progress through the current Cue: a thin bar along the foot of
+/// Program. A child of the operator's monitor box, never of the viewport the
+/// congregation output reuses.
+fn auto_play_progress(progress: f32, width: f32, environment: UiEnvironment) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let c = colors(environment);
+    div()
+        .debug_selector(|| "program-auto-play-progress".into())
+        .absolute()
+        .left_0()
+        .bottom_0()
+        .h(px(scale.apply(3.0)))
+        .w(px(width * progress.clamp(0.0, 1.0)))
+        .bg(rgb(c.live))
+        .into_any_element()
 }
 
 /// Everything the Preview monitor needs.
@@ -147,6 +211,33 @@ pub struct ControlsModel {
     pub can_freeze: bool,
     pub can_blackout: bool,
     pub can_primary: bool,
+    pub auto_play: AutoPlayModel,
+}
+
+/// One entry of the Auto-play menu: the words, the command it stands for and
+/// whether the Engine would take it. An entry the Engine would refuse is
+/// Unavailable and carries the refusal sentence.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AutoPlayEntry {
+    pub label: &'static str,
+    pub command: Command,
+    pub availability: Availability,
+}
+
+/// What the Auto-play control shows: the state in words, and its menu.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AutoPlayModel {
+    pub label: &'static str,
+    pub entries: Vec<AutoPlayEntry>,
+}
+
+/// The control's words for the current run, so the state never rests on color.
+pub fn auto_play_label(scope: Option<AutoPlayScope>) -> &'static str {
+    match scope {
+        None => "Auto-play off",
+        Some(AutoPlayScope::Item(_)) => "Auto-play: this item",
+        Some(AutoPlayScope::Section(_)) => "Auto-play: this section",
+    }
 }
 
 struct Colors {
@@ -338,7 +429,22 @@ pub fn program_monitor(model: &ProgramModel, width: f32, environment: UiEnvironm
                 model
                     .preparing
                     .then(|| preparing_badge("monitor-program-preparing", environment)),
+            )
+            .children(
+                model
+                    .auto_play
+                    .and_then(|run| run.progress)
+                    .map(|progress| auto_play_progress(progress, width, environment)),
             );
+    let detail = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_end()
+        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .children(model.auto_play.map(|run| auto_play_badge(run, environment)))
+        .child(state_word(word, tone, environment))
+        .into_any_element();
     div()
         .id("program")
         .flex_none()
@@ -346,11 +452,7 @@ pub fn program_monitor(model: &ProgramModel, width: f32, environment: UiEnvironm
         .flex()
         .flex_col()
         .gap(px(scale.apply(MONITOR_LABEL_GAP)))
-        .child(monitor_head(
-            "Program",
-            state_word(word, tone, environment),
-            environment,
-        ))
+        .child(monitor_head("Program", detail, environment))
         .child(viewport)
         .into_any_element()
 }
@@ -619,9 +721,74 @@ pub fn primary_action(
     }
 }
 
+/// The Auto-play control: a Menu whose trigger says the state in words.
+///
+/// The Menu owns its popup, Esc, outside press and the return of focus to its
+/// trigger. The selection state has a stable key and its choices are updated in
+/// place, so a change in the words or in what the Engine would refuse (a
+/// Freeze, a Blackout, a lost display, a run ending) keeps the trigger and the
+/// focus on it instead of replacing them. `height` is the unscaled slot the
+/// control sits in.
+pub fn auto_play_control(
+    model: &AutoPlayModel,
+    on_command: &OnCommand,
+    height: f32,
+    environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let scale = environment.preferences().scale;
+    let choices: Vec<Choice> = model
+        .entries
+        .iter()
+        .map(|entry| Choice::new(entry.label).availability(entry.availability.clone()))
+        .collect();
+    let state = SelectionState::keyed("auto-play-state", choices.clone(), None, window, cx);
+    state.set_choices(choices, window, cx);
+    let commands: Vec<Command> = model.entries.iter().map(|entry| entry.command).collect();
+    let on_command = on_command.clone();
+    div()
+        .id("auto-play")
+        .debug_selector(|| "auto-play-control".into())
+        .flex_none()
+        .w_full()
+        .h(px(scale.apply(height)))
+        .flex()
+        .items_center()
+        .child(
+            div().flex_1().min_w_0().flex().flex_col().child(
+                Menu::new("auto-play-menu", model.label, &state, environment)
+                    .fill_width()
+                    .on_surface(tokens::palette(environment.appearance()).surface)
+                    .on_select(move |chosen, window, cx| {
+                        if let Some(command) = chosen.and_then(|i| commands.get(i).copied()) {
+                            on_command(command, window, cx);
+                        }
+                    }),
+            ),
+        )
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_auto_play_badge_counts_down_in_whole_seconds() {
+        let text = |remaining_ms| {
+            auto_play_badge_text(AutoPlayIndicator {
+                remaining_ms,
+                progress: None,
+            })
+        };
+        assert_eq!(text(Some(7000)), "AUTO 0:07");
+        assert_eq!(text(Some(6001)), "AUTO 0:07");
+        assert_eq!(text(Some(1)), "AUTO 0:01");
+        assert_eq!(text(Some(0)), "AUTO 0:00");
+        assert_eq!(text(Some(75_000)), "AUTO 1:15");
+        assert_eq!(text(None), "AUTO");
+    }
 
     #[test]
     fn the_primary_follows_the_live_state() {
