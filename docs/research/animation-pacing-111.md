@@ -246,3 +246,76 @@ refresh intervals.
 
 The earlier proposal read: no interval over 33 ms, interval p95 at most 1.5
 refresh intervals, frame cost p95 at most one refresh interval (reported only).
+
+## After step 3b (overscan, Cue model, pinned rail)
+
+Three things were tried against the frame cost that was left (render 1.4 to 2.4
+ms, layout 7 to 10 ms, prepaint 1 to 1.6 ms, paint 2.7 to 3.6 ms at 100% and
+1920x1048). Measured on 2026-11-07 on the same monitor (75 Hz, 13.3 ms) with the
+release lab, window left alone, one run per cell and build, the two builds
+alternating cell by cell. "Before" is the build at the head of the previous
+step, run in this session, because the "after virtualisation" figures above are
+ranges over cells, not per cell.
+
+**Overscan.** The groups laid out around the visible span are now a named
+constant, `OVERSCAN`, a fraction of the timeline height above and below. At
+1920x1080, 100%, 500 Cues, frame cost p95 of the timeline glide was 14.8 ms
+(List) and 13.8 ms (Grid) at 1.0, 13.4 and 12.5 at 0.5, 12.4 and 12.2 at 0.25.
+Differences of 1 ms are inside the run-to-run spread, but the direction held in
+both views. A quarter is kept: layout is built from the offset the frame is
+drawn at (a wheel or scrollbar move notifies and the next render lays out around
+the new offset, however far it moved, and the follow glide sets its offset in
+prepaint, after layout), so the margin only absorbs rounding. A test scrolls
+three timeline heights by wheel in both directions and presses End and Home,
+frame by frame, in four sizes and both views, and checks that no group in view
+is a spacer.
+
+**Cue model.** `timeline_model` (all 500 `CueModel`s) took 0.47 ms at the median
+and 0.73 ms p95 (temporary stamps, 862 frames, List 1920x1080 100%), a third of
+the render phase and 5% of the frame. It is not cached. The model is consumed by
+the timeline, the frame store has no change counter to key a cache on and
+runtime availability is read from the engine for each Cue, so a cache that can
+never be stale needs a new version counter in the store and a clone of 500
+models per frame, and would save about 0.3 ms. Not worth the staleness risk.
+
+**The pinned rail.** Taking the rail out of the frame (an experiment) cut layout
+by about 3 ms and frame cost by 3 to 4 ms in the 1920x1080 100% cells: its 60
+rows were laid out on every frame to draw the same thing. Taking the timeline
+out instead left layout at 4 ms (header, rail and dock), so the rest was the
+timeline. The rail only changes when Preview moves to another Mass item or the
+window changes size. It is now its own `Entity` (`rail::RailView`), drawn with
+`Entity::cached` while pinned; the Presenter syncs the current model into it
+each frame and it redraws only when that differs. Focus handle, F6 region and
+key context stay on the Presenter. Layout of the rail, when it does redraw, is
+counted under prepaint, which is why prepaint p95 rose in the glide and fold
+cells (0.9 to 3.1 ms): it is the frames where Preview moved. The header and the
+dock were left alone (the dock draws the fades, the header is cheap).
+
+Frame cost p95 (ms), before to after, 500 Cues unless noted; the interval p95
+stayed at 14.3 to 18.1 ms in every cell and no interval went over 33 ms:
+
+| Cell | glide | rail overlay | group fold | output fades | all folded |
+| --- | --- | --- | --- | --- | --- |
+| 1920x1080 100% List | 15.4 to 11.2 | 13.1 to 10.9 | 12.5 to 9.9 | 12.6 to 7.8 | 16.1 to 11.5 |
+| 1920x1080 100% Grid | 13.9 to 10.7 | 12.6 to 9.3 | 11.3 to 10.1 | 9.9 to 6.1 | 15.2 to 10.5 |
+| 1920x1080 200% List | 5.9 to 5.9 | 9.7 to 9.6 | 5.0 to 4.8 | 4.4 to 4.0 | 10.4 to 11.7 |
+| 1920x1080 200% Grid | 6.0 to 5.9 | 8.1 to 9.9 | 5.0 to 5.2 | 4.4 to 4.2 | 10.4 to 10.4 |
+| 1366x768 100% Grid | 10.3 to 8.4 | 11.3 to 9.2 | 9.2 to 7.9 | 8.7 to 5.8 | 14.7 to 13.8 |
+| 1366x768 100% Grid, 30 Cues | 6.2 to 4.9 | 6.4 to 5.1 | 5.3 to 4.8 | 5.6 to 4.2 | 5.3 to 4.0 |
+
+Layout p95 in the 1920x1080 100% List cell: glide 9.5 to 4.5 ms, fades 7.0 to
+3.4 ms. The 200% cells are unchanged because the rail is not pinned there (the
+effective window is too narrow), and those cells already sat under the
+refresh interval. After the change the 100% cells at 1920x1080 are at 6 to 11.5
+ms against the 13.3 ms refresh, the glide in List being the worst at 11.2 ms;
+every 1920x1080 100% cell that was over one refresh interval at p95 is
+now under it. "All folded" at 1366x768 stays at 13.8 ms, just over.
+
+One run, 1366x768 100% Grid all folded, came back with 13 intervals over 33 ms
+(interval p95 41.9 ms) although its frame cost was normal. Three reruns of the
+same build and cell gave frame cost p95 10.7 to 11.1 ms, interval p95 15.8 to
+16.0 ms and no interval over 33 ms; the first run is taken as the window being
+disturbed, and is kept here as measured. The idle probe frame
+(`refresh_cpu_p95_ms`, List 1920x1080 100%) fell from 10.6 to 6.9 ms.
+
+Curves and durations were not touched.
