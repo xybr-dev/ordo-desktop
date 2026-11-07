@@ -201,15 +201,48 @@ Against the 13.3 ms budget the 500-Cue p95 is near it but not under it: most
 cells sit at 14 to 17 ms (one to two vsyncs late at the tail), the worst at 19.9
 ms.
 
-### Proposed regression bar for report.json (not implemented)
+### Regression bar in report.json (step 4, implemented)
 
-Record the measured refresh interval in the report and judge frame pacing
-against it, not against a fixed 16.7 ms. For the 500-Cue animation measurement,
-proposed gates, per animation and cell: no interval over 33 ms (0 today); p95
-interval at most 1.5 refresh intervals (20 ms at 75 Hz; the worst cell is
-19.9 ms, so it passes with almost no margin); p95 frame cost at most one
-refresh interval (13.3 ms; fails today only in the 100% glide cells, 14.4 to
-17.1 ms). Gate on the first two and report the third, until the remaining frame
-cost (recommendations 2 and 3 above, caching the unchanged header,
-dock and rail, and keeping the rail and fades from re-rendering the timeline) is
-tackled.
+`cargo xtask measure-presenter` now runs the animation measurement once (release
+`live-control-lab --measure-animations`, 1366x768, 100%, 500 Cues, Grid) and
+stores the document under `native.animations` in `report.json`. Frame pacing is
+judged against the refresh interval measured in that same run, not a fixed 16.7
+ms: before the scripted animations the lab draws frames back to back for about
+a second with no state change, and the median interval is `refresh_ms`
+(`refresh_hz`, `refresh_samples`; `null` with a `refresh_note` when fewer than 20
+intervals arrive). It is the Presenter's own idle draw cadence, with no OS
+display query, so it equals the display refresh only when an idle frame fits in
+one vsync and the native vsync source is in use. The probe's own frame cost p95
+is recorded as `refresh_cpu_p95_ms`. Each animation also records
+`p95_over_refresh` and `cpu_p95_over_refresh`, and `limits_ms` carries `hitch`
+(33), `refresh` and `p95_bar` (1.5 x refresh, echoed; xtask owns the factor and
+fails if the echo disagrees by more than 0.05 ms).
+
+Gates: the refresh must be plausible (4 to 17.5 ms) and the probe's frame cost
+p95 at most 0.9 of it, because a slow idle frame (one that costs more than a
+vsync) would otherwise stretch the cadence and raise its own bar. All five animations (`timeline_glide`, `rail_overlay`, `group_fold`,
+`output_fades`, `output_fades_all_folded`) must be present with a boolean
+`applicable`; all but `rail_overlay` must apply, so at least four are judged.
+Per animation that applied: no interval over 33 ms and interval p95 at most 1.5
+refresh intervals. An unmeasured run (missing or errored document, no refresh,
+no intervals) fails.
+
+On a CI runner (`GITHUB_ACTIONS=true`) the animation lab is not run: a GitHub
+Windows runner has no real display, the vsync source falls back to a sleep
+timer (the first run read a 52 ms "refresh" with 116 intervals over 33 ms), and
+WARP frames are slow, so nothing it measured could be judged. The document
+records `native.animations` as `{"skipped": ...}` and `animations_verdict` as
+`{"judged": false, ...}`; locally it is `{"judged": true, ...}` and findings
+fail the run. The p95 frame cost against one refresh interval
+is printed in the run summary and not judged: it fails today in the 100% glide
+cells, and its fix (caching the unchanged header, dock and rail, and keeping the
+rail and fades from re-rendering the timeline, recommendations 2 and 3) is still
+open in #111.
+
+First run with the gate (2026-11-07, same machine): refresh 13.26 ms (75.4 Hz,
+74 samples), p95 bar 19.89 ms; interval p95 of the five animations 14.7 to 16.0
+ms (1.11 to 1.20 refresh), no interval over 33 ms, frame cost p95 0.69 to 1.15
+refresh intervals.
+
+The earlier proposal read: no interval over 33 ms, interval p95 at most 1.5
+refresh intervals, frame cost p95 at most one refresh interval (reported only).
