@@ -219,8 +219,8 @@ is recorded as `refresh_cpu_p95_ms`. Each animation also records
 fails if the echo disagrees by more than 0.05 ms).
 
 Gates: the refresh must be plausible (4 to 17.5 ms) and the probe's frame cost
-p95 at most half of it, because a slow idle frame would otherwise raise its own
-bar. All five animations (`timeline_glide`, `rail_overlay`, `group_fold`,
+p95 at most 0.9 of it, because a slow idle frame (one that costs more than a
+vsync) would otherwise stretch the cadence and raise its own bar. All five animations (`timeline_glide`, `rail_overlay`, `group_fold`,
 `output_fades`, `output_fades_all_folded`) must be present with a boolean
 `applicable`; all but `rail_overlay` must apply, so at least four are judged.
 Per animation that applied: no interval over 33 ms and interval p95 at most 1.5

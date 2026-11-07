@@ -538,7 +538,11 @@ const ANIMATION_HITCH_MS: f64 = 33.0;
 /// 17.5 ms (about 57 Hz).
 const PLAUSIBLE_REFRESH_MS: std::ops::RangeInclusive<f64> = 4.0..=17.5;
 /// The probe's own frame cost p95 may be at most this share of the refresh.
-const PROBE_CPU_REFRESH_SHARE: f64 = 0.5;
+/// An idle frame stretches the draw cadence past one vsync only when it costs
+/// more than the refresh; 0.9 keeps a margin below that without failing a
+/// healthy machine (the probe's span from render to prepaint includes
+/// scheduling gaps, measured at about 0.6 of the refresh at 75 Hz).
+const PROBE_CPU_REFRESH_SHARE: f64 = 0.9;
 /// The lab echoes its p95 bar; it must agree with ours within this many ms.
 const P95_BAR_AGREEMENT_MS: f64 = 0.05;
 /// The animations the run must record. All but `rail_overlay` always apply in
@@ -587,7 +591,7 @@ fn animation_gate(native: &Value, ci: bool) -> AnimationGate {
 /// Presenter's own idle draw cadence, which is the display refresh only when an
 /// idle frame fits in one vsync and the native vsync source is in use. So the
 /// refresh must be plausible (4 to 17.5 ms) and the probe's own frame cost p95
-/// at most half of it; otherwise the bar is meaningless and the run fails.
+/// at most 0.9 of it; otherwise the bar is meaningless and the run fails.
 /// Each animation that applied is then judged against that refresh: no interval
 /// over 33 ms, and an interval p95 of at most 1.5 refresh intervals (the one
 /// constant, here; the lab's echoed `limits_ms.p95_bar` must agree). A missing
@@ -1749,15 +1753,15 @@ mod tests {
     #[test]
     fn a_probe_with_a_high_frame_cost_or_no_cost_fails() {
         one_animation_failure(
-            |a| a["refresh_cpu_p95_ms"] = json!(6.7),
-            "refresh probe's own frame cost p95 6.70 ms",
+            |a| a["refresh_cpu_p95_ms"] = json!(12.0),
+            "refresh probe's own frame cost p95 12.00 ms",
         );
         one_animation_failure(
             |a| a["refresh_cpu_p95_ms"] = Value::Null,
             "no refresh probe frame cost",
         );
         let mut native = passing_native();
-        native["animations"]["refresh_cpu_p95_ms"] = json!(6.65);
+        native["animations"]["refresh_cpu_p95_ms"] = json!(11.95);
         assert!(animation_failures(&native).is_empty());
     }
 
