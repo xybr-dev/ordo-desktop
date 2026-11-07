@@ -210,14 +210,29 @@ judged against the refresh interval measured in that same run, not a fixed 16.7
 ms: before the scripted animations the lab draws frames back to back for about
 a second with no state change, and the median interval is `refresh_ms`
 (`refresh_hz`, `refresh_samples`; `null` with a `refresh_note` when fewer than 20
-intervals arrive). It is the Presenter's own draw cadence, with no OS display
-query. Each animation also records `p95_over_refresh` and
-`cpu_p95_over_refresh`, and `limits_ms` carries `hitch` (33), `refresh` and
-`p95_bar` (1.5 x refresh).
+intervals arrive). It is the Presenter's own idle draw cadence, with no OS
+display query, so it equals the display refresh only when an idle frame fits in
+one vsync and the native vsync source is in use. The probe's own frame cost p95
+is recorded as `refresh_cpu_p95_ms`. Each animation also records
+`p95_over_refresh` and `cpu_p95_over_refresh`, and `limits_ms` carries `hitch`
+(33), `refresh` and `p95_bar` (1.5 x refresh, echoed; xtask owns the factor and
+fails if the echo disagrees by more than 0.05 ms).
 
-Gates, per animation that applied: no interval over 33 ms; interval p95 at most
-1.5 refresh intervals; and an unmeasured run (missing or errored document, no
-refresh, no intervals) fails. The p95 frame cost against one refresh interval
+Gates: the refresh must be plausible (4 to 17.5 ms) and the probe's frame cost
+p95 at most half of it, because a slow idle frame would otherwise raise its own
+bar. All five animations (`timeline_glide`, `rail_overlay`, `group_fold`,
+`output_fades`, `output_fades_all_folded`) must be present with a boolean
+`applicable`; all but `rail_overlay` must apply, so at least four are judged.
+Per animation that applied: no interval over 33 ms and interval p95 at most 1.5
+refresh intervals. An unmeasured run (missing or errored document, no refresh,
+no intervals) fails.
+
+On a CI runner (`GITHUB_ACTIONS=true`) these findings are reported, not failing:
+a GitHub Windows runner has no real display, the vsync source falls back to a
+sleep timer, and WARP frames may be slow. The summary prints them as `warning:`
+lines and the document records `native.animations_verdict` as
+`{"judged": false, "reason": "CI runner: no real display vsync", "would_fail":
+[...]}`; locally it is `{"judged": true, ...}` and findings fail the run. The p95 frame cost against one refresh interval
 is printed in the run summary and not judged: it fails today in the 100% glide
 cells, and its fix (caching the unchanged header, dock and rail, and keeping the
 rail and fades from re-rendering the timeline, recommendations 2 and 3) is still

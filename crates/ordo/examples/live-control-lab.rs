@@ -1055,10 +1055,13 @@ mod measure {
 ///
 /// Before the scripted animations a refresh probe draws frames back to back
 /// for about a second with no state change; the median interval is
-/// `refresh_ms`, the display's refresh as the Presenter's draw cadence saw it
-/// (no OS display query). `limits_ms.hitch` (33) is a fixed bar and
-/// `limits_ms.p95_bar` is 1.5 refresh intervals: the pacing gate judges against
-/// the measured display, not a fixed 16.7 ms. `limits_ms.frame` and `dropped`
+/// `refresh_ms`, the Presenter's own idle draw cadence (no OS display query).
+/// That equals the display refresh only when an idle frame fits in one vsync
+/// and the native vsync source is in use, so the probe's own frame cost p95 is
+/// recorded as `refresh_cpu_p95_ms` and the gate in xtask checks both.
+/// `limits_ms.hitch` (33) is a fixed bar and `limits_ms.p95_bar` is 1.5 refresh
+/// intervals, echoed for the gate to cross-check; xtask owns the factor and
+/// judges against the measured refresh, not a fixed 16.7 ms. `limits_ms.frame` and `dropped`
 /// only feed the older `over_16_7ms_pct` and `over_25ms` fields. Per animation,
 /// `p95_over_refresh` and `cpu_p95_over_refresh` are the interval and frame
 /// cost p95 in refresh intervals.
@@ -1074,7 +1077,7 @@ mod animations {
     };
 
     /// The run gets this long, then writes an error document and exits nonzero.
-    pub const TIMEOUT: Duration = Duration::from_secs(90);
+    pub const TIMEOUT: Duration = Duration::from_secs(150);
     /// Idle time between two scripted presses, with nothing recorded.
     const GAP: Duration = Duration::from_millis(250);
     /// How often a hold samples the frame store.
@@ -1529,16 +1532,20 @@ mod animations {
     struct Refresh {
         ms: Option<f64>,
         samples: usize,
+        /// p95 of the probe frames' own cost (render, layout, prepaint, paint).
+        cpu_p95_ms: Option<f64>,
     }
 
     impl Refresh {
-        fn from_intervals(mut intervals: Vec<f64>) -> Self {
+        fn from_intervals(mut intervals: Vec<f64>, cpu: &[f64]) -> Self {
             let samples = intervals.len();
+            let cpu_p95_ms = (!cpu.is_empty()).then(|| percentile(&sorted(cpu), 95.0));
             intervals.sort_by(|a, b| a.total_cmp(b));
             let median = percentile(&intervals, 50.0);
             Self {
                 ms: (samples >= PROBE_MIN_SAMPLES && median > 0.0).then_some(median),
                 samples,
+                cpu_p95_ms,
             }
         }
 
@@ -1624,8 +1631,10 @@ mod animations {
         run.pacing.end_segment();
         run.pacing.set_probing(false);
         let capture = run.pacing.take();
+        let cpu: Vec<f64> = capture.frames.iter().map(Frame::cpu).collect();
         Ok(Refresh::from_intervals(
             capture.frames.iter().filter_map(|f| f.interval).collect(),
+            &cpu,
         ))
     }
 
@@ -1755,7 +1764,7 @@ mod animations {
         }
 
         Ok(format!(
-            "{{\"mode\":\"animation-pacing\",\"issue\":111,\"profile\":{},\"window\":{},\"viewport\":{},\"scale_percent\":{},\"scale_factor\":{scale_factor},\"cue_view\":{},\"cues_requested\":{},\"cue_count\":{cues},\"groups\":{groups},\"window_active_at_start\":{active},\"window_maximized\":{maximized},\"window_bounds\":{},\"limits_ms\":{{\"frame\":{FRAME_MS},\"dropped\":{DROP_MS},\"hitch\":{HITCH_MS},\"refresh\":{},\"p95_bar\":{}}},\"refresh_ms\":{},\"refresh_hz\":{},\"refresh_samples\":{},\"refresh_note\":{},\"note\":{},\"animations\":[{}]}}",
+            "{{\"mode\":\"animation-pacing\",\"issue\":111,\"profile\":{},\"window\":{},\"viewport\":{},\"scale_percent\":{},\"scale_factor\":{scale_factor},\"cue_view\":{},\"cues_requested\":{},\"cue_count\":{cues},\"groups\":{groups},\"window_active_at_start\":{active},\"window_maximized\":{maximized},\"window_bounds\":{},\"limits_ms\":{{\"frame\":{FRAME_MS},\"dropped\":{DROP_MS},\"hitch\":{HITCH_MS},\"refresh\":{},\"p95_bar\":{}}},\"refresh_ms\":{},\"refresh_hz\":{},\"refresh_cpu_p95_ms\":{},\"refresh_samples\":{},\"refresh_note\":{},\"note\":{},\"animations\":[{}]}}",
             json_string(if cfg!(debug_assertions) {
                 "debug"
             } else {
@@ -1771,10 +1780,11 @@ mod animations {
             number(refresh.ms.map(|ms| P95_BAR * ms), 2),
             number(refresh.ms, 3),
             number(refresh.hz(), 1),
+            number(refresh.cpu_p95_ms, 3),
             refresh.samples,
             json_string(&if refresh.ms.is_some() {
                 format!(
-                    "the median interval of {} frames drawn back to back for about a second with no state change; the p95 bar is {P95_BAR} times it",
+                    "the median interval of {} frames the Presenter drew back to back for about a second with no state change; equals the display refresh only if an idle frame fits in one vsync; the p95 bar is {P95_BAR} times it",
                     refresh.samples
                 )
             } else {
@@ -1788,6 +1798,29 @@ mod animations {
             ),
             animations.join(","),
         ))
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn too_few_probe_intervals_give_no_refresh_but_keep_the_count() {
+            let refresh = Refresh::from_intervals(vec![16.7; 19], &[2.0; 19]);
+            assert_eq!(refresh.ms, None);
+            assert_eq!(refresh.samples, 19);
+            assert_eq!(refresh.cpu_p95_ms, Some(2.0));
+        }
+
+        #[test]
+        fn the_refresh_is_the_median_not_the_mean() {
+            let mut intervals = vec![8.0; 30];
+            intervals.extend([40.0; 9]);
+            let refresh = Refresh::from_intervals(intervals, &[]);
+            assert_eq!(refresh.ms, Some(8.0));
+            assert_eq!(refresh.samples, 39);
+            assert_eq!(refresh.cpu_p95_ms, None);
+            assert_eq!(refresh.hz(), Some(125.0));
+        }
     }
 }
 

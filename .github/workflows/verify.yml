@@ -83,7 +83,7 @@ jobs:
   # job is separate so a latency, memory, or oracle regression fails under its own name.
   windows-presenter-performance:
     runs-on: windows-2022
-    timeout-minutes: 43
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain

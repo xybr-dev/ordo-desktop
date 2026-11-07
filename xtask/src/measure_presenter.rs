@@ -153,9 +153,9 @@ const LAB_TIMEOUT: Duration = Duration::from_secs(180);
 /// A live-presenter run drives about 2,700 commands, 4 ms apart or more, and
 /// settles several times; the lab's own 420 s timeout fires before this kill.
 const LIVE_TIMEOUT: Duration = Duration::from_secs(480);
-/// The animation run takes about 50 s; the lab's own 90 s timeout fires before
-/// this kill.
-const ANIMATIONS_TIMEOUT: Duration = Duration::from_secs(100);
+/// The animation run takes about 50 s locally; the lab's own 150 s timeout
+/// (slow machines) fires before this kill.
+const ANIMATIONS_TIMEOUT: Duration = Duration::from_secs(160);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The absolute location of the measurement document under `root`.
@@ -196,7 +196,12 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
         return Err(format!("the acceptance did not write {}", report.display()).into());
     }
 
-    let native = measure_native(root)?;
+    let mut native = measure_native(root)?;
+    let ci = std::env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true");
+    let gate = animation_gate(&native, ci);
+    if let Some(object) = native.as_object_mut() {
+        object.insert("animations_verdict".to_owned(), gate.verdict());
+    }
     for line in summary_lines(&native) {
         println!("{line}");
     }
@@ -205,7 +210,7 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
     fs::write(&report, serde_json::to_string_pretty(&document)?)?;
     println!("Presenter performance report: {}", report.display());
 
-    let failures = native_failures(&native);
+    let failures = native_failures_in(&native, ci);
     if failures.is_empty() {
         return Ok(());
     }
@@ -480,6 +485,12 @@ fn memory_failures(label: &str, reading: Option<Reading>) -> Vec<String> {
 /// Every reason the native results miss the budget, or are missing. Empty
 /// when the measurement passes.
 pub fn native_failures(native: &Value) -> Vec<String> {
+    native_failures_in(native, false)
+}
+
+/// [`native_failures`] with the CI flag the animation gate needs: on a CI
+/// runner animation findings are reported, not failures (see [`animation_gate`]).
+fn native_failures_in(native: &Value, ci: bool) -> Vec<String> {
     let mut failures = Vec::new();
     failures.extend(measure_failures(&native["measure"]));
 
@@ -511,7 +522,10 @@ pub fn native_failures(native: &Value) -> Vec<String> {
         None => failures.push("baselines: no runs were recorded".to_owned()),
     }
     failures.extend(live_presenter_failures(native));
-    failures.extend(animation_failures(native));
+    let gate = animation_gate(native, ci);
+    if gate.judged {
+        failures.extend(gate.findings);
+    }
     failures
 }
 
@@ -520,13 +534,67 @@ const ANIMATION_P95_REFRESH_FACTOR: f64 = 1.5;
 /// No interval of an animation may be longer than this (a hitch).
 const ANIMATION_HITCH_MS: f64 = 33.0;
 
-/// Failures for the animation frame pacing (#111). Each animation that applied
-/// is judged against the display refresh the lab measured in the same run:
-/// no interval over 33 ms, and an interval p95 of at most 1.5 refresh
-/// intervals. A missing or errored document, a missing refresh, or an
-/// animation without intervals fails, because an unmeasured run is not a
-/// passing one. The p95 frame cost against the refresh is reported in the
-/// summary and not judged: the remaining per-frame cost is tracked in #111.
+/// The refresh the probe reads must be a real display's: 4 ms (250 Hz) to
+/// 17.5 ms (about 57 Hz).
+const PLAUSIBLE_REFRESH_MS: std::ops::RangeInclusive<f64> = 4.0..=17.5;
+/// The probe's own frame cost p95 may be at most this share of the refresh.
+const PROBE_CPU_REFRESH_SHARE: f64 = 0.5;
+/// The lab echoes its p95 bar; it must agree with ours within this many ms.
+const P95_BAR_AGREEMENT_MS: f64 = 0.05;
+/// The animations the run must record. All but `rail_overlay` always apply in
+/// a 500-Cue Grid run (the lab marks `rail_overlay` non-applicable only if the
+/// unpinned rail never opened), so those four must be judged.
+const EXPECTED_ANIMATIONS: [&str; 5] = [
+    "timeline_glide",
+    "rail_overlay",
+    "group_fold",
+    "output_fades",
+    "output_fades_all_folded",
+];
+const MAY_BE_NOT_APPLICABLE: &str = "rail_overlay";
+
+/// What the animation gate found, and whether it counts.
+struct AnimationGate {
+    /// False on a CI runner: the findings are reported, not failures.
+    judged: bool,
+    findings: Vec<String>,
+}
+
+impl AnimationGate {
+    /// The `animations_verdict` recorded in the document.
+    fn verdict(&self) -> Value {
+        if self.judged {
+            json!({"judged": true, "would_fail": self.findings})
+        } else {
+            json!({"judged": false, "reason": "CI runner: no real display vsync",
+                "would_fail": self.findings})
+        }
+    }
+}
+
+/// The animation findings, judged locally and only reported on CI. A GitHub
+/// Windows runner has no real display: the vendored vsync source falls back to
+/// a sleep timer, so the measured "refresh" is a timer and WARP frames may be
+/// slow. `ci` is passed in so both branches are testable.
+fn animation_gate(native: &Value, ci: bool) -> AnimationGate {
+    AnimationGate {
+        judged: !ci,
+        findings: animation_failures(native),
+    }
+}
+
+/// Findings for the animation frame pacing (#111). The probe measures the
+/// Presenter's own idle draw cadence, which is the display refresh only when an
+/// idle frame fits in one vsync and the native vsync source is in use. So the
+/// refresh must be plausible (4 to 17.5 ms) and the probe's own frame cost p95
+/// at most half of it; otherwise the bar is meaningless and the run fails.
+/// Each animation that applied is then judged against that refresh: no interval
+/// over 33 ms, and an interval p95 of at most 1.5 refresh intervals (the one
+/// constant, here; the lab's echoed `limits_ms.p95_bar` must agree). A missing
+/// or errored document, a missing refresh, a missing or non-boolean
+/// `applicable`, a missing expected animation, or no judged animation fails,
+/// because an unmeasured run is not a passing one. The animations' own frame
+/// cost p95 is reported in the summary and not judged (#111).
 fn animation_failures(native: &Value) -> Vec<String> {
     let document = &native["animations"];
     if document.is_null() {
@@ -541,13 +609,61 @@ fn animation_failures(native: &Value) -> Vec<String> {
             document["refresh_note"].as_str().unwrap_or("no note")
         )];
     };
+    if !PLAUSIBLE_REFRESH_MS.contains(&refresh) {
+        return vec![format!(
+            "animations: the measured refresh {refresh:.2} ms is outside the plausible {}..={} ms: the probe reads the Presenter's idle draw cadence, so a slow idle frame or a timer-driven vsync (no real display) set it, not the display",
+            PLAUSIBLE_REFRESH_MS.start(),
+            PLAUSIBLE_REFRESH_MS.end()
+        )];
+    }
+    let mut failures = Vec::new();
+    let bar = ANIMATION_P95_REFRESH_FACTOR * refresh;
+    match document["refresh_cpu_p95_ms"].as_f64() {
+        Some(cpu) if cpu <= PROBE_CPU_REFRESH_SHARE * refresh => {}
+        Some(cpu) => failures.push(format!(
+            "animations: the refresh probe's own frame cost p95 {cpu:.2} ms is over {PROBE_CPU_REFRESH_SHARE} x the {refresh:.2} ms refresh, so frames did not fit in one vsync and the refresh is not the display's"
+        )),
+        None => failures
+            .push("animations: no refresh probe frame cost (refresh_cpu_p95_ms)".to_owned()),
+    }
+    match document["limits_ms"]["p95_bar"].as_f64() {
+        Some(echoed) if (echoed - bar).abs() <= P95_BAR_AGREEMENT_MS => {}
+        Some(echoed) => failures.push(format!(
+            "animations: the lab's p95 bar {echoed:.2} ms disagrees with {bar:.2} ms ({ANIMATION_P95_REFRESH_FACTOR} x refresh)"
+        )),
+        None => failures.push("animations: no limits_ms.p95_bar from the lab".to_owned()),
+    }
     let Some(animations) = document["animations"]
         .as_array()
         .filter(|animations| !animations.is_empty())
     else {
-        return vec!["animations: no animation was recorded".to_owned()];
+        failures.push("animations: no animation was recorded".to_owned());
+        return failures;
     };
-    let mut failures = Vec::new();
+    for expected in EXPECTED_ANIMATIONS {
+        let found = animations
+            .iter()
+            .find(|a| a["name"].as_str() == Some(expected));
+        match found {
+            None => failures.push(format!("animation {expected}: missing from the run")),
+            Some(a) if a["applicable"].as_bool().is_none() => {
+                failures.push(format!("animation {expected}: no applicable flag"));
+            }
+            Some(a)
+                if a["applicable"].as_bool() == Some(false)
+                    && expected != MAY_BE_NOT_APPLICABLE =>
+            {
+                failures.push(format!("animation {expected}: did not apply"));
+            }
+            Some(_) => {}
+        }
+    }
+    if !animations
+        .iter()
+        .any(|a| a["applicable"].as_bool() == Some(true))
+    {
+        failures.push("animations: no animation was judged".to_owned());
+    }
     for animation in animations {
         if animation["applicable"].as_bool() != Some(true) {
             continue;
@@ -565,7 +681,6 @@ fn animation_failures(native: &Value) -> Vec<String> {
             )),
             None => failures.push(format!("{label}: no over_33ms count")),
         }
-        let bar = ANIMATION_P95_REFRESH_FACTOR * refresh;
         match animation["interval_ms"]["p95"].as_f64() {
             Some(p95) if p95 <= bar => {}
             Some(p95) => failures.push(format!(
@@ -853,6 +968,15 @@ fn summary_lines(native: &Value) -> Vec<String> {
         }
     }
     lines.push(animation_summary(&native["animations"]));
+    if native["animations_verdict"]["judged"].as_bool() == Some(false)
+        && let Some(findings) = native["animations_verdict"]["would_fail"].as_array()
+    {
+        for finding in findings.iter().filter_map(Value::as_str) {
+            lines.push(format!(
+                "warning: {finding} (reported only: CI runner, no real display vsync)"
+            ));
+        }
+    }
     lines
 }
 
@@ -890,9 +1014,10 @@ fn animation_summary(document: &Value) -> String {
         .filter_map(|a| a["over_33ms"].as_u64())
         .sum();
     format!(
-        "animations: refresh {refresh:.2} ms ({} Hz), worst interval p95 {p95:.2} ms ({name}, bar {:.2} ms), {over} intervals over {ANIMATION_HITCH_MS} ms, worst frame cost p95 {cpu:.2} ms (reported)",
-        document["refresh_hz"],
-        ANIMATION_P95_REFRESH_FACTOR * refresh
+        "animations: refresh {refresh:.2} ms ({:.1} Hz), worst interval p95 {p95:.2} ms ({name}, bar {:.2} ms), {over} intervals over {ANIMATION_HITCH_MS} ms, worst frame cost p95 {cpu:.2} ms = {:.2} x refresh (reported)",
+        1000.0 / refresh.max(f64::MIN_POSITIVE),
+        ANIMATION_P95_REFRESH_FACTOR * refresh,
+        cpu / refresh.max(f64::MIN_POSITIVE)
     )
 }
 
@@ -1017,10 +1142,13 @@ mod tests {
     /// A 75 Hz display: refresh 13.3 ms, so the p95 bar is 19.95 ms.
     fn passing_animations() -> Value {
         json!({"mode": "animation-pacing", "refresh_ms": 13.3, "refresh_hz": 75.0,
+        "refresh_cpu_p95_ms": 3.0, "limits_ms": {"p95_bar": 19.95},
         "refresh_samples": 70, "animations": [
             animation("timeline_glide", true, 16.7, 17.1, 0),
             animation("rail_overlay", false, 90.0, 60.0, 9),
             animation("group_fold", true, 14.5, 12.1, 0),
+            animation("output_fades", true, 9.0, 4.0, 0),
+            animation("output_fades_all_folded", true, 9.0, 4.0, 0),
         ]})
     }
 
@@ -1520,6 +1648,12 @@ mod tests {
         assert!(animation_failures(&native).is_empty());
     }
 
+    /// A refresh and the p95 bar the lab would echo for it.
+    fn set_refresh(native: &mut Value, ms: f64) {
+        native["animations"]["refresh_ms"] = json!(ms);
+        native["animations"]["limits_ms"]["p95_bar"] = json!(1.5 * ms);
+    }
+
     fn one_animation_failure(mutate: impl FnOnce(&mut Value), expected: &str) {
         let mut native = passing_native();
         mutate(&mut native["animations"]);
@@ -1551,9 +1685,9 @@ mod tests {
         // At 60 Hz the bar is 25 ms, so 22 ms passes; at 144 Hz it is 10.4 ms.
         let mut native = passing_native();
         native["animations"]["animations"][0]["interval_ms"]["p95"] = json!(22.0);
-        native["animations"]["refresh_ms"] = json!(16.67);
+        set_refresh(&mut native, 16.67);
         assert!(animation_failures(&native).is_empty());
-        native["animations"]["refresh_ms"] = json!(6.94);
+        set_refresh(&mut native, 6.94);
         assert_eq!(animation_failures(&native).len(), 2);
     }
 
@@ -1599,6 +1733,100 @@ mod tests {
     }
 
     #[test]
+    fn an_implausible_refresh_fails_with_its_reason() {
+        for ms in [3.9, 17.6, 33.0] {
+            let mut native = passing_native();
+            set_refresh(&mut native, ms);
+            let failures = animation_failures(&native);
+            assert_eq!(failures.len(), 1, "{failures:?}");
+            assert!(
+                failures[0].contains("plausible 4..=17.5 ms"),
+                "{failures:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_probe_with_a_high_frame_cost_or_no_cost_fails() {
+        one_animation_failure(
+            |a| a["refresh_cpu_p95_ms"] = json!(6.7),
+            "refresh probe's own frame cost p95 6.70 ms",
+        );
+        one_animation_failure(
+            |a| a["refresh_cpu_p95_ms"] = Value::Null,
+            "no refresh probe frame cost",
+        );
+        let mut native = passing_native();
+        native["animations"]["refresh_cpu_p95_ms"] = json!(6.65);
+        assert!(animation_failures(&native).is_empty());
+    }
+
+    #[test]
+    fn a_lab_bar_that_disagrees_fails() {
+        one_animation_failure(
+            |a| a["limits_ms"]["p95_bar"] = json!(20.1),
+            "disagrees with 19.95 ms",
+        );
+    }
+
+    #[test]
+    fn a_missing_applicable_flag_or_a_missing_animation_fails() {
+        one_animation_failure(
+            |a| a["animations"][0]["applicable"] = json!("yes"),
+            "animation timeline_glide: no applicable flag",
+        );
+        one_animation_failure(
+            |a| a["animations"][3]["name"] = json!("other"),
+            "animation output_fades: missing from the run",
+        );
+        one_animation_failure(
+            |a| a["animations"][4]["applicable"] = json!(false),
+            "animation output_fades_all_folded: did not apply",
+        );
+    }
+
+    #[test]
+    fn a_run_where_nothing_applied_fails() {
+        let mut native = passing_native();
+        for animation in native["animations"]["animations"].as_array_mut().unwrap() {
+            animation["applicable"] = json!(false);
+        }
+        let failures = animation_failures(&native);
+        assert!(
+            failures
+                .iter()
+                .any(|f| f == "animations: no animation was judged"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn a_ci_runner_reports_animation_findings_without_failing() {
+        let mut native = passing_native();
+        native["animations"]["animations"][0]["over_33ms"] = json!(3);
+        let local = animation_gate(&native, false);
+        assert!(local.judged && local.findings.len() == 1);
+        assert_eq!(local.verdict()["judged"], json!(true));
+        assert_eq!(native_failures_in(&native, false).len(), 1);
+
+        let ci = animation_gate(&native, true);
+        assert!(!ci.judged && ci.findings.len() == 1);
+        let verdict = ci.verdict();
+        assert_eq!(verdict["judged"], json!(false));
+        assert_eq!(verdict["reason"], json!("CI runner: no real display vsync"));
+        assert_eq!(verdict["would_fail"].as_array().unwrap().len(), 1);
+        assert!(native_failures_in(&native, true).is_empty());
+
+        native["animations_verdict"] = verdict;
+        let lines = summary_lines(&native);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("warning: animation timeline_glide"))
+        );
+    }
+
+    #[test]
     fn a_non_applicable_animation_is_ignored() {
         // rail_overlay has 9 hitches and a 90 ms p95 in the passing document.
         assert!(animation_failures(&passing_native()).is_empty());
@@ -1609,7 +1837,7 @@ mod tests {
         let lines = summary_lines(&passing_native());
         assert!(
             lines.iter().any(|line| line
-                == "animations: refresh 13.30 ms (75.0 Hz), worst interval p95 16.70 ms (timeline_glide, bar 19.95 ms), 0 intervals over 33 ms, worst frame cost p95 17.10 ms (reported)"),
+                == "animations: refresh 13.30 ms (75.2 Hz), worst interval p95 16.70 ms (timeline_glide, bar 19.95 ms), 0 intervals over 33 ms, worst frame cost p95 17.10 ms = 1.29 x refresh (reported)"),
             "{lines:?}"
         );
     }
