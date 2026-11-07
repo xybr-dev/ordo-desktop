@@ -5546,6 +5546,58 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_big_wheel_scroll_or_a_jump_shows_no_spacer_in_the_next_frame(cx: &mut TestAppContext) {
+        for (case, mode) in [
+            (SIZES[0], CueView::Grid),
+            (SIZES[0], CueView::List),
+            (SIZES[1], CueView::Grid),
+            (SIZES[2], CueView::List),
+        ] {
+            let (open, cx) = open_many(cx, case, mode);
+            let region = bounds(cx, "cue-timeline");
+            let viewport = f32::from(region.size.height);
+            let centre = region.center();
+            // Three timeline heights in one wheel event, down and back up;
+            // the very next frame is already drawn at the new offset.
+            for sign in [-1.0, 1.0] {
+                cx.simulate_mouse_move(centre, None, gpui::Modifiers::default());
+                cx.simulate_event(gpui::ScrollWheelEvent {
+                    position: centre,
+                    delta: gpui::ScrollDelta::Pixels(gpui::point(
+                        px(0.0),
+                        px(sign * 3.0 * viewport),
+                    )),
+                    modifiers: gpui::Modifiers::default(),
+                    touch_phase: gpui::TouchPhase::Moved,
+                });
+                cx.run_until_parked();
+                assert_visible_groups_are_real(
+                    &open,
+                    cx,
+                    usize::MAX,
+                    &format!("{case:?} {mode:?} wheel {sign}"),
+                );
+            }
+            // A jump to the far end and back: the glide's frames never show a
+            // group that is only a spacer.
+            bind_registry_keys(cx);
+            focus_timeline_now(&open, cx);
+            for (keys, name) in [("end", "End"), ("home", "Home")] {
+                press_keys(cx, keys);
+                for step in 0..14 {
+                    animate(&open, cx, 12);
+                    assert_visible_groups_are_real(
+                        &open,
+                        cx,
+                        usize::MAX,
+                        &format!("{case:?} {mode:?} {name}, frame {step}"),
+                    );
+                }
+            }
+        }
+    }
+
+    #[gpui::test]
     fn a_rail_jump_stops_holding_its_group_open_once_the_scroll_lands(cx: &mut TestAppContext) {
         let (open, cx) = open_many(cx, SIZES[1], CueView::Grid);
         let pending = |open: &Open, cx: &VisualTestContext| {
