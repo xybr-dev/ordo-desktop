@@ -409,7 +409,22 @@ impl PresenterView {
         // The store ends with the view: release every decoded image and its
         // atlas tile. (A new snapshot gets a new view, never a swap.)
         cx.on_release(|view, cx| view.release_images(cx)).detach();
+        // The cached rail is told what changed outside a draw, where its
+        // notify takes effect (see `rail::RailView`): every state change
+        // notifies the view, and this runs after each one.
+        cx.observe(&cx.entity(), |view, _, cx| view.sync_rail(cx))
+            .detach();
+
         view
+    }
+
+    /// Hand the cached rail the model and environment it should draw.
+    fn sync_rail(&mut self, cx: &mut Context<Self>) {
+        let Some(rail) = self.rail_view.clone() else {
+            return;
+        };
+        let (model, environment) = (self.rail_model(PinControl::Unpin), self.environment);
+        rail.update(cx, |rail, cx| rail.refresh(model, environment, cx));
     }
 
     /// Drop every decoded image and its atlas tile. Runs when the view is
@@ -1662,7 +1677,7 @@ impl PresenterView {
                     None => {
                         let rail = cx.new(|_| {
                             rail::RailView::new(
-                                self.rail_model(PinControl::Unpin),
+                                model.clone(),
                                 width,
                                 environment,
                                 rail_handlers.clone(),
@@ -1677,10 +1692,14 @@ impl PresenterView {
                 rail.update(cx, |rail, cx| {
                     rail.sync(model, width, environment, rail_handlers.clone(), cx)
                 });
-                (
-                    rail.cached(rail::RailView::style(width)).into_any_element(),
-                    None,
-                )
+                if rail::is_cached(window.is_a11y_active()) {
+                    (
+                        rail.cached(rail::RailView::style(width)).into_any_element(),
+                        None,
+                    )
+                } else {
+                    (rail.into_any_element(), None)
+                }
             }
             RailLayout::Tab { width } | RailLayout::OverlayOnly { tab_width: width } => {
                 let pin = if matches!(layout.rail, RailLayout::Tab { .. }) {
@@ -5614,34 +5633,53 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_cached_rail_follows_preview_and_a_resize(cx: &mut TestAppContext) {
+    fn the_cached_rail_draws_what_changed_in_the_frame_it_changed(cx: &mut TestAppContext) {
         let (open, cx) = open_many(cx, SIZES[0], CueView::Grid);
-        let current = |open: &Open, cx: &VisualTestContext| {
+        let marked = |cx: &mut VisualTestContext, group: usize| {
+            present(cx, sel(format!("rail-item-{group}-current")))
+        };
+        let renders = |open: &Open, cx: &VisualTestContext| {
             open.view.read_with(cx, |view, cx| {
                 view.rail_view
                     .as_ref()
                     .expect("a pinned rail is a view of its own")
                     .read(cx)
-                    .current()
+                    .renders
             })
         };
-        assert_eq!(current(&open, cx), Some(0));
+        assert!(marked(cx, 0));
         let width = f32::from(bounds(cx, "presenter-rail").size.width);
-        // Preview moves to another group: the cached rail is drawn again.
+        // Preview moves to another group: one frame draws the mark there and
+        // nowhere else, with no further animation or refresh.
         for group in [7, 3, 0] {
             let flat = open.view.read_with(cx, |view, _| {
                 view.engine.snapshot().item_start(group).unwrap()
             });
             run(&open, cx, Command::GoTo(flat)).unwrap();
-            animate(&open, cx, 0);
-            assert_eq!(current(&open, cx), Some(group), "preview in group {group}");
+            cx.run_until_parked();
+            assert!(marked(cx, group), "the mark is on group {group}");
+            for other in (0..10).filter(|other| *other != group) {
+                assert!(!marked(cx, other), "and not on group {other}");
+            }
         }
-        // Frames that change nothing the rail draws leave it as it was.
+        // Frames that change nothing the rail draws leave it undrawn.
+        let before = renders(&open, cx);
         for _ in 0..3 {
             animate(&open, cx, 16);
         }
-        assert_eq!(current(&open, cx), Some(0));
+        assert_eq!(renders(&open, cx), before, "nothing changed, nothing drawn");
         assert_eq!(f32::from(bounds(cx, "presenter-rail").size.width), width);
+        // Another appearance is drawn in one frame.
+        let light = {
+            let mut environment =
+                UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+            environment.apply(EnvironmentChange::EnterPresenter);
+            environment
+        };
+        open.view
+            .update(cx, |view, cx| view.set_environment(light, cx));
+        cx.run_until_parked();
+        assert!(renders(&open, cx) > before, "the rail drew the new palette");
         // A window of another size changes its width.
         cx.simulate_resize(size(px(1600.0), px(1000.0)));
         cx.run_until_parked();
@@ -5654,6 +5692,22 @@ mod tests {
             (narrower - wanted).abs() < 0.5,
             "{narrower} against {wanted}"
         );
+    }
+
+    #[gpui::test]
+    fn growing_the_window_shows_no_spacer_on_the_first_frame(cx: &mut TestAppContext) {
+        let (open, cx) = open_many(cx, SIZES[1], CueView::Grid);
+        // Away from the ends, where more of the timeline is below the old
+        // bounds than the margin covers.
+        let middle = sweep_offsets(&open, cx)[10];
+        scroll_to(&open, cx, middle);
+        assert_visible_groups_are_real(&open, cx, usize::MAX, "before");
+        cx.simulate_resize(size(px(2560.0), px(1440.0)));
+        cx.run_until_parked();
+        assert_visible_groups_are_real(&open, cx, usize::MAX, "first frame at 1440");
+        cx.simulate_resize(size(px(1366.0), px(768.0)));
+        cx.run_until_parked();
+        assert_visible_groups_are_real(&open, cx, usize::MAX, "restored");
     }
 
     #[gpui::test]
