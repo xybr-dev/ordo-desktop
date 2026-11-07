@@ -10,8 +10,12 @@
 //! then the Presenter sends `EnableOutput`. Program is black before `Space`
 //! can take anything live. A refusal opens nothing and sends nothing.
 //!
-//! Display changes are not handled here yet (T1.6c). If the operating system
-//! closes the window, the Presenter treats it as `DisableOutput`: the Engine
+//! Display changes (T1.6c): the operator window's bounds observer, which the
+//! vendored GPUI patch fires on every display change (Decision 308), calls
+//! [`OutputOwner::refresh`]. Losing the active display closes the window
+//! without forgetting which display it was on, so a return can be recognized
+//! (Decision 272). Output is never moved. If the operating system closes the
+//! window by itself, the Presenter treats it as `DisableOutput`: the Engine
 //! goes back to Output disabled, so Program is black and nothing claims a
 //! surface that is gone.
 
@@ -20,7 +24,10 @@ use gpui::{
 };
 use platform::{
     congregation_window::congregation_window_options,
-    display::{DisplayId, OutputAction, OutputController, OutputLifecycle, OutputRefusal},
+    display::{
+        DisplayEvent, DisplayId, OutputAction, OutputController, OutputLifecycle, OutputRefusal,
+        Recognition,
+    },
 };
 use ui::environment::UiEnvironment;
 
@@ -51,6 +58,18 @@ impl OpenFailure {
     }
 }
 
+/// What a display refresh found, for the Presenter to turn into Engine
+/// commands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisplayChange {
+    /// Enabled output lost its display (or the display changed under it).
+    pub lost: bool,
+    /// A display was added.
+    pub added: bool,
+    /// The congregation display is connected and recognized as the same one.
+    pub recognized: bool,
+}
+
 pub struct OutputOwner {
     source: Box<dyn DisplaySource>,
     controller: OutputController,
@@ -59,6 +78,9 @@ pub struct OutputOwner {
     /// Notices the platform closing the window. Dropped with it.
     release: Option<Subscription>,
     pointer_over: bool,
+    /// Notices display changes through the operator window's bounds. Dropped
+    /// with the owner.
+    display_watch: Option<Subscription>,
     /// Test only: the Engine's live state each time the window was closed.
     #[cfg(test)]
     pub(super) closed_at: Vec<presentation::state::LiveState>,
@@ -75,8 +97,44 @@ impl OutputOwner {
             window: None,
             release: None,
             pointer_over: false,
+            display_watch: None,
             #[cfg(test)]
             closed_at: Vec::new(),
+        }
+    }
+
+    pub fn watch_displays(&mut self, watch: Subscription) {
+        self.display_watch = Some(watch);
+    }
+
+    /// Reads a fresh topology and reports what changed. Never opens or closes
+    /// a window.
+    pub fn refresh(&mut self, operator: Option<gpui::DisplayId>, cx: &App) -> DisplayChange {
+        let topology = self.source.snapshot(cx, operator);
+        let events = self.controller.refresh(topology);
+        DisplayChange {
+            lost: events
+                .iter()
+                .any(|event| matches!(event, DisplayEvent::OutputDisconnected { .. })),
+            added: events
+                .iter()
+                .any(|event| matches!(event, DisplayEvent::DisplayAdded(_))),
+            recognized: matches!(
+                self.controller.control().recognition(),
+                Recognition::Recognized(_)
+            ),
+        }
+    }
+
+    /// The display went away: closes the window but keeps the controller
+    /// disconnected, so the same display can be recognized when it returns.
+    pub fn lose(&mut self, cx: &mut App) {
+        self.pointer_over = false;
+        self.release = None;
+        if let Some(window) = self.window.take() {
+            window
+                .update(cx, |_, window, _| window.remove_window())
+                .ok();
         }
     }
 

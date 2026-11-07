@@ -251,3 +251,289 @@ fn the_pointer_on_the_output_shows_the_way_back_in_the_header(cx: &mut TestAppCo
     );
     assert!(cx.debug_bounds("header-cursor-locator").is_some());
 }
+
+// ---- Display loss and return (T1.6c) --------------------------------------
+
+fn projector(id: u64, name: &str) -> DetectedDisplay {
+    let mut projector = display(id, 1920, 0, 1280, 720);
+    projector.evidence.name = Some(name.into());
+    projector
+}
+
+/// An operator display and a projector named "Projector".
+fn named_displays() -> Adapter {
+    Rc::new(RefCell::new(InMemoryDisplayAdapter::new(
+        vec![display(1, 0, 0, 1920, 1080), projector(2, "Projector")],
+        Some(DisplayId::new(1)),
+    )))
+}
+
+/// What the operator window's bounds observer does after a display change,
+/// without going through the platform: read the displays and act on them.
+fn display_changed(open: &Open, cx: &mut VisualTestContext) {
+    open.view.update_in(cx, |view, window, cx| {
+        let operator = crate::output::window_display(window, &cx.displays(), cx);
+        view.display_changed(operator, cx)
+    });
+    cx.run_until_parked();
+}
+
+fn sent(open: &Open, cx: &VisualTestContext) -> Vec<Command> {
+    open.view
+        .read_with(cx, |view, _| view.sent.borrow().clone())
+}
+
+fn clear_sent(open: &Open, cx: &mut VisualTestContext) {
+    open.view
+        .update(cx, |view, _| view.sent.borrow_mut().clear());
+}
+
+/// Live on the projector, then the projector is unplugged.
+fn live_then_unplugged(
+    open: &Open,
+    cx: &mut VisualTestContext,
+    adapter: &Adapter,
+) -> DetectedDisplay {
+    install(open, cx, adapter);
+    click(cx, "primary-action");
+    run(open, cx, Command::Take).unwrap();
+    settle(open, cx, 10_000);
+    assert_eq!(live(open, cx), LiveState::Live);
+    let unplugged = adapter
+        .borrow_mut()
+        .disconnect(DisplayId::new(2))
+        .expect("the projector was connected");
+    display_changed(open, cx);
+    unplugged
+}
+
+#[gpui::test]
+fn losing_the_display_with_no_key_press_closes_the_window_and_disconnects(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    install(&open, cx, &adapter);
+    let before = window_count(cx);
+    click(cx, "primary-action");
+    run(&open, cx, Command::Take).unwrap();
+    settle(&open, cx, 10_000);
+    assert_eq!(window_count(cx), before + 1);
+    clear_sent(&open, cx);
+
+    adapter.borrow_mut().disconnect(DisplayId::new(2));
+    display_changed(&open, cx);
+
+    assert_eq!(sent(&open, cx), [Command::DisplayLost]);
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected {
+            display_back: false
+        }
+    );
+    assert_eq!(window_count(cx), before, "back to the operator window only");
+    assert!(output_window(&open, cx).is_none());
+    assert_eq!(status_line(&open, cx), "Congregation output disconnected");
+    assert!(
+        cx.debug_bounds("program-state").is_some(),
+        "Program shows the disconnected placeholder"
+    );
+    assert!(cx.debug_bounds("display-health").is_some());
+    assert!(
+        cx.debug_bounds("button-Resume Output").is_none(),
+        "no stale Live and no resume without a display"
+    );
+
+    // Nothing opens on the operator display, whatever else changes.
+    display_changed(&open, cx);
+    assert_eq!(window_count(cx), before);
+    assert_eq!(
+        sent(&open, cx),
+        [Command::DisplayLost],
+        "one event per fact"
+    );
+}
+
+/// Decision 272: Space on an unavailable Preview is refused even with the
+/// display back; output stays Disconnected and no window opens.
+#[gpui::test]
+fn space_on_an_unavailable_preview_keeps_the_output_disconnected(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    let before = window_count(cx);
+    let unplugged = live_then_unplugged(&open, cx, &adapter);
+    adapter.borrow_mut().connect(unplugged);
+    display_changed(&open, cx);
+    let frame = open.view.read_with(cx, |view, _| {
+        let snapshot = view.engine.snapshot();
+        let preview = view.engine.state().preview();
+        match snapshot.cue(preview).unwrap().behavior() {
+            CueBehavior::Project { frame, .. } => *frame,
+            other => panic!("Preview projects: {other:?}"),
+        }
+    });
+    let _ = run(
+        &open,
+        cx,
+        Command::FrameUnavailable {
+            frame,
+            reason: rendering::UnavailableReason::DecodeFailed,
+        },
+    );
+    clear_sent(&open, cx);
+
+    open.view.update_in(cx, |view, window, cx| {
+        view.user_command(Command::Take, window, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected { display_back: true }
+    );
+    assert_eq!(window_count(cx), before, "no window opens");
+    assert!(output_window(&open, cx).is_none());
+    assert!(
+        !status_line(&open, cx).is_empty(),
+        "the operator is told why"
+    );
+}
+
+#[gpui::test]
+fn the_same_display_returning_offers_resume_and_space_goes_live_on_it(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    let before = window_count(cx);
+    let unplugged = live_then_unplugged(&open, cx, &adapter);
+    // The port comes back under a new operating-system id.
+    adapter.borrow_mut().connect(DetectedDisplay {
+        id: DisplayId::new(9),
+        ..unplugged
+    });
+    display_changed(&open, cx);
+
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected { display_back: true }
+    );
+    assert!(cx.debug_bounds("button-Resume Output").is_some());
+    assert_eq!(window_count(cx), before, "no window until Resume");
+
+    open.view.update_in(cx, |view, window, cx| {
+        view.user_command(Command::Take, window, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(window_count(cx), before + 1, "one output window");
+    assert_eq!(live(&open, cx), LiveState::Live);
+    assert!(output_window(&open, cx).is_some(), "the window is back");
+    settle(&open, cx, 20_000);
+    let program = open
+        .view
+        .read_with(cx, |view, _| view.last_program.frame.clone())
+        .expect("Program drew Preview's frame");
+    let output = drawn_by_output(&open, cx).expect("the output draws it");
+    assert!(Arc::ptr_eq(&program, &output));
+}
+
+#[gpui::test]
+fn another_display_with_the_same_resolution_is_refused(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    let before = window_count(cx);
+    live_then_unplugged(&open, cx, &adapter);
+    clear_sent(&open, cx);
+
+    adapter.borrow_mut().connect(projector(5, "Other TV"));
+    display_changed(&open, cx);
+
+    assert_eq!(
+        sent(&open, cx),
+        [Command::DisplayReturned { recognized: false }]
+    );
+    let disconnected = LiveState::Disconnected {
+        display_back: false,
+    };
+    assert_eq!(live(&open, cx), disconnected);
+    assert!(cx.debug_bounds("button-Resume Output").is_none());
+    clear_sent(&open, cx);
+
+    open.view.update_in(cx, |view, window, cx| {
+        view.user_command(Command::Take, window, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        status_line(&open, cx),
+        "A different display is connected \u{2014} choose Select display"
+    );
+    assert!(sent(&open, cx).is_empty(), "the Engine was not touched");
+    assert_eq!(live(&open, cx), disconnected);
+    assert_eq!(window_count(cx), before, "no window");
+
+    // Enable Output from here obeys the same rule.
+    open.view.update_in(cx, |view, window, cx| {
+        view.user_command(Command::EnableOutput, window, cx)
+    });
+    cx.run_until_parked();
+    assert!(sent(&open, cx).is_empty());
+    assert_eq!(window_count(cx), before);
+}
+
+#[gpui::test]
+fn the_display_going_away_again_before_resume_is_noticed(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    let unplugged = live_then_unplugged(&open, cx, &adapter);
+    adapter.borrow_mut().connect(unplugged);
+    display_changed(&open, cx);
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected { display_back: true }
+    );
+
+    adapter.borrow_mut().disconnect(DisplayId::new(2));
+    display_changed(&open, cx);
+
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected {
+            display_back: false
+        }
+    );
+}
+
+#[gpui::test]
+fn losing_a_display_while_output_is_disabled_leaves_the_engine_alone(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    install(&open, cx, &adapter);
+    let before = window_count(cx);
+    clear_sent(&open, cx);
+
+    adapter.borrow_mut().disconnect(DisplayId::new(2));
+    display_changed(&open, cx);
+    adapter.borrow_mut().connect(projector(2, "Projector"));
+    display_changed(&open, cx);
+
+    assert!(sent(&open, cx).is_empty());
+    assert_eq!(live(&open, cx), LiveState::OutputDisabled);
+    assert_eq!(window_count(cx), before);
+}
+
+#[gpui::test]
+fn a_bounds_change_of_the_operator_window_notices_the_loss(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    install(&open, cx, &adapter);
+    click(cx, "primary-action");
+    let before = window_count(cx);
+    clear_sent(&open, cx);
+
+    // The platform fires the operator window's bounds callbacks on a display
+    // change (Decision 308); a resize drives the same observer.
+    adapter.borrow_mut().disconnect(DisplayId::new(2));
+    cx.simulate_resize(gpui::size(px(1000.0), px(700.0)));
+    cx.run_until_parked();
+
+    assert_eq!(sent(&open, cx), [Command::DisplayLost]);
+    assert_eq!(window_count(cx), before - 1);
+}

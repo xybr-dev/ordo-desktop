@@ -542,8 +542,11 @@ impl PresenterView {
     /// goes through the output owner first: the Engine accepts it with no
     /// display, so the refusal has to come before the Engine is called.
     fn user_command(&mut self, command: Command, window: &Window, cx: &mut Context<Self>) {
+        let disconnected = matches!(self.engine.state().live(), LiveState::Disconnected { .. });
         if command == Command::EnableOutput && self.output.is_some() {
             self.enable_output(window, cx);
+        } else if command == Command::Take && disconnected && self.output.is_some() {
+            self.resume_output(window, cx);
         } else {
             self.command(command, cx).ok();
         }
@@ -555,10 +558,87 @@ impl PresenterView {
     pub fn install_output(
         &mut self,
         source: Box<dyn crate::output::DisplaySource>,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.output = Some(output::OutputOwner::new(source, window, cx));
+        let mut owner = output::OutputOwner::new(source, window, cx);
+        // Display changes arrive as bounds changes of the operator window
+        // (Decision 308), even when no congregation window exists. No polling.
+        owner.watch_displays(cx.observe_window_bounds(window, |_, window, cx| {
+            let operator = crate::output::window_display(window, &cx.displays(), cx);
+            let presenter = cx.entity().downgrade();
+            // Deferred: closing a window from inside another window's update.
+            cx.defer(move |cx| {
+                presenter
+                    .update(cx, |presenter, cx| presenter.display_changed(operator, cx))
+                    .ok();
+            });
+        }));
+        self.output = Some(owner);
+    }
+
+    /// The displays may have changed: turns what the owner finds into Engine
+    /// commands (T1.6 WP5). Loss closes the window and sends `DisplayLost`;
+    /// a return is reported with the identity verdict and never resumes
+    /// output by itself.
+    pub(super) fn display_changed(
+        &mut self,
+        operator: Option<gpui::DisplayId>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(output) = self.output.as_mut() else {
+            return;
+        };
+        let change = output.refresh(operator, cx);
+        match self.engine.state().live() {
+            LiveState::OutputDisabled => {}
+            LiveState::Disconnected { display_back } => {
+                if display_back && !change.recognized {
+                    self.command(Command::DisplayLost, cx).ok();
+                } else if !display_back && change.recognized {
+                    self.command(Command::DisplayReturned { recognized: true }, cx)
+                        .ok();
+                } else if !display_back && change.added {
+                    self.command(Command::DisplayReturned { recognized: false }, cx)
+                        .ok();
+                }
+            }
+            _ => {
+                if change.lost {
+                    if let Some(output) = self.output.as_mut() {
+                        output.lose(cx);
+                    }
+                    self.command(Command::DisplayLost, cx).ok();
+                }
+            }
+        }
+    }
+
+    /// Space or Resume Output on a disconnected output: the controller opens
+    /// the window on the same recognized display first, then Preview goes
+    /// live in the same step (Decision 272). Any other display is refused
+    /// with the reason, and the Engine is not called.
+    fn resume_output(&mut self, window: &Window, cx: &mut Context<Self>) {
+        // A Preview that cannot go live is refused before any window opens:
+        // output stays Disconnected and the status says why (Decision 272).
+        // Only once the display is back: before that, the output controller
+        // gives the better reason (no display, or a different one).
+        let display_back =
+            self.engine.state().live() == LiveState::Disconnected { display_back: true };
+        if display_back && self.engine.check(Command::Take, (self.clock)()).is_err() {
+            self.command(Command::Take, cx).ok();
+            return;
+        }
+        if !self.open_output_window(window, cx) {
+            return;
+        }
+        if self.command(Command::Take, cx).is_err() {
+            // The window is open for an output the Engine still thinks is
+            // disconnected: bring it to Enabled (black) so the two agree.
+            if self.command(Command::EnableOutput, cx).is_err() {
+                self.close_output_window(cx);
+            }
+        }
     }
 
     /// The congregation window, while it is open.
@@ -594,8 +674,21 @@ impl PresenterView {
     /// window first, then tell the Engine, so Program is black before `Space`
     /// can take anything. A refusal is shown as the status and sends nothing.
     fn enable_output(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(mut output) = self.output.take() else {
+        if !self.open_output_window(window, cx) {
             return;
+        }
+        if self.command(Command::EnableOutput, cx).is_err() {
+            // The Engine refused (say, the display is not back): no window
+            // stays open for an output that is not enabled.
+            self.close_output_window(cx);
+        }
+    }
+
+    /// Opens the congregation window through the controller. `false` after a
+    /// refusal, which is shown as the status; nothing is sent to the Engine.
+    fn open_output_window(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        let Some(mut output) = self.output.take() else {
+            return false;
         };
         let operator = crate::output::window_display(window, &cx.displays(), cx);
         let presenter = cx.entity();
@@ -608,16 +701,11 @@ impl PresenterView {
         );
         self.output = Some(output);
         match opened {
-            Ok(()) => {
-                if self.command(Command::EnableOutput, cx).is_err() {
-                    // The Engine refused (say, the display is not back): no
-                    // window stays open for an output that is not enabled.
-                    self.close_output_window(cx);
-                }
-            }
+            Ok(()) => true,
             Err(failure) => {
                 self.status = Some(failure.message().into());
                 cx.notify();
+                false
             }
         }
     }

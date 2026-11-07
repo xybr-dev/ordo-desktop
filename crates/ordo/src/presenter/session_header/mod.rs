@@ -141,6 +141,7 @@ pub fn header(
         .child(
             div()
                 .id("display-health")
+                .debug_selector(|| "display-health".into())
                 .flex_none()
                 .flex()
                 .items_center()
