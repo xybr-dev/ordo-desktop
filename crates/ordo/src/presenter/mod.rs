@@ -234,12 +234,19 @@ pub struct PresenterView {
     /// When the next badge becomes due (a time on the injected clock), and
     /// the task sleeping until then. Dropped with the view.
     preparing_timer: Option<(u64, Task<()>)>,
+    /// Redraws Program's auto-play countdown while a run is going (see
+    /// `tick_auto_play_indicator`). Dropped, and so stopped, when it ends.
+    auto_play_ticker: Option<Task<()>>,
     /// The last frame each monitor finished drawing, kept while its
     /// replacement is still composing (the consumer rule in
     /// `rendering::frame_cache`).
     last_program: Shown,
     last_preview: Shown,
 }
+
+/// How often Program's auto-play countdown and progress bar are redrawn: 4
+/// times a second keeps the bar moving without a frame every vsync.
+const AUTO_PLAY_INDICATOR_MS: u64 = 250;
 
 /// The F6 regions, from a fixed vocabulary, in reading order.
 pub(super) const RAIL_REGION: &str = "Ordo rail";
@@ -287,6 +294,7 @@ impl PresenterView {
             program_wanted: Wanted::default(),
             preview_wanted: Wanted::default(),
             preparing_timer: None,
+            auto_play_ticker: None,
             last_program: Shown::default(),
             last_preview: Shown::default(),
         };
@@ -630,6 +638,7 @@ impl PresenterView {
 
     /// Keep one sleeping task aimed at the Engine's next deadline.
     fn reschedule(&mut self, cx: &mut Context<Self>) {
+        self.tick_auto_play_indicator(cx);
         let Some(deadline) = self.engine.next_deadline() else {
             self.timer = None;
             return;
@@ -652,6 +661,29 @@ impl PresenterView {
             this.update(cx, |view, cx| view.timer_fired(cx)).ok();
         });
         self.timer = Some((deadline, task));
+    }
+
+    /// While an auto-play run is going, redraw a few times a second so
+    /// Program's AUTO countdown and progress bar move; no task otherwise, so
+    /// an idle Presenter draws nothing.
+    fn tick_auto_play_indicator(&mut self, cx: &mut Context<Self>) {
+        if self.engine.state().auto_play().is_none() {
+            self.auto_play_ticker = None;
+            return;
+        }
+        if self.auto_play_ticker.is_some() {
+            return;
+        }
+        self.auto_play_ticker = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(AUTO_PLAY_INDICATOR_MS))
+                    .await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     /// True when `wanted` has been pending for at least the threshold.
@@ -1201,6 +1233,16 @@ impl Render for PresenterView {
             unavailable_black: state.unavailable_black(),
             shown: program_shown,
             preparing: self.is_preparing(self.program_wanted, now),
+            auto_play: state.auto_play().map(|run| {
+                let elapsed = now.0.saturating_sub(run.cue_started.0);
+                dock::AutoPlayIndicator {
+                    remaining_ms: run.duration_ms.map(|ms| ms.saturating_sub(elapsed)),
+                    progress: run
+                        .duration_ms
+                        .filter(|ms| *ms > 0)
+                        .map(|ms| (elapsed as f32 / ms as f32).min(1.0)),
+                }
+            }),
         };
         let preview =
             self.preview_model(preview_shown, self.is_preparing(self.preview_wanted, now));
@@ -4042,6 +4084,22 @@ mod tests {
         cx.debug_bounds("choice-0").is_some()
     }
 
+    /// The Auto-play trigger spans its slot, as the primary button spans the
+    /// Side column, in both Dock layouts and at both scales.
+    #[gpui::test]
+    fn the_auto_play_trigger_fills_its_slot(cx: &mut TestAppContext) {
+        for size in SIZES.into_iter().chain(SHORT) {
+            let (_open, cx) = open(cx, size);
+            let slot = bounds(cx, "auto-play-control");
+            let trigger = bounds(cx, "button-Auto-play off");
+            let gap = f32::from(slot.size.width - trigger.size.width);
+            assert!(
+                gap.abs() < 1.0,
+                "{size:?}: slot {slot:?}, trigger {trigger:?}"
+            );
+        }
+    }
+
     #[gpui::test]
     fn a_toggles_auto_play_on_an_eligible_item_from_the_timeline(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[0]);
@@ -4062,6 +4120,40 @@ mod tests {
         press_keys(cx, "a");
         assert_eq!(auto_play(&open, cx), None);
         assert!(cx.debug_bounds("button-Auto-play off").is_some());
+    }
+
+    /// While a run is going Program shows AUTO with a countdown beside its
+    /// state word and a progress bar that moves on its own; both go when the
+    /// run stops, and so does the redraw task.
+    #[gpui::test]
+    fn program_shows_the_auto_play_countdown_and_progress(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        timeline_at(&open, cx, 1);
+        assert!(cx.debug_bounds("program-auto-play").is_none());
+        press_keys(cx, "a");
+        assert!(cx.debug_bounds("program-auto-play").is_some(), "badge");
+        let duration = open.view.read_with(cx, |view, _| {
+            view.engine
+                .state()
+                .auto_play()
+                .and_then(|run| run.duration_ms)
+        });
+        let duration = duration.expect("the fixture's Cue 1 has a duration");
+        let start = bounds(cx, "program-auto-play-progress").size.width;
+        // No Engine change and no explicit redraw: only the ticker.
+        advance_to(&open, cx, open.now.get() + duration / 2);
+        let later = bounds(cx, "program-auto-play-progress").size.width;
+        assert!(later > start, "the bar moved: {start:?} -> {later:?}");
+        press_keys(cx, "a");
+        assert!(cx.debug_bounds("program-auto-play").is_none(), "badge gone");
+        assert!(
+            cx.debug_bounds("program-auto-play-progress").is_none(),
+            "bar gone"
+        );
+        assert!(
+            open.view
+                .read_with(cx, |view, _| view.auto_play_ticker.is_none())
+        );
     }
 
     #[gpui::test]

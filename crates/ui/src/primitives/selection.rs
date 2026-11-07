@@ -483,6 +483,9 @@ struct Control {
     surface: u32,
     kind: Kind,
     clearable: bool,
+    /// The trigger takes the whole width of its slot instead of its content
+    /// width (capped at 320 px).
+    fill: bool,
     on_select: Option<OnSelect>,
 }
 
@@ -506,11 +509,18 @@ macro_rules! control {
                     surface: tokens::palette(environment.appearance()).background,
                     kind: Kind::$kind,
                     clearable: true,
+                    fill: false,
                     on_select: None,
                 })
             }
             pub fn on_surface(mut self, surface: u32) -> Self {
                 self.0.surface = surface;
+                self
+            }
+            /// Stretch the trigger across its slot, like a primary button in
+            /// a column, instead of sizing it to its words.
+            pub fn fill_width(mut self) -> Self {
+                self.0.fill = true;
                 self
             }
             /// Reports a selection the operator made *through this control*:
@@ -904,10 +914,16 @@ impl Control {
             .track_focus(&handle)
             .aria_expanded(open)
             .when(self.kind == Kind::Select, |b| b.aria_value(value))
-            .max_w(px(scale
-                .apply(320.0)
-                .min(f32::from(window.viewport_size().width) - 32.0)
-                .max(0.0)))
+            .map(|trigger| {
+                if self.fill {
+                    trigger.w_full()
+                } else {
+                    trigger.max_w(px(scale
+                        .apply(320.0)
+                        .min(f32::from(window.viewport_size().width) - 32.0)
+                        .max(0.0)))
+                }
+            })
     }
 
     /// The Combobox's trigger: an Ordo Field, plus the key and pointer
@@ -1347,6 +1363,7 @@ mod tests {
                         state: self.state.clone(),
                         kind: self.kind,
                         clearable: true,
+                        fill: false,
                         on_select: Some({
                             let activations = self.activations.clone();
                             let cleared = self.cleared.clone();
@@ -1524,6 +1541,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Menu,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -1987,6 +2005,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Combobox,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -2065,6 +2084,7 @@ mod tests {
                 state: view.read(cx).state.clone(),
                 kind: Kind::Combobox,
                 clearable: true,
+                fill: false,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
