@@ -8,12 +8,14 @@
 mod control;
 pub mod gpui_adapter;
 mod in_memory;
+mod output_controller;
 
 pub use control::{
     AssignError, Assignment, DisplayControl, DisplayEvent, DisplayStatus, EnableError,
     OutputLifecycle, OutputPlacement,
 };
 pub use in_memory::InMemoryDisplayAdapter;
+pub use output_controller::{OutputAction, OutputController, OutputRefusal};
 
 /// Operating-system display identity. It is valid only for the current
 /// topology; reconnection may assign a new id to the same physical display.

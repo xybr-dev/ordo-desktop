@@ -528,7 +528,7 @@ fn read_operator_display(window: Option<AnyWindowHandle>, cx: &mut App) -> Optio
 /// The display `window` is on: its live bounds resolved against `displays`,
 /// with the platform's own report as the tie-break for mixed-DPI overlap and
 /// as the fallback when the bounds match nothing.
-fn window_display(
+pub(crate) fn window_display(
     window: &Window,
     displays: &[Rc<dyn gpui::PlatformDisplay>],
     cx: &App,

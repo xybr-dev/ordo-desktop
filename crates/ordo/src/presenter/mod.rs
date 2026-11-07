@@ -33,6 +33,8 @@ pub mod dock;
 pub mod frames;
 pub mod images;
 pub mod layout;
+pub mod output;
+pub mod output_window;
 pub mod rail;
 pub mod session_header;
 pub mod surfaces;
@@ -333,6 +335,12 @@ pub struct PresenterView {
     /// `rendering::frame_cache`).
     last_program: Shown,
     last_preview: Shown,
+    /// What Program drew on its last render, with its fade opacity. The
+    /// congregation window draws exactly this (the same `Arc<Frame>`).
+    program_drawn: Rc<std::cell::RefCell<Shown>>,
+    /// The congregation output, once the owner wires one in (`install_output`).
+    /// Without it the Presenter only drives the Engine, as in the labs.
+    output: Option<output::OutputOwner>,
 }
 
 /// The shortest wait between auto-play indicator redraws, about one 60 Hz
@@ -425,11 +433,20 @@ impl PresenterView {
             auto_play_bar_px: 0.0,
             last_program: Shown::default(),
             last_preview: Shown::default(),
+            program_drawn: Rc::default(),
+            output: None,
         };
         view.engine_changed(cx);
         // The store ends with the view: release every decoded image and its
         // atlas tile. (A new snapshot gets a new view, never a swap.)
-        cx.on_release(|view, cx| view.release_images(cx)).detach();
+        cx.on_release(|view, cx| {
+            // Nothing on a congregation display may outlive the Presenter.
+            if let Some(output) = view.output.as_mut() {
+                output.close(cx);
+            }
+            view.release_images(cx)
+        })
+        .detach();
         // The cached rail is told what changed outside a draw, where its
         // notify takes effect (see `rail::RailView`): every state change
         // notifies the view, and this runs after each one.
@@ -502,6 +519,11 @@ impl PresenterView {
         let now = (self.clock)();
         #[cfg(test)]
         self.sent.borrow_mut().push(command);
+        if command == Command::DisableOutput {
+            // The output is going away: the window must not outlive the
+            // Engine's disabled output.
+            self.close_output_window(cx);
+        }
         let result = dispatch(&mut self.engine, command, now);
         match result {
             Ok(_) => {
@@ -514,6 +536,121 @@ impl PresenterView {
             }
         }
         result
+    }
+
+    /// A command from the operator's hands (a button or a key). Enable Output
+    /// goes through the output owner first: the Engine accepts it with no
+    /// display, so the refusal has to come before the Engine is called.
+    fn user_command(&mut self, command: Command, window: &Window, cx: &mut Context<Self>) {
+        if command == Command::EnableOutput && self.output.is_some() {
+            self.enable_output(window, cx);
+        } else {
+            self.command(command, cx).ok();
+        }
+    }
+
+    /// Wire in the congregation output. `source` supplies display topology
+    /// (GPUI in production, an in-memory adapter in tests); `window` is the
+    /// operator window, whose display output never opens on.
+    pub fn install_output(
+        &mut self,
+        source: Box<dyn crate::output::DisplaySource>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.output = Some(output::OutputOwner::new(source, window, cx));
+    }
+
+    /// The congregation window, while it is open.
+    pub fn output_window(&self) -> Option<gpui::WindowHandle<output_window::OutputWindowView>> {
+        self.output.as_ref().and_then(|output| output.window())
+    }
+
+    /// What Program drew on the last render: the frame, its decoded image and
+    /// the fade opacity. The congregation window draws this same value.
+    pub fn program_drawn(&self) -> Shown {
+        self.program_drawn.borrow().clone()
+    }
+
+    /// Where to move the pointer to leave the congregation display, while it
+    /// is over the output window.
+    pub fn cursor_locator(&self) -> Option<crate::output::CursorLocator> {
+        self.output
+            .as_ref()
+            .and_then(|output| output.cursor_locator())
+    }
+
+    pub(super) fn set_pointer_over_output(&mut self, over: bool, cx: &mut Context<Self>) {
+        if self
+            .output
+            .as_mut()
+            .is_some_and(|output| output.set_pointer_over(over))
+        {
+            cx.notify();
+        }
+    }
+
+    /// Enable Output with a congregation display wired in: open the passive
+    /// window first, then tell the Engine, so Program is black before `Space`
+    /// can take anything. A refusal is shown as the status and sends nothing.
+    fn enable_output(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some(mut output) = self.output.take() else {
+            return;
+        };
+        let operator = crate::output::window_display(window, &cx.displays(), cx);
+        let presenter = cx.entity();
+        let opened = output.open(
+            &presenter,
+            self.program_drawn.clone(),
+            self.environment,
+            operator,
+            cx,
+        );
+        self.output = Some(output);
+        match opened {
+            Ok(()) => {
+                if self.command(Command::EnableOutput, cx).is_err() {
+                    // The Engine refused (say, the display is not back): no
+                    // window stays open for an output that is not enabled.
+                    self.close_output_window(cx);
+                }
+            }
+            Err(failure) => {
+                self.status = Some(failure.message().into());
+                cx.notify();
+            }
+        }
+    }
+
+    /// Close the congregation window, if open.
+    fn close_output_window(&mut self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        let live = self.engine.state().live();
+        let Some(output) = self.output.as_mut() else {
+            return;
+        };
+        let was_open = output.is_open();
+        output.close(cx);
+        #[cfg(test)]
+        if was_open {
+            output.closed_at.push(live);
+        }
+        if was_open {
+            cx.notify();
+        }
+    }
+
+    /// The platform closed the congregation window itself. Mirrors the
+    /// Phase-0 controller: output is disabled, so Program is black and the
+    /// Engine never claims a surface that is gone.
+    pub(super) fn output_window_closed(&mut self, closed: gpui::WindowId, cx: &mut Context<Self>) {
+        if self
+            .output
+            .as_mut()
+            .is_some_and(|output| output.window_closed(closed))
+        {
+            self.command(Command::DisableOutput, cx).ok();
+        }
     }
 
     /// Where focus is, for key policy. The reference and the rail are checked
@@ -562,9 +699,7 @@ impl PresenterView {
             return;
         }
         match registry::command_for(id) {
-            Some(command) => {
-                self.command(command, cx).ok();
-            }
+            Some(command) => self.user_command(command, window, cx),
             // `O` never changes the pin: a pinned rail only takes focus.
             None if id == CommandId::OpenOrdo => self.focus_ordo(window, cx),
             None => {}
@@ -725,6 +860,7 @@ impl PresenterView {
         ) {
             self.command(Command::ToggleBlackout, cx).ok();
         }
+        self.close_output_window(cx);
         (self.hooks.close_output)(&self.engine);
         self.command(Command::DisableOutput, cx).ok();
         // T1.7: mark the session complete and clear recovery
@@ -1073,6 +1209,33 @@ impl PresenterView {
         Shown {
             opacity: view.opacity,
             ..last.clone()
+        }
+    }
+
+    /// Record what Program draws now, and redraw the congregation window when
+    /// it is not what that window last drew. Deferred: the window is another
+    /// entity, and this runs inside the Presenter's own render.
+    fn publish_program(&mut self, shown: &Shown, cx: &mut Context<Self>) {
+        fn same<T>(a: &Option<Arc<T>>, b: &Option<Arc<T>>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        let drawn = self.program_drawn.borrow();
+        if drawn.opacity == shown.opacity
+            && same(&drawn.frame, &shown.frame)
+            && same(&drawn.image, &shown.image)
+        {
+            return;
+        }
+        drop(drawn);
+        *self.program_drawn.borrow_mut() = shown.clone();
+        if let Some(window) = self.output_window() {
+            cx.defer(move |cx| {
+                window.update(cx, |_, _, cx| cx.notify()).ok();
+            });
         }
     }
 
@@ -1545,6 +1708,7 @@ impl PresenterView {
             window.request_animation_frame();
         }
         let program_shown = Self::resolve(&mut self.frames, &mut self.last_program, program_view);
+        self.publish_program(&program_shown, cx);
         let preview_shown = Self::resolve(&mut self.frames, &mut self.last_preview, preview_view);
 
         let state = self.engine.state();
@@ -1571,11 +1735,9 @@ impl PresenterView {
         let view = cx.entity().downgrade();
         let on_command: OnCommand = {
             let view = view.clone();
-            Rc::new(move |command, _, cx| {
-                view.update(cx, |view, cx| {
-                    view.command(command, cx).ok();
-                })
-                .ok();
+            Rc::new(move |command, window, cx| {
+                view.update(cx, |view, cx| view.user_command(command, window, cx))
+                    .ok();
             })
         };
         // The primary action replaces itself (Enable Output becomes Take
@@ -1587,7 +1749,7 @@ impl PresenterView {
             let view = view.clone();
             Rc::new(move |command, window, cx| {
                 view.update(cx, |view, cx| {
-                    view.command(command, cx).ok();
+                    view.user_command(command, window, cx);
                     view.timeline_focus.focus(window, cx);
                 })
                 .ok();
@@ -1845,6 +2007,7 @@ impl PresenterView {
             HeaderModel {
                 title: self.snapshot.snapshot().title().to_owned().into(),
                 health: DisplayHealth::of(state.live()),
+                locator: self.cursor_locator().map(|locator| locator.instruction()),
                 cue_view: self.cue_view,
                 icon_only: layout.regime == Regime::Constrained,
                 environment,
@@ -2123,6 +2286,8 @@ mod tests {
     use super::*;
     #[path = "../e2e.rs"]
     mod e2e;
+    #[path = "../output_tests.rs"]
+    mod output_tests;
     use crate::presenter::frames::test_support::fixture_snapshot;
     use domain::presentation::CueId;
     use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, size};
