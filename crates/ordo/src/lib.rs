@@ -430,6 +430,15 @@ pub fn open_native_runtime_at(
     open_native_runtime_with(cx, preferences_path, GpuiDisplaySource)
 }
 
+/// Start the UI layer and bind every registered command key, so the
+/// Presenter's keys (Space, Esc, B, F, ...) work in the app and not only in
+/// the lab and the tests.
+pub fn init_ui(cx: &mut App) -> Result<(), String> {
+    ui::init(cx)?;
+    cx.bind_keys(commands::registry::key_bindings());
+    Ok(())
+}
+
 /// Runtime entry point with an injected display source, so display tests
 /// drive an in-memory topology while production reads GPUI.
 pub fn open_native_runtime_with(
@@ -439,7 +448,7 @@ pub fn open_native_runtime_with(
 ) -> Result<NativeRuntime, RuntimeError> {
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
     cx.set_quit_mode(QuitMode::Explicit);
-    ui::init(cx).map_err(RuntimeError::Ui)?;
+    init_ui(cx).map_err(RuntimeError::Ui)?;
     let (restore_tx, restore_rx) = async_channel::bounded(1);
     let workers =
         RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()), restore_tx)?;

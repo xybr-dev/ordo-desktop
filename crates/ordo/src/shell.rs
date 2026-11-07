@@ -1282,7 +1282,7 @@ mod tests {
     }
 
     fn open(cx: &mut TestAppContext) -> (gpui::Entity<ShellView>, &mut VisualTestContext) {
-        cx.update(ui::init).unwrap();
+        cx.update(crate::init_ui).unwrap();
         let (shell, cx) = cx.add_window_view(|window, cx| {
             let shell = ShellView::new(BUILD_IDENTITY, window, cx);
             window.activate_window();
@@ -2368,6 +2368,25 @@ mod tests {
 
     fn fullscreen(cx: &mut VisualTestContext) -> bool {
         cx.update(|window, _| window.is_fullscreen())
+    }
+
+    /// The app binds the Presenter's keys: with the shell set up exactly as
+    /// `NativeRuntime` sets it up, a key moves Preview after Present. Before
+    /// this, only the lab and the tests bound them, so every Presenter key
+    /// was dead in the app while clicks still worked.
+    #[gpui::test]
+    fn presenter_keys_work_in_the_app(cx: &mut TestAppContext) {
+        let (shell, cx) = open(cx);
+        click(cx, "button-Present");
+        let preview = |shell: &gpui::Entity<ShellView>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, cx| {
+                let presenter = shell.presenter().expect("the Presenter is mounted");
+                presenter.read(cx).engine().state().preview()
+            })
+        };
+        let start = preview(&shell, cx);
+        keys(cx, "right");
+        assert_ne!(preview(&shell, cx), start, "Right moves Preview");
     }
 
     /// Entering Presenter Mode renders only the Presenter in the same window,
