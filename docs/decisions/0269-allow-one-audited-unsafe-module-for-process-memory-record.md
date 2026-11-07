@@ -8,11 +8,13 @@ tags: [platform]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [312]
 sources: []
 ---
 
 # Allow one audited `unsafe` module for process memory; record GPU memory as unavailable
+
+> **Amended by Decision [312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md).** `crates/platform/src/display/monitor_identity.rs` is a second audited `unsafe` module, for Windows monitor identity.
 
 - T0.6 asks for "RSS/private memory". sysinfo 0.31.4 reads neither Windows
   `PrivateUsage` nor any OS peak counter, so private memory was missing and

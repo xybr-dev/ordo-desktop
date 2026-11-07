@@ -752,10 +752,14 @@ fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
     Ok(())
 }
 
-/// The one source file allowed to opt out of the workspace `unsafe_code`
-/// lint (Decision 269). The lint is `deny` rather than `forbid` only so this
-/// file can; any other opt-out fails verification.
-const UNSAFE_EXCEPTION: &str = "crates/platform/src/process_memory.rs";
+/// The only source files allowed to opt out of the workspace `unsafe_code`
+/// lint: process memory (Decision 269) and Windows monitor identity
+/// (Decision 312). The lint is `deny` rather than `forbid` only so these
+/// files can; any other opt-out fails verification.
+const UNSAFE_EXCEPTIONS: [&str; 2] = [
+    "crates/platform/src/process_memory.rs",
+    "crates/platform/src/display/monitor_identity.rs",
+];
 
 fn scan_unsafe_opt_outs(root: &Path, path: &Path) -> XtaskResult<()> {
     for entry in fs::read_dir(path)? {
@@ -781,9 +785,10 @@ fn validate_unsafe_opt_out(relative: &str, source: &str) -> XtaskResult<()> {
     let opts_out = ["allow", "expect", "warn"]
         .iter()
         .any(|level| source.contains(&format!("{level}{lint}")));
-    if opts_out && relative != UNSAFE_EXCEPTION {
+    if opts_out && !UNSAFE_EXCEPTIONS.contains(&relative) {
         return Err(format!(
-            "{relative}: only {UNSAFE_EXCEPTION} may opt out of unsafe_code (Decision 269)"
+            "{relative}: only {} may opt out of unsafe_code (Decisions 269 and 312)",
+            UNSAFE_EXCEPTIONS.join(" and ")
         )
         .into());
     }
@@ -1283,7 +1288,15 @@ mod tests {
     fn only_the_audited_module_may_opt_out_of_unsafe_code() {
         let opt_out = concat!("#[allow(unsafe", "_code)]\nmod imp {}");
         let expect = concat!("#![expect(unsafe", "_code)]");
-        assert!(validate_unsafe_opt_out(UNSAFE_EXCEPTION, opt_out).is_ok());
+        for audited in UNSAFE_EXCEPTIONS {
+            assert!(
+                validate_unsafe_opt_out(audited, opt_out).is_ok(),
+                "{audited}"
+            );
+        }
+        // A third module, even beside the audited ones, still fails.
+        assert!(validate_unsafe_opt_out("crates/platform/src/display/mod.rs", opt_out).is_err());
+        assert!(validate_unsafe_opt_out("crates/platform/src/windows.rs", opt_out).is_err());
         assert!(validate_unsafe_opt_out("crates/ordo/src/lib.rs", opt_out).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", expect).is_err());
         assert!(validate_unsafe_opt_out("crates/ui/src/lib.rs", "fn safe() {}").is_ok());

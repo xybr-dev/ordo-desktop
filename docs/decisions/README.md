@@ -298,7 +298,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0266](0266-qualify-the-four-operator-viewports-at-their-production.md) | Qualify the four operator viewports at their production sizes | accepted | 2026-10-08 |  |
 | [0267](0267-freeze-the-t0-4-projected-type-levels-and-approve-the.md) | Freeze the T0.4 projected type levels and approve the gallery | accepted | 2026-10-08 | presenter, rendering |
 | [0268](0268-make-ordo-windows-only-for-the-mvp-and-defer-linux.md) | Make Ordo Windows-only for the MVP and defer Linux | accepted | 2026-10-09 | mass-plan, platform |
-| [0269](0269-allow-one-audited-unsafe-module-for-process-memory-record.md) | Allow one audited `unsafe` module for process memory; record GPU memory as unavailable | accepted | 2026-10-10 | platform |
+| [0269](0269-allow-one-audited-unsafe-module-for-process-memory-record.md) | Allow one audited `unsafe` module for process memory; record GPU memory as unavailable | accepted, amended by [0312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md) | 2026-10-10 | platform |
 | [0270](0270-record-decisions-one-per-file.md) | Record decisions one per file | accepted | 2026-10-27 | repo, decisions |
 | [0271](0271-mockups-are-one-page-per-screen-with-a-status-each.md) | Mockups are one page per screen with a status each | accepted | 2026-10-27 | design, mockups, repo |
 | [0272](0272-space-resumes-output-after-a-disconnect.md) | Space resumes output after a disconnect | accepted | 2026-10-27 | presenter, display |
@@ -341,5 +341,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0309](0309-floating-surfaces-fade-and-rise-instead-of-zooming.md) | Floating surfaces fade and rise instead of zooming | accepted | 2026-11-03 | design, motion, gpui |
 | [0310](0310-live-output-draws-the-retained-frame-rasterize-only-for.md) | Live output draws the retained Frame; rasterize only for pixels | accepted | 2026-11-04 | rendering, presenter, performance |
 | [0311](0311-presentation-snapshot-manifest-v2-in-json.md) | Presentation snapshot manifest v2 in JSON | accepted | 2026-11-04 | presentation, contracts, snapshot |
+| [0312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md) | Allow a second audited unsafe module for monitor identity | accepted | 2026-11-07 | platform, display |
 
 <!-- adr-index:end -->
