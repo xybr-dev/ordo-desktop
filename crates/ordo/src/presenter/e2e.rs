@@ -338,7 +338,8 @@ fn arrange(open: &Open, cx: &mut VisualTestContext, place: Where, now: &mut u64)
             click(cx, "button-Auto-play off");
             assert!(menu_open(cx), "the Auto-play menu is open");
         }
-        Where::HeaderControl => click(cx, "button-List"),
+        // Pressed, not released: a full click hands focus back to the Cues.
+        Where::HeaderControl => press_without_release(cx, "button-List"),
         Where::Modal => open_modal(open, cx),
         Where::TextField => {
             let field = focus_text_field(open, cx);
