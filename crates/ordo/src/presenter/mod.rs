@@ -984,11 +984,17 @@ impl Render for PresenterView {
                 .ok();
             })
         };
+        // Grid|List is a view choice, not a place to work: after it the Cues
+        // get focus back, so the arrows and `O` keep reaching them (a header
+        // control is `Elsewhere`, where only F, B and Space act).
         let on_cue_view: OnCueView = {
             let view = view.clone();
-            Rc::new(move |chosen, _, cx| {
-                view.update(cx, |view, cx| view.set_cue_view(chosen, cx))
-                    .ok();
+            Rc::new(move |chosen, window, cx| {
+                view.update(cx, |view, cx| {
+                    view.set_cue_view(chosen, cx);
+                    view.timeline_focus.focus(window, cx);
+                })
+                .ok();
             })
         };
 
@@ -1400,6 +1406,14 @@ mod tests {
     fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
         cx.debug_bounds(selector)
             .unwrap_or_else(|| panic!("{selector} should be on screen"))
+    }
+
+    /// Focus a control by pressing it without letting go, so its own
+    /// activation (which may move focus on) never runs.
+    fn press_without_release(cx: &mut VisualTestContext, selector: &'static str) {
+        let at = bounds(cx, selector).center();
+        cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
     }
 
     fn click(cx: &mut VisualTestContext, selector: &'static str) {
@@ -2296,6 +2310,27 @@ mod tests {
         cx.run_until_parked();
     }
 
+    /// Choosing Grid or List hands focus back to the Cues, so the arrows and
+    /// `O` work straight after the click without an `Esc` first.
+    #[gpui::test]
+    fn choosing_grid_or_list_keeps_the_arrows_and_o_live(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[1]);
+        bind_registry_keys(cx);
+        for label in ["button-List", "button-Grid"] {
+            click(cx, label);
+            assert!(timeline_has_focus(&open, cx), "after {label}");
+            let before = preview_index(&open, cx);
+            press_keys(cx, "right");
+            assert_eq!(preview_index(&open, cx), before + 1, "right after {label}");
+        }
+        press_keys(cx, "o");
+        let rail_focused = cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, cx| view.rail_focus.contains_focused(window, cx))
+        });
+        assert!(rail_focused, "O after Grid|List");
+    }
+
     #[gpui::test]
     fn timeline_focus_navigates_with_the_registry_keys(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
@@ -2453,7 +2488,7 @@ mod tests {
         let (open, cx) = open(cx, SIZES[1]);
         bind_registry_keys(cx);
         run(&open, cx, Command::EnableOutput).unwrap();
-        click(cx, "button-List");
+        press_without_release(cx, "button-List");
         assert_eq!(focus_context_now(&open, cx), FocusContext::Elsewhere);
         let before = engine_state(&open, cx);
         press_keys(cx, "right");
