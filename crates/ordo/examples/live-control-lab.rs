@@ -1053,6 +1053,16 @@ mod measure {
 /// between the first and last canvas of each phase. The two canvases bracket
 /// the whole window content.
 ///
+/// Before the scripted animations a refresh probe draws frames back to back
+/// for about a second with no state change; the median interval is
+/// `refresh_ms`, the display's refresh as the Presenter's draw cadence saw it
+/// (no OS display query). `limits_ms.hitch` (33) is a fixed bar and
+/// `limits_ms.p95_bar` is 1.5 refresh intervals: the pacing gate judges against
+/// the measured display, not a fixed 16.7 ms. `limits_ms.frame` and `dropped`
+/// only feed the older `over_16_7ms_pct` and `over_25ms` fields. Per animation,
+/// `p95_over_refresh` and `cpu_p95_over_refresh` are the interval and frame
+/// cost p95 in refresh intervals.
+///
 /// Ownership and shutdown: `main` arms the timeout before the window opens;
 /// the root owns the driver task and the [`Pacing`] recorder; `measure::finish`
 /// is the only exit.
@@ -1072,7 +1082,13 @@ mod animations {
     const SETTLE_POLL: Duration = Duration::from_millis(50);
     const SETTLE_QUIET_POLLS: usize = 4;
     const SETTLE_LIMIT: Duration = Duration::from_secs(10);
-    /// The 60 Hz interval the limits are judged against.
+    /// How long the refresh probe asks for continuous frames.
+    const PROBE: Duration = Duration::from_secs(1);
+    /// Fewer probe intervals than this and the refresh is not trusted.
+    const PROBE_MIN_SAMPLES: usize = 20;
+    /// The p95 bar is this many refresh intervals.
+    const P95_BAR: f64 = 1.5;
+    /// The 60 Hz reference of the legacy `over_16_7ms_pct` field.
     const FRAME_MS: f64 = 16.7;
     const DROP_MS: f64 = 25.0;
     const HITCH_MS: f64 = 33.0;
@@ -1114,6 +1130,8 @@ mod animations {
         dropped_1_5x: u64,
         segments: usize,
         inactive_frames: usize,
+        /// The refresh probe: every drawn frame asks for the next one.
+        probing: bool,
     }
 
     /// What one animation recorded.
@@ -1157,6 +1175,10 @@ mod animations {
                     let mut inner = paint.0.borrow_mut();
                     if last {
                         inner.finish_frame(now, window.is_window_active());
+                        if inner.probing {
+                            drop(inner);
+                            window.request_animation_frame();
+                        }
                     } else {
                         inner.paint_first = Some(now);
                     }
@@ -1167,6 +1189,10 @@ mod animations {
             .left_0()
             .size_0()
             .into_any_element()
+        }
+
+        fn set_probing(&self, probing: bool) {
+            self.0.borrow_mut().probing = probing;
         }
 
         fn begin_segment(&self, composed: usize) {
@@ -1481,6 +1507,14 @@ mod animations {
         }
     }
 
+    /// A JSON number with `places` decimals, or `null`.
+    fn number(value: Option<f64>, places: usize) -> String {
+        match value {
+            Some(value) => format!("{value:.places$}"),
+            None => "null".to_owned(),
+        }
+    }
+
     fn pct(part: usize, whole: usize) -> f64 {
         if whole == 0 {
             0.0
@@ -1489,8 +1523,41 @@ mod animations {
         }
     }
 
+    /// The display's refresh interval as the Presenter's own draw cadence saw
+    /// it: the median interval of about a second of continuously requested
+    /// frames with no state change. `None` when too few frames arrived.
+    struct Refresh {
+        ms: Option<f64>,
+        samples: usize,
+    }
+
+    impl Refresh {
+        fn from_intervals(mut intervals: Vec<f64>) -> Self {
+            let samples = intervals.len();
+            intervals.sort_by(|a, b| a.total_cmp(b));
+            let median = percentile(&intervals, 50.0);
+            Self {
+                ms: (samples >= PROBE_MIN_SAMPLES && median > 0.0).then_some(median),
+                samples,
+            }
+        }
+
+        fn hz(&self) -> Option<f64> {
+            self.ms.map(|ms| 1000.0 / ms)
+        }
+    }
+
+    /// `value` over the refresh interval, as JSON (`null` without a refresh).
+    fn over_refresh(value: f64, refresh: &Refresh) -> String {
+        match refresh.ms {
+            Some(ms) => format!("{:.2}", value / ms),
+            None => "null".to_owned(),
+        }
+    }
+
     fn animation_json(
         script: &Script,
+        refresh: &Refresh,
         applicable: bool,
         capture: Capture,
         before: Counters,
@@ -1499,19 +1566,22 @@ mod animations {
     ) -> String {
         let intervals: Vec<f64> = capture.frames.iter().filter_map(|f| f.interval).collect();
         let over = |limit: f64| intervals.iter().filter(|v| **v > limit).count();
+        let cpu: Vec<f64> = capture.frames.iter().map(Frame::cpu).collect();
         let arrivals: Vec<&Frame> = capture.frames.iter().filter(|f| f.arrival).collect();
         let max_of = |values: &mut dyn Iterator<Item = f64>| values.fold(0.0_f64, f64::max);
         let column = |select: fn(&Frame) -> f64| -> String {
             summary(capture.frames.iter().map(select).collect())
         };
         format!(
-            "{{\"name\":{},\"what\":{},\"applicable\":{applicable},\"segments\":{},\"frames\":{},\"intervals\":{},\"interval_ms\":{},\"over_16_7ms_pct\":{:.1},\"over_25ms\":{},\"dropped_1_5x_frametimer\":{},\"over_33ms\":{},\"first_frame_ms\":{},\"render_ms\":{},\"layout_ms\":{},\"prepaint_ms\":{},\"paint_ms\":{},\"cpu_ms\":{},\"store\":{{\"composed_delta\":{},\"thumb_images_delta\":{},\"full_images_delta\":{},\"jobs_in_flight_max\":{jobs_max},\"frames_with_arrival\":{},\"max_interval_with_arrival_ms\":{:.2},\"max_cpu_with_arrival_ms\":{:.2}}},\"inactive_window_frames\":{}}}",
+            "{{\"name\":{},\"what\":{},\"applicable\":{applicable},\"segments\":{},\"frames\":{},\"intervals\":{},\"interval_ms\":{},\"p95_over_refresh\":{},\"cpu_p95_over_refresh\":{},\"over_16_7ms_pct\":{:.1},\"over_25ms\":{},\"dropped_1_5x_frametimer\":{},\"over_33ms\":{},\"first_frame_ms\":{},\"render_ms\":{},\"layout_ms\":{},\"prepaint_ms\":{},\"paint_ms\":{},\"cpu_ms\":{},\"store\":{{\"composed_delta\":{},\"thumb_images_delta\":{},\"full_images_delta\":{},\"jobs_in_flight_max\":{jobs_max},\"frames_with_arrival\":{},\"max_interval_with_arrival_ms\":{:.2},\"max_cpu_with_arrival_ms\":{:.2}}},\"inactive_window_frames\":{}}}",
             json_string(script.name),
             json_string(script.what),
             capture.segments,
             capture.frames.len(),
             intervals.len(),
             summary(intervals.clone()),
+            over_refresh(percentile(&sorted(&intervals), 95.0), refresh),
+            over_refresh(percentile(&sorted(&cpu), 95.0), refresh),
             pct(over(FRAME_MS), intervals.len()),
             over(DROP_MS),
             capture.dropped_1_5x,
@@ -1530,6 +1600,33 @@ mod animations {
             max_of(&mut arrivals.iter().map(|f| f.cpu())),
             capture.inactive_frames,
         )
+    }
+
+    fn sorted(values: &[f64]) -> Vec<f64> {
+        let mut values = values.to_vec();
+        values.sort_by(|a, b| a.total_cmp(b));
+        values
+    }
+
+    /// Ask for a frame after every drawn frame for [`PROBE`] and read the
+    /// refresh interval off the draw cadence. No OS display query is made.
+    async fn probe_refresh(
+        run: &Run,
+        view: &Entity<PresenterView>,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<Refresh, String> {
+        let composed = counters(view, cx).composed;
+        let _ = run.pacing.take();
+        run.pacing.set_probing(true);
+        run.pacing.begin_segment(composed);
+        view.update(cx, |_, cx| cx.notify());
+        cx.background_executor().timer(PROBE).await;
+        run.pacing.end_segment();
+        run.pacing.set_probing(false);
+        let capture = run.pacing.take();
+        Ok(Refresh::from_intervals(
+            capture.frames.iter().filter_map(|f| f.interval).collect(),
+        ))
     }
 
     fn gone<E: std::fmt::Display>(error: E) -> String {
@@ -1575,6 +1672,9 @@ mod animations {
         settle(view, cx).await;
         // A few idle frames first, so the first animation is not the first draw.
         background.timer(Duration::from_millis(500)).await;
+
+        let refresh = probe_refresh(run, view, cx).await?;
+        background.timer(Duration::from_millis(300)).await;
 
         let mut animations = Vec::new();
         for script in scripts(groups) {
@@ -1645,6 +1745,7 @@ mod animations {
             let after = counters(view, cx);
             animations.push(animation_json(
                 &script,
+                &refresh,
                 applicable,
                 run.pacing.take(),
                 before,
@@ -1654,7 +1755,7 @@ mod animations {
         }
 
         Ok(format!(
-            "{{\"mode\":\"animation-pacing\",\"issue\":111,\"profile\":{},\"window\":{},\"viewport\":{},\"scale_percent\":{},\"scale_factor\":{scale_factor},\"cue_view\":{},\"cues_requested\":{},\"cue_count\":{cues},\"groups\":{groups},\"window_active_at_start\":{active},\"window_maximized\":{maximized},\"window_bounds\":{},\"limits_ms\":{{\"frame\":{FRAME_MS},\"dropped\":{DROP_MS},\"hitch\":{HITCH_MS}}},\"note\":{},\"animations\":[{}]}}",
+            "{{\"mode\":\"animation-pacing\",\"issue\":111,\"profile\":{},\"window\":{},\"viewport\":{},\"scale_percent\":{},\"scale_factor\":{scale_factor},\"cue_view\":{},\"cues_requested\":{},\"cue_count\":{cues},\"groups\":{groups},\"window_active_at_start\":{active},\"window_maximized\":{maximized},\"window_bounds\":{},\"limits_ms\":{{\"frame\":{FRAME_MS},\"dropped\":{DROP_MS},\"hitch\":{HITCH_MS},\"refresh\":{},\"p95_bar\":{}}},\"refresh_ms\":{},\"refresh_hz\":{},\"refresh_samples\":{},\"refresh_note\":{},\"note\":{},\"animations\":[{}]}}",
             json_string(if cfg!(debug_assertions) {
                 "debug"
             } else {
@@ -1666,6 +1767,22 @@ mod animations {
             json_string(if run.config.list_view { "list" } else { "grid" }),
             run.config.cues_requested,
             json_string(&bounds),
+            number(refresh.ms, 3),
+            number(refresh.ms.map(|ms| P95_BAR * ms), 2),
+            number(refresh.ms, 3),
+            number(refresh.hz(), 1),
+            refresh.samples,
+            json_string(&if refresh.ms.is_some() {
+                format!(
+                    "the median interval of {} frames drawn back to back for about a second with no state change; the p95 bar is {P95_BAR} times it",
+                    refresh.samples
+                )
+            } else {
+                format!(
+                    "refresh not measured: the probe drew {} intervals, fewer than {PROBE_MIN_SAMPLES}",
+                    refresh.samples
+                )
+            }),
             json_string(
                 "intervals are between paint stamps of consecutive drawn frames inside one scripted press; first_frame_ms is press to first drawn frame"
             ),
