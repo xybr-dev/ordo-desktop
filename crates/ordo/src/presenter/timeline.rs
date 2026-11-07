@@ -341,6 +341,13 @@ pub struct TimelineModel {
     pub follow_preview: bool,
     /// The follow in flight, owned by the view so it outlives each frame.
     pub glide: Glide,
+    /// A group the rail asked to bring to the top that the scroll has not
+    /// reached yet: its content is laid out from this frame on, so it is real
+    /// when the scroll lands.
+    pub jump_to: Option<usize>,
+    /// Lay out only the groups near the viewport. Always true outside the
+    /// tests, which turn it off to get the reference layout.
+    pub virtualise: bool,
 }
 
 /// The callbacks the timeline reports to.
@@ -374,15 +381,101 @@ pub fn timeline(
         columns: model.columns.max(1),
         cell_width: model.cell_width,
         environment,
+        device_scale: window.scale_factor(),
         follow: model.follow_preview.then(|| Follow {
             handle: scroll.handle().clone(),
             seen: Rc::default(),
         }),
     };
+    // Only the groups near the viewport are laid out; the rest stand in as
+    // spacers of exactly their height (`group_height`), so every group is
+    // still one child at its own index.
+    //
+    // `heights` is what each group is on screen right now. A group mid-fold is
+    // not yet at the height its `collapsed` flag implies, and every group
+    // below it sits that much higher, so deciding which groups are real from
+    // the settled heights would leave the ones in view as spacers until the
+    // fold ended.
+    let opens: Vec<f32> = model
+        .groups
+        .iter()
+        .map(|group| {
+            motion::fold(
+                SharedString::from(format!("group-fold-{}", group.index)),
+                !group.collapsed,
+                window,
+                cx,
+            )
+        })
+        .collect();
+    let (full, heights): (Vec<f32>, Vec<f32>) = model
+        .groups
+        .iter()
+        .zip(&opens)
+        .map(|(group, open)| {
+            let kinds = || group.cues.iter().map(|cue| cue.kind);
+            let full = group_height(kinds(), &geometry, false);
+            let folded = group_height(kinds(), &geometry, true);
+            let natural = (0.0 < *open && *open < 1.0)
+                .then(|| {
+                    motion::natural_height(
+                        SharedString::from(format!("group-fold-{}", group.index)),
+                        window,
+                        cx,
+                    )
+                    .0
+                })
+                .flatten();
+            (full, current_height(full, folded, *open, natural))
+        })
+        .unzip();
+    let handle = scroll.handle();
+    // The timeline's own height, which the window's stands in for until it
+    // has been laid out once.
+    let bounds_height = f32::from(handle.bounds().size.height);
+    let span = if bounds_height > 0.0 {
+        bounds_height
+    } else {
+        f32::from(window.viewport_size().height)
+    };
+    let mut spans = vec![(-f32::from(handle.offset().y), span)];
+    if let Some(target) = model.jump_to {
+        spans.push((heights.iter().take(target).sum(), span));
+    }
+    let pinned: Vec<bool> = model
+        .groups
+        .iter()
+        .map(|group| {
+            // The Preview and Program groups keep their Cues laid out, so the
+            // active descendant, the follow and the marks always exist.
+            group
+                .cues
+                .iter()
+                .any(|cue| cue.preview || cue.air.is_some())
+        })
+        .collect();
+    let real = if model.virtualise {
+        real_groups(&heights, &spans, &pinned)
+    } else {
+        vec![true; heights.len()]
+    };
     let groups: Vec<AnyElement> = model
         .groups
         .into_iter()
-        .map(|group| self::group(group, &geometry, handlers, window, cx))
+        .zip(full)
+        .zip(real)
+        .zip(opens)
+        .map(|(((group, height), real), open)| {
+            self::group(
+                group,
+                (!real).then_some(height),
+                open,
+                &geometry,
+                handlers,
+                window,
+                cx,
+            )
+        })
         .collect();
     let timeline = div()
         .relative()
@@ -470,12 +563,23 @@ struct Geometry {
     columns: usize,
     cell_width: f32,
     environment: UiEnvironment,
+    /// The window's device pixels per logical pixel, which layout rounds to.
+    device_scale: f32,
     /// Set when Preview's Cue (and Program's, if it fits) must come into view.
     follow: Option<Follow>,
 }
 
+/// One group: its header and, unless it is folded, its Cues as rows of tiles
+/// or compact rows, with the separator below.
+///
+/// `open` is how far the group is unfolded (`motion::fold`). `spacer` is set
+/// for a group away from the viewport, with the height it would have if its
+/// Cues were laid out: a settled, open group then stands in as one empty block
+/// of that height.
 fn group(
     group: GroupModel,
+    spacer: Option<f32>,
+    open: f32,
     g: &Geometry,
     handlers: &Handlers,
     window: &mut Window,
@@ -489,7 +593,25 @@ fn group(
     // Folding reverses the growth and the turn of the chevron; under reduced
     // motion `fold` is already there.
     let fold_id = SharedString::from(format!("group-fold-{index}"));
-    let open = motion::fold(fold_id.clone(), !group.collapsed, window, cx);
+    // A settled, open group away from the viewport is one spacer of its exact
+    // height: no tile, image or accessibility node. A folded group is only a
+    // header and a group mid-fold animates its own height, so both stay real.
+    //
+    // Accessibility: while a group is a spacer its header (the Expand or
+    // Collapse button) is not in the accessibility tree either. A screen
+    // reader reaches any group through the timeline's active-descendant name,
+    // and the header appears as the group comes near the viewport.
+    if let Some(height) = spacer.filter(|_| open >= 1.0 && !group.collapsed) {
+        return div()
+            .id(("group", index))
+            .debug_selector(move || format!("group-{index}"))
+            .flex_none()
+            .w_full()
+            .h(px(height))
+            .border_b(px(tokens::border::SEPARATOR))
+            .border_color(rgb(palette.border))
+            .into_any_element();
+    }
     let count = group.cues.len();
     let unavailable = group
         .cues
@@ -610,6 +732,108 @@ fn group(
         .child(head)
         .children(body)
         .into_any_element()
+}
+
+/// An authored length as GPUI lays it out: rounded to whole device pixels
+/// before layout (midpoints toward zero), per length rather than per sum. The
+/// spacer's height is a sum of these, so it matches the real group to the
+/// device pixel.
+fn snap(length: f32, device_scale: f32) -> f32 {
+    ((length * device_scale).abs() - 0.5).ceil() / device_scale
+}
+
+/// A border width: snapped like a length but never thinner than one device
+/// pixel.
+fn snap_stroke(width: f32, device_scale: f32) -> f32 {
+    snap(width, device_scale).max(1.0 / device_scale)
+}
+
+/// Height of one row of Grid tiles: the framed thumbnail with its padding, the
+/// Preview bar's place and the caption.
+fn tile_row_height(g: &Geometry) -> f32 {
+    let scale = g.environment.preferences().scale;
+    let snap = |length: f32| snap(length, g.device_scale);
+    2.0 * snap(scale.apply(CELL_PADDING / 2.0))
+        + snap(g.cell_width * 9.0 / 16.0)
+        + snap(scale.apply(PREVIEW_BAR))
+        + snap(scale.apply(CAPTION_HEIGHT))
+}
+
+/// The height [`group`] lays out for a group of `kinds` Cues, computed without
+/// laying anything out: the header, the separator and, unless folded, the
+/// blocks [`blocks`] makes (rows of up to `columns` tiles in Grid, one compact
+/// row per other Cue) with their gaps and padding. It is what a spacer stands
+/// in with, so it must stay equal to the real height.
+fn group_height(kinds: impl Iterator<Item = CueKind>, g: &Geometry, folded: bool) -> f32 {
+    let scale = g.environment.preferences().scale;
+    let snap = |length: f32| snap(length, g.device_scale);
+    let mut height = snap(scale.apply(GROUP_HEAD_HEIGHT))
+        + snap_stroke(tokens::border::SEPARATOR, g.device_scale);
+    if folded {
+        return height;
+    }
+    let mut blocks = 0usize;
+    let mut blocks_height = 0.0;
+    let mut run = 0usize;
+    let columns = g.columns.max(1);
+    let row = snap(scale.apply(tokens::density::COMPACT_ROW));
+    let flush = |run: &mut usize, blocks: &mut usize, total: &mut f32| {
+        while *run > 0 {
+            *run -= columns.min(*run);
+            *blocks += 1;
+            *total += tile_row_height(g);
+        }
+    };
+    for kind in kinds {
+        if g.mode == CueView::Grid && kind.is_tile() {
+            run += 1;
+        } else {
+            flush(&mut run, &mut blocks, &mut blocks_height);
+            blocks += 1;
+            blocks_height += row;
+        }
+    }
+    flush(&mut run, &mut blocks, &mut blocks_height);
+    height += snap(scale.apply(tokens::spacing::RELATED_TIGHT))
+        + snap(scale.apply(tokens::spacing::GROUP))
+        + blocks_height
+        + blocks.saturating_sub(1) as f32 * snap(scale.apply(tokens::spacing::RELATED));
+    height
+}
+
+/// What a group is on screen: `full` when open, `folded` (header and separator)
+/// when shut, and in between the header plus its body at `open` of the body's
+/// `natural` height (what the group animates), or of the settled body when the
+/// body has not been measured yet.
+fn current_height(full: f32, folded: f32, open: f32, natural: Option<f32>) -> f32 {
+    if open >= 1.0 {
+        full
+    } else if open <= 0.0 {
+        folded
+    } else {
+        folded + natural.unwrap_or(full - folded) * open
+    }
+}
+
+/// Which groups get their Cues laid out: those within one timeline height of a
+/// focus span (`(top, height)` in timeline pixels, the height being the
+/// timeline's own), and every `pinned` one. The overscan is that height above
+/// and below, so a scroll or a glide frame has content ready before it
+/// arrives. `heights` are the groups' heights as they are on screen now.
+fn real_groups(heights: &[f32], focus: &[(f32, f32)], pinned: &[bool]) -> Vec<bool> {
+    let mut top = 0.0;
+    heights
+        .iter()
+        .zip(pinned)
+        .map(|(height, pinned)| {
+            let (start, end) = (top, top + height);
+            top = end;
+            *pinned
+                || focus
+                    .iter()
+                    .any(|(at, span)| end >= at - span && start <= at + 2.0 * span)
+        })
+        .collect()
 }
 
 /// A group's Cues as rows of tiles and compact rows, in order.
@@ -1163,6 +1387,96 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Arc::new(fixture_snapshot().snapshot().clone()))
+    }
+
+    /// GPUI's rule (`round_half_toward_zero` on `length * scale`, as
+    /// `gpui-pre-0.3.8` `util.rs` has it), restated here because it is not
+    /// public: the nearest device pixel, half way toward zero.
+    fn gpui_rounded(length: f32, scale: f32) -> f32 {
+        ((length * scale).abs() - 0.5)
+            .ceil()
+            .copysign(length * scale)
+            / scale
+    }
+
+    #[test]
+    fn snap_rounds_as_gpui_does_on_fractional_scales() {
+        // Midpoints go toward zero: 2.0 * 1.25 = 2.5 -> 2 device pixels and
+        // 3.0 * 1.5 = 4.5 -> 4; a plain `round` would give 3 and 5.
+        for (length, scale, device) in [
+            (2.0_f32, 1.25_f32, 2.0_f32),
+            (3.0, 1.5, 4.0),
+            (0.4, 1.25, 0.0),
+            (0.6, 1.25, 1.0),
+            (1.0, 1.5, 1.0),
+            (10.0, 1.25, 12.0),
+            (7.0, 1.5, 10.0),
+        ] {
+            assert!(
+                (snap(length, scale) * scale - device).abs() < 1e-3,
+                "{length} at {scale}"
+            );
+        }
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            for step in 0..400 {
+                let length = step as f32 * 0.25;
+                assert!(
+                    (snap(length, scale) - gpui_rounded(length, scale)).abs() < 1e-4,
+                    "{length} at {scale}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_stroke_is_never_thinner_than_one_device_pixel() {
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            // GPUI: `round_to_device_pixel(width).max(1.0)` device pixels.
+            for width in [0.3_f32, 1.0, 1.5] {
+                let want = (gpui_rounded(width, scale) * scale).max(1.0);
+                assert!(
+                    (snap_stroke(width, scale) * scale - want).abs() < 1e-3,
+                    "{width} at {scale}"
+                );
+            }
+            assert!((snap_stroke(0.3, scale) * scale - 1.0).abs() < 1e-3);
+        }
+        // 1.5 * 1.25 = 1.875 -> 2 device pixels.
+        assert!((snap_stroke(1.5, 1.25) * 1.25 - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn groups_near_a_focus_span_or_pinned_are_real() {
+        // Five groups of 100 pixels; a 100-pixel window at 200: the overscan
+        // is one span above and two below the top (one past the bottom).
+        let heights = [100.0; 5];
+        let pinned = [false; 5];
+        let real = real_groups(&heights, &[(200.0, 100.0)], &pinned);
+        assert_eq!(real, [true, true, true, true, true]);
+        let heights = [100.0; 12];
+        let real = real_groups(&heights, &[(600.0, 100.0)], &[false; 12]);
+        // Groups end at 100, 200, ...: group k spans [100k, 100k + 100].
+        assert_eq!(
+            real,
+            [
+                false, false, false, false, true, true, true, true, true, false, false, false
+            ]
+        );
+        // A second span (the rail's target) and a pinned group add theirs.
+        let mut pinned = [false; 12];
+        pinned[11] = true;
+        let real = real_groups(&heights, &[(600.0, 100.0), (0.0, 100.0)], &pinned);
+        assert!(real[0] && real[1] && real[2] && real[11] && !real[3]);
+    }
+
+    #[test]
+    fn a_group_mid_fold_counts_at_its_height_on_screen() {
+        let (full, folded) = (1000.0, 50.0);
+        assert_eq!(current_height(full, folded, 1.0, Some(950.0)), full);
+        assert_eq!(current_height(full, folded, 0.0, Some(950.0)), folded);
+        assert_eq!(current_height(full, folded, 0.5, Some(950.0)), 525.0);
+        // Not measured yet: the settled body stands in for it.
+        assert_eq!(current_height(full, folded, 0.5, None), 525.0);
     }
 
     /// Re-centring a Cue measured on whole device pixels, step after step

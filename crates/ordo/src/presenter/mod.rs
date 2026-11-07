@@ -140,6 +140,19 @@ pub fn refusal_text(refusal: Refusal) -> &'static str {
 }
 
 /// The standing status line when no refusal is being shown.
+/// Frames a rail jump may stay pending when the group never reaches the top
+/// (the scroll stopped at the end of the timeline): one to apply the scroll,
+/// one to see it, and a spare.
+const JUMP_RENDERS: u8 = 3;
+
+/// Whether a group's top (`item_top`, window pixels) is at the top of the
+/// timeline's `bounds`, within a device pixel. `scroll_to_top_of_item` leaves
+/// the viewport top on the shared edge of the group above and this one, so the
+/// group under the viewport top (`top_item`) cannot say that it has arrived.
+fn jump_landed(item_top: f32, bounds: gpui::Bounds<gpui::Pixels>) -> bool {
+    (item_top - f32::from(bounds.origin.y)).abs() <= 1.0
+}
+
 fn idle_status(engine: &Engine) -> &'static str {
     match engine.state().live() {
         LiveState::OutputDisabled => "Congregation output disabled",
@@ -215,6 +228,16 @@ pub struct PresenterView {
     /// set was last requested. A different range after a scroll or a resize
     /// asks for a new set, outside `render`.
     visible_range: (usize, usize),
+    /// A rail jump the scroll has not applied yet, so the timeline lays that
+    /// group's Cues out before it arrives. Dropped once the group's top is at
+    /// the timeline's top (`jump_landed`), or after `JUMP_RENDERS` frames when
+    /// the scroll could not reach it (the end of the timeline).
+    pending_jump: Option<usize>,
+    /// Frames drawn since `pending_jump` was set.
+    jump_renders: u8,
+    /// Test only: lay every group out, the layout before virtualisation.
+    #[cfg(test)]
+    all_groups_real: bool,
     /// The Preview Cue the timeline last brought into view; a different
     /// Preview on the next frame makes the timeline follow it.
     followed_preview: Option<usize>,
@@ -341,6 +364,10 @@ impl PresenterView {
             collapsed: BTreeSet::new(),
             timeline_scroll: Scroll::new(),
             visible_range: (0, 0),
+            pending_jump: None,
+            jump_renders: 0,
+            #[cfg(test)]
+            all_groups_real: false,
             followed_preview: None,
             glide: timeline::Glide::default(),
             rail_is_pinned: false,
@@ -1136,6 +1163,8 @@ impl PresenterView {
         // The scroll is applied at the next layout, so ask for the target
         // group's frames now; `render` corrects the set once it has moved.
         self.visible_range = (group, group);
+        self.pending_jump = Some(group);
+        self.jump_renders = 0;
         let ids = self.visible_frames((group, group));
         self.frames
             .request_visible(ids, |view| &mut view.frames, cx);
@@ -1360,6 +1389,11 @@ impl PresenterView {
             cell_width: layout.cell_width,
             follow_preview,
             glide: self.glide.clone(),
+            jump_to: self.pending_jump,
+            #[cfg(test)]
+            virtualise: !self.all_groups_real,
+            #[cfg(not(test))]
+            virtualise: true,
         }
     }
 }
@@ -1529,6 +1563,16 @@ impl PresenterView {
         // A scroll or a resize moved the groups on screen: ask for their
         // thumbnails on the next turn, because the store is not synced from
         // `render`. The hop holds only a weak handle and ends at once.
+        if let Some(group) = self.pending_jump {
+            let handle = self.timeline_scroll.handle();
+            self.jump_renders = self.jump_renders.saturating_add(1);
+            let landed = handle
+                .bounds_for_item(group)
+                .is_some_and(|item| jump_landed(f32::from(item.origin.y), handle.bounds()));
+            if landed || self.jump_renders >= JUMP_RENDERS {
+                self.pending_jump = None;
+            }
+        }
         if self.visible_groups() != self.visible_range {
             self.visible_range = self.visible_groups();
             cx.spawn(async move |this, cx| {
@@ -2019,8 +2063,17 @@ mod tests {
 
     fn open_with(
         cx: &mut TestAppContext,
+        case: (f32, f32, InterfaceScale),
+        preferences: UiPreferences,
+    ) -> (Open, &mut VisualTestContext) {
+        open_snapshot(cx, case, preferences, fixture_snapshot())
+    }
+
+    fn open_snapshot(
+        cx: &mut TestAppContext,
         (width, height, _): (f32, f32, InterfaceScale),
         preferences: UiPreferences,
+        snapshot: Arc<LoadedSnapshot>,
     ) -> (Open, &mut VisualTestContext) {
         cx.update(ui::init).unwrap();
         let now = Rc::new(Cell::new(0_u64));
@@ -2030,13 +2083,8 @@ mod tests {
             let saved = saved.clone();
             move |window, cx| {
                 let clock: Rc<dyn Fn() -> Millis> = Rc::new(move || Millis(now.get()));
-                let mut view = PresenterView::new(
-                    fixture_snapshot(),
-                    clock,
-                    environment_with(preferences),
-                    window,
-                    cx,
-                );
+                let mut view =
+                    PresenterView::new(snapshot, clock, environment_with(preferences), window, cx);
                 view.set_save_preferences(Rc::new(move |preferences| {
                     saved.borrow_mut().push(preferences);
                 }));
@@ -2048,9 +2096,12 @@ mod tests {
         (Open { view, now, saved }, cx)
     }
 
+    #[track_caller]
     fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
-        cx.debug_bounds(selector)
-            .unwrap_or_else(|| panic!("{selector} should be on screen"))
+        match cx.debug_bounds(selector) {
+            Some(bounds) => bounds,
+            None => panic!("{selector} should be on screen"),
+        }
     }
 
     /// Focus a control by pressing it without letting go, so its own
@@ -2429,6 +2480,16 @@ mod tests {
 
     /// Let `millis` of animation pass and draw again, as the frames a real
     /// window delivers would.
+    /// Lay out every group, as before virtualisation, for a test of geometry
+    /// that does not scroll.
+    fn lay_every_group_out(open: &Open, cx: &mut VisualTestContext) {
+        open.view.update(cx, |view, cx| {
+            view.all_groups_real = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+    }
+
     fn animate(open: &Open, cx: &mut VisualTestContext, millis: u64) {
         cx.executor().advance_clock(Duration::from_millis(millis));
         open.view.update(cx, |_, cx| cx.notify());
@@ -2637,6 +2698,10 @@ mod tests {
             let s = case.2.apply(1.0);
             let layout = layout_at(case);
             let (open, vcx) = open(cx, case);
+            // Tile geometry is what is measured here, wherever the Cue is: the
+            // timeline is a few hundred pixels tall at 200%, so a Cue below
+            // the first group would be a spacer.
+            lay_every_group_out(&open, vcx);
             let before = engine_state(&open, vcx);
             // Cue 1 is a Project Cue.
             let tile = bounds(vcx, cue(1));
@@ -2684,7 +2749,8 @@ mod tests {
             assert_eq!(saved.cue_view, CueView::List);
 
             // A new view over the saved preferences opens in List.
-            let (_, vcx) = open_with(cx, case, saved);
+            let (restored, vcx) = open_with(cx, case, saved);
+            lay_every_group_out(&restored, vcx);
             let row = bounds(vcx, cue(1));
             assert!(
                 (f32::from(row.size.height) - 32.0 * s).abs() < 0.5,
@@ -5140,5 +5206,382 @@ mod tests {
                 "{case:?}: the control sits in the status row"
             );
         }
+    }
+
+    /// The synthetic 500-Cue snapshot (60 groups), written to a scratch
+    /// directory and read back.
+    fn synthetic_snapshot() -> Arc<LoadedSnapshot> {
+        use presentation::snapshot_reader::{DirectorySource, read_snapshot};
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "ordo-virtualise-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        presentation::test_support::write_synthetic_snapshot(&dir).expect("synthetic snapshot");
+        let snapshot = read_snapshot(&DirectorySource::new(dir.clone())).expect("reads back");
+        std::fs::remove_dir_all(&dir).ok();
+        Arc::new(snapshot)
+    }
+
+    /// Scroll to `y` pixels from the top and draw, so the virtualised range follows the offset.
+    fn scroll_to(open: &Open, cx: &mut VisualTestContext, y: f32) {
+        open.view.read_with(cx, |view, _| {
+            view.timeline_scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-y)));
+        });
+        animate(open, cx, 0);
+    }
+
+    /// The scroll positions that walk the whole timeline, a little under one
+    /// viewport apart.
+    fn sweep_offsets(open: &Open, cx: &VisualTestContext) -> Vec<f32> {
+        let (viewport, max) = open.view.read_with(cx, |view, _| {
+            let handle = view.timeline_scroll.handle();
+            (
+                f32::from(handle.bounds().size.height),
+                f32::from(handle.max_offset().y),
+            )
+        });
+        let step = viewport * 0.9;
+        let mut at = vec![0.0];
+        while *at.last().unwrap() < max {
+            at.push((at.last().unwrap() + step).min(max));
+        }
+        at
+    }
+
+    fn open_many(
+        cx: &mut TestAppContext,
+        case: (f32, f32, InterfaceScale),
+        mode: CueView,
+    ) -> (Open, &mut VisualTestContext) {
+        open_snapshot(
+            cx,
+            case,
+            UiPreferences {
+                scale: case.2,
+                cue_view: mode,
+                ..UiPreferences::default()
+            },
+            synthetic_snapshot(),
+        )
+    }
+
+    #[gpui::test]
+    fn a_spacer_is_exactly_as_tall_as_the_group_it_stands_for(cx: &mut TestAppContext) {
+        // Every group is seen real and as a spacer along the sweep; its height
+        // must not change, or the scroll would shift when it swaps.
+        let cases = [
+            (1366.0, 768.0, InterfaceScale::Percent100),
+            (1366.0, 768.0, InterfaceScale::Percent200),
+            (1920.0, 1080.0, InterfaceScale::Percent100),
+            (1920.0, 1080.0, InterfaceScale::Percent200),
+        ];
+        for case in cases {
+            for mode in [CueView::Grid, CueView::List] {
+                for fold in [false, true] {
+                    let (mut real, mut spacer) = (0, 0);
+                    let (open, cx) = open_snapshot(
+                        cx,
+                        case,
+                        UiPreferences {
+                            scale: case.2,
+                            cue_view: mode,
+                            ..UiPreferences::default()
+                        },
+                        synthetic_snapshot(),
+                    );
+                    let groups = open
+                        .view
+                        .read_with(cx, |view, _| view.engine.snapshot().item_count());
+                    if fold {
+                        for group in (0..groups).step_by(3) {
+                            open.view
+                                .update(cx, |view, cx| view.toggle_group(group, cx));
+                        }
+                        animate(&open, cx, 400);
+                    }
+                    let firsts: Vec<usize> = open.view.read_with(cx, |view, _| {
+                        (0..groups)
+                            .map(|group| view.engine.snapshot().item_start(group).unwrap())
+                            .collect()
+                    });
+                    let mut seen: Vec<Vec<f32>> = vec![Vec::new(); groups];
+                    for y in sweep_offsets(&open, cx) {
+                        scroll_to(&open, cx, y);
+                        for group in 0..groups {
+                            let h =
+                                f32::from(bounds(cx, sel(format!("group-{group}"))).size.height);
+                            seen[group].push(h);
+                            if !fold || group % 3 != 0 {
+                                if present(cx, cue(firsts[group])) {
+                                    real += 1;
+                                } else {
+                                    spacer += 1;
+                                }
+                            }
+                        }
+                    }
+                    for (group, heights) in seen.iter().enumerate() {
+                        let first = heights[0];
+                        assert!(
+                            heights.iter().all(|h| (h - first).abs() < 0.01),
+                            "{case:?} {mode:?} fold {fold}: group {group} changed height {heights:?}"
+                        );
+                    }
+                    // Sixty groups are many viewports: each case has groups
+                    // laid out and groups standing in as spacers.
+                    assert!(
+                        real > 0 && spacer > 0,
+                        "{case:?} {mode:?} fold {fold}: {real} real, {spacer} spacers"
+                    );
+                }
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn scrolling_through_every_cue_lays_each_tile_out_where_it_was(cx: &mut TestAppContext) {
+        use std::collections::{BTreeMap, BTreeSet};
+        for (case, mode) in [
+            (SIZES[1], CueView::Grid),
+            (SIZES[1], CueView::List),
+            (SIZES[2], CueView::Grid),
+            (SIZES[2], CueView::List),
+        ] {
+            {
+                let collect =
+                    |cx: &mut TestAppContext, all_real: bool, offsets: Option<Vec<f32>>| {
+                        let (open, cx) = open_many(cx, case, mode);
+                        open.view.update(cx, |view, cx| {
+                            view.all_groups_real = all_real;
+                            cx.notify();
+                        });
+                        // Every fourth group is folded, so the sweep crosses
+                        // groups of both heights.
+                        let groups = open
+                            .view
+                            .read_with(cx, |view, _| view.engine.snapshot().item_count());
+                        for group in (0..groups).step_by(4) {
+                            open.view
+                                .update(cx, |view, cx| view.toggle_group(group, cx));
+                        }
+                        animate(&open, cx, 400);
+                        // The Cues of the groups that are open.
+                        let total = open.view.read_with(cx, |view, _| {
+                            let snapshot = view.engine.snapshot();
+                            (0..groups)
+                                .filter(|group| !view.group_collapsed(*group))
+                                .map(|group| {
+                                    let start = snapshot.item_start(group).unwrap();
+                                    let end = snapshot
+                                        .item_start(group + 1)
+                                        .unwrap_or_else(|| snapshot.cue_count());
+                                    end - start
+                                })
+                                .sum::<usize>()
+                        });
+                        let all = open
+                            .view
+                            .read_with(cx, |view, _| view.engine.snapshot().cue_count());
+                        let mut tiles = BTreeMap::new();
+                        let mut most = 0;
+                        let offsets = offsets.unwrap_or_else(|| sweep_offsets(&open, cx));
+                        for (step, y) in offsets.iter().copied().enumerate() {
+                            scroll_to(&open, cx, y);
+                            let region = bounds(cx, "cue-timeline");
+                            let mut present_now = 0;
+                            for flat in 0..all {
+                                if let Some(b) = cx.debug_bounds(cue(flat)) {
+                                    present_now += 1;
+                                    if bottom(b) > top(region) && top(b) < bottom(region) {
+                                        tiles.insert(
+                                            (step, flat),
+                                            (left(b), top(b), width(b), f32::from(b.size.height)),
+                                        );
+                                    }
+                                }
+                            }
+                            most = most.max(present_now);
+                        }
+                        let seen: BTreeSet<usize> = tiles.keys().map(|(_, flat)| *flat).collect();
+                        assert_eq!(
+                            seen.len(),
+                            total,
+                            "{case:?} {mode:?}: every Cue is scrolled past"
+                        );
+                        (tiles, most, total, offsets)
+                    };
+                let (reference, all_present, total, offsets) = collect(cx, true, None);
+                let (tiles, most_present, ..) = collect(cx, false, Some(offsets));
+                assert_eq!(all_present, total, "the reference lays out every Cue");
+                assert!(
+                    most_present < total / 2,
+                    "{case:?} {mode:?}: {most_present} of {total} Cues laid out at once"
+                );
+                assert_eq!(tiles.len(), reference.len(), "{case:?} {mode:?}");
+                for (key, got) in &tiles {
+                    let want = reference[key];
+                    assert!(
+                        [
+                            got.0 - want.0,
+                            got.1 - want.1,
+                            got.2 - want.2,
+                            got.3 - want.3
+                        ]
+                        .iter()
+                        .all(|d| d.abs() < 0.01),
+                        "{case:?} {mode:?} {key:?}: {got:?} against {want:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn the_preview_group_stays_laid_out_far_from_the_viewport(cx: &mut TestAppContext) {
+        let (open, cx) = open_many(cx, SIZES[1], CueView::Grid);
+        let (preview, last) = open.view.read_with(cx, |view, _| {
+            (
+                view.engine.state().preview(),
+                view.engine.snapshot().cue_count() - 1,
+            )
+        });
+        let max = sweep_offsets(&open, cx).last().copied().unwrap();
+        scroll_to(&open, cx, max);
+        assert!(
+            present(cx, cue(preview)),
+            "Preview's Cue is laid out far away"
+        );
+        assert!(present(cx, cue(last)), "the last group is on screen");
+        assert!(!present(cx, cue(preview + 150)), "a far group is a spacer");
+    }
+    /// Every group whose box overlaps the timeline, except `skip`, has its
+    /// Cues laid out (folded groups have none to show).
+    fn assert_visible_groups_are_real(
+        open: &Open,
+        cx: &mut VisualTestContext,
+        skip: usize,
+        context: &str,
+    ) {
+        let region = bounds(cx, "cue-timeline");
+        let (groups, firsts, collapsed) = open.view.read_with(cx, |view, _| {
+            let snapshot = view.engine.snapshot();
+            let groups = snapshot.item_count();
+            (
+                groups,
+                (0..groups)
+                    .map(|group| snapshot.item_start(group).unwrap())
+                    .collect::<Vec<_>>(),
+                (0..groups)
+                    .map(|group| view.group_collapsed(group))
+                    .collect::<Vec<_>>(),
+            )
+        });
+        let mut checked = 0;
+        for group in (0..groups).filter(|group| *group != skip && !collapsed[*group]) {
+            let b = bounds(cx, sel(format!("group-{group}")));
+            if bottom(b) > top(region) && top(b) < bottom(region) {
+                checked += 1;
+                assert!(
+                    present(cx, cue(firsts[group])),
+                    "{context}: group {group} is in view ({:?}) but a spacer",
+                    (top(b), bottom(b), top(region), bottom(region))
+                );
+            }
+        }
+        assert!(checked > 0, "{context}: a group below is in view");
+    }
+
+    #[gpui::test]
+    fn the_groups_below_a_group_that_is_unfolding_or_folding_stay_laid_out(
+        cx: &mut TestAppContext,
+    ) {
+        for case in [SHORT[1], SIZES[2]] {
+            let (open, cx) = open_many(cx, case, CueView::Grid);
+            let group = 2;
+            let viewport = open.view.read_with(cx, |view, _| {
+                f32::from(view.timeline_scroll.handle().bounds().size.height)
+            });
+            let tall = f32::from(bounds(cx, sel(format!("group-{group}"))).size.height);
+            assert!(
+                tall > 1.5 * viewport,
+                "{case:?}: the group ({tall}) is taller than the timeline ({viewport})"
+            );
+            // Fold it away, then unfold it and look at it mid-flight.
+            open.view
+                .update(cx, |view, cx| view.toggle_group(group, cx));
+            animate(&open, cx, 400);
+            assert!(f32::from(bounds(cx, sel(format!("group-{group}"))).size.height) < 200.0);
+            open.view
+                .update(cx, |view, cx| view.toggle_group(group, cx));
+            // The fold takes 160 ms: these are frames 40, 80 and 120 ms in.
+            for step in 0..3 {
+                animate(&open, cx, 40);
+                let now = f32::from(bounds(cx, sel(format!("group-{group}"))).size.height);
+                assert!(now < tall, "{case:?}: still unfolding at step {step}");
+                assert_visible_groups_are_real(
+                    &open,
+                    cx,
+                    group,
+                    &format!("{case:?} unfolding, step {step}"),
+                );
+            }
+            animate(&open, cx, 400);
+            // And the other way: folding the settled group.
+            open.view
+                .update(cx, |view, cx| view.toggle_group(group, cx));
+            for step in 0..4 {
+                animate(&open, cx, 40);
+                assert_visible_groups_are_real(
+                    &open,
+                    cx,
+                    group,
+                    &format!("{case:?} folding, step {step}"),
+                );
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn a_rail_jump_stops_holding_its_group_open_once_the_scroll_lands(cx: &mut TestAppContext) {
+        let (open, cx) = open_many(cx, SIZES[1], CueView::Grid);
+        let pending = |open: &Open, cx: &VisualTestContext| {
+            open.view.read_with(cx, |view, _| view.pending_jump)
+        };
+        open.view.update(cx, |view, cx| view.jump_to_group(14, cx));
+        assert_eq!(pending(&open, cx), Some(14));
+        // One frame applies the scroll and the next sees the group at the top.
+        animate(&open, cx, 0);
+        animate(&open, cx, 0);
+        assert_eq!(pending(&open, cx), None, "the group is at the top");
+        let group_top = top(bounds(cx, "group-14"));
+        let timeline_top = top(bounds(cx, "cue-timeline"));
+        assert!((group_top - timeline_top).abs() <= 1.0);
+        // A jump the scroll cannot complete (the end of the timeline leaves the
+        // group short of the top) is dropped after a few frames anyway.
+        let last = open
+            .view
+            .read_with(cx, |view, _| view.engine.snapshot().item_count() - 1);
+        open.view
+            .update(cx, |view, cx| view.jump_to_group(last, cx));
+        for _ in 0..JUMP_RENDERS {
+            animate(&open, cx, 0);
+        }
+        assert_eq!(pending(&open, cx), None);
+    }
+
+    #[test]
+    fn a_jump_has_landed_when_the_group_top_is_the_timeline_top() {
+        let timeline = Bounds {
+            origin: gpui::point(px(0.0), px(100.0)),
+            size: size(px(500.0), px(600.0)),
+        };
+        assert!(jump_landed(100.0, timeline));
+        assert!(jump_landed(100.9, timeline));
+        assert!(!jump_landed(101.5, timeline));
+        assert!(!jump_landed(40.0, timeline));
     }
 }

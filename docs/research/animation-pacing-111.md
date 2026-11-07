@@ -37,12 +37,15 @@ outside the repository.
 
 ## Limits of the measurement
 
-- **The window size is not honoured.** On this machine the lab window opens
-  maximized whatever `--size` says (`window_bounds` is `Maximized`, viewport
-  1920x1025). The 1366x768 and 1920x1080 rows are therefore the same window and
-  agree with each other; they act as a repeat run, not as two sizes. The 200%
-  scale does change the layout (an effective 960x512). The cause was not
-  chased; it is in GPUI's first-window placement, not in the lab.
+- **The window size was not honoured in the "before" runs.** On this machine
+  the lab window opened maximized whatever `--size` said (`window_bounds` was
+  `Maximized`, viewport 1920x1025), so the 1366x768 and 1920x1080 rows of the
+  "before" figures are the same window and act as a repeat run. The 200% scale
+  did change the layout (an effective 960x512). The cause was a Windows setting
+  on the measuring machine that opens every app maximized, not Ordo. Later runs
+  were made with it off: 1366x768 gives a 1366x768 viewport and 1920x1080 gives
+  1920x1048 (the display clamps it). The lab warns when its window opens
+  maximized, and the report records `window_maximized`.
 - The window was on screen and active in every run (`window_active_at_start`
   true, no inactive frames counted).
 - The monitor is 75 Hz, so one frame is 13.3 ms. The 16.7 ms bar of the issue
@@ -150,3 +153,63 @@ cargo run --release -p ordo --example live-control-lab -- \
 ```
 
 Keep the window on screen and unoccluded while it runs (about 45 s).
+
+## After timeline virtualisation (step 3)
+
+The timeline now lays out only the groups within one timeline height (its own
+bounds, not the window's) of the visible span, plus the Preview and Program
+groups; every other open group is one spacer `div` of exactly its height. A
+group that is folding or unfolding counts at the height it has on screen at
+that moment, so the groups below it stay laid out while it moves. The height is computed by the layout model, per
+authored length rounded to device pixels as GPUI rounds them, so a spacer and
+the group it replaces are the same height to the device pixel and nothing moves
+when one swaps for the other. Every group is still one child at its own index.
+Accessibility: a group away from the viewport is a spacer, so its header (the
+Expand or Collapse button) is not in the accessibility tree until the group
+comes near the viewport. Screen-reader users reach any group through the
+timeline's active-descendant name; whether that is enough is an open decision
+for the owner.
+Measured on 2026-11-07 with the same release lab and monitor (75 Hz, 13.3 ms),
+the same 16-process matrix, now with real window sizes (1366x768 and 1920x1048
+viewport). Raw documents were kept outside the repository.
+
+Per animation: p95 of the frame interval and p95 of the frame cost (CPU), as the
+range across the eight cells (size x view x scale), and the intervals over 33 ms
+in all eight cells together. "Before" is the table above (500 Cues, maximized
+window in every cell).
+
+| Animation (500 Cues) | interval p95 before (ms) | interval p95 after (ms) | frame cost p95 before (ms) | frame cost p95 after (ms) | over 33 ms before | over 33 ms after |
+| --- | --- | --- | --- | --- | --- | --- |
+| timeline glide | 68.6 to 83.8 | 14.6 to 19.9 | 52.6 to 71.8 | 6.3 to 17.1 | 579 of 579 | 0 of 2145 |
+| rail overlay | 67.5 to 89.9 | 14.0 to 17.0 | 51.4 to 69.2 | 7.6 to 12.3 | 88 of 88 | 0 of 386 |
+| group fold | 69.3 to 78.4 | 14.5 to 17.0 | 52.5 to 71.8 | 4.8 to 12.1 | 255 of 255 | 0 of 830 |
+| output fades | 68.2 to 81.0 | 14.3 to 17.0 | 52.5 to 69.2 | 4.0 to 12.6 | 352 of 352 | 0 of 1639 |
+| output fades, all folded | 15.6 to 30.9 | 14.9 to 20.5 | 10.8 to 19.2 | 10.2 to 18.4 | 0 | 0 |
+
+At 30 Cues nothing regressed and the cost fell a little (frame cost p95 4 to 10
+ms against 7 to 11 ms, layout 2.3 to 5.8 against 4.1 to 6.3 ms); no interval is
+over 33 ms either way.
+
+Layout at 500 Cues went from 34 to 49 ms (p95) to 2 to 10 ms, close to the 30-Cue
+figure, as the diagnosis predicted. The remaining cost is the rest of the frame
+(render 5 to 6 ms of the whole Presenter, prepaint, paint) and it grows with
+the window and the scale: the worst cells are 100% at 1920x1048 (glide p95 19.9
+ms in List and 16.7 ms in Grid, frame cost up to 17 ms), and 200% is the
+cheapest because its effective window is smaller.
+
+Against the 13.3 ms budget the 500-Cue p95 is near it but not under it: most
+cells sit at 14 to 17 ms (one to two vsyncs late at the tail), the worst at 19.9
+ms.
+
+### Proposed regression bar for report.json (not implemented)
+
+Record the measured refresh interval in the report and judge frame pacing
+against it, not against a fixed 16.7 ms. For the 500-Cue animation measurement,
+proposed gates, per animation and cell: no interval over 33 ms (0 today); p95
+interval at most 1.5 refresh intervals (20 ms at 75 Hz; the worst cell is
+19.9 ms, so it passes with almost no margin); p95 frame cost at most one
+refresh interval (13.3 ms; fails today only in the 100% glide cells, 14.4 to
+17.1 ms). Gate on the first two and report the third, until the remaining frame
+cost (recommendations 2 and 3 above, caching the unchanged header,
+dock and rail, and keeping the rail and fades from re-rendering the timeline) is
+tackled.

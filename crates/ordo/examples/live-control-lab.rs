@@ -1563,6 +1563,14 @@ mod animations {
                 )
             })
             .map_err(gone)?;
+        // A measurement is judged at the size it asked for. A Windows setting
+        // that opens every app maximized overrides `--size`; the report keeps
+        // `window_maximized` so such a run can be told apart.
+        if maximized {
+            eprintln!(
+                "warning: the lab window opened maximized, so --size was not honoured;                  turn off opening apps maximized and measure again"
+            );
+        }
         let background = cx.background_executor().clone();
         settle(view, cx).await;
         // A few idle frames first, so the first animation is not the first draw.
