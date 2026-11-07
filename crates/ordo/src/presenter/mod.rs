@@ -1573,11 +1573,15 @@ impl PresenterView {
         });
         // Focus arriving by any route (`O`, F6, a click) starts the cursor on
         // the item that owns Preview.
+        let cursor_before = self.rail_cursor;
         self.rail_cursor = if rail_holds_focus {
             self.rail_cursor.or_else(|| self.preview_item())
         } else {
             None
         };
+        // A change made here is inside the draw, where the cached rail's
+        // notify is dropped, so that frame draws the rail afresh.
+        let rail_changed_in_draw = cursor_before != self.rail_cursor;
         // A scroll or a resize moved the groups on screen: ask for their
         // thumbnails on the next turn, because the store is not synced from
         // `render`. The hop holds only a weak handle and ends at once.
@@ -1692,7 +1696,7 @@ impl PresenterView {
                 rail.update(cx, |rail, cx| {
                     rail.sync(model, width, environment, rail_handlers.clone(), cx)
                 });
-                if rail::is_cached(window.is_a11y_active()) {
+                if rail::is_cached(window.is_a11y_active()) && !rail_changed_in_draw {
                     (
                         rail.cached(rail::RailView::style(width)).into_any_element(),
                         None,
