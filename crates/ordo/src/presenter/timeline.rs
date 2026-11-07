@@ -363,7 +363,7 @@ pub fn timeline(
     focus: &FocusHandle,
     handlers: &Handlers,
     environment: UiEnvironment,
-    #[cfg(test)] text_probe: &FocusHandle,
+    #[cfg(test)] text_field: Option<&ui::primitives::field::FieldState>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -384,7 +384,7 @@ pub fn timeline(
         .into_iter()
         .map(|group| self::group(group, &geometry, handlers, window, cx))
         .collect();
-    div()
+    let timeline = div()
         .relative()
         .flex_1()
         .min_w_0()
@@ -411,12 +411,25 @@ pub fn timeline(
                     geometry.follow.as_ref(),
                     &model_glide,
                     environment,
-                    #[cfg(test)]
-                    text_probe,
                 )),
         )
-        .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment))
-        .into_any_element()
+        .children(scroll.indicator("cue-timeline", 0.0, window, cx, environment));
+    // Test only: a real `ui` Field inside the Presenter's key context, so that
+    // only the binding predicate and the focus-context check can keep a key
+    // from the Engine. It sits outside the scrolling Cues (absolute, top
+    // left), so it never changes their layout.
+    #[cfg(test)]
+    let timeline = timeline.when_some(text_field, |timeline, state| {
+        timeline.child(div().absolute().top_0().left_0().w(px(240.0)).child(
+            ui::primitives::field::Field::new(
+                "presenter-text-field",
+                "Test field",
+                state,
+                environment,
+            ),
+        ))
+    });
+    timeline.into_any_element()
 }
 
 /// Empty space after the last group, as tall as the viewport lacks of the last
@@ -434,7 +447,6 @@ fn tail(
     follow: Option<&Follow>,
     glide: &Glide,
     environment: UiEnvironment,
-    #[cfg(test)] text_probe: &FocusHandle,
 ) -> AnyElement {
     let handle = scroll.handle();
     let viewport = f32::from(handle.bounds().size.height);
@@ -450,16 +462,6 @@ fn tail(
         .relative()
         .children(follow.map(|follow| self::follow(follow, glide, environment)))
         .child(self::glide(glide, handle.clone()));
-    // Test only, inside the Cues so that only the binding predicate (and the
-    // context check) can keep a key from the Engine. WP6 replaces this probe
-    // with a real text field.
-    #[cfg(test)]
-    let tail = tail.child(
-        div()
-            .id("text-probe")
-            .key_context("TextEntry")
-            .track_focus(text_probe),
-    );
     tail.into_any_element()
 }
 

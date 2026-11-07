@@ -1,4 +1,6 @@
-//! Presenter live-control E2E (T1.4 WP8).
+//! Presenter live-control E2E (T1.4 WP8) and keyboard E2E (T1.5 WP6, at the end of
+//! this file: every bound key in every focus place, with `registry::allows` as
+//! the oracle and a sent-Command log as the evidence).
 //!
 //! The harness is `super`'s (`open`, `run`, `bounds`, ...). It lives inside
 //! the crate because the Presenter's frame store and view fields are only
@@ -217,5 +219,317 @@ fn live_control_survives_every_size_mode_and_rail_state(cx: &mut TestAppContext)
     println!(
         "e2e: {checks} checkpoints, Cue {k} in group {}, revision {}",
         rec.group, rec.revision
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard E2E (T1.5 WP6)
+// ---------------------------------------------------------------------------
+
+use crate::commands::registry::{self, CommandId, FocusContext, Scope};
+use presentation::state::ProgramContent;
+
+/// One place keyboard focus can be in the Presenter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Where {
+    Timeline,
+    Dock,
+    /// The Dock after Freeze was pressed with the mouse (state is Frozen).
+    DockAfterFreeze,
+    PinnedRail,
+    RailOverlay,
+    ShortcutReference,
+    AutoPlayMenu,
+    HeaderControl,
+    TextField,
+    /// A real `ui` dialog (gpui-base Sheet) opened inside the Presenter.
+    Modal,
+}
+
+impl Where {
+    /// The focus context the registry policy must see there.
+    fn context(self) -> FocusContext {
+        match self {
+            Where::Timeline => FocusContext::Timeline,
+            Where::Dock | Where::DockAfterFreeze | Where::AutoPlayMenu => FocusContext::Dock,
+            Where::PinnedRail | Where::RailOverlay => FocusContext::Rail,
+            Where::ShortcutReference => FocusContext::ShortcutReference,
+            Where::HeaderControl => FocusContext::Elsewhere,
+            Where::TextField => FocusContext::TextEntry,
+            Where::Modal => FocusContext::Modal,
+        }
+    }
+}
+
+/// Put the Engine and the surfaces back to one known state: nothing open, no
+/// auto-play, not Frozen or in Blackout, the clock past every fade, Preview on
+/// a Cue that is not on Program (so Take has something to do), no status.
+fn reset(open: &Open, cx: &mut VisualTestContext, now: &mut u64) {
+    // The menu may be left open by the last key (with focus elsewhere, so Esc
+    // would not reach it), or still be closing: a press outside dismisses it.
+    if menu_open(cx) {
+        let outside = bounds(cx, "button-List").center();
+        cx.simulate_click(outside, Modifiers::default());
+        animate(open, cx, 400);
+        assert!(!menu_open(cx), "a press outside closes the open menu");
+    }
+    close_modals(open, cx);
+    animate(open, cx, 400);
+    open.view.update_in(
+        cx,
+        |view, window, cx| {
+            while view.close_topmost(window, cx) {}
+        },
+    );
+    cx.run_until_parked();
+    *now += 2000;
+    settle(open, cx, *now);
+    let _ = run(open, cx, Command::StopAutoPlay);
+    match live(open, cx) {
+        LiveState::Frozen => drop(run(open, cx, Command::ToggleFreeze)),
+        LiveState::Blackout => drop(run(open, cx, Command::ToggleBlackout)),
+        _ => {}
+    }
+    *now += 2000;
+    settle(open, cx, *now);
+    assert!(
+        !matches!(live(open, cx), LiveState::Frozen | LiveState::Blackout),
+        "reset releases Freeze and Blackout"
+    );
+    let on_program = open
+        .view
+        .read_with(cx, |view, _| match view.engine.state().program() {
+            ProgramContent::Frame { cue, .. } => Some(cue),
+            ProgramContent::Black => None,
+        });
+    let target = if on_program == Some(1) { 2 } else { 1 };
+    run(open, cx, Command::GoTo(target)).unwrap();
+    assert_eq!(status(open, cx), None, "reset leaves no refusal text");
+}
+
+/// Reset, then move focus to `place`, and check the policy reads it right.
+fn arrange(open: &Open, cx: &mut VisualTestContext, place: Where, now: &mut u64) {
+    reset(open, cx, now);
+    match place {
+        Where::Timeline => focus_timeline_now(open, cx),
+        Where::Dock => open
+            .view
+            .update_in(cx, |view, window, cx| view.dock_focus.focus(window, cx)),
+        Where::DockAfterFreeze => {
+            click(cx, "button-Freeze");
+            assert_eq!(live(open, cx), LiveState::Frozen);
+        }
+        Where::PinnedRail => {
+            assert!(present(cx, "presenter-rail"), "the rail is pinned");
+            open.view
+                .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
+        }
+        Where::RailOverlay => {
+            open_overlay(open, cx);
+            open.view
+                .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
+        }
+        Where::ShortcutReference => {
+            open.view
+                .update_in(cx, |view, window, cx| view.open_reference(window, cx));
+            cx.run_until_parked();
+        }
+        Where::AutoPlayMenu => {
+            click(cx, "button-Auto-play off");
+            assert!(menu_open(cx), "the Auto-play menu is open");
+        }
+        // Pressed, not released: a full click hands focus back to the Cues.
+        Where::HeaderControl => press_without_release(cx, "button-List"),
+        Where::Modal => open_modal(open, cx),
+        Where::TextField => {
+            let field = focus_text_field(open, cx);
+            cx.update(|window, cx| field.set_value("", window, cx));
+        }
+    }
+    cx.run_until_parked();
+    assert_eq!(
+        focus_context_now(open, cx),
+        place.context(),
+        "{place:?}: focus context"
+    );
+}
+
+/// Every key the registry binds to a GPUI action here, as
+/// `(entry, keystroke)`, in table order.
+fn bound_keys() -> Vec<(&'static registry::Entry, &'static str)> {
+    registry::ENTRIES
+        .iter()
+        .filter(|entry| entry.scope != Scope::Surface || entry.id == CommandId::ToggleReference)
+        .flat_map(|entry| entry.keys.iter().map(move |keys| (entry, *keys)))
+        .collect()
+}
+
+/// Presses every bound key in every place and checks, with `registry::allows`
+/// as the only oracle, which keys reached the Engine (or its refusal text).
+fn sweep(cx: &mut TestAppContext, case: (f32, f32, InterfaceScale), places: &[Where]) {
+    let (open, cx) = open(cx, case);
+    bind_registry_keys(cx);
+    assert!(run(&open, cx, Command::EnableOutput).is_ok());
+    let mut now = 1000;
+    reset(&open, cx, &mut now);
+    assert!(run(&open, cx, Command::Take).is_ok());
+    let mut presses = 0;
+
+    for &place in places {
+        for (entry, keys) in bound_keys() {
+            arrange(&open, cx, place, &mut now);
+            let context = focus_context_now(&open, cx);
+            let before = engine_state(&open, cx);
+            open.view
+                .read_with(cx, |view, _| view.sent.borrow_mut().clear());
+            let was_open = reference_open(&open, cx);
+            let tag = format!("{place:?} / {keys}");
+
+            press_keys(cx, keys);
+            presses += 1;
+
+            let after = engine_state(&open, cx);
+            let sent = open
+                .view
+                .read_with(cx, |view, _| view.sent.borrow().clone());
+            let reached = !sent.is_empty();
+            match entry.id {
+                // Ctrl+/ is chorded: it toggles the reference everywhere
+                // except a true modal, and never touches the Engine.
+                CommandId::ToggleReference => {
+                    assert_eq!(after, before, "{tag}: Ctrl+/ never reaches the Engine");
+                    let toggled = reference_open(&open, cx) != was_open;
+                    assert_eq!(
+                        toggled,
+                        place != Where::Modal,
+                        "{tag}: toggles everywhere except under a true modal"
+                    );
+                }
+                // `O` is view-only: it is allowed or not, and shows as focus
+                // arriving in the rail, never as an Engine change.
+                CommandId::OpenOrdo => {
+                    assert_eq!(after, before, "{tag}: O never reaches the Engine");
+                    let in_rail = focus_context_now(&open, cx) == FocusContext::Rail;
+                    let arrived = in_rail && context != FocusContext::Rail;
+                    if context == FocusContext::Rail {
+                        assert!(in_rail, "{tag}: focus stays in the rail");
+                    }
+                    assert_eq!(
+                        arrived,
+                        registry::allows(entry.scope, context),
+                        "{tag}: O reaches the rail only where allowed"
+                    );
+                }
+                _ => {
+                    let allowed = registry::allows(entry.scope, context);
+                    assert_eq!(
+                        reached, allowed,
+                        "{tag}: reached the Engine = {reached}, policy says {:?} for {context:?}",
+                        entry.scope
+                    );
+                    if allowed {
+                        // Exactly the one command the registry maps the key to.
+                        let want = registry::command_for(entry.id).unwrap();
+                        assert_eq!(sent, [want], "{tag}");
+                    } else {
+                        assert_eq!(after, before, "{tag}: the Engine changed");
+                        assert_eq!(status(&open, cx), None, "{tag}: a refusal was shown");
+                    }
+                }
+            }
+        }
+
+        // The keys the surface and region systems own never reach the Engine
+        // from anywhere (their own behaviour has its own tests).
+        for keys in ["escape", "f6", "shift-f6", "tab", "shift-tab"] {
+            arrange(&open, cx, place, &mut now);
+            let before = engine_state(&open, cx);
+            press_keys(cx, keys);
+            assert_eq!(
+                engine_state(&open, cx),
+                before,
+                "{place:?} / {keys}: reached the Engine"
+            );
+            assert_eq!(status(&open, cx), None, "{place:?} / {keys}");
+            presses += 1;
+        }
+    }
+    println!("keyboard e2e {case:?}: {presses} key presses over {places:?}");
+}
+
+#[gpui::test]
+fn wide_every_registered_key_reaches_the_engine_only_where_the_focus_context_allows(
+    cx: &mut TestAppContext,
+) {
+    sweep(
+        cx,
+        SIZES[0],
+        &[
+            Where::Timeline,
+            Where::Dock,
+            Where::DockAfterFreeze,
+            Where::PinnedRail,
+            Where::ShortcutReference,
+            Where::AutoPlayMenu,
+            Where::HeaderControl,
+            Where::TextField,
+            Where::Modal,
+        ],
+    );
+}
+
+#[gpui::test]
+fn constrained_every_registered_key_reaches_the_engine_only_where_the_focus_context_allows(
+    cx: &mut TestAppContext,
+) {
+    sweep(
+        cx,
+        SIZES[2],
+        &[
+            Where::Timeline,
+            Where::Dock,
+            Where::RailOverlay,
+            Where::ShortcutReference,
+            Where::AutoPlayMenu,
+            Where::HeaderControl,
+            Where::TextField,
+            Where::Modal,
+        ],
+    );
+}
+
+/// Typing `fbo` and spaces into a real field puts the letters in the field and
+/// sends the Engine nothing, while leaving the field gives the keys back.
+#[gpui::test]
+fn typing_f_b_o_and_spaces_into_a_text_field_edits_the_field_only(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[1]);
+    bind_registry_keys(cx);
+    assert!(run(&open, cx, Command::EnableOutput).is_ok());
+    let mut now = 1000;
+    arrange(&open, cx, Where::TextField, &mut now);
+    let field = focus_text_field(&open, cx);
+    let before = engine_state(&open, cx);
+    open.view
+        .read_with(cx, |view, _| view.sent.borrow_mut().clear());
+    press_keys(cx, "f b o space f b o space space");
+    assert!(
+        open.view
+            .read_with(cx, |view, _| view.sent.borrow().is_empty())
+    );
+    assert_eq!(
+        cx.update(|_, cx| field.value(cx)).as_ref(),
+        "fbo fbo  ",
+        "the letters and spaces landed in the field"
+    );
+    assert_eq!(engine_state(&open, cx), before);
+    assert_eq!(status(&open, cx), None);
+    assert!(!open.view.read_with(cx, |view, _| view.rail_open()));
+    focus_timeline_now(&open, cx);
+    press_keys(cx, "f");
+    assert_eq!(
+        open.view
+            .read_with(cx, |view, _| view.sent.borrow().clone()),
+        [Command::ToggleFreeze],
+        "the Cues get F back"
     );
 }
