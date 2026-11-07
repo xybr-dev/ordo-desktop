@@ -28,6 +28,12 @@
 //!   random navigation with output, Take, Freeze, Blackout and rail jumps
 //!   interleaved, samples process memory after each phase, writes one JSON
 //!   document and quits. It reads and writes no preferences; see `measure`.
+//! * `--display-inventory <out.json>`, `--measure-presenter <out.json>
+//!   [--commands N]` and `--measure-output <out.json>` are the church-kit
+//!   measurements (see `kit`): displays and monitor names; keydown to paint over
+//!   a seeded key stream with no output window; and keydown to paint on a real
+//!   congregation display. Each takes `--snapshot <dir>`; without it they try
+//!   `<exe dir>/fixtures/normal-mass`, then the compile-time fixture path.
 //! * Preferences (the Grid/List choice) are read from and written under
 //!   `target/live-control-lab/`, never `%APPDATA%`. Saves go to one worker
 //!   thread, owned by `main`, which drops the sender when the window closes
@@ -106,6 +112,18 @@ struct Args {
     measure_memory: Option<PathBuf>,
     /// `--measure-animations <out.json>`: measure animation frame pacing and quit.
     measure_animations: Option<PathBuf>,
+    /// `--display-inventory <out.json>`: list the displays and quit.
+    display_inventory: Option<PathBuf>,
+    /// `--measure-presenter <out.json>`: keydown-to-paint latency, no output window.
+    measure_presenter: Option<PathBuf>,
+    /// `--measure-output <out.json>`: the same on a real congregation display.
+    measure_output: Option<PathBuf>,
+    /// `--commands N` of `--measure-presenter`.
+    commands: usize,
+    /// Whether `--commands` was named.
+    commands_given: bool,
+    /// Whether `--size` was named; the church-kit modes open maximized without it.
+    size_given: bool,
     /// `--cues 30|500`: the fixture the animation measurement runs over.
     cues: usize,
     /// `--list` / `--grid`: the Cue view the animation measurement runs in.
@@ -136,6 +154,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         snapshot_given: false,
         measure_memory: None,
         measure_animations: None,
+        display_inventory: None,
+        measure_presenter: None,
+        measure_output: None,
+        commands: kit::DEFAULT_COMMANDS,
+        commands_given: false,
+        size_given: false,
         cues: 500,
         list_view: false,
     };
@@ -152,6 +176,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 if parsed.width < 320.0 || parsed.height < 240.0 {
                     return Err("--size is too small to show the Presenter".into());
                 }
+                parsed.size_given = true;
             }
             "--scale" => {
                 let value = args
@@ -168,6 +193,31 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                     .next()
                     .ok_or("--measure-animations needs an output file")?;
                 parsed.measure_animations = Some(PathBuf::from(value));
+            }
+            "--display-inventory" => {
+                let value = args
+                    .next()
+                    .ok_or("--display-inventory needs an output file")?;
+                parsed.display_inventory = Some(PathBuf::from(value));
+            }
+            "--measure-presenter" => {
+                let value = args
+                    .next()
+                    .ok_or("--measure-presenter needs an output file")?;
+                parsed.measure_presenter = Some(PathBuf::from(value));
+            }
+            "--measure-output" => {
+                let value = args.next().ok_or("--measure-output needs an output file")?;
+                parsed.measure_output = Some(PathBuf::from(value));
+            }
+            "--commands" => {
+                let value = args.next().ok_or("--commands needs a number")?;
+                parsed.commands = value
+                    .parse()
+                    .ok()
+                    .filter(|n| (1..=kit::MAX_COMMANDS).contains(n))
+                    .ok_or_else(|| format!("--commands is 1 to {}", kit::MAX_COMMANDS))?;
+                parsed.commands_given = true;
             }
             "--cues" => {
                 let value = args.next().ok_or("--cues needs 30 or 500")?;
@@ -191,8 +241,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             }
         }
     }
-    if parsed.measure_memory.is_some() && parsed.measure_animations.is_some() {
-        return Err("--measure-memory and --measure-animations are separate runs".into());
+    let modes = [
+        parsed.measure_memory.is_some(),
+        parsed.measure_animations.is_some(),
+        parsed.display_inventory.is_some(),
+        parsed.measure_presenter.is_some(),
+        parsed.measure_output.is_some(),
+    ];
+    if modes.into_iter().filter(|on| *on).count() > 1 {
+        return Err("the measurement modes (--measure-memory, --measure-animations, --display-inventory, --measure-presenter, --measure-output) are separate runs".into());
+    }
+    if parsed.commands_given && parsed.measure_presenter.is_none() {
+        return Err("--commands goes with --measure-presenter".into());
     }
     if parsed.measure_memory.is_some() {
         // The measurement is defined at one size and scale.
@@ -245,15 +305,19 @@ struct LabRoot {
     animations: Option<animations::Run>,
     /// The frame recorder the window's canvases feed during that measurement.
     pacing: Option<Rc<animations::Pacing>>,
+    /// The church-kit measurement, until the snapshot is loaded and it starts.
+    kit: Option<kit::Run>,
 }
 
 impl LabRoot {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         snapshot_dir: PathBuf,
         environment: UiEnvironment,
         save: SavePreferences,
         measure: Option<measure::Run>,
         animations: Option<animations::Run>,
+        kit: Option<kit::Run>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -270,6 +334,7 @@ impl LabRoot {
             _measure_task: None,
             pacing: animations.as_ref().map(|run| run.pacing.clone()),
             animations,
+            kit,
         };
         match verified {
             Err(error) => {
@@ -280,6 +345,9 @@ impl LabRoot {
                     run.fail(&message, cx);
                 }
                 if let Some(run) = root.animations.take() {
+                    run.fail(&message, cx);
+                }
+                if let Some(run) = root.kit.take() {
                     run.fail(&message, cx);
                 }
                 root.stage = Stage::Failed(message.into());
@@ -313,13 +381,16 @@ impl LabRoot {
                 if let Some(run) = self.animations.take() {
                     run.fail(&message, cx);
                 }
+                if let Some(run) = self.kit.take() {
+                    run.fail(&message, cx);
+                }
                 self.stage = Stage::Failed(message.into());
             }
             Ok(snapshot) => {
                 let snapshot = Arc::new(snapshot);
                 // The measurement skips the image check: its transient decodes
                 // would be counted in the memory it is measuring.
-                if self.measure.is_none() && self.animations.is_none() {
+                if self.measure.is_none() && self.animations.is_none() && self.kit.is_none() {
                     self.check_images(snapshot.clone(), window, cx);
                 }
                 let started = self.started;
@@ -336,6 +407,9 @@ impl LabRoot {
                     self._measure_task = Some(run.start(view.clone(), window, cx));
                 }
                 if let Some(run) = self.animations.take() {
+                    self._measure_task = Some(run.start(view.clone(), window, cx));
+                }
+                if let Some(run) = self.kit.take() {
                     self._measure_task = Some(run.start(view.clone(), window, cx));
                 }
                 // Keys reach the Presenter only from inside it: the Cues
@@ -469,15 +543,46 @@ fn main() {
         Err(message) => {
             eprintln!("live-control-lab: {message}");
             eprintln!(
-                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>] | --measure-animations <out.json> [--size WxH] [--scale N] [--cues 30|500] [--list|--grid]"
+                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>] | --measure-animations <out.json> [--size WxH] [--scale N] [--cues 30|500] [--list|--grid] | --display-inventory <out.json> | --measure-presenter <out.json> [--commands N] [--snapshot <dir>] [--size WxH] [--scale N] | --measure-output <out.json> [--snapshot <dir>] [--size WxH] [--scale N]"
             );
             std::process::exit(2);
         }
     };
 
+    // The display inventory opens no window and needs nothing else.
+    if let Some(out) = args.display_inventory.clone() {
+        application().run(move |cx: &mut App| kit::inventory(cx, out));
+        if measure::FAILED.load(Ordering::SeqCst) {
+            std::process::exit(1);
+        }
+        return;
+    }
+    // The presenter and output measurements open the fixture; say at once if it
+    // is not there.
+    let kit_out = args
+        .measure_presenter
+        .clone()
+        .map(|out| (out, "presenter-latency"))
+        .or_else(|| {
+            args.measure_output
+                .clone()
+                .map(|out| (out, "output-latency"))
+        });
+    let mut args = args;
+    if let Some((out, mode)) = &kit_out {
+        match kit::resolve_snapshot(&args) {
+            Ok(path) => args.snapshot = path,
+            Err(message) => kit::fail_early(out, mode, &message),
+        }
+    }
+
     // The measurement writes and reads no preferences, so a run depends only on
     // its own arguments.
-    let measuring = args.measure_memory.is_some() || args.measure_animations.is_some();
+    let measuring = args.measure_memory.is_some()
+        || args.measure_animations.is_some()
+        || args.display_inventory.is_some()
+        || args.measure_presenter.is_some()
+        || args.measure_output.is_some();
     let preferences_file = PreferencesFile::new(lab_dir().join("preferences"));
     // Before the app loop: a few bytes, read once, restoring the Grid/List choice.
     let restored = if measuring {
@@ -512,7 +617,6 @@ fn main() {
 
     // A measurement without `--snapshot` writes the synthetic 500-Cue snapshot
     // under the temp directory, and removes it once the app loop has ended.
-    let mut args = args;
     let mut scratch: Option<PathBuf> = None;
     let wants_synthetic =
         args.measure_memory.is_some() || (args.measure_animations.is_some() && args.cues == 500);
@@ -546,7 +650,38 @@ fn main() {
         let measure_out = args
             .measure_memory
             .clone()
-            .or_else(|| args.measure_animations.clone());
+            .or_else(|| args.measure_animations.clone())
+            .or_else(|| kit_out.as_ref().map(|(out, _)| out.clone()));
+        let mut kit_run = None;
+        if let Some((out, _)) = kit_out.clone() {
+            if args.measure_output.is_some() && cx.displays().len() < 2 {
+                // Nothing to drive: a clean, successful skip.
+                kit::finish(cx, &out, &kit::skipped_doc("no congregation display"), true);
+                return;
+            }
+            let run = kit::Run {
+                out,
+                kind: match args.measure_presenter {
+                    Some(_) => kit::Kind::Presenter {
+                        commands: args.commands,
+                    },
+                    None => kit::Kind::Output,
+                },
+                snapshot: args.snapshot.clone(),
+                board: Default::default(),
+                width: args.width,
+                height: args.height,
+                scale_percent: scale_percent(args.scale),
+            };
+            run.arm(cx);
+            kit_run = Some(run);
+        }
+        // The kit modes judge the Presenter at the size it really opens at,
+        // unless `--size` says otherwise.
+        let window_bounds = match (kit_run.is_some() && !args.size_given, cx.primary_display()) {
+            (true, Some(display)) => WindowBounds::Maximized(display.visible_bounds()),
+            _ => WindowBounds::Windowed(bounds),
+        };
         let mut animations = None;
         if let Some(out) = args.measure_animations.clone() {
             measure::arm_timeout_after(cx, out.clone(), animations::TIMEOUT);
@@ -576,7 +711,7 @@ fn main() {
         }
         let opened = cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(window_bounds),
                 titlebar: Some(TitlebarOptions {
                     title: Some(
                         format!("Ordo live-control lab (development only) · {}", key_help()).into(),
@@ -587,8 +722,16 @@ fn main() {
             },
             move |window, cx| {
                 cx.new(|cx| {
-                    let root =
-                        LabRoot::new(snapshot, environment, save, measure, animations, window, cx);
+                    let root = LabRoot::new(
+                        snapshot,
+                        environment,
+                        save,
+                        measure,
+                        animations,
+                        kit_run,
+                        window,
+                        cx,
+                    );
                     window.focus(&root.focus_handle(cx), cx);
                     root
                 })
@@ -607,9 +750,14 @@ fn main() {
         }
         // Closing the window ends the lab: drop the preference sender first
         // so the writer drains, then quit.
+        // The kit modes end through `kit::finish`, which closes the congregation
+        // window itself, so a window closing is not the end of the run there.
+        let ends_on_close = kit_out.is_none();
         cx.on_window_closed(move |cx, _| {
-            sender.borrow_mut().take();
-            cx.quit();
+            if ends_on_close || cx.windows().is_empty() {
+                sender.borrow_mut().take();
+                cx.quit();
+            }
         })
         .detach();
         cx.activate(true);
@@ -1824,6 +1972,1410 @@ mod animations {
     }
 }
 
+/// The church-kit measurement modes: `--display-inventory`,
+/// `--measure-presenter` and `--measure-output`. Each is one fresh process that
+/// writes one JSON document and quits, reads and writes no preferences, and
+/// carries `ok`, the commit, the host and the displays. A failure or a timeout
+/// writes `{"ok":false,"error":...}` and the process exits 1.
+///
+/// The latency method is the one `performance::live` uses: stamp just before
+/// `Window::dispatch_keystroke`, stamp each surface's paint with a `canvas`
+/// (through `PresenterView::set_paint_probe`, which the labs alone set), settle
+/// with `on_next_frame`, and send one command per settled frame. Unlike
+/// `live::drive`, the keystroke is sent from a task between frames, so it
+/// arrives at an arbitrary point of the frame, as a real key does, and the
+/// latency includes the wait for the next frame.
+///
+/// Ownership and shutdown: `main` arms the timeout before any window opens; the
+/// root owns the driver task; `finish` is the only exit and, for the output
+/// mode, first takes the output down (Program black, then Disable Output).
+mod kit {
+    use super::*;
+    use gpui::Keystroke;
+    use ordo::{
+        performance::{
+            hot_path,
+            latency::{
+                CommandKind, KeydownStamp, LatencyBook, LatencyHistogram, PendingKeydown,
+                Surface as LatencySurface,
+            },
+            memory::json_string,
+            report::RendererInfo,
+        },
+        presenter::{PaintProbe, PaintedSurface},
+    };
+    use platform::display::{
+        DisplayAdapter as _, DisplayId, Recognition, Topology,
+        gpui_adapter::{
+            DisplayResolution, GpuiDisplayAdapter, display_containing_window, topology_with_names,
+        },
+        monitor_identity, recognize,
+    };
+    use presentation::state::LiveState;
+    use std::collections::{BTreeMap, HashMap};
+
+    /// The seed of every stream, so two runs send the same keys.
+    pub const SEED: u64 = 0x0D0_C0DE;
+    /// `--commands` default.
+    pub const DEFAULT_COMMANDS: usize = 2000;
+    /// Most `--commands` accepts.
+    pub const MAX_COMMANDS: usize = 200_000;
+    /// Unrecorded commands first, so the first frames are not the sample.
+    const WARMUP: usize = 30;
+    /// The inventory must finish within this.
+    const INVENTORY_TIMEOUT: Duration = Duration::from_secs(10);
+    /// The output run normally takes about half a minute; this only stops a hang.
+    const OUTPUT_TIMEOUT: Duration = Duration::from_secs(90);
+    /// A Presenter run: a base plus time per command.
+    const PRESENTER_BASE: Duration = Duration::from_secs(60);
+    const PRESENTER_PER_COMMAND_MS: u64 = 60;
+    /// Longest a command waits for the operator surfaces to paint and settle.
+    const PAINT_DEADLINE: Duration = Duration::from_millis(1500);
+    /// Longest a command waits for the congregation window to paint.
+    const CONGREGATION_DEADLINE: Duration = Duration::from_millis(400);
+    /// The 500 ms fades of Take and Blackout end well inside this.
+    const FADE_GAP: Duration = Duration::from_millis(750);
+    const POLL: Duration = Duration::from_millis(1);
+    /// This many unhandled keys in a row mean the keys never reach the Presenter.
+    const UNHANDLED_LIMIT: u64 = 20;
+    const NAVIGATION_STEPS: usize = 200;
+    /// How long the congregation window has to show the Program frame.
+    const IDENTITY_DEADLINE: Duration = Duration::from_millis(300);
+
+    const MODE_INVENTORY: &str = "display-inventory";
+    const MODE_PRESENTER: &str = "presenter-latency";
+    const MODE_OUTPUT: &str = "output-latency";
+
+    // ---------------------------------------------------------------- report
+
+    fn commit() -> String {
+        if let Some(commit) = option_env!("ORDO_GIT_COMMIT") {
+            return commit.to_owned();
+        }
+        // A kit can carry the commit beside the exe when it was built without it.
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| std::fs::read_to_string(exe.with_file_name("commit.txt")).ok())
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| "unknown".to_owned())
+    }
+
+    fn text_or_null(value: Option<String>) -> String {
+        value.map_or_else(|| "null".to_owned(), |text| json_string(&text))
+    }
+
+    fn host_json() -> String {
+        format!(
+            "{{\"name\":{},\"os\":{},\"os_version\":{},\"arch\":{}}}",
+            text_or_null(
+                sysinfo::System::host_name().or_else(|| std::env::var("COMPUTERNAME").ok())
+            ),
+            json_string(std::env::consts::OS),
+            text_or_null(sysinfo::System::long_os_version()),
+            json_string(std::env::consts::ARCH),
+        )
+    }
+
+    /// The fields every document starts with, after `{`.
+    fn header(mode: &str, ok: bool) -> String {
+        format!(
+            "\"ok\":{ok},\"mode\":{},\"commit\":{},\"build_identity\":{},\"profile\":{},\"host\":{}",
+            json_string(mode),
+            json_string(&commit()),
+            json_string(ordo::BUILD_IDENTITY),
+            json_string(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }),
+            host_json(),
+        )
+    }
+
+    pub fn error_doc(mode: &str, message: &str) -> String {
+        format!(
+            "{{{},\"error\":{}}}",
+            header(mode, false),
+            json_string(message)
+        )
+    }
+
+    fn number(value: f64) -> String {
+        if value.is_finite() {
+            format!("{value:.3}")
+        } else {
+            "null".to_owned()
+        }
+    }
+
+    fn float(value: f32) -> String {
+        number(f64::from(value))
+    }
+
+    fn optional_ms(value: Option<Duration>) -> String {
+        value.map_or_else(|| "null".to_owned(), |v| number(v.as_secs_f64() * 1000.0))
+    }
+
+    /// `"samples":n,"p50_ms":..,"p95_ms":..,"p99_ms":..,"max_ms":..`
+    fn tail_fields(histogram: Option<&LatencyHistogram>) -> String {
+        let (samples, [p50, p95, p99, max]) = histogram.map_or((0, [None; 4]), |h| {
+            let tail = h.percentiles(&[50.0, 95.0, 99.0, 100.0]);
+            (h.count(), [tail[0], tail[1], tail[2], tail[3]])
+        });
+        format!(
+            "\"samples\":{samples},\"p50_ms\":{},\"p95_ms\":{},\"p99_ms\":{},\"max_ms\":{}",
+            optional_ms(p50),
+            optional_ms(p95),
+            optional_ms(p99),
+            optional_ms(max),
+        )
+    }
+
+    fn renderer_json(window: &Window) -> String {
+        let info = RendererInfo::from_gpu_specs(window.gpu_specs());
+        format!(
+            "{{\"software_emulated\":{},\"device_name\":{}}}",
+            info.software_emulated
+                .map_or("null".to_owned(), |v| v.to_string()),
+            text_or_null(info.device_name),
+        )
+    }
+
+    fn rect_json(b: gpui::Bounds<gpui::Pixels>) -> String {
+        format!(
+            "{{\"x\":{},\"y\":{},\"width\":{},\"height\":{}}}",
+            float(b.origin.x.as_f32()),
+            float(b.origin.y.as_f32()),
+            float(b.size.width.as_f32()),
+            float(b.size.height.as_f32()),
+        )
+    }
+
+    /// One display of the report. GPUI exposes neither a refresh rate nor a
+    /// scale per display, so those are `null`; the physical size is filled in
+    /// only for the display a window of known scale is on.
+    fn display_json(
+        display: &Rc<dyn gpui::PlatformDisplay>,
+        primary: Option<gpui::DisplayId>,
+        operator: Option<gpui::DisplayId>,
+        names: &HashMap<String, String>,
+        scale_known: Option<f32>,
+    ) -> String {
+        let id = display.id();
+        let uuid = display.uuid().ok().map(|uuid| uuid.to_string());
+        let name = uuid.as_ref().and_then(|uuid| names.get(uuid));
+        let bounds = display.bounds();
+        let physical = |value: f32| scale_known.map_or("null".to_owned(), |s| float(value * s));
+        format!(
+            "{{\"gpui_id\":{},\"uuid\":{},\"bounds\":{},\"visible_bounds\":{},\"primary\":{},\"operator\":{},\"scale_factor\":{},\"physical_width\":{},\"physical_height\":{},\"refresh_hz\":null,\"monitor_name\":{},\"generic_name\":{}}}",
+            u64::from(id),
+            text_or_null(uuid),
+            rect_json(bounds),
+            rect_json(display.visible_bounds()),
+            primary == Some(id),
+            operator == Some(id),
+            scale_known.map_or("null".to_owned(), float),
+            physical(bounds.size.width.as_f32()),
+            physical(bounds.size.height.as_f32()),
+            text_or_null(name.cloned()),
+            name.is_none(),
+        )
+    }
+
+    fn displays_json(
+        cx: &App,
+        operator: Option<gpui::DisplayId>,
+        names: &HashMap<String, String>,
+        operator_scale: Option<f32>,
+    ) -> String {
+        let primary = cx.primary_display().map(|display| display.id());
+        let items: Vec<String> = cx
+            .displays()
+            .iter()
+            .map(|display| {
+                let scale = if operator == Some(display.id()) {
+                    operator_scale
+                } else {
+                    None
+                };
+                display_json(display, primary, operator, names, scale)
+            })
+            .collect();
+        format!("[{}]", items.join(","))
+    }
+
+    fn names_json(names: &HashMap<String, String>) -> String {
+        let sorted: BTreeMap<_, _> = names.iter().collect();
+        let items: Vec<String> = sorted
+            .into_iter()
+            .map(|(uuid, name)| format!("{}:{}", json_string(uuid), json_string(name)))
+            .collect();
+        format!("{{{}}}", items.join(","))
+    }
+
+    // ------------------------------------------------------------- finishing
+
+    type Cleanup = Rc<dyn Fn(&mut App)>;
+
+    thread_local! {
+        /// Takes the output down; set by the output mode, run by every exit.
+        static CLEANUP: RefCell<Option<Cleanup>> = const { RefCell::new(None) };
+    }
+
+    /// Writes the document and quits. For the output mode the output is taken
+    /// down first, so no exit leaves the projector lit.
+    pub fn finish(cx: &mut App, out: &Path, document: &str, ok: bool) {
+        let cleanup = CLEANUP.with(|cleanup| cleanup.borrow().clone());
+        if let Some(cleanup) = cleanup {
+            cleanup(cx);
+        }
+        measure::finish(cx, out, document, ok);
+    }
+
+    fn arm_timeout(cx: &mut App, out: PathBuf, mode: &'static str, limit: Duration) {
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(limit).await;
+            cx.update(|cx| {
+                let message = format!("timed out after {} s", limit.as_secs());
+                finish(cx, &out, &error_doc(mode, &message), false);
+            });
+        })
+        .detach();
+    }
+
+    /// A failure before the app loop starts: writes the document and exits 1.
+    pub fn fail_early(out: &Path, mode: &str, message: &str) -> ! {
+        eprintln!("live-control-lab: {message}");
+        if let Err(error) = std::fs::write(out, error_doc(mode, message)) {
+            eprintln!("live-control-lab: cannot write {}: {error}", out.display());
+        }
+        std::process::exit(1);
+    }
+
+    /// Ends the run when the last window is closed by someone else.
+    fn on_all_windows_closed(cx: &mut App, out: PathBuf, mode: &'static str) {
+        cx.on_window_closed(move |cx, _| {
+            if cx.windows().is_empty() {
+                finish(cx, &out, &error_doc(mode, "the window was closed"), false);
+            }
+        })
+        .detach();
+    }
+
+    // ------------------------------------------------------------- fixture
+
+    /// The snapshot a run opens: `--snapshot`, else the first existing of the
+    /// candidates (`<exe dir>/fixtures/normal-mass`, then the compile-time path).
+    pub fn pick_snapshot(given: Option<&Path>, candidates: &[PathBuf]) -> Result<PathBuf, String> {
+        if let Some(given) = given {
+            return if given.is_dir() {
+                Ok(given.to_owned())
+            } else {
+                Err(format!(
+                    "the snapshot folder {} does not exist",
+                    given.display()
+                ))
+            };
+        }
+        candidates
+            .iter()
+            .find(|path| path.is_dir())
+            .cloned()
+            .ok_or_else(|| {
+                let tried: Vec<String> =
+                    candidates.iter().map(|p| p.display().to_string()).collect();
+                format!(
+                    "no normal-mass fixture found (tried {}); pass --snapshot <dir>",
+                    tried.join(", ")
+                )
+            })
+    }
+
+    pub fn resolve_snapshot(args: &Args) -> Result<PathBuf, String> {
+        let mut candidates = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            candidates.push(exe.with_file_name("fixtures").join("normal-mass"));
+        }
+        candidates.push(default_snapshot());
+        pick_snapshot(
+            args.snapshot_given.then_some(args.snapshot.as_path()),
+            &candidates,
+        )
+    }
+
+    // ------------------------------------------------------------- inventory
+
+    /// `--display-inventory`: every display GPUI reports, with its monitor name.
+    /// It opens no window: GPUI enumerates displays from the application.
+    pub fn inventory(cx: &mut App, out: PathBuf) {
+        arm_timeout(cx, out.clone(), MODE_INVENTORY, INVENTORY_TIMEOUT);
+        let names = monitor_identity::read();
+        let primary = cx.primary_display().map(|display| display.id());
+        let document = format!(
+            "{{{},\"schema\":\"ordo.lab.display-inventory.v1\",\"display_count\":{},\"operator_note\":\"no window is open, so the primary display stands for the operator display\",\"name_note\":\"monitor_identity::read omits blank and Generic PnP names, so generic_name true means no usable name\",\"displays\":{},\"monitor_identity\":{}}}",
+            header(MODE_INVENTORY, true),
+            cx.displays().len(),
+            displays_json(cx, primary, &names, None),
+            names_json(&names),
+        );
+        finish(cx, &out, &document, true);
+    }
+
+    // ------------------------------------------------------------- streams
+
+    /// A tiny seeded generator (splitmix64).
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, bound: u64) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            (z ^ (z >> 31)) % bound.max(1)
+        }
+    }
+
+    /// The Presenter keys the streams send.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Key {
+        Right,
+        Left,
+        Down,
+        Up,
+        PageDown,
+        PageUp,
+        Home,
+        End,
+        Space,
+        F,
+        B,
+    }
+
+    impl Key {
+        pub const fn name(self) -> &'static str {
+            match self {
+                Self::Right => "right",
+                Self::Left => "left",
+                Self::Down => "down",
+                Self::Up => "up",
+                Self::PageDown => "pagedown",
+                Self::PageUp => "pageup",
+                Self::Home => "home",
+                Self::End => "end",
+                Self::Space => "space",
+                Self::F => "f",
+                Self::B => "b",
+            }
+        }
+
+        pub const fn kind(self) -> CommandKind {
+            match self {
+                Self::Space => CommandKind::Space,
+                Self::F => CommandKind::Freeze,
+                Self::B => CommandKind::Blackout,
+                _ => CommandKind::Navigation,
+            }
+        }
+    }
+
+    /// `n` keys from `seed`: about two thirds navigation, the rest Space, F, B.
+    pub fn mixed_stream(seed: u64, n: usize) -> Vec<Key> {
+        let mut rng = Rng(seed);
+        (0..n)
+            .map(|_| match rng.below(100) {
+                0..=21 => Key::Right,
+                22..=30 => Key::Down,
+                31..=42 => Key::Left,
+                43..=47 => Key::Up,
+                48..=54 => Key::PageDown,
+                55..=59 => Key::PageUp,
+                60..=62 => Key::Home,
+                63..=65 => Key::End,
+                66..=79 => Key::Space,
+                80..=89 => Key::F,
+                _ => Key::B,
+            })
+            .collect()
+    }
+
+    /// `n` navigation keys from `seed`, leaning forward.
+    pub fn navigation_stream(seed: u64, n: usize) -> Vec<Key> {
+        let mut rng = Rng(seed);
+        (0..n)
+            .map(|_| match rng.below(100) {
+                0..=39 => Key::Right,
+                40..=54 => Key::Down,
+                55..=69 => Key::Left,
+                70..=76 => Key::Up,
+                77..=85 => Key::PageDown,
+                86..=92 => Key::PageUp,
+                93..=96 => Key::Home,
+                _ => Key::End,
+            })
+            .collect()
+    }
+
+    // ---------------------------------------------------------------- board
+
+    const SURFACES: [PaintedSurface; 3] = [
+        PaintedSurface::Preview,
+        PaintedSurface::Program,
+        PaintedSurface::Congregation,
+    ];
+
+    fn slot(surface: PaintedSurface) -> usize {
+        match surface {
+            PaintedSurface::Preview => 0,
+            PaintedSurface::Program => 1,
+            PaintedSurface::Congregation => 2,
+        }
+    }
+
+    fn surface_name(surface: PaintedSurface) -> &'static str {
+        match surface {
+            PaintedSurface::Preview => "preview",
+            PaintedSurface::Program => "program",
+            PaintedSurface::Congregation => "congregation",
+        }
+    }
+
+    type FrameRef = Option<Arc<rendering::Frame>>;
+
+    /// Frames are the same when both are black or both are the same `Arc`.
+    fn same_frame(a: &FrameRef, b: &FrameRef) -> bool {
+        match (a, b) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
+    /// One command in flight, from keydown until it settles.
+    struct Open {
+        seq: u64,
+        stamp: KeydownStamp,
+        scope: hot_path::HotPathScope,
+        painted: [Option<Instant>; 3],
+        /// A frame after the one that painted Preview and Program has begun.
+        settled: bool,
+        armed: bool,
+    }
+
+    /// What the paint stamps write and the driver reads. GPUI thread only.
+    #[derive(Default)]
+    pub struct Board {
+        seq: u64,
+        open: Option<Open>,
+        /// The frame each surface drew last.
+        last: [FrameRef; 3],
+        congregation_paints: u64,
+        /// Congregation paints whose frame was not the last Program frame.
+        congregation_off_program: u64,
+        /// The first congregation paint: when, and whether it was black.
+        congregation_first: Option<(Instant, bool)>,
+    }
+
+    impl Board {
+        fn stamp(
+            board: &Rc<RefCell<Self>>,
+            surface: PaintedSurface,
+            frame: Option<&Arc<rendering::Frame>>,
+            window: &Window,
+        ) {
+            let now = Instant::now();
+            let mut b = board.borrow_mut();
+            let index = slot(surface);
+            b.last[index] = frame.cloned();
+            if surface == PaintedSurface::Congregation {
+                b.congregation_paints += 1;
+                if b.congregation_first.is_none() {
+                    b.congregation_first = Some((now, frame.is_none()));
+                }
+                if !same_frame(&b.last[1], &b.last[2]) {
+                    b.congregation_off_program += 1;
+                }
+            }
+            let Some(open) = b.open.as_mut() else {
+                return;
+            };
+            // A congregation paint answers the command only once the Program
+            // monitor has painted it: the Presenter's render (which hands the
+            // window its frame) and that paint are one draw, so a congregation
+            // paint after it shows the new state, and one before it does not.
+            let answers = surface != PaintedSurface::Congregation || open.painted[1].is_some();
+            if answers && open.painted[index].is_none() {
+                open.painted[index] = Some(now);
+            }
+            let operator_done = open.painted[0].is_some() && open.painted[1].is_some();
+            if surface != PaintedSurface::Congregation && operator_done && !open.armed {
+                open.armed = true;
+                let (board, seq) = (board.clone(), open.seq);
+                // Registered during a paint, so it runs at the start of the
+                // next frame, after the painted one was presented.
+                window.on_next_frame(move |_, _| {
+                    if let Some(open) = board.borrow_mut().open.as_mut()
+                        && open.seq == seq
+                    {
+                        open.settled = true;
+                    }
+                });
+            }
+        }
+    }
+
+    fn probe(board: &Rc<RefCell<Board>>) -> PaintProbe {
+        let board = board.clone();
+        Rc::new(move |surface, frame, window| Board::stamp(&board, surface, frame, window))
+    }
+
+    // ---------------------------------------------------------------- stats
+
+    #[derive(Default)]
+    struct Stats {
+        /// Keydown to Preview and Program paint, by kind.
+        book: LatencyBook,
+        /// Keydown to congregation paint, by kind.
+        congregation: BTreeMap<CommandKind, LatencyHistogram>,
+        by_key: BTreeMap<&'static str, [LatencyHistogram; 3]>,
+        sent: BTreeMap<&'static str, u64>,
+        unpainted: [u64; 3],
+        unhandled: u64,
+        checks: u64,
+        /// Checks where the congregation window was behind at first.
+        lagged: u64,
+        mismatches: u64,
+        mismatch_notes: Vec<String>,
+    }
+
+    impl Stats {
+        fn latency_json(&self) -> String {
+            let mut items = Vec::new();
+            for kind in CommandKind::ALL {
+                for (surface, name) in [
+                    (LatencySurface::Preview, "preview"),
+                    (LatencySurface::Program, "program"),
+                ] {
+                    items.push(format!(
+                        "{{\"command\":{},\"surface\":{},{}}}",
+                        json_string(kind.as_str()),
+                        json_string(name),
+                        tail_fields(self.book.histogram(kind, surface)),
+                    ));
+                }
+                if !self.congregation.is_empty() {
+                    items.push(format!(
+                        "{{\"command\":{},\"surface\":\"congregation\",{}}}",
+                        json_string(kind.as_str()),
+                        tail_fields(self.congregation.get(&kind)),
+                    ));
+                }
+            }
+            format!("[{}]", items.join(","))
+        }
+
+        fn by_key_json(&self) -> String {
+            let items: Vec<String> = self
+                .by_key
+                .iter()
+                .map(|(key, [preview, program, congregation])| {
+                    let congregation = if congregation.count() > 0 {
+                        format!(",\"congregation\":{{{}}}", tail_fields(Some(congregation)))
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        "{}:{{\"sent\":{},\"preview\":{{{}}},\"program\":{{{}}}{congregation}}}",
+                        json_string(key),
+                        self.sent.get(key).copied().unwrap_or(0),
+                        tail_fields(Some(preview)),
+                        tail_fields(Some(program)),
+                    )
+                })
+                .collect();
+            format!("{{{}}}", items.join(","))
+        }
+
+        fn unpainted_json(&self) -> String {
+            let items: Vec<String> = SURFACES
+                .iter()
+                .map(|s| format!("\"{}\":{}", surface_name(*s), self.unpainted[slot(*s)]))
+                .collect();
+            format!("{{{}}}", items.join(","))
+        }
+    }
+
+    fn hot_path_json() -> String {
+        let violations = hot_path::take_violations();
+        let total: u64 = violations.iter().map(|(_, count)| count).sum();
+        let kinds: Vec<String> = violations
+            .iter()
+            .map(|(kind, count)| format!("\"{}\":{count}", kind.as_str()))
+            .collect();
+        format!("{{\"total\":{total},\"by_kind\":{{{}}}}}", kinds.join(","))
+    }
+
+    /// Whether a command should wait for the congregation window to paint.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Wait {
+        /// No congregation window exists.
+        Never,
+        /// Wait only when the Program frame is not the one it last drew.
+        IfFrameChanged,
+        /// Always wait: the command fades Program or changes its opacity.
+        Always,
+    }
+
+    fn gone<E: std::fmt::Display>(error: E) -> String {
+        format!("the Presenter is gone: {error}")
+    }
+
+    /// Sends `key` through the real bindings and records its latency. The
+    /// caller applies any gap after it.
+    async fn send_key(
+        key: Key,
+        wait: Wait,
+        record: bool,
+        board: &Rc<RefCell<Board>>,
+        stats: &mut Stats,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<(), String> {
+        let background = cx.background_executor().clone();
+        let seq = {
+            let mut b = board.borrow_mut();
+            b.seq += 1;
+            b.seq
+        };
+        let keystroke = Keystroke::parse(key.name()).map_err(|e| format!("bad key: {e}"))?;
+        let handled = cx
+            .update(|window, app| {
+                let scope = hot_path::enter();
+                // Immediately before the dispatch, as `live::drive` does.
+                let stamp = PendingKeydown::start(key.kind());
+                board.borrow_mut().open = Some(Open {
+                    seq,
+                    stamp,
+                    scope,
+                    painted: [None; 3],
+                    settled: false,
+                    armed: false,
+                });
+                window.dispatch_keystroke(keystroke, app)
+            })
+            .map_err(gone)?;
+        if !handled {
+            if let Some(open) = board.borrow_mut().open.take() {
+                open.scope.close();
+            }
+            stats.unhandled += 1;
+            return if stats.unhandled >= UNHANDLED_LIMIT {
+                Err(format!(
+                    "{UNHANDLED_LIMIT} keys were not handled; the Presenter lost key focus"
+                ))
+            } else {
+                Ok(())
+            };
+        }
+        let started = Instant::now();
+        let settled = loop {
+            background.timer(POLL).await;
+            let b = board.borrow();
+            let open = b.open.as_ref().ok_or("the command vanished")?;
+            if open.settled {
+                break true;
+            }
+            if started.elapsed() > PAINT_DEADLINE {
+                break false;
+            }
+        };
+        let waits = match wait {
+            Wait::Never => false,
+            Wait::Always => true,
+            Wait::IfFrameChanged => {
+                let b = board.borrow();
+                !same_frame(&b.last[1], &b.last[2])
+            }
+        };
+        if waits {
+            let started = Instant::now();
+            while board
+                .borrow()
+                .open
+                .as_ref()
+                .is_some_and(|open| open.painted[2].is_none())
+                && started.elapsed() < CONGREGATION_DEADLINE
+            {
+                background.timer(POLL).await;
+            }
+        }
+        let open = board
+            .borrow_mut()
+            .open
+            .take()
+            .ok_or("the command vanished")?;
+        let Open {
+            stamp,
+            scope,
+            painted,
+            ..
+        } = open;
+        scope.close();
+        if !record {
+            return Ok(());
+        }
+        let kind = stamp.kind();
+        *stats.sent.entry(key.name()).or_default() += 1;
+        let per_key = stats.by_key.entry(key.name()).or_default();
+        for surface in SURFACES {
+            let index = slot(surface);
+            match painted[index] {
+                Some(at) => {
+                    let elapsed = at.saturating_duration_since(stamp.at());
+                    per_key[index].record(elapsed);
+                    match surface {
+                        PaintedSurface::Preview => {
+                            stats.book.record(kind, LatencySurface::Preview, elapsed);
+                        }
+                        PaintedSurface::Program => {
+                            stats.book.record(kind, LatencySurface::Program, elapsed);
+                        }
+                        PaintedSurface::Congregation => {
+                            stats.congregation.entry(kind).or_default().record(elapsed);
+                        }
+                    }
+                }
+                None if surface != PaintedSurface::Congregation || waits => {
+                    stats.unpainted[index] += 1;
+                }
+                None => {}
+            }
+        }
+        let _ = settled;
+        Ok(())
+    }
+
+    /// Compares the last Program frame with the last frame the congregation
+    /// window drew, as `Arc` pointers. The two windows draw on their own
+    /// frames, so the congregation window may be one frame behind; it is given
+    /// [`IDENTITY_DEADLINE`] to catch up before a difference counts.
+    async fn check_identity(
+        label: &str,
+        board: &Rc<RefCell<Board>>,
+        stats: &mut Stats,
+        cx: &AsyncWindowContext,
+    ) {
+        let background = cx.background_executor().clone();
+        let started = Instant::now();
+        let matches = |board: &Rc<RefCell<Board>>| {
+            let b = board.borrow();
+            same_frame(&b.last[1], &b.last[2])
+        };
+        let mut caught_up = matches(board);
+        if !caught_up {
+            stats.lagged += 1;
+        }
+        while !caught_up && started.elapsed() < IDENTITY_DEADLINE {
+            background.timer(POLL).await;
+            caught_up = matches(board);
+        }
+        stats.checks += 1;
+        if !caught_up {
+            stats.mismatches += 1;
+            if stats.mismatch_notes.len() < 10 {
+                stats.mismatch_notes.push(format!("after {label}"));
+            }
+        }
+    }
+
+    /// Waits until the frame store has had no job in flight for a few checks.
+    async fn settle_frames(view: &Entity<PresenterView>, cx: &mut AsyncWindowContext) {
+        let background = cx.background_executor().clone();
+        let started = Instant::now();
+        let mut quiet = 0;
+        while quiet < 4 && started.elapsed() < Duration::from_secs(10) {
+            background.timer(Duration::from_millis(50)).await;
+            let idle = view.read_with(cx, |view, _| {
+                view.frames().jobs_in_flight() == 0 && view.frames().upgrading() == 0
+            });
+            quiet = if idle { quiet + 1 } else { 0 };
+        }
+    }
+
+    // ------------------------------------------------------------------ run
+
+    pub enum Kind {
+        Presenter { commands: usize },
+        Output,
+    }
+
+    /// What the command line asked for, and the board the stamps write.
+    pub struct Run {
+        pub out: PathBuf,
+        pub kind: Kind,
+        pub snapshot: PathBuf,
+        pub board: Rc<RefCell<Board>>,
+        pub width: f32,
+        pub height: f32,
+        pub scale_percent: u32,
+    }
+
+    impl Run {
+        pub fn mode(&self) -> &'static str {
+            match self.kind {
+                Kind::Presenter { .. } => MODE_PRESENTER,
+                Kind::Output => MODE_OUTPUT,
+            }
+        }
+
+        fn timeout(&self) -> Duration {
+            match self.kind {
+                Kind::Presenter { commands } => {
+                    PRESENTER_BASE
+                        + Duration::from_millis(PRESENTER_PER_COMMAND_MS * commands as u64)
+                }
+                Kind::Output => OUTPUT_TIMEOUT,
+            }
+        }
+
+        pub fn arm(&self, cx: &mut App) {
+            arm_timeout(cx, self.out.clone(), self.mode(), self.timeout());
+            on_all_windows_closed(cx, self.out.clone(), self.mode());
+        }
+
+        pub fn fail(self, message: &str, cx: &mut App) {
+            finish(cx, &self.out, &error_doc(self.mode(), message), false);
+        }
+
+        pub fn start(
+            self,
+            view: Entity<PresenterView>,
+            window: &mut Window,
+            cx: &mut Context<LabRoot>,
+        ) -> Task<()> {
+            view.update(cx, |view, _| view.set_paint_probe(probe(&self.board)));
+            if matches!(self.kind, Kind::Output) {
+                let weak = view.downgrade();
+                CLEANUP.with(|cleanup| {
+                    *cleanup.borrow_mut() = Some(Rc::new(move |cx: &mut App| {
+                        weak.update(cx, take_output_down).ok();
+                    }));
+                });
+                match choose_display(window, cx) {
+                    Ok(source) => {
+                        view.update(cx, |view, cx| {
+                            view.install_output(Box::new(source), window, cx);
+                        });
+                    }
+                    Err(reason) => {
+                        let document = skipped_doc(&reason);
+                        return cx.spawn_in(window, async move |_, cx| {
+                            cx.update(|_, cx| finish(cx, &self.out, &document, true))
+                                .ok();
+                        });
+                    }
+                }
+            }
+            cx.spawn_in(window, async move |_, cx| {
+                let result = match self.kind {
+                    Kind::Presenter { commands } => {
+                        drive_presenter(&self, commands, &view, cx).await
+                    }
+                    Kind::Output => drive_output(&self, &view, cx).await,
+                };
+                cx.update(|_, cx| match &result {
+                    Ok(document) => finish(cx, &self.out, document, true),
+                    Err(message) => {
+                        finish(cx, &self.out, &error_doc(self.mode(), message), false);
+                    }
+                })
+                .ok();
+            })
+        }
+    }
+
+    /// Program black, then the window closed, then the Engine disabled: the
+    /// order `close_output_safely` uses, with the public commands.
+    fn take_output_down(view: &mut PresenterView, cx: &mut Context<PresenterView>) {
+        if matches!(
+            view.engine().state().live(),
+            LiveState::Live | LiveState::Frozen
+        ) {
+            view.command(Command::ToggleBlackout, cx).ok();
+        }
+        if view.engine().state().live() != LiveState::OutputDisabled {
+            view.command(Command::DisableOutput, cx).ok();
+        }
+    }
+
+    // -------------------------------------------------------------- display
+
+    /// Shows the Presenter the operator display and the one display this run
+    /// may use, so Enable Output picks it without asking.
+    struct OneCongregationDisplay {
+        keep: DisplayId,
+    }
+
+    impl ordo::output::DisplaySource for OneCongregationDisplay {
+        fn snapshot(&self, cx: &App, operator: Option<gpui::DisplayId>) -> Topology {
+            let topology = GpuiDisplayAdapter::new(cx, operator).snapshot();
+            let operator_id = topology.operator();
+            let kept = topology
+                .displays()
+                .iter()
+                .filter(|display| Some(display.id) == operator_id || display.id == self.keep)
+                .cloned()
+                .collect();
+            Topology::new(kept, operator_id)
+        }
+
+        fn reported_display(
+            &self,
+            window: &Window,
+            requested: DisplayId,
+            cx: &App,
+        ) -> Option<DisplayId> {
+            ordo::output::DisplaySource::reported_display(
+                &ordo::output::GpuiDisplaySource,
+                window,
+                requested,
+                cx,
+            )
+        }
+    }
+
+    /// The display `window` is on, from its bounds and the platform's report.
+    fn operator_display(window: &Window, cx: &App) -> Option<gpui::DisplayId> {
+        let reported = window.display(cx).map(|display| display.id());
+        match display_containing_window(&cx.displays(), window.bounds(), reported) {
+            DisplayResolution::Matched(id) => Some(id),
+            DisplayResolution::NoMatch => reported,
+            DisplayResolution::Ambiguous => None,
+        }
+    }
+
+    /// The display source for the output run, or the reason there is none.
+    fn choose_display(window: &Window, cx: &App) -> Result<OneCongregationDisplay, String> {
+        let operator = operator_display(window, cx);
+        let keep = cx
+            .displays()
+            .iter()
+            .map(|display| display.id())
+            .find(|id| Some(*id) != operator);
+        match (operator, keep) {
+            (Some(_), Some(keep)) => Ok(OneCongregationDisplay { keep: keep.into() }),
+            (None, _) => Err("the operator display could not be told apart".to_owned()),
+            _ => Err("no congregation display".to_owned()),
+        }
+    }
+
+    pub fn skipped_doc(reason: &str) -> String {
+        format!(
+            "{{{},\"skipped\":{},\"note\":\"the output mode needs a second display\"}}",
+            header(MODE_OUTPUT, true),
+            json_string(reason)
+        )
+    }
+
+    // ------------------------------------------------------------ presenter
+
+    struct Setup {
+        cues: usize,
+        viewport: (f32, f32),
+        scale_factor: f32,
+        maximized: bool,
+        bounds: String,
+        renderer: String,
+        operator: Option<gpui::DisplayId>,
+    }
+
+    fn setup(view: &Entity<PresenterView>, cx: &mut AsyncWindowContext) -> Result<Setup, String> {
+        view.update_in(cx, |view, window, cx| {
+            let viewport = window.viewport_size();
+            Setup {
+                cues: view.engine().snapshot().cue_count(),
+                viewport: (f32::from(viewport.width), f32::from(viewport.height)),
+                scale_factor: window.scale_factor(),
+                maximized: window.is_maximized(),
+                bounds: format!("{:?}", window.window_bounds()),
+                renderer: renderer_json(window),
+                operator: operator_display(window, cx),
+            }
+        })
+        .map_err(gone)
+    }
+
+    fn window_json(setup: &Setup, run: &Run) -> String {
+        format!(
+            "{{\"viewport\":{},\"scale_factor\":{},\"requested\":{},\"scale_percent\":{},\"maximized\":{},\"bounds\":{}}}",
+            json_string(&format!("{}x{}", setup.viewport.0, setup.viewport.1)),
+            float(setup.scale_factor),
+            json_string(&format!("{}x{}", run.width, run.height)),
+            run.scale_percent,
+            setup.maximized,
+            json_string(&setup.bounds),
+        )
+    }
+
+    async fn drive_presenter(
+        run: &Run,
+        commands: usize,
+        view: &Entity<PresenterView>,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<String, String> {
+        let started = Instant::now();
+        let setup = setup(view, cx)?;
+        let background = cx.background_executor().clone();
+        settle_frames(view, cx).await;
+        background.timer(Duration::from_millis(300)).await;
+        // The scripted Enable Output. No congregation display is installed, so
+        // nothing opens a window and nothing can reach a projector.
+        view.update(cx, |view, cx| view.command(Command::EnableOutput, cx))
+            .map_err(|refusal| format!("Enable Output was refused: {refusal:?}"))?;
+        background.timer(Duration::from_millis(300)).await;
+
+        let board = run.board.clone();
+        let mut stats = Stats::default();
+        hot_path::take_violations();
+        for key in navigation_stream(SEED ^ 1, WARMUP) {
+            send_key(key, Wait::Never, false, &board, &mut stats, cx).await?;
+        }
+        for key in mixed_stream(SEED, commands) {
+            send_key(key, Wait::Never, true, &board, &mut stats, cx).await?;
+        }
+        let hot_path = hot_path_json();
+        let names = monitor_identity::read();
+        let displays = cx
+            .update(|_, app| displays_json(app, setup.operator, &names, Some(setup.scale_factor)))
+            .map_err(gone)?;
+        Ok(format!(
+            "{{{},\"schema\":\"ordo.lab.presenter-latency.v1\",\"latency_scope\":\"keydown_to_surface_paint\",\"method\":\"seeded mixed key stream through Window::dispatch_keystroke with output enabled by command and no congregation window; keydown is stamped just before the dispatch, each surface stamps its own paint, one key per settled frame; the key arrives between frames, so the latency includes the wait for the next frame\",\"seed\":{SEED},\"commands\":{commands},\"warmup\":{WARMUP},\"cue_count\":{},\"fixture\":{},\"window\":{},\"renderer\":{},\"displays\":{displays},\"latency\":{},\"latency_by_key\":{},\"unpainted\":{},\"unhandled\":{},\"hot_path_violations\":{hot_path},\"auto_play_cadence\":null,\"auto_play_note\":\"not measured in this mode\",\"elapsed_s\":{}}}",
+            header(MODE_PRESENTER, true),
+            setup.cues,
+            json_string(&run.snapshot.display().to_string()),
+            window_json(&setup, run),
+            setup.renderer,
+            stats.latency_json(),
+            stats.by_key_json(),
+            stats.unpainted_json(),
+            stats.unhandled,
+            number(started.elapsed().as_secs_f64()),
+        ))
+    }
+
+    // --------------------------------------------------------------- output
+
+    fn recognition_json(verdict: &Recognition) -> String {
+        match verdict {
+            Recognition::Recognized(id) => {
+                format!("{{\"verdict\":\"recognized\",\"display\":{}}}", id.raw())
+            }
+            Recognition::Ambiguous(ids) => {
+                let ids: Vec<String> = ids.iter().map(|id| id.raw().to_string()).collect();
+                format!(
+                    "{{\"verdict\":\"ambiguous\",\"displays\":[{}]}}",
+                    ids.join(",")
+                )
+            }
+            Recognition::Missing => "{\"verdict\":\"missing\"}".to_owned(),
+        }
+    }
+
+    struct CongregationFacts {
+        bounds: String,
+        scale_factor: f32,
+        display: Option<gpui::DisplayId>,
+    }
+
+    async fn drive_output(
+        run: &Run,
+        view: &Entity<PresenterView>,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<String, String> {
+        let started = Instant::now();
+        let setup = setup(view, cx)?;
+        let background = cx.background_executor().clone();
+        let board = run.board.clone();
+        let mut stats = Stats::default();
+        settle_frames(view, cx).await;
+        background.timer(Duration::from_millis(300)).await;
+        hot_path::take_violations();
+        let live = |view: &Entity<PresenterView>, cx: &mut AsyncWindowContext| {
+            view.read_with(cx, |view, _| view.engine().state().live())
+        };
+
+        // Enable Output: the congregation window opens black.
+        let enable_at = Instant::now();
+        let refused = cx
+            .update(|window, app| {
+                view.update(app, |view, cx| {
+                    view.enable_output(window, cx);
+                    view.output_window()
+                        .is_none()
+                        .then(|| view.status().map(str::to_owned))
+                })
+            })
+            .map_err(gone)?;
+        if let Some(status) = refused {
+            return Err(format!(
+                "Enable Output did not open the congregation window: {}",
+                status.unwrap_or_else(|| "no reason given".to_owned())
+            ));
+        }
+        let waited = Instant::now();
+        while board.borrow().congregation_first.is_none() {
+            if waited.elapsed() > Duration::from_secs(3) {
+                return Err("the congregation window never painted".to_owned());
+            }
+            background.timer(POLL).await;
+        }
+        let (first_at, first_black) = board.borrow().congregation_first.ok_or("no first paint")?;
+        let enable_to_black = first_at.saturating_duration_since(enable_at);
+        background.timer(FADE_GAP).await;
+        check_identity("enable output", &board, &mut stats, cx).await;
+
+        let window = view
+            .read_with(cx, |view, _| view.output_window())
+            .ok_or("the congregation window is gone")?;
+        let facts = cx
+            .update(|_, app| {
+                window.update(app, |_, window, app| CongregationFacts {
+                    bounds: format!("{:?}", window.bounds()),
+                    scale_factor: window.scale_factor(),
+                    display: window.display(app).map(|display| display.id()),
+                })
+            })
+            .map_err(gone)?
+            .map_err(gone)?;
+        let window_id = window.window_id();
+
+        // Take, 200 navigation steps while Live, F, a few steps, F, B, B.
+        send_key(Key::Space, Wait::Always, true, &board, &mut stats, cx).await?;
+        background.timer(FADE_GAP).await;
+        check_identity("take", &board, &mut stats, cx).await;
+        for (index, key) in navigation_stream(SEED, NAVIGATION_STEPS)
+            .into_iter()
+            .enumerate()
+        {
+            send_key(key, Wait::IfFrameChanged, true, &board, &mut stats, cx).await?;
+            check_identity(&format!("navigation {index}"), &board, &mut stats, cx).await;
+        }
+        send_key(Key::F, Wait::IfFrameChanged, true, &board, &mut stats, cx).await?;
+        check_identity("freeze", &board, &mut stats, cx).await;
+        for key in navigation_stream(SEED ^ 2, 4) {
+            send_key(key, Wait::IfFrameChanged, true, &board, &mut stats, cx).await?;
+        }
+        send_key(Key::F, Wait::IfFrameChanged, true, &board, &mut stats, cx).await?;
+        check_identity("release freeze", &board, &mut stats, cx).await;
+        for label in ["blackout", "release blackout"] {
+            send_key(Key::B, Wait::Always, true, &board, &mut stats, cx).await?;
+            background.timer(FADE_GAP).await;
+            check_identity(label, &board, &mut stats, cx).await;
+        }
+
+        // Program goes black before the window closes.
+        if matches!(live(view, cx), LiveState::Live | LiveState::Frozen) {
+            send_key(Key::B, Wait::Always, false, &board, &mut stats, cx).await?;
+            background.timer(FADE_GAP).await;
+        }
+        let state_before_close = live(view, cx);
+        let black_before_close = view.read_with(cx, |view, _| view.program_drawn().frame.is_none())
+            && matches!(
+                state_before_close,
+                LiveState::Blackout | LiveState::EnabledBlack
+            );
+
+        // Disable Output: the window must go.
+        let disable_at = Instant::now();
+        cx.update(|_, app| {
+            view.update(app, |view, cx| {
+                view.command(Command::DisableOutput, cx).ok()
+            })
+        })
+        .map_err(gone)?;
+        let gone_after = loop {
+            let present = cx
+                .update(|_, app| app.windows().iter().any(|w| w.window_id() == window_id))
+                .map_err(gone)?;
+            if !present {
+                break Some(disable_at.elapsed());
+            }
+            if disable_at.elapsed() > Duration::from_secs(3) {
+                break None;
+            }
+            background.timer(POLL).await;
+        };
+        let final_state = live(view, cx);
+        let disabled = final_state == LiveState::OutputDisabled
+            && view.read_with(cx, |view, _| view.output_window().is_none());
+        if gone_after.is_none() || !disabled {
+            return Err("Disable Output did not close the congregation window".to_owned());
+        }
+
+        // The display's identity and the verdict of recognition on it.
+        let names = monitor_identity::read();
+        let (topology, displays, uuid) = cx
+            .update(|_, app| {
+                let uuid = facts
+                    .display
+                    .and_then(|id| app.find_display(id))
+                    .and_then(|display| display.uuid().ok().map(|uuid| uuid.to_string()));
+                (
+                    topology_with_names(&app.displays(), setup.operator, &names),
+                    displays_json(app, setup.operator, &names, Some(setup.scale_factor)),
+                    uuid,
+                )
+            })
+            .map_err(gone)?;
+        let gpui_id = facts.display.map(u64::from);
+        let detected = gpui_id.and_then(|id| topology.display(DisplayId::new(id)));
+        let (name, verdict) =
+            detected.map_or((None, "{\"verdict\":\"unknown\"}".to_owned()), |display| {
+                (
+                    display.evidence.name.clone(),
+                    recognition_json(&recognize(&display.evidence, &topology)),
+                )
+            });
+        let identity = format!(
+            "{{\"gpui_id\":{},\"uuid\":{},\"monitor_name\":{},\"generic_name\":{},\"recognition\":{verdict},\"window_bounds\":{},\"window_scale_factor\":{}}}",
+            gpui_id.map_or("null".to_owned(), |id| id.to_string()),
+            text_or_null(uuid),
+            text_or_null(name.clone()),
+            name.is_none(),
+            json_string(&facts.bounds),
+            float(facts.scale_factor),
+        );
+        let (paints, off_program) = {
+            let b = board.borrow();
+            (b.congregation_paints, b.congregation_off_program)
+        };
+        let notes: Vec<String> = stats
+            .mismatch_notes
+            .iter()
+            .map(|n| json_string(n))
+            .collect();
+        Ok(format!(
+            "{{{},\"schema\":\"ordo.lab.output-latency.v1\",\"latency_scope\":\"keydown_to_surface_paint\",\"method\":\"real keys through Window::dispatch_keystroke with a real congregation window on the non-operator display; each surface stamps its own paint; the key arrives between frames, so the latency includes the wait for the next frame\",\"seed\":{SEED},\"fixture\":{},\"window\":{},\"renderer\":{},\"displays\":{displays},\"congregation_display\":{identity},\"latency\":{},\"latency_by_key\":{},\"enable_to_first_black_frame_ms\":{},\"first_frame_was_black\":{first_black},\"disable_to_window_gone_ms\":{},\"frame_identity\":{{\"method\":\"Arc pointer of the frame the congregation window drew against the frame the Program monitor drew last\",\"settled_checks\":{},\"lagging_at_first\":{},\"settled_mismatches\":{},\"mismatch_notes\":[{}],\"congregation_paints\":{paints},\"paints_off_program_frame\":{off_program},\"paints_off_program_note\":\"transient: the window painted before the Program monitor did\",\"frames_match\":{}}},\"program_black_before_close\":{black_before_close},\"state_before_close\":{},\"final_state\":{},\"output_disabled_at_end\":{disabled},\"unpainted\":{},\"unhandled\":{},\"hot_path_violations\":{},\"elapsed_s\":{}}}",
+            header(MODE_OUTPUT, true),
+            json_string(&run.snapshot.display().to_string()),
+            window_json(&setup, run),
+            setup.renderer,
+            stats.latency_json(),
+            stats.by_key_json(),
+            optional_ms(Some(enable_to_black)),
+            optional_ms(gone_after),
+            stats.checks,
+            stats.lagged,
+            stats.mismatches,
+            notes.join(","),
+            stats.mismatches == 0,
+            json_string(&format!("{state_before_close:?}")),
+            json_string(&format!("{final_state:?}")),
+            stats.unpainted_json(),
+            stats.unhandled,
+            hot_path_json(),
+            number(started.elapsed().as_secs_f64()),
+        ))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_mixed_stream_is_seeded_and_covers_every_key() {
+            let a = mixed_stream(SEED, 2000);
+            assert_eq!(a, mixed_stream(SEED, 2000));
+            assert_ne!(a, mixed_stream(SEED + 1, 2000));
+            assert_eq!(a.len(), 2000);
+            for key in [
+                Key::Right,
+                Key::Left,
+                Key::Down,
+                Key::Up,
+                Key::PageDown,
+                Key::PageUp,
+                Key::Home,
+                Key::End,
+                Key::Space,
+                Key::F,
+                Key::B,
+            ] {
+                assert!(a.contains(&key), "{key:?}");
+            }
+            for kind in CommandKind::ALL {
+                assert!(a.iter().any(|key| key.kind() == kind), "{kind:?}");
+            }
+        }
+
+        #[test]
+        fn the_navigation_stream_has_only_navigation() {
+            let stream = navigation_stream(SEED, NAVIGATION_STEPS);
+            assert_eq!(stream.len(), NAVIGATION_STEPS);
+            assert!(
+                stream
+                    .iter()
+                    .all(|key| key.kind() == CommandKind::Navigation)
+            );
+        }
+
+        #[test]
+        fn every_key_name_is_a_valid_keystroke() {
+            for key in mixed_stream(SEED, 500) {
+                assert!(Keystroke::parse(key.name()).is_ok(), "{key:?}");
+            }
+        }
+
+        #[test]
+        fn black_frames_are_the_same_frame() {
+            assert!(same_frame(&None, &None));
+        }
+
+        #[test]
+        fn the_snapshot_is_the_given_one_else_the_first_existing_candidate() {
+            let dir = std::env::temp_dir().join(format!("ordo-kit-test-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let missing = dir.join("missing");
+            assert_eq!(pick_snapshot(Some(&dir), &[]).unwrap(), dir);
+            assert!(pick_snapshot(Some(&missing), std::slice::from_ref(&dir)).is_err());
+            assert_eq!(
+                pick_snapshot(None, &[missing.clone(), dir.clone()]).unwrap(),
+                dir
+            );
+            let error = pick_snapshot(None, std::slice::from_ref(&missing)).unwrap_err();
+            assert!(
+                error.contains("--snapshot") && error.contains("missing"),
+                "{error}"
+            );
+            std::fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn documents_carry_ok_commit_and_host() {
+            let error = error_doc(MODE_OUTPUT, "boom \"x\"");
+            assert!(error.starts_with("{\"ok\":false,\"mode\":\"output-latency\",\"commit\":"));
+            assert!(error.contains("\"host\":{") && error.contains("\"error\":\"boom \\\"x\\\"\""));
+            let skipped = skipped_doc("no congregation display");
+            assert!(skipped.starts_with("{\"ok\":true,"));
+            assert!(skipped.contains("\"skipped\":\"no congregation display\""));
+        }
+
+        #[test]
+        fn tail_fields_are_null_without_samples_and_ordered_with_them() {
+            assert!(tail_fields(None).contains("\"samples\":0,\"p50_ms\":null"));
+            let mut histogram = LatencyHistogram::new();
+            for ms in 1..=100 {
+                histogram.record(Duration::from_millis(ms));
+            }
+            let text = tail_fields(Some(&histogram));
+            assert!(
+                text.contains("\"p50_ms\":50.000") && text.contains("\"max_ms\":100.000"),
+                "{text}"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1893,6 +3445,67 @@ mod tests {
         let defaults = parse(&["--measure-animations", "a.json"]).unwrap();
         assert_eq!((defaults.cues, defaults.list_view), (500, false));
         assert_eq!((defaults.width, defaults.height), (1366.0, 768.0));
+    }
+
+    #[test]
+    fn the_church_kit_modes_are_read() {
+        let args = parse(&["--display-inventory", "inv.json"]).unwrap();
+        assert_eq!(args.display_inventory, Some(PathBuf::from("inv.json")));
+        let args = parse(&["--measure-presenter", "p.json"]).unwrap();
+        assert_eq!(args.measure_presenter, Some(PathBuf::from("p.json")));
+        assert_eq!(args.commands, 2000);
+        assert!(!args.size_given && !args.snapshot_given);
+        let args = parse(&[
+            "--measure-presenter",
+            "p.json",
+            "--commands",
+            "50",
+            "--snapshot",
+            "fixtures/normal-mass",
+            "--size",
+            "1920x1080",
+        ])
+        .unwrap();
+        assert_eq!(args.commands, 50);
+        assert!(args.snapshot_given && args.size_given);
+        assert_eq!((args.width, args.height), (1920.0, 1080.0));
+        let args = parse(&["--measure-output", "o.json"]).unwrap();
+        assert_eq!(args.measure_output, Some(PathBuf::from("o.json")));
+    }
+
+    #[test]
+    fn the_church_kit_modes_are_refused_when_mixed_or_malformed() {
+        for bad in [
+            &["--display-inventory"][..],
+            &["--measure-presenter"],
+            &["--measure-output"],
+            &["--measure-presenter", "p.json", "--commands"],
+            &["--measure-presenter", "p.json", "--commands", "0"],
+            &["--measure-presenter", "p.json", "--commands", "many"],
+            &["--measure-presenter", "p.json", "--commands", "9999999"],
+            &["--commands", "50"],
+            &["--measure-output", "o.json", "--commands", "50"],
+            &[
+                "--measure-presenter",
+                "p.json",
+                "--measure-output",
+                "o.json",
+            ],
+            &[
+                "--display-inventory",
+                "i.json",
+                "--measure-memory",
+                "m.json",
+            ],
+            &[
+                "--measure-output",
+                "o.json",
+                "--measure-animations",
+                "a.json",
+            ],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
