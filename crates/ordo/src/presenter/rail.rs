@@ -58,6 +58,8 @@ pub struct RailItem {
     pub title: SharedString,
     /// The item that owns the Preview Cue.
     pub current: bool,
+    /// The keyboard cursor is here (only while the rail has focus).
+    pub cursor: bool,
 }
 
 /// One of the Mass sections.
@@ -266,6 +268,17 @@ fn item_row(item: RailItem, handlers: &Handlers, environment: UiEnvironment) -> 
         .role(Role::Button)
         .aria_label(name.clone())
         .on_click(move |_, window, cx| jump(index, window, cx))
+        .when(item.cursor, |row| row.aria_selected(true))
+        // The keyboard cursor: the focus ring drawn inside the row, so the
+        // rows never shift as it moves.
+        .children(item.cursor.then(|| {
+            div()
+                .debug_selector(move || format!("rail-item-{index}-cursor"))
+                .absolute()
+                .inset_0()
+                .border(px(tokens::border::FOCUS_OUTER))
+                .border_color(rgb(palette.focus))
+        }))
         // The current item's neutral leading bar (Decision 295), so the mark
         // is a shape and not a fill alone.
         .children(item.current.then(|| {

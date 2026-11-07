@@ -183,6 +183,10 @@ pub struct PresenterView {
     /// flips what the operator saw.
     rail_is_pinned: bool,
     rail_scroll: Scroll,
+    /// The Mass item the keyboard cursor is on while the rail has focus
+    /// (arrows move it, `Enter` jumps there). Cleared when focus leaves the
+    /// rail, so the ring is only drawn where the keys go.
+    rail_cursor: Option<usize>,
     /// Where focus goes when the rail overlay closes (the timeline, which
     /// holds the Cues), and where it goes while the overlay is open.
     timeline_focus: FocusHandle,
@@ -249,6 +253,7 @@ impl PresenterView {
             glide: timeline::Glide::default(),
             rail_is_pinned: false,
             rail_scroll: Scroll::new(),
+            rail_cursor: None,
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
             dock_focus: cx.focus_handle(),
@@ -360,7 +365,13 @@ impl PresenterView {
     /// as the buttons, so refusal text and redraws behave identically.
     fn press(&mut self, id: CommandId, window: &mut Window, cx: &mut Context<Self>) {
         let entry = registry::entry_for(id);
-        if !registry::allows(entry.scope, self.focus_context(window, cx)) {
+        let context = self.focus_context(window, cx);
+        // In the rail the navigation keys move its cursor, never the Cues.
+        // Left and Right step like Up and Down, as they do in the Cue grid.
+        if context == FocusContext::Rail && self.move_rail_cursor(id, cx) {
+            return;
+        }
+        if !registry::allows(entry.scope, context) {
             // The Engine gets nothing, but the focused control still hears the
             // key (list arrows, a button's Space).
             cx.propagate();
@@ -868,14 +879,77 @@ impl PresenterView {
         cx.notify();
     }
 
+    /// The Mass item that owns the Preview Cue.
+    fn preview_item(&self) -> Option<usize> {
+        self.engine
+            .snapshot()
+            .positions()
+            .get(self.engine.state().preview())
+            .map(|position| position.item_flat)
+    }
+
+    /// Move the rail's cursor for a navigation key; false for any other key.
+    /// The cursor starts on the item that owns Preview and stops at the ends.
+    fn move_rail_cursor(&mut self, id: CommandId, cx: &mut Context<Self>) -> bool {
+        let count: usize = self
+            .engine
+            .snapshot()
+            .sections()
+            .iter()
+            .map(|section| section.items().len())
+            .sum();
+        let Some(last) = count.checked_sub(1) else {
+            return false;
+        };
+        let from = self
+            .rail_cursor
+            .or_else(|| self.preview_item())
+            .unwrap_or(0)
+            .min(last);
+        let to = match id {
+            CommandId::Previous => from.saturating_sub(1),
+            CommandId::Next => (from + 1).min(last),
+            CommandId::First => 0,
+            CommandId::Last => last,
+            _ => return false,
+        };
+        self.rail_cursor = Some(to);
+        self.reveal_rail_item(to);
+        cx.notify();
+        true
+    }
+
+    /// Scroll the rail so `item` is in sight. The rail's rows are each
+    /// section's heading followed by its items, so the row of an item is its
+    /// index plus the headings up to and including its section.
+    fn reveal_rail_item(&self, item: usize) {
+        let mut row = item;
+        let mut first = 0;
+        for section in self.engine.snapshot().sections() {
+            if first > item {
+                break;
+            }
+            row += 1;
+            first += section.items().len();
+        }
+        self.rail_scroll.handle().scroll_to_item(row);
+    }
+
+    /// `Enter` in the rail jumps to the cursor's item, as a click on it does.
+    fn activate_rail_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(item) = self.rail_cursor else {
+            return false;
+        };
+        self.jump_to_group(item, cx);
+        self.close_rail(window, cx);
+        true
+    }
+
     /// The Mass-item sections of the rail, with the item that owns Preview
     /// marked.
     fn rail_model(&self, pin: PinControl) -> RailModel {
         let snapshot = self.engine.snapshot();
-        let current = snapshot
-            .positions()
-            .get(self.engine.state().preview())
-            .map(|position| position.item_flat);
+        let current = self.preview_item();
         let mut index = 0;
         let sections = snapshot
             .sections()
@@ -891,6 +965,7 @@ impl PresenterView {
                             number: (index + 1).to_string().into(),
                             title: item.title().to_owned().into(),
                             current: current == Some(index),
+                            cursor: self.rail_cursor == Some(index),
                         };
                         index += 1;
                         row
@@ -1073,6 +1148,20 @@ impl Render for PresenterView {
             // The overlay held focus; the Cues get it back, as on any close.
             self.timeline_focus.focus(window, cx);
         }
+        // The rail's cursor ring shows where the keys go, so it goes once
+        // focus is anywhere outside the rail (by key, click or close). The
+        // handle itself counts, because an overlay opened this frame is not
+        // in the previous frame's tree yet.
+        let rail_holds_focus = window.focused(cx).is_some_and(|focused| {
+            focused == self.rail_focus || self.rail_focus.contains(&focused, window)
+        });
+        // Focus arriving by any route (`O`, F6, a click) starts the cursor on
+        // the item that owns Preview.
+        self.rail_cursor = if rail_holds_focus {
+            self.rail_cursor.or_else(|| self.preview_item())
+        } else {
+            None
+        };
         // A scroll or a resize moved the groups on screen: ask for their
         // thumbnails on the next turn, because the store is not synced from
         // `render`. The hop holds only a weak handle and ends at once.
@@ -1389,6 +1478,18 @@ impl Render for PresenterView {
             .on_key_down({
                 let view = view.clone();
                 move |event, window, cx| {
+                    if event.keystroke.key == "enter"
+                        && !event.keystroke.modifiers.modified()
+                        && view
+                            .update(cx, |view, cx| {
+                                view.focus_context(window, cx) == FocusContext::Rail
+                                    && view.activate_rail_cursor(window, cx)
+                            })
+                            .unwrap_or(false)
+                    {
+                        cx.stop_propagation();
+                        return;
+                    }
                     if event.keystroke.key == "escape"
                         && !event.keystroke.modifiers.modified()
                         && view
@@ -2448,6 +2549,104 @@ mod tests {
         assert!(rail_focused, "O after Grid|List");
     }
 
+    /// In the rail the arrows move a visible cursor (Left/Right like Up/Down),
+    /// never the Cues; `Enter` jumps to its item; the ring goes when focus
+    /// leaves the rail.
+    #[gpui::test]
+    fn arrows_in_the_rail_move_a_visible_cursor(cx: &mut TestAppContext) {
+        for size in [SIZES[0], SIZES[1]] {
+            let (open, cx) = open(cx, size);
+            bind_registry_keys(cx);
+            open.view
+                .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+            cx.run_until_parked();
+            let preview = preview_index(&open, cx);
+            press_keys(cx, "o");
+            assert!(
+                cx.debug_bounds("rail-item-0-cursor").is_some(),
+                "{size:?}: starts on Preview's item"
+            );
+            press_keys(cx, "down");
+            assert!(
+                cx.debug_bounds("rail-item-1-cursor").is_some(),
+                "{size:?}: down"
+            );
+            assert!(
+                cx.debug_bounds("rail-item-0-cursor").is_none(),
+                "{size:?}: one ring"
+            );
+            press_keys(cx, "right");
+            assert!(
+                cx.debug_bounds("rail-item-2-cursor").is_some(),
+                "{size:?}: right"
+            );
+            press_keys(cx, "left");
+            press_keys(cx, "up");
+            assert!(
+                cx.debug_bounds("rail-item-0-cursor").is_some(),
+                "{size:?}: left, up"
+            );
+            press_keys(cx, "up");
+            assert!(
+                cx.debug_bounds("rail-item-0-cursor").is_some(),
+                "{size:?}: stops at the top"
+            );
+            assert_eq!(
+                preview_index(&open, cx),
+                preview,
+                "{size:?}: the Cues never moved"
+            );
+            press_keys(cx, "end");
+            let last = open.view.read_with(cx, |view, _| {
+                view.engine
+                    .snapshot()
+                    .sections()
+                    .iter()
+                    .map(|s| s.items().len())
+                    .sum::<usize>()
+                    - 1
+            });
+            let selector: &'static str = format!("rail-item-{last}-cursor").leak();
+            assert!(cx.debug_bounds(selector).is_some(), "{size:?}: end");
+            press_keys(cx, "home");
+            press_keys(cx, "down");
+            press_keys(cx, "enter");
+            // The overlay closes on a jump; a pinned rail keeps focus.
+            let (pinned, overlay_open) = open
+                .view
+                .read_with(cx, |view, _| (view.rail_is_pinned, view.rail_open()));
+            assert!(
+                pinned || !overlay_open,
+                "{size:?}: enter jumps like a click"
+            );
+            if pinned {
+                // F6 round to the rail again starts the ring on Preview's item.
+                open.view
+                    .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+                cx.run_until_parked();
+                open.view
+                    .update_in(cx, |view, window, cx| view.rail_focus.focus(window, cx));
+                cx.run_until_parked();
+                assert!(
+                    cx.debug_bounds("rail-item-0-cursor").is_some(),
+                    "{size:?}: focus in"
+                );
+            }
+            open.view
+                .update_in(cx, |view, window, cx| view.focus_timeline(window, cx));
+            cx.run_until_parked();
+            assert!(
+                cx.debug_bounds("rail-item-1-cursor").is_none(),
+                "{size:?}: ring left with focus"
+            );
+            assert_eq!(
+                preview_index(&open, cx),
+                preview,
+                "{size:?}: Preview unchanged"
+            );
+        }
+    }
+
     #[gpui::test]
     fn timeline_focus_navigates_with_the_registry_keys(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
@@ -2545,15 +2744,15 @@ mod tests {
         bind_registry_keys(cx);
         open_overlay(&open, cx);
         let before = engine_state(&open, cx);
-        press_keys(cx, "right");
+        press_keys(cx, "a");
         assert_eq!(engine_state(&open, cx), before);
-        assert_eq!(unhandled_keys(&open, cx), ["right"]);
+        assert_eq!(unhandled_keys(&open, cx), ["a"]);
 
         // An allowed key is consumed by the command and never bubbles.
         run(&open, cx, Command::EnableOutput).unwrap();
         press_keys(cx, "space");
         assert_eq!(live(&open, cx), LiveState::Live);
-        assert_eq!(unhandled_keys(&open, cx), ["right"]);
+        assert_eq!(unhandled_keys(&open, cx), ["a"]);
     }
 
     #[gpui::test]
@@ -3023,7 +3222,7 @@ mod tests {
     fn escape_from_a_header_control_returns_to_the_timeline(cx: &mut TestAppContext) {
         let (open, cx) = open(cx, SIZES[1]);
         bind_registry_keys(cx);
-        click(cx, "button-List");
+        press_without_release(cx, "button-List");
         assert_eq!(focus_context_now(&open, cx), FocusContext::Elsewhere);
         let before = engine_state(&open, cx);
         press_keys(cx, "escape");
