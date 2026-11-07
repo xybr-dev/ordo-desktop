@@ -48,12 +48,12 @@ const SWATCH: (f32, f32) = (12.0, 28.0);
 
 /// The index's own state: the filter bar and which groups are folded.
 pub struct MassesIndex {
-    search: FieldState,
+    pub(super) search: FieldState,
     language: SelectionState,
     choir: SelectionState,
     readiness: SelectionState,
     collapsed: HashSet<usize>,
-    scroll: Scroll,
+    pub(super) scroll: Scroll,
 }
 
 impl MassesIndex {

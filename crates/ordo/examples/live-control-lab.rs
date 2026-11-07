@@ -113,7 +113,7 @@ struct Args {
 }
 
 fn default_snapshot() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/presentations/normal-mass")
+    ordo::presenter::fixture_snapshot_dir()
 }
 
 fn parse_scale(text: &str) -> Option<InterfaceScale> {

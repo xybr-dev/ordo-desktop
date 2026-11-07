@@ -97,6 +97,7 @@ pub struct Overlay {
     primary: Option<(SharedString, Activate)>,
     secondary: Option<(SharedString, Activate)>,
     on_close: Option<Activate>,
+    primary_focus: Option<FocusHandle>,
 }
 
 impl Overlay {
@@ -119,6 +120,7 @@ impl Overlay {
             primary: None,
             secondary: None,
             on_close: None,
+            primary_focus: None,
         }
     }
 
@@ -157,6 +159,15 @@ impl Overlay {
         activate: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.secondary = Some((label.into(), Rc::new(activate)));
+        self
+    }
+
+    /// Opens with focus on the primary action instead of on the surface, for a
+    /// decision whose safe answer is the primary one (a confirmation that
+    /// defaults to staying put). The handle is the caller's, so it can also
+    /// find the button again.
+    pub fn primary_focus(mut self, focus: &FocusHandle) -> Self {
+        self.primary_focus = Some(focus.clone());
         self
     }
 
@@ -364,6 +375,7 @@ impl OverlayHost {
     pub fn open(&self, overlay: Overlay, window: &mut Window, cx: &mut App) {
         let invoker = window.focused(cx);
         let focus = cx.focus_handle();
+        let initial = overlay.primary_focus.clone();
         self.0.update(cx, |host, cx| {
             let id = host.next;
             host.next += 1;
@@ -379,6 +391,9 @@ impl OverlayHost {
             cx.notify();
         });
         focus.focus(window, cx);
+        if let Some(initial) = initial {
+            initial.focus(window, cx);
+        }
     }
 
     /// How many surfaces are open, not counting one still playing its exit.
@@ -951,6 +966,7 @@ impl OverlayHost {
         let action = |slot: Option<(SharedString, Activate)>, quiet: bool| {
             slot.map(|(label, activate)| {
                 let take = self.take(id, activate);
+                let tracked = (!quiet).then(|| overlay.primary_focus.clone()).flatten();
                 Button::new(
                     (
                         if quiet {
@@ -964,6 +980,7 @@ impl OverlayHost {
                     environment,
                 )
                 .when(quiet, Button::quiet)
+                .when_some(tracked, |button, handle| button.track_focus(&handle))
                 .on_surface(palette.surface)
                 .on_activate(move |window, cx| take(window, cx))
             })
