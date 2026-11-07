@@ -20,6 +20,7 @@
 
 pub mod fixtures;
 mod masses;
+mod presenter_mode;
 pub mod rail;
 
 use std::{mem, rc::Rc, time::Instant};
@@ -35,6 +36,7 @@ use crate::{
     diagnostics::{self, PerformanceState},
     output::{CongregationOutput, CursorLocator},
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
+    presenter::PresenterView,
     settings,
 };
 use ui::{
@@ -143,6 +145,16 @@ pub struct ShellView {
     /// The Diagnostics destination's Performance panel state: startup, memory,
     /// and the last bench run.
     diagnostics: PerformanceState,
+    /// The Presenter while the window is in Presenter Mode. While it is
+    /// `Some` the root renders only it; every preparation field above is
+    /// untouched (T1.6 WP1).
+    presenter: Option<Entity<PresenterView>>,
+    mode: platform::presenter_mode::PresenterMode,
+    /// The snapshot read an entry is waiting on; dropping it cancels the entry.
+    presenter_load: Option<gpui::Task<()>>,
+    _presenter_exit: Option<Subscription>,
+    /// Where focus was when the Presenter opened, for the way back.
+    return_focus: Option<gpui::WeakFocusHandle>,
 }
 
 impl ShellView {
@@ -208,6 +220,11 @@ impl ShellView {
             cursor_locator: None,
             _output_subscription: None,
             diagnostics: PerformanceState::default(),
+            presenter: None,
+            mode: Default::default(),
+            presenter_load: None,
+            _presenter_exit: None,
+            return_focus: None,
         }
     }
 
@@ -514,7 +531,8 @@ impl ShellView {
             .items_center()
             .gap(px(action_gap))
             .pb(px(action_gap))
-            .children(self.header_actions(cx));
+            .children(self.header_actions(cx))
+            .child(self.present_entry(cx));
         let (inline_tabs, own_row) = if narrow { (None, tabs) } else { (tabs, None) };
         // A short window scrolls its panes; it does not compress the header.
         // `DESIGN.md` puts the current entity and the primary workspace action
@@ -547,6 +565,22 @@ impl ShellView {
             )
             .children(own_row)
             .into_any_element()
+    }
+
+    /// **Present**: enters Presenter Mode, the same path as the
+    /// `EnterPresenter` action. It lives in the workspace header so it is
+    /// reachable from every destination.
+    fn present_entry(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let environment = self.environment;
+        let palette = tokens::palette(environment.appearance());
+        let view = cx.entity().downgrade();
+        Button::new("present", "Present", environment)
+            .icon(assets::icon::PLAY)
+            .tooltip("Enter Presenter Mode")
+            .on_surface(palette.surface)
+            .on_activate(move |window, cx| {
+                let _ = view.update(cx, |view, cx| view.enter_presenter(window, cx));
+            })
     }
 
     /// The destination's own actions, at the header's trailing end.
@@ -1098,9 +1132,17 @@ impl Render for ShellView {
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let gutter = self.gutter(window);
-        let screen = match self.editing.clone() {
-            Some(entity) => self.focused_editor(entity, window, cx),
-            None => self.workspace(window, cx),
+        // In Presenter Mode the root renders only the Presenter: none of the
+        // preparation chrome is built or mounted, and its state is not read.
+        let content: Vec<AnyElement> = match self.presenter.clone() {
+            Some(presenter) => vec![div().size_full().child(presenter).into_any_element()],
+            None => {
+                let screen = match self.editing.clone() {
+                    Some(entity) => self.focused_editor(entity, window, cx),
+                    None => self.workspace(window, cx),
+                };
+                self.preparation_chrome(screen, gutter, window, cx)
+            }
         };
 
         div()
@@ -1134,11 +1176,11 @@ impl Render for ShellView {
             .on_action(cx.listener(|this, _: &ResetInterfaceScale, _, cx| {
                 this.change_from_settings(EnvironmentChange::ResetScale, cx);
             }))
-            .on_action(cx.listener(|this, _: &EnterPresenter, _, cx| {
-                this.change_environment(EnvironmentChange::EnterPresenter, false, cx);
+            .on_action(cx.listener(|this, _: &EnterPresenter, window, cx| {
+                this.enter_presenter(window, cx);
             }))
-            .on_action(cx.listener(|this, _: &LeavePresenter, _, cx| {
-                this.change_environment(EnvironmentChange::LeavePresenter, false, cx);
+            .on_action(cx.listener(|this, _: &LeavePresenter, window, cx| {
+                this.request_leave_presenter(window, cx);
             }))
             .size_full()
             .flex()
@@ -1147,41 +1189,61 @@ impl Render for ShellView {
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .bg(rgb(palette.background))
             .text_color(rgb(palette.text))
-            .children(
-                self.cursor_locator
-                    .map(|locator| self.cursor_locator_strip(locator, gutter)),
-            )
-            .child(screen)
-            // Not a region: nothing here is interactive, and T0.1's build
-            // identity and offline status still have to be on screen.
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .gap(px(scale.apply(tokens::spacing::RELATED)))
-                    .px(px(gutter))
-                    .py(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                    .border_t(px(tokens::border::SEPARATOR))
-                    .border_color(rgb(palette.border))
-                    .bg(rgb(palette.surface))
-                    .text_size(px(scale.apply(tokens::typography::LABEL.size)))
-                    .text_color(rgb(palette.text_muted))
-                    .child(
-                        div()
-                            .debug_selector(|| "build-identity".into())
-                            .child(self.build_identity),
-                    )
-                    .child(
-                        div()
-                            .debug_selector(|| "connection-status".into())
-                            .child(Self::CONNECTION_STATUS),
-                    ),
-            )
-            // The one overlay layer, last and once, as a sibling of the region
-            // root so a modal's focus cannot reach the F6 cycle.
-            .child(self.overlays.clone().layer(environment, window, cx))
+            .children(content)
     }
 }
+impl ShellView {
+    /// Everything under the root in Preparation: the cursor locator, the
+    /// screen, the build strip and the one overlay layer.
+    fn preparation_chrome(
+        &mut self,
+        screen: AnyElement,
+        gutter: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let environment = self.environment;
+        let scale = environment.preferences().scale;
+        let palette = tokens::palette(environment.appearance());
+        vec![
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .children(
+                    self.cursor_locator
+                        .map(|locator| self.cursor_locator_strip(locator, gutter)),
+                )
+                .child(screen)
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .gap(px(scale.apply(tokens::spacing::RELATED)))
+                        .px(px(gutter))
+                        .py(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                        .border_t(px(tokens::border::SEPARATOR))
+                        .border_color(rgb(palette.border))
+                        .bg(rgb(palette.surface))
+                        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                        .text_color(rgb(palette.text_muted))
+                        .child(
+                            div()
+                                .debug_selector(|| "build-identity".into())
+                                .child(self.build_identity),
+                        )
+                        .child(
+                            div()
+                                .debug_selector(|| "connection-status".into())
+                                .child(Self::CONNECTION_STATUS),
+                        ),
+                )
+                .child(self.overlays.clone().layer(environment, window, cx))
+                .into_any_element(),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2268,5 +2330,123 @@ mod tests {
             assert_eq!(shell.destination(), Destination::Masses);
             assert_eq!(shell.local_view(cx), Some("Upcoming"));
         });
+    }
+
+    /// Everything the preparation workspace remembers, as plain values.
+    #[derive(Debug, PartialEq)]
+    struct Preparation {
+        destination: Destination,
+        selected_row: Option<usize>,
+        local_view: Option<&'static str>,
+        /// list, viewer, editor and Masses index scroll offsets.
+        scrolls: [gpui::Point<gpui::Pixels>; 4],
+        masses_group_1_folded: bool,
+        masses_group_0_folded: bool,
+        masses_search: gpui::SharedString,
+    }
+
+    fn preparation_state(shell: &ShellView, cx: &App) -> Preparation {
+        Preparation {
+            destination: shell.destination,
+            selected_row: shell.selected_row,
+            local_view: shell.local_view(cx),
+            scrolls: [
+                shell.list_scroll.handle().offset(),
+                shell.viewer_scroll.handle().offset(),
+                shell.editor_scroll.handle().offset(),
+                shell.masses.scroll.handle().offset(),
+            ],
+            masses_group_1_folded: shell.masses.is_collapsed(1),
+            masses_group_0_folded: shell.masses.is_collapsed(0),
+            masses_search: shell.masses.search.value(cx),
+        }
+    }
+
+    fn windows_open(cx: &mut VisualTestContext) -> usize {
+        cx.update(|_, cx| cx.windows().len())
+    }
+
+    fn fullscreen(cx: &mut VisualTestContext) -> bool {
+        cx.update(|window, _| window.is_fullscreen())
+    }
+
+    /// Entering Presenter Mode renders only the Presenter in the same window,
+    /// in native full-screen, with output disabled and no second window.
+    /// Leaving through Exit Presenter brings the preparation workspace back
+    /// exactly as it was, and the window out of full-screen.
+    #[gpui::test]
+    fn presenter_mode_enters_and_leaves_the_same_window_with_preparation_untouched(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, cx) = open(cx);
+        shell.update_in(cx, |shell, window, cx| {
+            shell.selected_row = Some(4);
+            shell
+                .list_scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-120.0)));
+            shell
+                .viewer_scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-75.0)));
+            shell
+                .editor_scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-33.0)));
+            shell
+                .masses
+                .scroll
+                .handle()
+                .set_offset(gpui::point(px(0.0), px(-18.0)));
+            shell.masses.toggle(1);
+            shell.masses.search.set_value("advent", window, cx);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let before = shell.read_with(cx, preparation_state);
+        assert_eq!(before.selected_row, Some(4));
+        assert_eq!(before.local_view, Some("Upcoming"));
+        assert_eq!(before.scrolls[2], gpui::point(px(0.0), px(-33.0)));
+        assert!(before.masses_group_1_folded && !before.masses_group_0_folded);
+        assert_eq!(before.masses_search, "advent");
+        assert!(cx.debug_bounds("workspace-header").is_some());
+        assert!(!fullscreen(cx));
+
+        click(cx, "button-Present");
+
+        shell.read_with(cx, |shell, cx| {
+            assert!(shell.presenter_mode().is_presenter());
+            let presenter = shell.presenter().expect("the Presenter is mounted");
+            assert_eq!(
+                presenter.read(cx).engine().state().live(),
+                presentation::state::LiveState::OutputDisabled
+            );
+        });
+        assert!(fullscreen(cx), "entry switches the window to full-screen");
+        assert_eq!(windows_open(cx), 1, "no output or second operator window");
+        assert!(cx.debug_bounds("presenter-header").is_some());
+        assert!(cx.debug_bounds("workspace-header").is_none());
+        assert!(cx.debug_bounds("build-identity").is_none());
+        let during = shell.read_with(cx, preparation_state);
+        assert_eq!(during, before, "the preparation fields are not touched");
+
+        click(cx, "header-exit-presenter");
+
+        shell.read_with(cx, |shell, _| {
+            assert!(!shell.presenter_mode().is_presenter());
+            assert!(shell.presenter().is_none());
+        });
+        assert!(!fullscreen(cx), "exit toggles full-screen back");
+        assert_eq!(windows_open(cx), 1);
+        assert!(cx.debug_bounds("workspace-header").is_some());
+        assert!(cx.debug_bounds("presenter-header").is_none());
+        let after = shell.read_with(cx, preparation_state);
+        assert_eq!(after, before);
+        let focused = cx.update(|window, cx| {
+            shell.read_with(cx, |shell, _| {
+                shell.focus_handle.contains_focused(window, cx)
+            })
+        });
+        assert!(focused, "focus returns to the shell");
     }
 }

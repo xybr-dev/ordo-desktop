@@ -1,5 +1,5 @@
-//! The Presenter header: Mass title, display health, and the Grid/List
-//! control (T1.4 WP4).
+//! The Presenter session header: Mass title, display health, Keyboard shortcuts, the
+//! Grid/List control (T1.4 WP4) and Exit Presenter (T1.6 WP2).
 //!
 //! There is no clock yet: a local-time clock arrives with the T1.6 platform
 //! module (the owner chose no clock over a UTC one).
@@ -22,6 +22,8 @@ use ui::{
 };
 
 use super::{layout::HEADER_HEIGHT, rail::OnPress};
+
+pub mod exit;
 
 /// What the header says about the congregation display.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,6 +84,7 @@ pub fn header(
     model: HeaderModel,
     on_cue_view: OnCueView,
     on_reference: OnPress,
+    on_exit: OnPress,
 ) -> impl IntoElement {
     let environment = model.environment;
     let scale = environment.preferences().scale;
@@ -146,6 +149,26 @@ pub fn header(
             environment,
             on_cue_view,
         ))
+        .child(exit_control(model.icon_only, environment, on_exit))
+}
+
+/// The labeled Exit Presenter button (Decision 179). It has no key binding:
+/// leaving a live session is always a deliberate pointer or Tab-and-Enter act.
+/// What it does, direct or guarded, is decided by the owner.
+fn exit_control(icon_only: bool, environment: UiEnvironment, on_exit: OnPress) -> impl IntoElement {
+    let palette = tokens::palette(environment.appearance());
+    let mut button = Button::new("header-exit-presenter", "Exit Presenter", environment)
+        .icon(ui::assets::icon::X)
+        .quiet()
+        .on_surface(palette.surface)
+        .on_activate(move |window, cx| on_exit(window, cx));
+    if icon_only {
+        button = button.icon_only();
+    }
+    div()
+        .debug_selector(|| "header-exit-presenter".into())
+        .flex_none()
+        .child(button)
 }
 
 /// The labeled Keyboard shortcuts entry (`MVP-PLAN.md` section 8.3, "shortcut

@@ -31,10 +31,10 @@
 
 pub mod dock;
 pub mod frames;
-pub mod header;
 pub mod images;
 pub mod layout;
 pub mod rail;
+pub mod session_header;
 pub mod surfaces;
 pub mod timeline;
 
@@ -71,12 +71,15 @@ use self::{
         ProgramModel, Shown,
     },
     frames::{FrameView, PresenterFrames},
-    header::{DisplayHealth, HeaderModel, OnCueView},
     layout::{
         BAND_GAP, BAND_GUTTER, BAND_TOP_PADDING, DockLayout, LayoutInput, PresenterLayout,
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
     rail::{PinControl, RailItem, RailModel, RailSection},
+    session_header::{
+        DisplayHealth, HeaderModel, OnCueView,
+        exit::{ExitRequested, SessionHooks},
+    },
     surfaces::{Surface, SurfaceStack},
     timeline::{CueKind, CueModel, GroupModel, TimelineModel},
 };
@@ -87,6 +90,13 @@ use crate::{
     },
     shortcut_reference,
 };
+
+/// The committed `normal-mass` snapshot the Presenter opens on until Preflight
+/// and the real Mass export exist: the lab's default and the shell's entry.
+pub fn fixture_snapshot_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/presentations/normal-mass")
+}
 
 /// Saves preferences through the owner's save path. The shell passes its
 /// background-worker saver; the lab passes one that writes under
@@ -260,6 +270,14 @@ pub struct PresenterView {
     /// Tracked on the Output Dock, so a focused control inside it reads as
     /// the Dock for key policy.
     dock_focus: FocusHandle,
+    /// The one overlay layer of this window; today it only hosts the
+    /// **End presentation?** confirmation. A true modal, so every
+    /// single-key command is suspended while it is open.
+    overlays: ui::overlay::OverlayHost,
+    /// Initial focus of that confirmation: **Stay in Presenter**.
+    stay_focus: FocusHandle,
+    /// What the owner plugs into a planned exit (no-ops until set).
+    hooks: SessionHooks,
     /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
     /// panel reads as `FocusContext::ShortcutReference` for key policy.
     reference_focus: FocusHandle,
@@ -379,6 +397,9 @@ impl PresenterView {
             rail_focus: cx.focus_handle(),
             rail_view: None,
             dock_focus: cx.focus_handle(),
+            overlays: ui::overlay::OverlayHost::new(cx),
+            stay_focus: cx.focus_handle(),
+            hooks: SessionHooks::default(),
             reference_focus: cx.focus_handle(),
             reference_close_focus: cx.focus_handle(),
             reference_scroll: Scroll::new(),
@@ -657,6 +678,58 @@ impl PresenterView {
             }
             _ => false,
         }
+    }
+
+    /// Plug the owner's planned-exit hooks in (see [`SessionHooks`]).
+    pub fn set_session_hooks(&mut self, hooks: SessionHooks) {
+        self.hooks = hooks;
+    }
+
+    /// Whether the **End presentation?** confirmation is open.
+    pub fn exit_confirmation_open(&self, cx: &gpui::App) -> bool {
+        self.overlays.depth(cx) > 0
+    }
+
+    /// Exit Presenter was pressed. With output disabled nothing is on a
+    /// congregation display, so the session ends at once; otherwise the
+    /// operator is asked first and Program is not touched until they answer.
+    pub fn request_exit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.exit_confirmation_open(cx) {
+            return;
+        }
+        let enabled = self.engine.state().live() != LiveState::OutputDisabled;
+        match platform::presenter_mode::exit_plan(enabled) {
+            platform::presenter_mode::ExitPlan::Direct => {
+                (self.hooks.on_session_ended)();
+                cx.emit(ExitRequested);
+            }
+            platform::presenter_mode::ExitPlan::Confirm => {
+                let view = cx.entity().downgrade();
+                let overlay = session_header::exit::confirmation(&self.stay_focus, move |_, cx| {
+                    view.update(cx, |view, cx| view.end_presentation(cx)).ok();
+                });
+                self.overlays.open(overlay, window, cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// The operator confirmed. Program goes to black first, then the output is
+    /// closed, then the Engine disables it, then the session is over and the
+    /// owner is asked to leave. Each step is a hook or an Engine command, so
+    /// nothing here waits on the platform.
+    fn end_presentation(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.engine.state().live(),
+            LiveState::Live | LiveState::Frozen
+        ) {
+            self.command(Command::ToggleBlackout, cx).ok();
+        }
+        (self.hooks.close_output)(&self.engine);
+        self.command(Command::DisableOutput, cx).ok();
+        // T1.7: mark the session complete and clear recovery
+        (self.hooks.on_session_ended)();
+        cx.emit(ExitRequested);
     }
 
     /// Give focus to the Cues, where the keys are live. The owner calls this
@@ -1416,6 +1489,8 @@ impl PresenterView {
     }
 }
 
+impl gpui::EventEmitter<ExitRequested> for PresenterView {}
+
 impl Render for PresenterView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = Instant::now();
@@ -1759,7 +1834,14 @@ impl PresenterView {
             cx,
         );
 
-        let header = header::header(
+        let on_exit: rail::OnPress = {
+            let view = view.clone();
+            Rc::new(move |window, cx| {
+                view.update(cx, |view, cx| view.request_exit(window, cx))
+                    .ok();
+            })
+        };
+        let header = session_header::header(
             HeaderModel {
                 title: self.snapshot.snapshot().title().to_owned().into(),
                 health: DisplayHealth::of(state.live()),
@@ -1769,6 +1851,7 @@ impl PresenterView {
             },
             on_cue_view,
             on_open_reference_from_header,
+            on_exit,
         );
 
         let auto_play_height = match layout.dock {
@@ -1956,6 +2039,7 @@ impl PresenterView {
             .child(body)
             .children(rail_overlay)
             .children(reference)
+            .child(self.overlays.clone().layer(environment, window, cx))
             .on_action(
                 cx.listener(|this, _: &registry::ToggleReference, window, cx| {
                     this.toggle_reference(window, cx)
@@ -5752,5 +5836,161 @@ mod tests {
         assert!(jump_landed(100.9, timeline));
         assert!(!jump_landed(101.5, timeline));
         assert!(!jump_landed(40.0, timeline));
+    }
+
+    /// What a planned exit did, in order, as the owner's hooks and the
+    /// `ExitRequested` event saw it.
+    fn watch_exit(open: &Open, cx: &mut VisualTestContext) -> Rc<RefCell<Vec<String>>> {
+        let log = Rc::new(RefCell::new(Vec::<String>::new()));
+        open.view.update(cx, |view, _| {
+            let closed = log.clone();
+            let ended = log.clone();
+            view.set_session_hooks(SessionHooks {
+                close_output: Rc::new(move |engine| {
+                    closed
+                        .borrow_mut()
+                        .push(format!("close:{:?}", engine.state().live()));
+                }),
+                on_session_ended: Rc::new(move || ended.borrow_mut().push("ended".into())),
+            });
+        });
+        let exited = log.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&open.view, move |_, _: &ExitRequested, _| {
+                exited.borrow_mut().push("exit".into());
+            })
+            .detach();
+        });
+        log
+    }
+
+    fn confirmation_open(open: &Open, cx: &mut VisualTestContext) -> bool {
+        open.view
+            .read_with(cx, |view, cx| view.exit_confirmation_open(cx))
+    }
+
+    /// Output on and Program live, so Exit has something to guard.
+    fn go_live(open: &Open, cx: &mut VisualTestContext) {
+        run(open, cx, Command::EnableOutput).unwrap();
+        run(open, cx, Command::Take).unwrap();
+        settle(open, cx, 10_000);
+        assert_eq!(live(open, cx), LiveState::Live);
+    }
+
+    #[gpui::test]
+    fn exit_is_direct_while_output_is_disabled(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        click(cx, "header-exit-presenter");
+        assert!(!confirmation_open(&open, cx), "nothing is on a display");
+        assert_eq!(*log.borrow(), ["ended", "exit"]);
+        assert_eq!(live(&open, cx), LiveState::OutputDisabled);
+    }
+
+    #[gpui::test]
+    fn exit_has_no_key_binding(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        bind_registry_keys(cx);
+        focus_timeline_now(&open, cx);
+        press_keys(cx, "escape ctrl-w ctrl-q alt-f4 q x");
+        assert!(log.borrow().is_empty());
+    }
+
+    #[gpui::test]
+    fn the_confirmation_suspends_every_key_and_leaves_program_alone(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        bind_registry_keys(cx);
+        go_live(&open, cx);
+        let before = engine_state(&open, cx);
+
+        click(cx, "header-exit-presenter");
+
+        assert!(confirmation_open(&open, cx));
+        assert_eq!(focus_context_now(&open, cx), FocusContext::Modal);
+        let stay_has_focus = cx.update(|window, cx| {
+            open.view
+                .read_with(cx, |view, _| view.stay_focus.is_focused(window))
+        });
+        assert!(stay_has_focus, "Stay in Presenter holds initial focus");
+        assert!(present(cx, "button-End presentation"));
+        assert_eq!(engine_state(&open, cx), before, "Program is unchanged");
+
+        press_keys(cx, "f right b left down up");
+        assert!(confirmation_open(&open, cx));
+        assert_eq!(
+            engine_state(&open, cx),
+            before,
+            "navigation keys do nothing"
+        );
+        // Space reaches only the dialog's own focused button, never Take.
+        press_keys(cx, "space");
+        assert_eq!(engine_state(&open, cx), before, "Space did not Take");
+        assert!(log.borrow().is_empty(), "nothing ended");
+    }
+
+    #[gpui::test]
+    fn stay_and_escape_cancel_the_exit_and_keep_everything(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        bind_registry_keys(cx);
+        go_live(&open, cx);
+        let before = engine_state(&open, cx);
+        for cancel in ["escape", "click"] {
+            click(cx, "header-exit-presenter");
+            assert!(confirmation_open(&open, cx), "{cancel}");
+            if cancel == "escape" {
+                press_keys(cx, "escape");
+            } else {
+                click(cx, "button-Stay in Presenter");
+            }
+            assert!(!confirmation_open(&open, cx), "{cancel}");
+            assert_eq!(engine_state(&open, cx), before, "{cancel}");
+            assert!(log.borrow().is_empty(), "{cancel}");
+        }
+    }
+
+    #[gpui::test]
+    fn ending_the_presentation_blacks_out_then_closes_then_disables_then_exits(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        go_live(&open, cx);
+        open.view
+            .update(cx, |view, _| view.sent.borrow_mut().clear());
+
+        click(cx, "header-exit-presenter");
+        click(cx, "button-End presentation");
+
+        assert_eq!(
+            *log.borrow(),
+            ["close:Blackout", "ended", "exit"],
+            "Program was black when the output closed"
+        );
+        let sent = open
+            .view
+            .read_with(cx, |view, _| view.sent.borrow().clone());
+        assert_eq!(sent, [Command::ToggleBlackout, Command::DisableOutput]);
+        assert_eq!(live(&open, cx), LiveState::OutputDisabled);
+        assert!(!confirmation_open(&open, cx));
+    }
+
+    #[gpui::test]
+    fn ending_while_already_black_does_not_toggle_blackout_off(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let log = watch_exit(&open, cx);
+        run(&open, cx, Command::EnableOutput).unwrap();
+        assert_eq!(live(&open, cx), LiveState::EnabledBlack);
+        open.view
+            .update(cx, |view, _| view.sent.borrow_mut().clear());
+        click(cx, "header-exit-presenter");
+        click(cx, "button-End presentation");
+        assert_eq!(*log.borrow(), ["close:EnabledBlack", "ended", "exit"]);
+        let sent = open
+            .view
+            .read_with(cx, |view, _| view.sent.borrow().clone());
+        assert_eq!(sent, [Command::DisableOutput]);
     }
 }
