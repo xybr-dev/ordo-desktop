@@ -891,24 +891,24 @@ keeping congregation exposure deliberate and fail-closed.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Presenter Mode transforms the existing main window into
+- [x] `[UI-AUTO]` Presenter Mode transforms the existing main window into
       native-full-screen Live Control; no second operator window remains.
-- [ ] `[UI-AUTO]` Entry begins with congregation output disabled and no output
+- [x] `[UI-AUTO]` Entry begins with congregation output disabled and no output
       window; the operator can rehearse fully in this state.
-- [ ] `[UI-AUTO]` Enabling output requires an assigned available display and
+- [x] `[UI-AUTO]` Enabling output requires an assigned available display and
       creates black Program before Space can take Preview live.
-- [ ] `[UI-AUTO]` Exit is direct while output is disabled; while enabled it
+- [x] `[UI-AUTO]` Exit is direct while output is disabled; while enabled it
       requires the adopted confirmation, forces Program black, closes output,
       and restores the same main window and preparation context.
-- [ ] `[UI-AUTO]` Display disconnection updates visible state and Engine state
+- [x] `[UI-AUTO]` Display disconnection updates visible state and Engine state
       without reassigning output or showing stale confidence.
-- [ ] `[UI-AUTO]` A reconnection is noticed without a key press. When the same
+- [x] `[UI-AUTO]` A reconnection is noticed without a key press. When the same
       recognized congregation display returns, `Space` (or Resume Output)
       recreates its window and takes Preview live in one step (Decision 272);
       any other display, including one with the same resolution but a
       different monitor identity, is refused with the reason and recovery goes
       through Select display.
-- [ ] `[AUTO]` On Windows, display recognition carries the monitor's identity
+- [x] `[AUTO]` On Windows, display recognition carries the monitor's identity
       (friendly name and EDID maker/product) read through the display
       configuration API; blank or generic names count as no name. This adds a
       second audited `unsafe` module, so a decision amending Decision 269 is
