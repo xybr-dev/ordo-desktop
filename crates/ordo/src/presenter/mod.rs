@@ -619,6 +619,16 @@ impl PresenterView {
     /// live in the same step (Decision 272). Any other display is refused
     /// with the reason, and the Engine is not called.
     fn resume_output(&mut self, window: &Window, cx: &mut Context<Self>) {
+        // A Preview that cannot go live is refused before any window opens:
+        // output stays Disconnected and the status says why (Decision 272).
+        // Only once the display is back: before that, the output controller
+        // gives the better reason (no display, or a different one).
+        let display_back =
+            self.engine.state().live() == LiveState::Disconnected { display_back: true };
+        if display_back && self.engine.check(Command::Take, (self.clock)()).is_err() {
+            self.command(Command::Take, cx).ok();
+            return;
+        }
         if !self.open_output_window(window, cx) {
             return;
         }

@@ -352,6 +352,51 @@ fn losing_the_display_with_no_key_press_closes_the_window_and_disconnects(cx: &m
     );
 }
 
+/// Decision 272: Space on an unavailable Preview is refused even with the
+/// display back; output stays Disconnected and no window opens.
+#[gpui::test]
+fn space_on_an_unavailable_preview_keeps_the_output_disconnected(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    let adapter = named_displays();
+    let before = window_count(cx);
+    let unplugged = live_then_unplugged(&open, cx, &adapter);
+    adapter.borrow_mut().connect(unplugged);
+    display_changed(&open, cx);
+    let frame = open.view.read_with(cx, |view, _| {
+        let snapshot = view.engine.snapshot();
+        let preview = view.engine.state().preview();
+        match snapshot.cue(preview).unwrap().behavior() {
+            CueBehavior::Project { frame, .. } => *frame,
+            other => panic!("Preview projects: {other:?}"),
+        }
+    });
+    let _ = run(
+        &open,
+        cx,
+        Command::FrameUnavailable {
+            frame,
+            reason: rendering::UnavailableReason::DecodeFailed,
+        },
+    );
+    clear_sent(&open, cx);
+
+    open.view.update_in(cx, |view, window, cx| {
+        view.user_command(Command::Take, window, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        live(&open, cx),
+        LiveState::Disconnected { display_back: true }
+    );
+    assert_eq!(window_count(cx), before, "no window opens");
+    assert!(output_window(&open, cx).is_none());
+    assert!(
+        !status_line(&open, cx).is_empty(),
+        "the operator is told why"
+    );
+}
+
 #[gpui::test]
 fn the_same_display_returning_offers_resume_and_space_goes_live_on_it(cx: &mut TestAppContext) {
     let (open, cx) = open(cx, SIZES[0]);
