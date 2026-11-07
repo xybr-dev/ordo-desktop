@@ -646,6 +646,16 @@ impl PresenterView {
         self.output.as_ref().and_then(|output| output.window())
     }
 
+    /// Test only: the Engine's live state at each moment the congregation
+    /// window was closed, so the shell E2E can see Program was black first.
+    #[cfg(test)]
+    pub(crate) fn output_closed_at(&self) -> Vec<LiveState> {
+        self.output
+            .as_ref()
+            .map(|output| output.closed_at.clone())
+            .unwrap_or_default()
+    }
+
     /// What Program drew on the last render: the frame, its decoded image and
     /// the fade opacity. The congregation window draws this same value.
     pub fn program_drawn(&self) -> Shown {

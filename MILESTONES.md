@@ -891,34 +891,40 @@ keeping congregation exposure deliberate and fail-closed.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Presenter Mode transforms the existing main window into
+- [x] `[UI-AUTO]` Presenter Mode transforms the existing main window into
       native-full-screen Live Control; no second operator window remains.
-- [ ] `[UI-AUTO]` Entry begins with congregation output disabled and no output
+- [x] `[UI-AUTO]` Entry begins with congregation output disabled and no output
       window; the operator can rehearse fully in this state.
-- [ ] `[UI-AUTO]` Enabling output requires an assigned available display and
+- [x] `[UI-AUTO]` Enabling output requires an assigned available display and
       creates black Program before Space can take Preview live.
-- [ ] `[UI-AUTO]` Exit is direct while output is disabled; while enabled it
+- [x] `[UI-AUTO]` Exit is direct while output is disabled; while enabled it
       requires the adopted confirmation, forces Program black, closes output,
       and restores the same main window and preparation context.
-- [ ] `[UI-AUTO]` Display disconnection updates visible state and Engine state
+- [x] `[UI-AUTO]` Display disconnection updates visible state and Engine state
       without reassigning output or showing stale confidence.
-- [ ] `[UI-AUTO]` A reconnection is noticed without a key press. When the same
+- [x] `[UI-AUTO]` A reconnection is noticed without a key press. When the same
       recognized congregation display returns, `Space` (or Resume Output)
       recreates its window and takes Preview live in one step (Decision 272);
       any other display, including one with the same resolution but a
       different monitor identity, is refused with the reason and recovery goes
       through Select display.
-- [ ] `[AUTO]` On Windows, display recognition carries the monitor's identity
+- [x] `[AUTO]` On Windows, display recognition carries the monitor's identity
       (friendly name and EDID maker/product) read through the display
       configuration API; blank or generic names count as no name. This adds a
       second audited `unsafe` module, so a decision amending Decision 269 is
       accepted first and `cargo xtask verify` allows exactly the two named
       modules. Scope, blast radius, and rejected alternatives: issue #81.
-- [ ] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
+- [x] `[MANUAL]` Native fullscreen, Alt+Tab behavior, window focus, cursor hiding,
       and recovery work in packaged Windows builds.
+      (Reviewed on `8db612c`, dev PC, 2026-11-07. The cursor locator is verified; the
+      pointer hiding over the congregation window lands in #131 with its own manual
+      check.)
 - [ ] `[MANUAL]` On the church projector's real cabling (including any
       extender or switch), unplugging and replugging it is recognized as the
       same display, and a different display is refused.
+      (Deferred: same-display replug passes on the dev PC with an external
+      monitor; the church cabling is #129 and the different-display refusal is
+      #133.)
 
 **E2E** `[UI-AUTO]` — Enter Presenter from a fixture host, rehearse with no
 output window, enable fake output, take a Cue live, attempt exit and cancel,

@@ -1252,6 +1252,8 @@ mod tests {
     use std::cell::Cell;
     use ui::environment::InterfaceScale;
 
+    mod output_lifecycle_e2e;
+
     /// Real key down/up pairs, because a primitive's own raw handlers are half
     /// of what the shell is composing.
     fn keys(cx: &mut VisualTestContext, keys: &str) {
