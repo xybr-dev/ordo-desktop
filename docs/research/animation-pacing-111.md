@@ -227,12 +227,13 @@ Per animation that applied: no interval over 33 ms and interval p95 at most 1.5
 refresh intervals. An unmeasured run (missing or errored document, no refresh,
 no intervals) fails.
 
-On a CI runner (`GITHUB_ACTIONS=true`) these findings are reported, not failing:
-a GitHub Windows runner has no real display, the vsync source falls back to a
-sleep timer, and WARP frames may be slow. The summary prints them as `warning:`
-lines and the document records `native.animations_verdict` as
-`{"judged": false, "reason": "CI runner: no real display vsync", "would_fail":
-[...]}`; locally it is `{"judged": true, ...}` and findings fail the run. The p95 frame cost against one refresh interval
+On a CI runner (`GITHUB_ACTIONS=true`) the animation lab is not run: a GitHub
+Windows runner has no real display, the vsync source falls back to a sleep
+timer (the first run read a 52 ms "refresh" with 116 intervals over 33 ms), and
+WARP frames are slow, so nothing it measured could be judged. The document
+records `native.animations` as `{"skipped": ...}` and `animations_verdict` as
+`{"judged": false, ...}`; locally it is `{"judged": true, ...}` and findings
+fail the run. The p95 frame cost against one refresh interval
 is printed in the run summary and not judged: it fails today in the 100% glide
 cells, and its fix (caching the unchanged header, dock and rail, and keeping the
 rail and fades from re-rendering the timeline, recommendations 2 and 3) is still

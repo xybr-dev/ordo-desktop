@@ -196,8 +196,8 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
         return Err(format!("the acceptance did not write {}", report.display()).into());
     }
 
-    let mut native = measure_native(root)?;
     let ci = std::env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true");
+    let mut native = measure_native(root, ci)?;
     let gate = animation_gate(&native, ci);
     if let Some(object) = native.as_object_mut() {
         object.insert("animations_verdict".to_owned(), gate.verdict());
@@ -223,8 +223,9 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
 
 /// Builds the lab in release, then runs each native measurement as its own
 /// process. Every result is kept, including failures, so one failed run does
-/// not hide the others.
-fn measure_native(root: &Path) -> XtaskResult<Value> {
+/// not hide the others. On a CI runner the animation lab is not run at all
+/// (see [`ANIMATIONS_SKIPPED_ON_CI`]).
+fn measure_native(root: &Path, ci: bool) -> XtaskResult<Value> {
     let executable = build_example(root, LAB_EXAMPLE)?;
     let scratch =
         std::env::temp_dir().join(format!("ordo-measure-presenter-{}", std::process::id()));
@@ -269,8 +270,12 @@ fn measure_native(root: &Path) -> XtaskResult<Value> {
     let live_presenter = measure_live_presenter(root, &scratch)
         .unwrap_or_else(|error| json!([{"run": 1, "error": error.to_string()}]));
 
-    let animations = measure_animations(root, &scratch)
-        .unwrap_or_else(|error| json!({"error": error.to_string()}));
+    let animations = if ci {
+        json!({"skipped": ANIMATIONS_SKIPPED_ON_CI})
+    } else {
+        measure_animations(root, &scratch)
+            .unwrap_or_else(|error| json!({"error": error.to_string()}))
+    };
 
     // Best effort: the scratch files are not part of the document.
     let _ = fs::remove_dir_all(&scratch);
@@ -488,8 +493,9 @@ pub fn native_failures(native: &Value) -> Vec<String> {
     native_failures_in(native, false)
 }
 
-/// [`native_failures`] with the CI flag the animation gate needs: on a CI
-/// runner animation findings are reported, not failures (see [`animation_gate`]).
+/// [`native_failures`] with the CI flag the animation gate needs: a CI runner
+/// does not run the animation lab, so it judges no animation (see
+/// [`animation_gate`]).
 fn native_failures_in(native: &Value, ci: bool) -> Vec<String> {
     let mut failures = Vec::new();
     failures.extend(measure_failures(&native["measure"]));
@@ -529,6 +535,14 @@ fn native_failures_in(native: &Value, ci: bool) -> Vec<String> {
     failures
 }
 
+/// Why a CI runner does not measure animation pacing. A GitHub Windows runner
+/// has no real display: the vendored vsync source falls back to a sleep timer,
+/// so its "refresh" is a timer (52 ms on the first run) and WARP frames are
+/// slow. Pacing is judged on real hardware only, where `measure-presenter`
+/// runs the lab and fails on its findings.
+const ANIMATIONS_SKIPPED_ON_CI: &str =
+    "not run on CI: the runner has no real display vsync; judged locally only";
+
 /// Interval p95 may be at most this many refresh intervals.
 const ANIMATION_P95_REFRESH_FACTOR: f64 = 1.5;
 /// No interval of an animation may be longer than this (a hitch).
@@ -559,7 +573,7 @@ const MAY_BE_NOT_APPLICABLE: &str = "rail_overlay";
 
 /// What the animation gate found, and whether it counts.
 struct AnimationGate {
-    /// False on a CI runner: the findings are reported, not failures.
+    /// False on a CI runner, where the lab is not run.
     judged: bool,
     findings: Vec<String>,
 }
@@ -570,20 +584,22 @@ impl AnimationGate {
         if self.judged {
             json!({"judged": true, "would_fail": self.findings})
         } else {
-            json!({"judged": false, "reason": "CI runner: no real display vsync",
-                "would_fail": self.findings})
+            json!({"judged": false, "reason": ANIMATIONS_SKIPPED_ON_CI})
         }
     }
 }
 
-/// The animation findings, judged locally and only reported on CI. A GitHub
-/// Windows runner has no real display: the vendored vsync source falls back to
-/// a sleep timer, so the measured "refresh" is a timer and WARP frames may be
-/// slow. `ci` is passed in so both branches are testable.
+/// The animation findings, judged locally. On CI the lab is not run, so there
+/// is nothing to judge (see [`ANIMATIONS_SKIPPED_ON_CI`]). `ci` is passed in
+/// so both branches are testable.
 fn animation_gate(native: &Value, ci: bool) -> AnimationGate {
     AnimationGate {
         judged: !ci,
-        findings: animation_failures(native),
+        findings: if ci {
+            Vec::new()
+        } else {
+            animation_failures(native)
+        },
     }
 }
 
@@ -972,15 +988,6 @@ fn summary_lines(native: &Value) -> Vec<String> {
         }
     }
     lines.push(animation_summary(&native["animations"]));
-    if native["animations_verdict"]["judged"].as_bool() == Some(false)
-        && let Some(findings) = native["animations_verdict"]["would_fail"].as_array()
-    {
-        for finding in findings.iter().filter_map(Value::as_str) {
-            lines.push(format!(
-                "warning: {finding} (reported only: CI runner, no real display vsync)"
-            ));
-        }
-    }
     lines
 }
 
@@ -993,6 +1000,9 @@ fn animation_summary(document: &Value) -> String {
     }
     if let Some(message) = error_message(document) {
         return format!("animations: {message}");
+    }
+    if let Some(reason) = document["skipped"].as_str() {
+        return format!("animations: {reason}");
     }
     let Some(refresh) = document["refresh_ms"].as_f64() else {
         return "animations: refresh not measured".to_owned();
@@ -1805,7 +1815,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ci_runner_reports_animation_findings_without_failing() {
+    fn a_ci_runner_skips_the_animation_lab_and_judges_nothing() {
         let mut native = passing_native();
         native["animations"]["animations"][0]["over_33ms"] = json!(3);
         let local = animation_gate(&native, false);
@@ -1813,21 +1823,23 @@ mod tests {
         assert_eq!(local.verdict()["judged"], json!(true));
         assert_eq!(native_failures_in(&native, false).len(), 1);
 
+        // On CI the lab is not run: the document says so and nothing fails.
+        native["animations"] = json!({"skipped": ANIMATIONS_SKIPPED_ON_CI});
         let ci = animation_gate(&native, true);
-        assert!(!ci.judged && ci.findings.len() == 1);
+        assert!(!ci.judged && ci.findings.is_empty());
         let verdict = ci.verdict();
         assert_eq!(verdict["judged"], json!(false));
-        assert_eq!(verdict["reason"], json!("CI runner: no real display vsync"));
-        assert_eq!(verdict["would_fail"].as_array().unwrap().len(), 1);
+        assert_eq!(verdict["reason"], json!(ANIMATIONS_SKIPPED_ON_CI));
         assert!(native_failures_in(&native, true).is_empty());
-
-        native["animations_verdict"] = verdict;
         let lines = summary_lines(&native);
         assert!(
             lines
                 .iter()
-                .any(|line| line.starts_with("warning: animation timeline_glide"))
+                .any(|line| line == &format!("animations: {ANIMATIONS_SKIPPED_ON_CI}")),
+            "{lines:?}"
         );
+        // Locally a skipped document is an unmeasured run, which fails.
+        assert!(!animation_gate(&native, false).findings.is_empty());
     }
 
     #[test]
