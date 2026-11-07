@@ -24,8 +24,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, FocusHandle, FontWeight, IntoElement, ParentElement, Role, SharedString,
-    Styled, Window, deferred, div, prelude::*, px, rgb,
+    AnyElement, App, Context, FocusHandle, FontWeight, IntoElement, ParentElement, Render, Role,
+    SharedString, StyleRefinement, Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use ui::{
     accessibility::label_region,
@@ -51,6 +51,7 @@ pub const PIN: &str = "Pin Ordo";
 pub const CLOSE: &str = "Close Ordo";
 
 /// One Mass item of the rail.
+#[derive(Clone, PartialEq)]
 pub struct RailItem {
     /// Index among all Mass items; the argument to the jump callback.
     pub index: usize,
@@ -63,6 +64,7 @@ pub struct RailItem {
 }
 
 /// One of the Mass sections.
+#[derive(Clone, PartialEq)]
 pub struct RailSection {
     pub title: SharedString,
     pub items: Vec<RailItem>,
@@ -80,6 +82,7 @@ pub enum PinControl {
 }
 
 /// Everything the panel needs.
+#[derive(Clone, PartialEq)]
 pub struct RailModel {
     pub sections: Vec<RailSection>,
     pub pin: PinControl,
@@ -93,6 +96,105 @@ pub struct Handlers {
     pub close: OnPress,
     /// The footer's Keyboard shortcuts control.
     pub open_reference: OnPress,
+}
+
+/// The pinned rail as a view of its own, drawn through `Entity::cached`.
+///
+/// The rail's content is the Mass item list and which item holds Preview, so
+/// it is the same on every animation frame (fades, folds, the timeline glide)
+/// and costs layout time each one when rebuilt with the Presenter. The owner
+/// calls [`RailView::sync`] with the current model each frame; the view
+/// notifies itself only when the model, width or environment differ, and GPUI
+/// reuses the laid out and painted rail until then. Its own scrolling, hover,
+/// focus and scroll indicator notify it through GPUI as for any view, and a
+/// window refresh (a focus change) redraws it. The focus handle, the key
+/// context and the F6 region stay with the Presenter, which passes the same
+/// handles in.
+pub struct RailView {
+    model: RailModel,
+    width: f32,
+    environment: UiEnvironment,
+    handlers: Handlers,
+    scroll: Scroll,
+    focus: FocusHandle,
+}
+
+impl RailView {
+    pub fn new(
+        model: RailModel,
+        width: f32,
+        environment: UiEnvironment,
+        handlers: Handlers,
+        scroll: Scroll,
+        focus: FocusHandle,
+    ) -> Self {
+        Self {
+            model,
+            width,
+            environment,
+            handlers,
+            scroll,
+            focus,
+        }
+    }
+
+    /// Take the current inputs; redraws only when something drawn changed.
+    /// The handlers only report to the Presenter, so they never force a redraw.
+    pub fn sync(
+        &mut self,
+        model: RailModel,
+        width: f32,
+        environment: UiEnvironment,
+        handlers: Handlers,
+        cx: &mut Context<Self>,
+    ) {
+        self.handlers = handlers;
+        if self.model != model || self.width != width || self.environment != environment {
+            self.model = model;
+            self.width = width;
+            self.environment = environment;
+            cx.notify();
+        }
+    }
+
+    /// The item the rail marks as current, as last drawn.
+    #[cfg(test)]
+    pub fn current(&self) -> Option<usize> {
+        self.model
+            .sections
+            .iter()
+            .flat_map(|section| &section.items)
+            .find(|item| item.current)
+            .map(|item| item.index)
+    }
+
+    /// The style the cached view is laid out at: the rail's width, stretched
+    /// to the row's height (a cached view is not measured from its content).
+    pub fn style(width: f32) -> StyleRefinement {
+        let mut style = StyleRefinement::default();
+        style.flex_grow = Some(0.0);
+        style.flex_shrink = Some(0.0);
+        style.size.width = Some(px(width).into());
+        style
+    }
+}
+
+impl Render for RailView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        panel(
+            self.model.clone(),
+            Placement {
+                width: self.width,
+                overlay: false,
+                focus: Some(&self.focus),
+            },
+            &self.scroll,
+            &self.handlers,
+            self.environment,
+            window,
+            cx,
+        )
+    }
 }
 
 /// Where and how the panel is drawn.

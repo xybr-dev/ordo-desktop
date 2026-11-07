@@ -47,7 +47,7 @@ use std::{
 
 use domain::presentation::{CueBehavior, FrameId};
 use gpui::{
-    Context, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task,
+    Context, Entity, FocusHandle, IntoElement, ParentElement, Render, SharedString, Styled, Task,
     WeakFocusHandle, Window, div, prelude::*, px, rgb,
 };
 use presentation::{
@@ -255,6 +255,8 @@ pub struct PresenterView {
     /// holds the Cues), and where it goes while the overlay is open.
     timeline_focus: FocusHandle,
     rail_focus: FocusHandle,
+    /// The pinned rail, drawn as a cached view of its own (created on first use).
+    rail_view: Option<Entity<rail::RailView>>,
     /// Tracked on the Output Dock, so a focused control inside it reads as
     /// the Dock for key policy.
     dock_focus: FocusHandle,
@@ -375,6 +377,7 @@ impl PresenterView {
             rail_cursor: None,
             timeline_focus: cx.focus_handle(),
             rail_focus: cx.focus_handle(),
+            rail_view: None,
             dock_focus: cx.focus_handle(),
             reference_focus: cx.focus_handle(),
             reference_close_focus: cx.focus_handle(),
@@ -1652,22 +1655,33 @@ impl PresenterView {
             cx,
         );
         let (rail_element, rail_overlay) = match layout.rail {
-            RailLayout::Pinned { width } => (
-                rail::panel(
-                    self.rail_model(PinControl::Unpin),
-                    rail::Placement {
-                        width,
-                        overlay: false,
-                        focus: Some(&self.rail_focus),
-                    },
-                    &self.rail_scroll,
-                    &rail_handlers,
-                    environment,
-                    window,
-                    cx,
-                ),
-                None,
-            ),
+            RailLayout::Pinned { width } => {
+                let model = self.rail_model(PinControl::Unpin);
+                let rail = match &self.rail_view {
+                    Some(rail) => rail.clone(),
+                    None => {
+                        let rail = cx.new(|_| {
+                            rail::RailView::new(
+                                self.rail_model(PinControl::Unpin),
+                                width,
+                                environment,
+                                rail_handlers.clone(),
+                                self.rail_scroll.clone(),
+                                self.rail_focus.clone(),
+                            )
+                        });
+                        self.rail_view = Some(rail.clone());
+                        rail
+                    }
+                };
+                rail.update(cx, |rail, cx| {
+                    rail.sync(model, width, environment, rail_handlers.clone(), cx)
+                });
+                (
+                    rail.cached(rail::RailView::style(width)).into_any_element(),
+                    None,
+                )
+            }
             RailLayout::Tab { width } | RailLayout::OverlayOnly { tab_width: width } => {
                 let pin = if matches!(layout.rail, RailLayout::Tab { .. }) {
                     PinControl::Pin
@@ -2762,7 +2776,9 @@ mod tests {
 
     #[gpui::test]
     fn only_slides_are_tiles_and_trigger_wait_and_hold_stay_rows_in_grid(cx: &mut TestAppContext) {
-        let (_, cx) = open(cx, SIZES[0]);
+        let (open, cx) = open(cx, SIZES[0]);
+        // A geometry test that does not scroll: every group is laid out.
+        lay_every_group_out(&open, cx);
         let layout = layout_at(SIZES[0]);
         // Cue 10 is the greeting trigger, cue 12 the Hold; cue 4 a slide.
         for flat in [10, 12] {
@@ -5595,6 +5611,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[gpui::test]
+    fn the_cached_rail_follows_preview_and_a_resize(cx: &mut TestAppContext) {
+        let (open, cx) = open_many(cx, SIZES[0], CueView::Grid);
+        let current = |open: &Open, cx: &VisualTestContext| {
+            open.view.read_with(cx, |view, cx| {
+                view.rail_view
+                    .as_ref()
+                    .expect("a pinned rail is a view of its own")
+                    .read(cx)
+                    .current()
+            })
+        };
+        assert_eq!(current(&open, cx), Some(0));
+        let width = f32::from(bounds(cx, "presenter-rail").size.width);
+        // Preview moves to another group: the cached rail is drawn again.
+        for group in [7, 3, 0] {
+            let flat = open.view.read_with(cx, |view, _| {
+                view.engine.snapshot().item_start(group).unwrap()
+            });
+            run(&open, cx, Command::GoTo(flat)).unwrap();
+            animate(&open, cx, 0);
+            assert_eq!(current(&open, cx), Some(group), "preview in group {group}");
+        }
+        // Frames that change nothing the rail draws leave it as it was.
+        for _ in 0..3 {
+            animate(&open, cx, 16);
+        }
+        assert_eq!(current(&open, cx), Some(0));
+        assert_eq!(f32::from(bounds(cx, "presenter-rail").size.width), width);
+        // A window of another size changes its width.
+        cx.simulate_resize(size(px(1600.0), px(1000.0)));
+        cx.run_until_parked();
+        let narrower = f32::from(bounds(cx, "presenter-rail").size.width);
+        let wanted = match layout_at((1600.0, 1000.0, InterfaceScale::Percent100)).rail {
+            RailLayout::Pinned { width } => width,
+            other => panic!("still pinned at 1600: {other:?}"),
+        };
+        assert!(
+            (narrower - wanted).abs() < 0.5,
+            "{narrower} against {wanted}"
+        );
     }
 
     #[gpui::test]
