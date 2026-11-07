@@ -24,8 +24,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, FocusHandle, FontWeight, IntoElement, ParentElement, Role, SharedString,
-    Styled, Window, deferred, div, prelude::*, px, rgb,
+    AnyElement, App, Context, FocusHandle, FontWeight, IntoElement, ParentElement, Render, Role,
+    SharedString, StyleRefinement, Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use ui::{
     accessibility::label_region,
@@ -51,6 +51,7 @@ pub const PIN: &str = "Pin Ordo";
 pub const CLOSE: &str = "Close Ordo";
 
 /// One Mass item of the rail.
+#[derive(Clone, PartialEq)]
 pub struct RailItem {
     /// Index among all Mass items; the argument to the jump callback.
     pub index: usize,
@@ -63,6 +64,7 @@ pub struct RailItem {
 }
 
 /// One of the Mass sections.
+#[derive(Clone, PartialEq)]
 pub struct RailSection {
     pub title: SharedString,
     pub items: Vec<RailItem>,
@@ -80,6 +82,7 @@ pub enum PinControl {
 }
 
 /// Everything the panel needs.
+#[derive(Clone, PartialEq)]
 pub struct RailModel {
     pub sections: Vec<RailSection>,
     pub pin: PinControl,
@@ -93,6 +96,139 @@ pub struct Handlers {
     pub close: OnPress,
     /// The footer's Keyboard shortcuts control.
     pub open_reference: OnPress,
+}
+
+/// The pinned rail as a view of its own, drawn through `Entity::cached`.
+///
+/// The rail draws the Mass item list, which item holds Preview, the
+/// appearance and Interface scale (the environment) and its width, so it is
+/// the same on every animation frame (fades, folds, the timeline glide) and
+/// cost layout time each one when rebuilt with the Presenter. GPUI reuses the
+/// laid out and painted rail until the entity is notified or its bounds change.
+///
+/// A notify raised while a frame is being drawn is not seen by that frame or
+/// by the cache check of the next (`WindowInvalidator::invalidate_view` only
+/// records it), so the Presenter calls [`RailView::refresh`] when its state
+/// changes, outside the draw, and [`RailView::sync`] from `render` only to
+/// carry the width, which also moves the bounds the cache is keyed on. Its own
+/// scrolling, hover and scroll indicator notify it through GPUI as for any
+/// view, and a window refresh (a focus change) redraws it. The focus handle,
+/// the key context and the F6 region stay with the Presenter, which passes the
+/// same handles in.
+///
+/// Reuse replays neither the accessibility nodes nor their tree, so while
+/// assistive technology is active the rail is drawn uncached
+/// ([`is_cached`]).
+pub struct RailView {
+    model: RailModel,
+    width: f32,
+    environment: UiEnvironment,
+    handlers: Handlers,
+    scroll: Scroll,
+    focus: FocusHandle,
+    /// How many times the rail was drawn, for tests.
+    #[cfg(test)]
+    pub renders: usize,
+}
+
+/// Whether the rail may be reused between frames: not while assistive
+/// technology is active, because reuse does not replay accessibility nodes
+/// and the rail would leave the tree on every reused frame.
+pub fn is_cached(accessibility_active: bool) -> bool {
+    !accessibility_active
+}
+
+impl RailView {
+    pub fn new(
+        model: RailModel,
+        width: f32,
+        environment: UiEnvironment,
+        handlers: Handlers,
+        scroll: Scroll,
+        focus: FocusHandle,
+    ) -> Self {
+        Self {
+            model,
+            width,
+            environment,
+            handlers,
+            scroll,
+            focus,
+            #[cfg(test)]
+            renders: 0,
+        }
+    }
+
+    /// Take the current inputs while drawing: only the width and handlers are
+    /// expected to differ here (see the type's note). A model or environment
+    /// that differs is stored too, so the next draw is right, but its notify
+    /// cannot reach this frame.
+    pub fn sync(
+        &mut self,
+        model: RailModel,
+        width: f32,
+        environment: UiEnvironment,
+        handlers: Handlers,
+        cx: &mut Context<Self>,
+    ) {
+        self.handlers = handlers;
+        self.width = width;
+        self.refresh(model, environment, cx);
+    }
+
+    /// Take the model and environment; redraws only when something drawn
+    /// changed. Call it outside a draw, where the notify takes effect.
+    pub fn refresh(
+        &mut self,
+        model: RailModel,
+        environment: UiEnvironment,
+        cx: &mut Context<Self>,
+    ) {
+        if self.model != model || self.environment != environment {
+            self.model = model;
+            self.environment = environment;
+            cx.notify();
+        }
+    }
+
+    /// The item the rail marks as current, as last drawn.
+    #[cfg(test)]
+    pub fn current(&self) -> Option<usize> {
+        self.model
+            .sections
+            .iter()
+            .flat_map(|section| &section.items)
+            .find(|item| item.current)
+            .map(|item| item.index)
+    }
+
+    /// The style the cached view is laid out at: the rail's width, stretched
+    /// to the row's height (a cached view is not measured from its content).
+    pub fn style(width: f32) -> StyleRefinement {
+        StyleRefinement::default().flex_none().w(px(width))
+    }
+}
+
+impl Render for RailView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
+        panel(
+            self.model.clone(),
+            Placement {
+                width: self.width,
+                overlay: false,
+                focus: Some(&self.focus),
+            },
+            &self.scroll,
+            &self.handlers,
+            self.environment,
+            window,
+            cx,
+        )
+    }
 }
 
 /// Where and how the panel is drawn.
@@ -332,6 +468,7 @@ fn item_row(item: RailItem, handlers: &Handlers, environment: UiEnvironment) -> 
         // is a shape and not a fill alone.
         .children(item.current.then(|| {
             div()
+                .debug_selector(move || format!("rail-item-{index}-current"))
                 .absolute()
                 .left_0()
                 .top_0()
@@ -500,3 +637,14 @@ pub fn overlay(
 /// Above the Presenter's own content and below a popup; the same layer the
 /// application overlays use.
 const OVERLAY_PRIORITY: usize = 20;
+
+#[cfg(test)]
+mod tests {
+    use super::is_cached;
+
+    #[test]
+    fn the_rail_is_reused_only_while_no_assistive_technology_reads_it() {
+        assert!(is_cached(false));
+        assert!(!is_cached(true));
+    }
+}

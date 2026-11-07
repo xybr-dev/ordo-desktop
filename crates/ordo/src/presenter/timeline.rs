@@ -430,14 +430,13 @@ pub fn timeline(
         })
         .unzip();
     let handle = scroll.handle();
-    // The timeline's own height, which the window's stands in for until it
-    // has been laid out once.
-    let bounds_height = f32::from(handle.bounds().size.height);
-    let span = if bounds_height > 0.0 {
-        bounds_height
-    } else {
-        f32::from(window.viewport_size().height)
-    };
+    // The timeline's own height as of the last frame, or the window's if that
+    // is more: after the window grew, the bounds still hold the old height for
+    // this frame, and the margin must cover what is about to be drawn.
+    let span = overscan_span(
+        f32::from(handle.bounds().size.height),
+        f32::from(window.viewport_size().height),
+    );
     let mut spans = vec![(-f32::from(handle.offset().y), span)];
     if let Some(target) = model.jump_to {
         spans.push((heights.iter().take(target).sum(), span));
@@ -815,10 +814,33 @@ fn current_height(full: f32, folded: f32, open: f32, natural: Option<f32>) -> f3
     }
 }
 
-/// Which groups get their Cues laid out: those within one timeline height of a
-/// focus span (`(top, height)` in timeline pixels, the height being the
-/// timeline's own), and every `pinned` one. The overscan is that height above
-/// and below, so a scroll or a glide frame has content ready before it
+/// How far beyond the visible span groups stay laid out, as a fraction of the
+/// timeline's height, above and below. (The height used is the larger of the
+/// timeline's last bounds and the window's, see `timeline`.)
+///
+/// A quarter is enough because the layout is built from the offset the frame
+/// will be drawn at: a wheel or scrollbar move updates the offset and notifies,
+/// so the next render lays out around the new offset however far it moved, and
+/// the follow glide sets its offset in prepaint, after layout, so the frame is
+/// drawn at the offset it was laid out for and the next one is laid out around
+/// the new one. The margin only absorbs a group's height rounding; a window that
+/// grew is covered by taking the window's height as the span. A whole timeline height
+/// (the first choice) laid out more Cues for 1 to 2 ms of frame cost and no
+/// visible gain; a test scrolls three timeline heights and jumps End and Home,
+/// frame by frame, and checks that no group in view is a spacer.
+const OVERSCAN: f32 = 0.25;
+
+/// The height the overscan is a fraction of: the timeline's bounds from the
+/// last frame, or the window's height when that is more (the first frame
+/// after the window grew, or before the timeline was laid out once).
+fn overscan_span(bounds_height: f32, viewport_height: f32) -> f32 {
+    bounds_height.max(viewport_height)
+}
+
+/// Which groups get their Cues laid out: those within `OVERSCAN` timeline
+/// heights of a focus span (`(top, height)` in timeline pixels, the height being
+/// the timeline's own), and every `pinned` one. The overscan is that margin
+/// above and below, so a scroll or a glide frame has content ready before it
 /// arrives. `heights` are the groups' heights as they are on screen now.
 fn real_groups(heights: &[f32], focus: &[(f32, f32)], pinned: &[bool]) -> Vec<bool> {
     let mut top = 0.0;
@@ -829,9 +851,9 @@ fn real_groups(heights: &[f32], focus: &[(f32, f32)], pinned: &[bool]) -> Vec<bo
             let (start, end) = (top, top + height);
             top = end;
             *pinned
-                || focus
-                    .iter()
-                    .any(|(at, span)| end >= at - span && start <= at + 2.0 * span)
+                || focus.iter().any(|(at, span)| {
+                    end >= at - OVERSCAN * span && start <= at + (1.0 + OVERSCAN) * span
+                })
         })
         .collect()
 }
@@ -1446,27 +1468,43 @@ mod tests {
     }
 
     #[test]
+    fn the_overscan_covers_a_window_that_just_grew() {
+        // 768 to 1440: the bounds still say 600 on the first frame.
+        assert_eq!(overscan_span(600.0, 1440.0), 1440.0);
+        // Shrinking keeps the larger, the window's, which is harmless.
+        assert_eq!(overscan_span(1200.0, 768.0), 1200.0);
+        // Not laid out yet: the window stands in.
+        assert_eq!(overscan_span(0.0, 768.0), 768.0);
+    }
+
+    #[test]
     fn groups_near_a_focus_span_or_pinned_are_real() {
-        // Five groups of 100 pixels; a 100-pixel window at 200: the overscan
-        // is one span above and two below the top (one past the bottom).
-        let heights = [100.0; 5];
-        let pinned = [false; 5];
-        let real = real_groups(&heights, &[(200.0, 100.0)], &pinned);
-        assert_eq!(real, [true, true, true, true, true]);
+        // Groups of 100 pixels; a 100-pixel window at 600 with the overscan
+        // above and below it.
         let heights = [100.0; 12];
         let real = real_groups(&heights, &[(600.0, 100.0)], &[false; 12]);
-        // Groups end at 100, 200, ...: group k spans [100k, 100k + 100].
-        assert_eq!(
-            real,
-            [
-                false, false, false, false, true, true, true, true, true, false, false, false
-            ]
-        );
+        // Group k spans [100k, 100k + 100].
+        let (low, high) = (600.0 - 100.0 * OVERSCAN, 700.0 + 100.0 * OVERSCAN);
+        for (k, real) in real.iter().enumerate() {
+            let (start, end) = (100.0 * k as f32, 100.0 * k as f32 + 100.0);
+            assert_eq!(*real, end >= low && start <= high, "group {k}");
+        }
+        assert!(real[6] && !real[0] && !real[11], "{real:?}");
+        // Written out for a quarter overscan: groups 5 to 7 (a window at
+        // 600 to 700, a margin of 25 pixels each way).
+        if OVERSCAN == 0.25 {
+            assert_eq!(
+                real,
+                [
+                    false, false, false, false, false, true, true, true, false, false, false, false
+                ]
+            );
+        }
         // A second span (the rail's target) and a pinned group add theirs.
         let mut pinned = [false; 12];
         pinned[11] = true;
         let real = real_groups(&heights, &[(600.0, 100.0), (0.0, 100.0)], &pinned);
-        assert!(real[0] && real[1] && real[2] && real[11] && !real[3]);
+        assert!(real[0] && real[11] && !real[3]);
     }
 
     #[test]
