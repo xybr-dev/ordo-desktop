@@ -181,6 +181,31 @@ pub fn live_viewport_fading(
     opacity: f32,
     environment: UiEnvironment,
 ) -> AnyElement {
+    viewport_box(frame, image, width, tally, opacity, environment, true)
+}
+
+/// The congregation window's viewport: the same box and paint as
+/// [`live_viewport_fading`] with square corners, because the operator-only
+/// viewport radius never reaches a congregation display.
+pub fn congregation_viewport(
+    frame: Option<Arc<rendering::Frame>>,
+    image: Option<Arc<RenderImage>>,
+    width: f32,
+    opacity: f32,
+    environment: UiEnvironment,
+) -> AnyElement {
+    viewport_box(frame, image, width, None, opacity, environment, false)
+}
+
+fn viewport_box(
+    frame: Option<Arc<rendering::Frame>>,
+    image: Option<Arc<RenderImage>>,
+    width: f32,
+    tally: Option<Rc<PaintTally>>,
+    opacity: f32,
+    environment: UiEnvironment,
+    rounded: bool,
+) -> AnyElement {
     let scale = environment.preferences().scale;
     let height = width * 9.0 / 16.0;
     let mut viewport = div()
@@ -188,7 +213,9 @@ pub fn live_viewport_fading(
         .w(px(width))
         .h(px(height))
         .overflow_hidden()
-        .rounded(px(scale.apply(tokens::radius::SLIDE_VIEWPORT)))
+        .when(rounded, |viewport| {
+            viewport.rounded(px(scale.apply(tokens::radius::SLIDE_VIEWPORT)))
+        })
         .bg(gpui::rgb(tokens::color::PROJECTION_BACKGROUND));
     if let Some(frame) = frame {
         if let (Some(placed), Some(image)) = (frame.image(), image) {

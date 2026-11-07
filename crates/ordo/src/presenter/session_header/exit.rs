@@ -5,8 +5,9 @@
 //! [`ExitRequested`], and whoever owns the window subscribes.
 //!
 //! A confirmed exit runs in a fixed order, owned by `PresenterView`:
-//! Program to black through the Engine, then [`SessionHooks::close_output`],
-//! then `DisableOutput`, then [`SessionHooks::on_session_ended`], then the
+//! Program to black through the Engine, then the Presenter closes its own
+//! congregation window (T1.6b), then [`SessionHooks::close_output`], then
+//! `DisableOutput`, then [`SessionHooks::on_session_ended`], then the
 //! event. Nothing on the congregation display may outlive the black frame.
 
 use std::rc::Rc;
@@ -23,9 +24,9 @@ pub struct ExitRequested;
 /// What the owner plugs into a planned exit. Both are no-ops by default.
 #[derive(Clone)]
 pub struct SessionHooks {
-    /// Close the congregation output. Called after Program is black and
-    /// before the Engine is told `DisableOutput`; it sees the Engine so the
-    /// owner can verify that. T1.6b connects the output window here.
+    /// An extra step after Program is black and the Presenter has closed its
+    /// congregation window, before the Engine is told `DisableOutput`; it sees
+    /// the Engine so the owner can verify that. No-op by default.
     pub close_output: Rc<dyn Fn(&Engine)>,
     /// The session ended on purpose.
     // T1.7: mark the session complete and clear recovery

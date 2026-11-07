@@ -109,6 +109,7 @@ impl ShellView {
             if let Some(save) = save {
                 view.set_save_preferences(save);
             }
+            view.install_output(Box::new(crate::output::GpuiDisplaySource), window, cx);
             view
         });
         self._presenter_exit = Some(cx.subscribe_in(

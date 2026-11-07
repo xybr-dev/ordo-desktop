@@ -69,6 +69,9 @@ impl DisplayHealth {
 pub struct HeaderModel {
     pub title: SharedString,
     pub health: DisplayHealth,
+    /// While the pointer is on the congregation display: the way back
+    /// (Decision 56). Operator-only.
+    pub locator: Option<&'static str>,
     pub cue_view: CueView,
     /// Constrained layout: the Grid/List buttons show their icon alone.
     pub icon_only: bool,
@@ -126,6 +129,15 @@ pub fn header(
                 .text_size(px(scale.apply(tokens::typography::HEADING.size)))
                 .child(model.title),
         )
+        .children(model.locator.map(|instruction| {
+            div()
+                .id("header-cursor-locator")
+                .debug_selector(|| "header-cursor-locator".into())
+                .flex_none()
+                .text_color(rgb(palette.warning))
+                .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                .child(instruction)
+        }))
         .child(
             div()
                 .id("display-health")
