@@ -337,10 +337,11 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0305](0305-the-walking-skeleton-lab-stands-in-for-packaged-checks-the.md) | The walking-skeleton lab stands in for packaged checks; the sign-off is restated to delivered scope | accepted | 2026-10-20 | qualification, platform |
 | [0306](0306-defer-the-ordo-inspector-promotion-keep-t0-10-ac5-on-the.md) | Defer the .ordo inspector promotion; keep T0.10 AC5 on the enforceable reuse rule | accepted | 2026-10-20 | qualification, portability |
 | [0307](0307-watch-the-display-topology-while-output-is-enabled.md) | Watch the display topology while output is enabled | superseded by [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | 2026-11-01 | display, qualification |
-| [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted | 2026-11-01 | display, qualification, gpui |
+| [0308](0308-vendor-gpui-pre-windows-to-report-display-changes.md) | Vendor gpui-pre-windows to report display changes | accepted, amended by [0313](0313-hide-the-pointer-over-the-congregation-window.md) | 2026-11-01 | display, qualification, gpui |
 | [0309](0309-floating-surfaces-fade-and-rise-instead-of-zooming.md) | Floating surfaces fade and rise instead of zooming | accepted | 2026-11-03 | design, motion, gpui |
 | [0310](0310-live-output-draws-the-retained-frame-rasterize-only-for.md) | Live output draws the retained Frame; rasterize only for pixels | accepted | 2026-11-04 | rendering, presenter, performance |
 | [0311](0311-presentation-snapshot-manifest-v2-in-json.md) | Presentation snapshot manifest v2 in JSON | accepted | 2026-11-04 | presentation, contracts, snapshot |
 | [0312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md) | Allow a second audited unsafe module for monitor identity | accepted | 2026-11-07 | platform, display |
+| [0313](0313-hide-the-pointer-over-the-congregation-window.md) | Hide the pointer over the congregation window | accepted | 2026-11-07 | display, gpui, presenter |
 
 <!-- adr-index:end -->

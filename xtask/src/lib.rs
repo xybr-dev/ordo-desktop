@@ -734,6 +734,12 @@ pub fn verify_offline_contract(root: &Path) -> XtaskResult<()> {
 /// The one GPUI crate taken from `vendor/` instead of crates.io (Decision 308).
 const VENDORED_GPUI_PACKAGE: &str = "gpui-pre-windows";
 
+/// The marked changes `vendor/gpui-pre-windows/src/events.rs` must keep.
+const GPUI_PATCHES: [(&str, u32); 2] = [
+    ("ORDO PATCH: report every display change", 308),
+    ("ORDO PATCH: hide the pointer", 313),
+];
+
 /// Cargo only warns about an unused `[patch]`, so a GPUI upgrade could
 /// restore the registry crate and silently lose display-change reporting
 /// (Decision 308). A patched crate has no `source` in the lockfile.
@@ -746,8 +752,13 @@ fn validate_gpui_patch(lock: &str, events: &str) -> XtaskResult<()> {
     if package.source.is_some() {
         return Err("gpui-pre-windows resolves to the registry, not vendor/ (Decision 308)".into());
     }
-    if !events.contains("ORDO PATCH") {
-        return Err("vendor/gpui-pre-windows lost its ORDO PATCH (Decision 308)".into());
+    for (marker, decision) in GPUI_PATCHES {
+        if !events.contains(marker) {
+            return Err(format!(
+                "vendor/gpui-pre-windows lost its ORDO PATCH \"{marker}\" (Decision {decision})"
+            )
+            .into());
+        }
     }
     Ok(())
 }
@@ -1278,10 +1289,16 @@ mod tests {
         let vendored = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.8\"\n";
         let registry = "[[package]]\nname = \"gpui-pre-windows\"\nversion = \"0.3.9\"\n\
                         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
-        assert!(validate_gpui_patch(vendored, "// ORDO PATCH").is_ok());
-        assert!(validate_gpui_patch(registry, "// ORDO PATCH").is_err());
+        let both = "// ORDO PATCH: report every display change
+// ORDO PATCH: hide the pointer";
+        assert!(validate_gpui_patch(vendored, both).is_ok());
+        assert!(validate_gpui_patch(registry, both).is_err());
         assert!(validate_gpui_patch(vendored, "unpatched").is_err());
-        assert!(validate_gpui_patch("", "// ORDO PATCH").is_err());
+        assert!(validate_gpui_patch("", both).is_err());
+        // Each patch is checked on its own: losing either one fails.
+        for (marker, _) in GPUI_PATCHES {
+            assert!(validate_gpui_patch(vendored, marker).is_err(), "{marker}");
+        }
     }
 
     #[test]

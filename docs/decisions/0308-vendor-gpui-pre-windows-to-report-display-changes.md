@@ -8,11 +8,13 @@ tags: [display, qualification, gpui]
 supersedes: [307]
 superseded_by: null
 amends: []
-amended_by: []
+amended_by: [313]
 sources: [vendor/README.md, vendor/gpui-pre-windows/src/events.rs, crates/ordo/src/output.rs, xtask/src/lib.rs]
 ---
 
 # Vendor gpui-pre-windows to report display changes
+
+> **Amended by Decision [313](0313-hide-the-pointer-over-the-congregation-window.md).** The vendored crate carries a second marked change: the pointer is hidden over the congregation window.
 
 ## Context
 
