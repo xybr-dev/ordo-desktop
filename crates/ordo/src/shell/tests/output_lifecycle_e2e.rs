@@ -67,7 +67,6 @@ fn engine_state(
 #[gpui::test]
 fn the_output_lifecycle_runs_from_entry_to_a_restored_exit(cx: &mut TestAppContext) {
     let (shell, cx) = open(cx);
-    cx.update(|_, cx| cx.bind_keys(crate::commands::registry::key_bindings()));
 
     // 1. Host state, then enter.
     shell.update_in(cx, |shell, window, cx| {
