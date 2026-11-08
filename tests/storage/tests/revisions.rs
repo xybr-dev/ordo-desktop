@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use domain::identity::{
-    ChoirId, EntityId, HistorySessionId, OccurrenceId, RevisionId, SectionId, SongId,
+    ArrangementId, ChoirId, EntityId, HistorySessionId, OccurrenceId, RevisionId, SectionId, SongId,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
 use futures_lite::future::block_on;
@@ -286,7 +286,7 @@ fn edits_form_one_linear_chain() {
     let third = bounded(fixture.storage.commit_song_edit(
         fixture.song,
         song_content("Kyrie 3"),
-        RevisionKind::Replacement,
+        RevisionKind::Import,
         None,
         second.1.id,
     ))
@@ -312,7 +312,7 @@ fn edits_form_one_linear_chain() {
     assert_eq!(chain[1].kind, RevisionKind::Edit);
     assert_eq!(chain[1].session, Some(session(1)));
     assert_eq!(chain[2].kind, RevisionKind::Import);
-    assert_eq!(chain[3].kind, RevisionKind::Replacement);
+    assert_eq!(chain[3].kind, RevisionKind::Import);
     assert_eq!(chain[2].content_sha256, chain[3].content_sha256);
     assert_eq!(chain[1], first.1);
     assert_eq!(
@@ -563,6 +563,11 @@ fn invalid_commits_are_refused() {
         err(commit(song_content("x"), RevisionKind::Restoration, None)),
         Err(invalid("kind", "not allowed"))
     );
+    // Replacement is whole-Arrangement only (Decision 140).
+    assert_eq!(
+        err(commit(song_content("x"), RevisionKind::Replacement, None)),
+        Err(invalid("kind", "not allowed"))
+    );
     assert_eq!(
         err(commit(song_content("x"), RevisionKind::Edit, None)),
         Err(invalid("session", "required"))
@@ -600,7 +605,7 @@ fn invalid_commits_are_refused() {
             id: unknown.entity()
         })
     );
-    // An entity with no history cannot be committed to.
+    // Restoring a revision id that does not exist is NotFound.
     assert_eq!(
         bounded(storage.restore_revision(RevisionId::from_entity(entity_id(0x78)), head))
             .map(|_| ()),
@@ -942,4 +947,280 @@ fn stale_parent_is_refused() {
         })
     );
     shutdown(fixture.storage);
+}
+
+#[test]
+fn non_canonical_content_is_reported() {
+    let dir = TempDir::new("canonical");
+    let fixture = song_fixture(&dir);
+    let edited = edit_song(&fixture, "Kyrie 2", session(1), fixture.creation).expect("edit");
+    let creation = fixture.creation;
+    shutdown(fixture.storage);
+
+    let conn = raw(&dir);
+    // A document without the optional "provenance" key decodes with serde but
+    // is not what this build writes; the hash is kept consistent.
+    let missing = "{\"format\":1,\"entity\":\"song\",\"title\":\"x\",\"aliases\":[],\
+                   \"original_attribution\":null,\"rights_notes\":null,\
+                   \"liturgical_moments\":[],\"occasions\":[]}";
+    // Complete but with whitespace between tokens.
+    let spaced = "{\"format\":1, \"entity\":\"song\",\"title\":\"x\",\"aliases\":[],\
+                  \"original_attribution\":null,\"provenance\":null,\"rights_notes\":null,\
+                  \"liturgical_moments\":[],\"occasions\":[]}";
+    for (id, text) in [(edited.1.id, missing), (creation, spaced)] {
+        conn.execute(
+            "UPDATE edit_revision SET content = ?2, content_sha256 = ?3 WHERE id = ?1",
+            params![id.to_string(), text, hex_sha256(text)],
+        )
+        .expect("tamper");
+    }
+    drop(conn);
+
+    let storage = open(&dir);
+    for id in [edited.1.id, creation] {
+        assert_eq!(
+            bounded(storage.revision_content(id)),
+            Err(StorageError::RevisionIntegrity { id })
+        );
+    }
+    shutdown(storage);
+}
+
+#[test]
+fn damaged_metadata_and_broken_chains_are_reported() {
+    let dir = TempDir::new("metadata");
+    let fixture = song_fixture(&dir);
+    let edited = edit_song(&fixture, "Kyrie 2", session(1), fixture.creation).expect("edit");
+    let entity = RevisionEntity::Song(fixture.song);
+    let song = fixture.song;
+    shutdown(fixture.storage);
+
+    // A column the schema checks, damaged by bypassing the checks: the row's
+    // id is still readable, so the error names it.
+    let conn = raw(&dir);
+    conn.execute_batch("PRAGMA ignore_check_constraints = ON; PRAGMA foreign_keys = OFF")
+        .expect("pragma");
+    conn.execute(
+        "UPDATE edit_revision SET created_at = 'garbage' WHERE id = ?1",
+        params![edited.1.id.to_string()],
+    )
+    .expect("tamper");
+    drop(conn);
+    let storage = open(&dir);
+    assert_eq!(
+        bounded(storage.revisions(entity)),
+        Err(StorageError::RevisionIntegrity { id: edited.1.id })
+    );
+    shutdown(storage);
+
+    // Restore the row, then add two revisions that name each other as parent:
+    // a cycle detached from the real root. Nothing may loop or be skipped.
+    let conn = raw(&dir);
+    conn.execute_batch("PRAGMA foreign_keys = OFF")
+        .expect("pragma");
+    conn.execute(
+        "UPDATE edit_revision SET created_at = '2023-11-14T22:13:20.000Z' WHERE id = ?1",
+        params![edited.1.id.to_string()],
+    )
+    .expect("repair");
+    let first = RevisionId::from_entity(entity_id(0x51));
+    let second = RevisionId::from_entity(entity_id(0x52));
+    for (id, parent) in [(first, second), (second, first)] {
+        conn.execute(
+            "INSERT INTO edit_revision (id, song_id, arrangement_id, parent_id, kind, session_id, \
+             restored_from_id, content, content_sha256, created_at) \
+             SELECT ?1, song_id, arrangement_id, ?2, 'import', NULL, NULL, content, \
+             content_sha256, created_at FROM edit_revision WHERE id = ?3",
+            params![id.to_string(), parent.to_string(), edited.1.id.to_string()],
+        )
+        .expect("insert cyclic revision");
+    }
+    drop(conn);
+    let storage = open(&dir);
+    assert!(matches!(
+        bounded(storage.revisions(RevisionEntity::Song(song))),
+        Err(StorageError::RevisionIntegrity { .. })
+    ));
+    shutdown(storage);
+}
+
+#[test]
+fn song_commit_write_steps_are_exact() {
+    let dir = TempDir::new("song-steps");
+    let fixture = song_fixture(&dir);
+    let storage = &fixture.storage;
+    let entity = RevisionEntity::Song(fixture.song);
+
+    // Write steps of one Song edit: 1 update + 3 deletes (aliases, moments,
+    // occasions) + 1 alias + 1 moment + 1 occasion + 1 revision.
+    let steps = 1 + 3 + 1 + 1 + 1 + 1;
+
+    // A failure scripted one past the last statement never fires: the edit
+    // succeeds, which proves the step count is exact.
+    bounded(storage.inject_write_failure(steps + 1)).expect("arm");
+    let (_, committed) =
+        edit_song(&fixture, "Committed", session(2), fixture.creation).expect("edit succeeds");
+
+    let song_before = bounded(storage.song(fixture.song)).expect("read");
+    let history_before = bounded(storage.revisions(entity)).expect("chain");
+    assert_eq!(history_before.len(), 2);
+    for step in 1..=steps {
+        bounded(storage.inject_write_failure(step)).expect("arm");
+        assert_eq!(
+            edit_song(&fixture, "Failing", session(2), committed.id).map(|_| ()),
+            Err(StorageError::Sqlite("injected write failure".to_owned())),
+            "step {step}"
+        );
+        assert_eq!(
+            bounded(storage.song(fixture.song)),
+            Ok(song_before.clone()),
+            "song after failure at step {step}"
+        );
+        assert_eq!(
+            bounded(storage.revisions(entity)),
+            Ok(history_before.clone()),
+            "history after failure at step {step}"
+        );
+    }
+    shutdown(fixture.storage);
+}
+
+#[test]
+fn v3_database_with_t2_1_data_upgrades_to_v4() {
+    let dir = TempDir::new("upgrade");
+    let stamp = "2023-11-14T22:13:20.000Z";
+    let bundled_v3 = [
+        (
+            "0001_parish_profile",
+            include_str!("../../../migrations/0001_parish_profile.sql"),
+        ),
+        (
+            "0002_parish_note",
+            include_str!("../../../migrations/0002_parish_note.sql"),
+        ),
+        (
+            "0003_parish_foundation",
+            include_str!("../../../migrations/0003_parish_foundation.sql"),
+        ),
+    ];
+    let song = SongId::from_entity(entity_id(0x61));
+    let arrangement = ArrangementId::from_entity(entity_id(0x62));
+    let (first, second) = (section_id(0x63), section_id(0x64));
+    let occurrences = [
+        (occurrence_id(0x65), first),
+        (occurrence_id(0x66), second),
+        (occurrence_id(0x67), first),
+    ];
+    {
+        // A version-3 database exactly as the migration runner leaves it.
+        let conn = raw(&dir);
+        conn.execute_batch(
+            "CREATE TABLE ordo_migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, \
+             checksum TEXT NOT NULL, applied_at TEXT NOT NULL)",
+        )
+        .expect("ledger");
+        for (index, (name, sql)) in bundled_v3.iter().enumerate() {
+            conn.execute_batch(sql).expect("apply migration");
+            conn.execute(
+                "INSERT INTO ordo_migrations (id, name, checksum, applied_at) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![index as i64 + 1, name, hex_sha256(sql), stamp],
+            )
+            .expect("ledger row");
+        }
+        conn.pragma_update(None, "user_version", 3)
+            .expect("version");
+
+        conn.execute(
+            "INSERT INTO song (id, title, created_at) VALUES (?1, 'Legacy', ?2)",
+            params![song.to_string(), stamp],
+        )
+        .expect("song");
+        conn.execute(
+            "INSERT INTO song_alias (song_id, position, alias) VALUES (?1, 0, 'Old')",
+            params![song.to_string()],
+        )
+        .expect("alias");
+        conn.execute(
+            "INSERT INTO arrangement (id, song_id, title, created_at) VALUES (?1, ?2, 'SATB', ?3)",
+            params![arrangement.to_string(), song.to_string(), stamp],
+        )
+        .expect("arrangement");
+        for (position, (id, label, lyrics)) in [(first, "A", "a"), (second, "B", "b")]
+            .into_iter()
+            .enumerate()
+        {
+            conn.execute(
+                "INSERT INTO arrangement_section \
+                 (id, arrangement_id, position, label, lyrics, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id.to_string(),
+                    arrangement.to_string(),
+                    position as i64,
+                    label,
+                    lyrics,
+                    stamp
+                ],
+            )
+            .expect("section");
+        }
+        for (position, (id, section)) in occurrences.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO section_occurrence \
+                 (id, arrangement_id, section_id, position, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    id.to_string(),
+                    arrangement.to_string(),
+                    section.to_string(),
+                    position as i64,
+                    stamp
+                ],
+            )
+            .expect("occurrence");
+        }
+    }
+
+    // Opening migrates 3 -> 4 and the T2.1 records read back unchanged.
+    let storage = open(&dir);
+    let status = bounded(storage.schema_status()).expect("status");
+    assert_eq!(status.version, 4);
+    let read_song = bounded(storage.song(song)).expect("song");
+    assert_eq!(read_song.title, "Legacy");
+    assert_eq!(read_song.aliases, vec!["Old".to_owned()]);
+    let read = bounded(storage.arrangement(arrangement)).expect("arrangement");
+    assert_eq!(read.title, "SATB");
+    assert_eq!(
+        read.sections.iter().map(|s| s.id).collect::<Vec<_>>(),
+        vec![first, second]
+    );
+    assert_eq!(
+        read.sequence
+            .iter()
+            .map(|o| (o.id, o.section))
+            .collect::<Vec<_>>(),
+        occurrences.to_vec()
+    );
+
+    // Neither entity has history yet; latest_revision backfills a creation
+    // revision whose content is the current record.
+    for entity in [
+        RevisionEntity::Song(song),
+        RevisionEntity::Arrangement(arrangement),
+    ] {
+        assert_eq!(bounded(storage.revisions(entity)), Ok(Vec::new()));
+        let creation = bounded(storage.latest_revision(entity)).expect("backfill");
+        let chain = bounded(storage.revisions(entity)).expect("chain");
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].id, creation);
+        assert_eq!(chain[0].kind, RevisionKind::Creation);
+    }
+    let creation =
+        bounded(storage.latest_revision(RevisionEntity::Arrangement(arrangement))).expect("head");
+    assert_eq!(
+        bounded(storage.revision_content(creation)),
+        Ok(RevisionContent::Arrangement(ArrangementContent::of(&read)))
+    );
+    shutdown(storage);
 }

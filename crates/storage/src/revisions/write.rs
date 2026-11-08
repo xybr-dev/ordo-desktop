@@ -146,10 +146,19 @@ fn require_current(
 }
 
 /// The kind and session rules, checked before any transaction opens.
+/// `Replacement` replaces a whole Arrangement (Decision 140), so a Song
+/// commit refuses it.
 fn validate_link(
     kind: RevisionKind,
     session: Option<HistorySessionId>,
+    allow_replacement: bool,
 ) -> Result<(), StorageError> {
+    if kind == RevisionKind::Replacement && !allow_replacement {
+        return Err(StorageError::InvalidInput {
+            field: "kind",
+            reason: "not allowed",
+        });
+    }
     match (kind, session) {
         (RevisionKind::Edit, Some(_)) => Ok(()),
         (RevisionKind::Edit, None) => Err(StorageError::InvalidInput {
@@ -518,7 +527,7 @@ impl Core {
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
     ) -> Result<(SongRecord, RevisionRecord), StorageError> {
-        validate_link(kind, session)?;
+        validate_link(kind, session, false)?;
         validate_song_content(&revision)?;
         let at = self.timestamp();
         timestamp_text(at)?;
@@ -550,7 +559,7 @@ impl Core {
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
     ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
-        validate_link(kind, session)?;
+        validate_link(kind, session, true)?;
         validate_arrangement_content(&revision)?;
         let at = self.timestamp();
         timestamp_text(at)?;
@@ -584,6 +593,9 @@ impl Core {
             let tx = conn.transaction().map_err(map_error)?;
             load_content(&tx, revision)?
         };
+        // This content passed validation when it was committed, so a failure
+        // now means the stored document was altered, not that the caller
+        // supplied bad input.
         let damaged = |_| StorageError::RevisionIntegrity { id: revision };
         match &restored {
             RevisionContent::Song(song) => validate_song_content(song).map_err(damaged)?,
@@ -625,12 +637,22 @@ impl Core {
         &mut self,
         entity: RevisionEntity,
     ) -> Result<RevisionId, StorageError> {
+        {
+            // Reading needs no write lock; only a backfill takes one.
+            let conn = self.connection_mut()?;
+            let tx = conn.transaction().map_err(map_error)?;
+            require_entity(&tx, entity)?;
+            if let Some(latest) = latest_in(&tx, entity)? {
+                return Ok(latest);
+            }
+        }
         let at = self.timestamp();
         timestamp_text(at)?;
         let (conn, ids, fault) = self.write_parts()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_error)?;
+        // Re-check under the write lock: a backfill may have landed meanwhile.
         require_entity(&tx, entity)?;
         if let Some(latest) = latest_in(&tx, entity)? {
             return Ok(latest);

@@ -4,6 +4,7 @@
 //! Content is re-hashed on every read; a mismatch or an unreadable document is
 //! reported as `RevisionIntegrity`, never repaired.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use domain::identity::{ArrangementId, RevisionId, SongId, Timestamp};
@@ -37,26 +38,31 @@ type MetaRow = (
     String,
 );
 
+/// Builds a record from a stored row. A defect in any other column is
+/// `RevisionIntegrity` for the row, because its identity is known; only an
+/// unreadable id is a generic stored-value error.
 fn meta_record(entity: RevisionEntity, row: MetaRow) -> Result<RevisionRecord, StorageError> {
     let (id, parent, kind, session, restored_from, sha256, created_at) = row;
+    let id: RevisionId = parse(&id, "corrupt revision id")?;
+    let damaged = || StorageError::RevisionIntegrity { id };
     Ok(RevisionRecord {
-        id: parse(&id, "corrupt revision id")?,
+        id,
         entity,
         parent: parent
             .as_deref()
-            .map(|text| parse(text, "corrupt parent_id"))
+            .map(|text| text.parse().map_err(|_| damaged()))
             .transpose()?,
-        kind: RevisionKind::parse(&kind).ok_or_else(|| corrupt("corrupt kind"))?,
+        kind: RevisionKind::parse(&kind).ok_or_else(damaged)?,
         session: session
             .as_deref()
-            .map(|text| parse(text, "corrupt session_id"))
+            .map(|text| text.parse().map_err(|_| damaged()))
             .transpose()?,
         restored_from: restored_from
             .as_deref()
-            .map(|text| parse(text, "corrupt restored_from_id"))
+            .map(|text| text.parse().map_err(|_| damaged()))
             .transpose()?,
-        content_sha256: parse::<ContentHash>(&sha256, "corrupt content_sha256")?,
-        created_at: Timestamp::parse(&created_at).map_err(|_| corrupt("corrupt created_at"))?,
+        content_sha256: sha256.parse::<ContentHash>().map_err(|_| damaged())?,
+        created_at: Timestamp::parse(&created_at).map_err(|_| damaged())?,
     })
 }
 
@@ -142,25 +148,32 @@ pub(crate) fn load_content(
     if content::hash_of(&text) != stored {
         return Err(damaged());
     }
-    match (song, arrangement) {
+    let (entity, decoded) = match (song, arrangement) {
         (Some(song), None) => {
             let song = song.parse::<SongId>().map_err(|_| damaged())?;
-            Ok((
+            (
                 RevisionEntity::Song(song),
                 RevisionContent::Song(content::decode_song(&text, id)?),
-            ))
+            )
         }
         (None, Some(arrangement)) => {
             let arrangement = arrangement
                 .parse::<ArrangementId>()
                 .map_err(|_| damaged())?;
-            Ok((
+            (
                 RevisionEntity::Arrangement(arrangement),
                 RevisionContent::Arrangement(content::decode_arrangement(&text, id)?),
-            ))
+            )
         }
-        _ => Err(damaged()),
+        _ => return Err(damaged()),
+    };
+    // Strict decoding: the stored bytes must be exactly what this build writes
+    // for the decoded content. serde alone accepts a missing optional key,
+    // reordered keys, whitespace and unsorted sets; none of those is canonical.
+    if content::encode(&decoded)?.text != text {
+        return Err(damaged());
     }
+    Ok((entity, decoded))
 }
 
 /// Reads one entity's chain, oldest first, following child links.
@@ -193,19 +206,42 @@ fn chain(
     };
     let broken = || StorageError::RevisionIntegrity { id: first };
     let total = records.len();
+    // Exactly one root, and each revision the parent of at most one other.
+    // Walking child links from the root must then visit every row once; a gap,
+    // a cycle or a stray branch leaves rows unvisited and is reported.
+    let mut root = None;
+    let mut child_of: HashMap<RevisionId, usize> = HashMap::with_capacity(total);
+    for (index, record) in records.iter().enumerate() {
+        match record.parent {
+            None => {
+                if root.replace(index).is_some() {
+                    return Err(broken());
+                }
+            }
+            Some(parent) => {
+                if child_of.insert(parent, index).is_some() {
+                    return Err(broken());
+                }
+            }
+        }
+    }
+    let mut slots: Vec<Option<RevisionRecord>> = records.into_iter().map(Some).collect();
     let mut ordered: Vec<RevisionRecord> = Vec::with_capacity(total);
-    let root = records
-        .iter()
-        .position(|record| record.parent.is_none())
-        .ok_or_else(broken)?;
-    ordered.push(records.swap_remove(root));
-    while !records.is_empty() {
-        let tail = ordered.last().map(|record| record.id).ok_or_else(broken)?;
-        let next = records
-            .iter()
-            .position(|record| record.parent == Some(tail))
+    let mut next = root.ok_or_else(broken)?;
+    loop {
+        let record = slots
+            .get_mut(next)
+            .and_then(Option::take)
             .ok_or_else(broken)?;
-        ordered.push(records.swap_remove(next));
+        let id = record.id;
+        ordered.push(record);
+        match child_of.get(&id) {
+            Some(&child) => next = child,
+            None => break,
+        }
+    }
+    if ordered.len() != total {
+        return Err(broken());
     }
     Ok(ordered)
 }

@@ -393,8 +393,11 @@ impl Storage {
     }
 
     /// Replaces a Song's content and appends a revision in one transaction.
-    /// `expected_parent` must be the Song's latest revision (see
-    /// [`Storage::latest_revision`]), else `StaleRevision`.
+    /// `expected_parent` must be the Song's latest revision, else
+    /// `StaleRevision`. A Song with no revisions (a T2.1-era row) is refused
+    /// with `InvalidInput { field: "expected_parent" }`: call
+    /// [`Storage::latest_revision`] first, which backfills one. `Replacement`
+    /// is whole-Arrangement only and is refused here.
     pub fn commit_song_edit(
         &self,
         song: SongId,
@@ -409,7 +412,10 @@ impl Storage {
     }
 
     /// Replaces an Arrangement's content and appends a revision in one
-    /// transaction. `expected_parent` must be its latest revision.
+    /// transaction. `expected_parent` must be its latest revision, else
+    /// `StaleRevision`. An Arrangement with no revisions is refused with
+    /// `InvalidInput { field: "expected_parent" }`: call
+    /// [`Storage::latest_revision`] first.
     pub fn commit_arrangement_edit(
         &self,
         arrangement: ArrangementId,
@@ -425,6 +431,10 @@ impl Storage {
     }
 
     /// Commits an earlier revision's content as a new `restoration` revision.
+    /// `expected_parent` must be the entity's latest revision, else
+    /// `StaleRevision`; an entity with no revisions is refused with
+    /// `InvalidInput { field: "expected_parent" }` (call
+    /// [`Storage::latest_revision`] first).
     pub fn restore_revision(
         &self,
         revision: RevisionId,
