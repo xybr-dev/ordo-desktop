@@ -244,10 +244,10 @@ impl FadeTimeline {
 /// before the interruption, so the operator can recognise where they were
 /// without Ordo reprojecting stale content.
 ///
-/// It survives ordinary navigation and output changes, and is cleared by the
-/// first command that puts operator-chosen content back on Program (a
-/// successful `Take`, including a Freeze or Blackout release) or by
-/// `DisableOutput`, the ordinary safe exit.
+/// It survives ordinary navigation and output changes, and is cleared when
+/// the live state newly becomes `Live` (a successful `Take`, including a
+/// Freeze or Blackout release; a Take on a Hold or Wait Cue clears it too
+/// while Program stays black) or by `DisableOutput`, the ordinary safe exit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RecoveredContext {
     /// Flat index of the last valid Program Cue, `None` when nothing had been
@@ -275,6 +275,8 @@ impl RecoveredContext {
 /// `Disconnected`, `program` is [`ProgramContent::Black`]; and
 /// `unavailable_black` is true only while `live` is `Live`. Every transition
 /// out of `Live` (Freeze, Blackout, Disable, display loss) clears it.
+/// `recovered` is `Some` only while `live` is neither `Live` nor `Frozen`, so
+/// Program is black.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EngineState {
     pub(crate) live: LiveState,

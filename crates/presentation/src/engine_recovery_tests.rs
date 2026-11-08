@@ -1,4 +1,4 @@
-use domain::presentation::{ContentHash, MassSection, ThemeKind, ThemeRef};
+use domain::presentation::{AutoPlay, ContentHash, MassSection, ThemeKind, ThemeRef};
 
 use super::*;
 use crate::journal::{LiveIntent, OutputEvidence, RecoveryPoint, SessionId, WrittenAt};
@@ -45,8 +45,25 @@ fn item(n: u16, cues: Vec<Cue>) -> MassItem {
     .unwrap()
 }
 
+/// A General Presentation item with auto-play durations, so recovering into
+/// it can exercise a running auto-play without a second snapshot.
+fn gp(n: u16, auto_seconds: u32, cues: Vec<Cue>) -> MassItem {
+    MassItem::new(
+        uuid(0x200 + u64::from(n)).parse().unwrap(),
+        format!("Item {n}"),
+        MassItemKind::GeneralPresentation,
+        None,
+        Some(AutoPlay {
+            default_seconds: auto_seconds,
+        }),
+        cues,
+    )
+    .unwrap()
+}
+
 /// Flat layout: 0 project, 1 project, 2 unavailable, 3 project, 4 trigger,
-/// 5 wait, 6 hold, 7 project, 8 project.
+/// 5 wait, 6 hold, 7 project, 8 project. Item 2 (Cues 7 and 8) is a
+/// General Presentation with a 3-second auto-play.
 fn snapshot_with_id(id: u64) -> Arc<PresentationSnapshot> {
     let section = MassSection::new(
         uuid(0x100).parse().unwrap(),
@@ -68,7 +85,7 @@ fn snapshot_with_id(id: u64) -> Arc<PresentationSnapshot> {
                     cue(6, CueBehavior::Hold),
                 ],
             ),
-            item(2, vec![project(7), project(8)]),
+            gp(2, 3, vec![project(7), project(8)]),
         ],
     )
     .unwrap();
@@ -96,6 +113,32 @@ fn snapshot() -> Arc<PresentationSnapshot> {
 const SESSION: &str = "00000000-0000-4000-8000-000000000705";
 const SOURCE_DIR: &str = "placeholder/snapshot";
 
+fn recovery_point(
+    snapshot: &PresentationSnapshot,
+    preview: usize,
+    program: Option<usize>,
+    state: LiveIntent,
+    enabled: bool,
+) -> RecoveryPoint {
+    let positions = snapshot.positions();
+    RecoveryPoint {
+        session_id: SessionId::parse(SESSION).unwrap(),
+        seq: 1,
+        written_at: WrittenAt::from_unix_seconds(1_794_182_400),
+        snapshot_id: snapshot.id(),
+        manifest_hash: ContentHash::from_bytes([7; 32]),
+        source_dir: SOURCE_DIR.to_owned(),
+        preview: positions[preview].cue_id,
+        program: program.map(|flat| positions[flat].cue_id),
+        state,
+        output: OutputEvidence {
+            enabled,
+            display: None,
+        },
+        ended: false,
+    }
+}
+
 fn recovery(
     snapshot: &PresentationSnapshot,
     preview: usize,
@@ -103,27 +146,11 @@ fn recovery(
     state: LiveIntent,
     enabled: bool,
 ) -> ValidatedRecovery {
-    let positions = snapshot.positions();
-    ValidatedRecovery {
-        point: RecoveryPoint {
-            session_id: SessionId::parse(SESSION).unwrap(),
-            seq: 1,
-            written_at: WrittenAt::from_unix_seconds(1_794_182_400),
-            snapshot_id: snapshot.id(),
-            manifest_hash: ContentHash::from_bytes([7; 32]),
-            source_dir: SOURCE_DIR.to_owned(),
-            preview: positions[preview].cue_id,
-            program: program.map(|flat| positions[flat].cue_id),
-            state,
-            output: OutputEvidence {
-                enabled,
-                display: None,
-            },
-            ended: false,
-        },
+    ValidatedRecovery::for_test(
+        recovery_point(snapshot, preview, program, state, enabled),
         preview,
         program,
-    }
+    )
 }
 
 fn recovered(
@@ -143,56 +170,127 @@ fn cue_at(snapshot: &PresentationSnapshot, flat: usize) -> CueId {
     snapshot.positions()[flat].cue_id
 }
 
+/// The fail-closed state right after recovery: nothing on Program, no
+/// auto-play, and the journaled intent kept only as private context.
+fn assert_restored(
+    engine: &Engine,
+    interrupted: LiveIntent,
+    preview: usize,
+    program: Option<usize>,
+) {
+    assert_eq!(engine.state().program(), ProgramContent::Black);
+    assert!(!engine.state().unavailable_black());
+    assert_eq!(engine.state().auto_play(), None);
+    assert_eq!(engine.state().preview(), preview);
+    assert_eq!(engine.state().revision(), 0);
+    let context = engine
+        .state()
+        .recovered()
+        .expect("a recovered session keeps private context");
+    assert_eq!(context.program(), program);
+    assert_eq!(context.interrupted(), interrupted);
+}
+
+/// One deliberate `Take` from recovered black: linked Live on the Preview
+/// Cue, the context cleared, and exactly one revision step.
+fn assert_take_live(engine: &mut Engine, preview: usize, now: u64) {
+    let revision = engine.state().revision();
+    assert_eq!(
+        engine.apply(Command::Take, Millis(now)),
+        Ok(Outcome::Changed)
+    );
+    assert_eq!(engine.state().live(), LiveState::Live);
+    assert_eq!(
+        engine.state().program(),
+        ProgramContent::Frame {
+            frame: frame(preview as u16),
+            cue: preview,
+        }
+    );
+    assert_eq!(engine.state().recovered(), None);
+    assert_eq!(engine.state().revision(), revision + 1);
+}
+
 #[test]
-fn recovery_restores_every_interrupted_state_and_output_condition() {
+fn recovery_restores_and_then_takes_every_interrupted_state() {
     let snapshot = snapshot();
     for interrupted in [LiveIntent::Live, LiveIntent::Frozen, LiveIntent::Blackout] {
-        let cases = [
-            (interrupted, true, true, LiveState::EnabledBlack),
-            (
-                interrupted,
-                true,
-                false,
+        for recognized in [true, false] {
+            let mut engine = recovered(&snapshot, 1, Some(0), interrupted, true, recognized);
+            let expected_live = if recognized {
+                LiveState::EnabledBlack
+            } else {
                 LiveState::Disconnected {
                     display_back: false,
-                },
-            ),
-            (
-                LiveIntent::OutputDisabled,
-                false,
-                false,
-                LiveState::OutputDisabled,
-            ),
-        ];
-        for (state, enabled, recognized, expected_live) in cases {
-            let engine = recovered(&snapshot, 1, Some(0), state, enabled, recognized);
+                }
+            };
             assert_eq!(engine.state().live(), expected_live, "{interrupted:?}");
-            assert_eq!(
-                engine.state().program(),
-                ProgramContent::Black,
-                "nothing reaches Program before Take"
-            );
-            assert_eq!(engine.state().preview(), 1);
-            assert_eq!(engine.state().revision(), 0);
-            let context = engine
-                .state()
-                .recovered()
-                .expect("a recovered session keeps private context");
-            assert_eq!(context.program(), Some(0));
-            assert_eq!(context.interrupted(), state);
+            assert_restored(&engine, interrupted, 1, Some(0));
+
+            if !recognized {
+                assert_eq!(
+                    engine.apply(Command::DisplayReturned { recognized: true }, Millis(1)),
+                    Ok(Outcome::Changed)
+                );
+                assert_eq!(engine.state().revision(), 1);
+                assert!(engine.state().recovered().is_some());
+                assert_eq!(engine.state().program(), ProgramContent::Black);
+            }
+
+            // Owner decision 3: Space always resumes the ordinary linked
+            // Live state, never Frozen or Blackout.
+            assert_take_live(&mut engine, 1, 2);
         }
     }
 
+    // Output was disabled: opening it stays black, then the same Take.
+    let mut disabled = recovered(
+        &snapshot,
+        1,
+        Some(0),
+        LiveIntent::OutputDisabled,
+        false,
+        false,
+    );
+    assert_eq!(disabled.state().live(), LiveState::OutputDisabled);
+    assert_restored(&disabled, LiveIntent::OutputDisabled, 1, Some(0));
+    assert_eq!(
+        disabled.apply(Command::EnableOutput, Millis(1)),
+        Ok(Outcome::Changed)
+    );
+    assert_eq!(disabled.state().live(), LiveState::EnabledBlack);
+    assert_eq!(disabled.state().revision(), 1);
+    assert!(disabled.state().recovered().is_some());
+    assert_eq!(disabled.state().program(), ProgramContent::Black);
+    assert_take_live(&mut disabled, 1, 2);
+}
+
+#[test]
+fn enabled_black_and_disconnected_intents_restore_and_take_too() {
+    let snapshot = snapshot();
     for interrupted in [LiveIntent::EnabledBlack, LiveIntent::Disconnected] {
-        let engine = recovered(&snapshot, 0, None, interrupted, true, true);
-        assert_eq!(engine.state().live(), LiveState::EnabledBlack);
-        assert_eq!(
-            engine
-                .state()
-                .recovered()
-                .map(|context| context.interrupted()),
-            Some(interrupted)
-        );
+        for recognized in [true, false] {
+            let mut engine = recovered(&snapshot, 0, None, interrupted, true, recognized);
+            let expected_live = if recognized {
+                LiveState::EnabledBlack
+            } else {
+                LiveState::Disconnected {
+                    display_back: false,
+                }
+            };
+            assert_eq!(engine.state().live(), expected_live);
+            assert_restored(&engine, interrupted, 0, None);
+
+            if !recognized {
+                assert_eq!(
+                    engine.apply(Command::DisplayReturned { recognized: true }, Millis(1)),
+                    Ok(Outcome::Changed)
+                );
+                assert_eq!(engine.state().revision(), 1);
+                assert!(engine.state().recovered().is_some());
+            }
+            assert_take_live(&mut engine, 0, 2);
+        }
     }
 }
 
@@ -212,23 +310,15 @@ fn take_from_recovered_enabled_black_goes_live_and_clears_the_context() {
     let mut engine = recovered(&snapshot, 1, Some(0), LiveIntent::Live, true, true);
     assert_eq!(engine.state().revision(), 0);
 
-    assert_eq!(engine.apply(Command::Take, Millis(1)), Ok(Outcome::Changed));
-    assert_eq!(engine.state().live(), LiveState::Live);
-    assert_eq!(
-        engine.state().program(),
-        ProgramContent::Frame {
-            frame: frame(1),
-            cue: 1,
-        }
-    );
-    assert_eq!(engine.state().recovered(), None);
-    assert_eq!(engine.state().revision(), 1);
+    assert_take_live(&mut engine, 1, 1);
 }
 
 #[test]
 fn refused_take_on_an_unavailable_preview_keeps_the_context() {
     let snapshot = snapshot();
     let mut engine = recovered(&snapshot, 2, Some(0), LiveIntent::Live, true, true);
+    let before = engine.state().clone();
+    let now = engine.last_now();
 
     assert_eq!(
         engine.apply(Command::Take, Millis(1)),
@@ -236,9 +326,8 @@ fn refused_take_on_an_unavailable_preview_keeps_the_context() {
             cue: cue_at(&snapshot, 2),
         })
     );
-    assert_eq!(engine.state().live(), LiveState::EnabledBlack);
-    assert_eq!(engine.state().program(), ProgramContent::Black);
-    assert_eq!(engine.state().revision(), 0);
+    assert_eq!(engine.state(), &before);
+    assert_eq!(engine.last_now(), now);
     assert!(engine.state().recovered().is_some());
 }
 
@@ -315,6 +404,61 @@ fn navigation_keeps_the_context_and_moves_preview_only() {
 }
 
 #[test]
+fn auto_play_runs_while_recovered_without_touching_program() {
+    let snapshot = snapshot();
+    let mut engine = recovered(&snapshot, 7, Some(0), LiveIntent::Frozen, true, true);
+
+    assert_eq!(
+        engine.apply(Command::ToggleAutoPlay, Millis(1)),
+        Ok(Outcome::Changed)
+    );
+    assert_eq!(engine.state().preview(), 7);
+    assert!(engine.state().auto_play().is_some());
+    assert_eq!(engine.state().program(), ProgramContent::Black);
+    assert!(engine.state().recovered().is_some());
+
+    assert_eq!(engine.tick(Millis(3_002)), Outcome::Changed);
+    assert_eq!(engine.state().preview(), 8);
+    assert_eq!(engine.state().program(), ProgramContent::Black);
+    assert_eq!(engine.state().live(), LiveState::EnabledBlack);
+    assert!(engine.state().recovered().is_some());
+}
+
+#[test]
+fn frame_unavailable_keeps_the_recovered_context() {
+    let snapshot = snapshot();
+    let mut engine = recovered(&snapshot, 0, Some(0), LiveIntent::Live, true, true);
+
+    assert_eq!(
+        engine.apply(
+            Command::FrameUnavailable {
+                frame: frame(0),
+                reason: UnavailableReason::DecodeFailed,
+            },
+            Millis(1),
+        ),
+        Ok(Outcome::Changed)
+    );
+    assert_eq!(engine.state().live(), LiveState::EnabledBlack);
+    assert_eq!(engine.state().program(), ProgramContent::Black);
+    assert!(engine.state().recovered().is_some());
+}
+
+#[test]
+fn display_lost_while_recovered_keeps_the_context() {
+    let snapshot = snapshot();
+    let mut engine = recovered(&snapshot, 1, Some(0), LiveIntent::Disconnected, true, false);
+    let before = engine.state().clone();
+
+    assert_eq!(
+        engine.apply(Command::DisplayLost, Millis(1)),
+        Ok(Outcome::Unchanged)
+    );
+    assert_eq!(engine.state(), &before);
+    assert!(engine.state().recovered().is_some());
+}
+
+#[test]
 fn blackout_from_recovered_keeps_the_context_until_released() {
     let snapshot = snapshot();
     let mut engine = recovered(&snapshot, 1, Some(0), LiveIntent::Blackout, true, true);
@@ -381,44 +525,54 @@ fn check_and_apply_agree_when_the_recovery_context_clears() {
 fn recover_rejects_a_different_snapshot_or_a_shifted_cue() {
     let snapshot = snapshot();
     let other = snapshot_with_id(2);
-    let point = recovery(&snapshot, 0, Some(0), LiveIntent::Live, true);
+    let base = recovery(&snapshot, 0, Some(0), LiveIntent::Live, true);
+    let base_point = base.point().clone();
     assert_eq!(
-        Engine::recover(Arc::clone(&other), &point, true).err(),
+        Engine::recover(Arc::clone(&other), &base, true).err(),
         Some(JournalRejection::SnapshotMismatch)
     );
 
-    let mut shifted_preview = point.clone();
-    shifted_preview.point.preview = cue_at(&snapshot, 1);
+    let mut shifted_preview_point = base_point.clone();
+    shifted_preview_point.preview = cue_at(&snapshot, 1);
+    let shifted_preview = ValidatedRecovery::for_test(shifted_preview_point, 0, Some(0));
     assert_eq!(
         Engine::recover(Arc::clone(&snapshot), &shifted_preview, true).err(),
         Some(JournalRejection::SnapshotMismatch)
     );
 
-    let mut shifted_program = point.clone();
-    shifted_program.point.program = Some(cue_at(&snapshot, 1));
+    let mut shifted_program_point = base_point.clone();
+    shifted_program_point.program = Some(cue_at(&snapshot, 1));
+    let shifted_program = ValidatedRecovery::for_test(shifted_program_point, 0, Some(0));
     assert_eq!(
         Engine::recover(Arc::clone(&snapshot), &shifted_program, true).err(),
         Some(JournalRejection::SnapshotMismatch)
     );
 
-    let mut missing_program = point.clone();
-    missing_program.program = None;
+    let missing_program = ValidatedRecovery::for_test(base_point.clone(), 0, None);
     assert_eq!(
         Engine::recover(Arc::clone(&snapshot), &missing_program, true).err(),
         Some(JournalRejection::SnapshotMismatch)
     );
 
-    let mut preview_out_of_range = point.clone();
-    preview_out_of_range.preview = snapshot.cue_count();
+    let preview_out_of_range =
+        ValidatedRecovery::for_test(base_point.clone(), snapshot.cue_count(), Some(0));
     assert_eq!(
         Engine::recover(Arc::clone(&snapshot), &preview_out_of_range, true).err(),
         Some(JournalRejection::SnapshotMismatch)
     );
 
-    let mut program_out_of_range = point;
-    program_out_of_range.program = Some(snapshot.cue_count());
+    let program_out_of_range =
+        ValidatedRecovery::for_test(base_point.clone(), 0, Some(snapshot.cue_count()));
     assert_eq!(
         Engine::recover(Arc::clone(&snapshot), &program_out_of_range, true).err(),
         Some(JournalRejection::SnapshotMismatch)
+    );
+
+    let mut ended_point = base_point;
+    ended_point.ended = true;
+    let ended = ValidatedRecovery::for_test(ended_point, 0, Some(0));
+    assert_eq!(
+        Engine::recover(Arc::clone(&snapshot), &ended, true).err(),
+        Some(JournalRejection::Stale)
     );
 }

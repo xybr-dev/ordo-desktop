@@ -200,16 +200,23 @@ impl Engine {
     /// Blackout lives on only as the private [`EngineState::recovered`] label:
     /// `Space` then resumes the ordinary linked Live state (Owner decision 3).
     ///
-    /// Fails closed with [`JournalRejection::SnapshotMismatch`] when
-    /// `snapshot` is not the one the point was validated against, or when an
-    /// index no longer names the journaled Cue. A caller must never swap a
-    /// different snapshot in between validation and recovery.
+    /// Fails closed when the point cannot be trusted: [`JournalRejection::Stale`]
+    /// for a record that ended cleanly, and
+    /// [`JournalRejection::SnapshotMismatch`] when `snapshot` is not the one
+    /// the point was validated against. The snapshot check re-reads the id and
+    /// the Cue positions, not the manifest hash: that pairing was already
+    /// checked by [`crate::journal::validate`], and this guard exists so a
+    /// caller cannot swap a different snapshot in between validation and
+    /// recovery.
     pub fn recover(
         snapshot: Arc<PresentationSnapshot>,
         recovery: &ValidatedRecovery,
         display_recognized: bool,
     ) -> Result<Engine, JournalRejection> {
-        let point = &recovery.point;
+        let point = recovery.point();
+        if point.ended {
+            return Err(JournalRejection::Stale);
+        }
         if point.snapshot_id != snapshot.id() {
             return Err(JournalRejection::SnapshotMismatch);
         }
@@ -219,17 +226,17 @@ impl Engine {
                 .get(flat)
                 .is_some_and(|position| position.cue_id == cue)
         };
-        if !names(recovery.preview, point.preview) {
+        if !names(recovery.preview(), point.preview) {
             return Err(JournalRejection::SnapshotMismatch);
         }
-        match (recovery.program, point.program) {
+        match (recovery.program(), point.program) {
             (Some(flat), Some(cue)) if names(flat, cue) => {}
             (None, None) => {}
             _ => return Err(JournalRejection::SnapshotMismatch),
         }
 
         let mut engine = Self::new(snapshot);
-        engine.state.preview = recovery.preview;
+        engine.state.preview = recovery.preview();
         engine.state.program = ProgramContent::Black;
         engine.state.unavailable_black = false;
         engine.state.auto_play = None;
@@ -243,7 +250,7 @@ impl Engine {
             }
         };
         engine.state.recovered = Some(RecoveredContext {
-            program: recovery.program,
+            program: recovery.program(),
             interrupted: point.state,
         });
         Ok(engine)
@@ -526,6 +533,11 @@ impl Engine {
             next.revision = self.state.revision;
         }
         self.state = next;
+        debug_assert!(
+            self.state.recovered.is_none()
+                || !matches!(self.state.live, LiveState::Live | LiveState::Frozen),
+            "a recovered context only exists while Program is black"
+        );
         if changed {
             Outcome::Changed
         } else {
@@ -593,11 +605,11 @@ impl Engine {
     }
 
     /// The one place a recovered session's private context is cleared: when
-    /// operator-chosen content newly reaches Program (a successful `Take`,
-    /// including a Freeze or Blackout release), or on `DisableOutput`, the
-    /// ordinary safe exit. A refused command never reaches here, so it keeps
-    /// the context; navigation and output events do too. `tick` passes no
-    /// command.
+    /// the live state newly becomes `Live` (a successful `Take`, including a
+    /// Freeze or Blackout release; a Take on a Hold or Wait Cue clears it too
+    /// while Program stays black), or on `DisableOutput`, the ordinary safe
+    /// exit. A refused command never reaches here, so it keeps the context;
+    /// navigation and output events do too. `tick` passes no command.
     fn settle_recovered(old: &EngineState, next: &mut EngineState, command: Option<Command>) {
         let newly_live = next.live == LiveState::Live && old.live != LiveState::Live;
         if newly_live || matches!(command, Some(Command::DisableOutput)) {

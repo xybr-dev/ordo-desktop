@@ -434,6 +434,25 @@ fn a_recovered_session_seeds_the_prior_program_cue() {
 }
 
 #[test]
+fn a_recovered_session_journals_the_unacted_intent_until_the_first_take() {
+    let snapshot = load_snapshot();
+    let mut engine = recovered_engine(&snapshot, 0, Some(1), LiveIntent::Frozen, true);
+    let mut recorder = recorder_for(&snapshot);
+
+    // The live state is EnabledBlack, but the session has not acted on the
+    // recovered label yet: a second crash must still read Frozen.
+    let first = recorder.observe(&engine, None, || at(1)).unwrap();
+    assert_eq!(first.state, LiveIntent::Frozen);
+    assert_eq!(first.program, Some(cue(&snapshot, 1)));
+    assert!(first.output.enabled);
+
+    run(&mut engine, Command::Take);
+    let taken = recorder.observe(&engine, None, || at(2)).unwrap();
+    assert_eq!(taken.state, LiveIntent::Live);
+    assert_eq!(taken.program, Some(cue(&snapshot, 0)));
+}
+
+#[test]
 fn recorded_points_round_trip_and_validate_against_their_snapshot() {
     let snapshot = load_snapshot();
     let mut engine = engine_on(&snapshot);

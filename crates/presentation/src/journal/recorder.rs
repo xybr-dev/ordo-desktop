@@ -125,6 +125,12 @@ impl JournalRecorder {
     /// seeded once from [`crate::state::RecoveredContext::program`]: a second
     /// crash before the first `Take` still names what Program showed before
     /// the interruption. A frame that later reaches Program replaces it.
+    ///
+    /// While that context exists, `state` is its journaled interrupted intent,
+    /// not the current live state: the session has not acted on the recovered
+    /// label yet, so a second crash keeps the original `frozen`/`blackout`
+    /// wording. `output` is still the real evidence. Once the context clears,
+    /// the live state is recorded as before.
     fn content(&mut self, engine: &Engine, display: Option<DisplayRecord>) -> Content {
         let state = engine.state();
         if self.last_valid_program.is_none()
@@ -136,10 +142,13 @@ impl JournalRecorder {
             self.last_valid_program = Some(cue_id_at(engine, cue));
         }
         let live = state.live();
+        let recorded_state = state
+            .recovered()
+            .map_or_else(|| LiveIntent::of(live), |context| context.interrupted());
         Content {
             preview: cue_id_at(engine, state.preview()),
             program: self.last_valid_program,
-            state: LiveIntent::of(live),
+            state: recorded_state,
             output: OutputEvidence {
                 enabled: live != LiveState::OutputDisabled,
                 display,
