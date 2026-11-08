@@ -23,6 +23,9 @@ use sha2::{Digest, Sha256};
 
 use crate::snapshot_reader::LoadedSnapshot;
 
+mod recorder;
+pub use recorder::{JournalRecorder, SessionIdentity};
+
 /// The only `schema_version` this build reads and writes.
 pub const SCHEMA_VERSION: u32 = 2;
 
@@ -101,6 +104,41 @@ impl WrittenAt {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// UTC `YYYY-MM-DDTHH:MM:SSZ` for seconds since the Unix epoch
+    /// (civil-from-days, proleptic Gregorian, so no date crate is needed).
+    /// Seconds past 9999-12-31T23:59:59Z are clamped there, so the result
+    /// always has the contract's four-digit year and always parses.
+    pub fn from_unix_seconds(seconds: u64) -> Self {
+        /// 9999-12-31T23:59:59Z, the last second the timestamp shape can spell.
+        const LAST_REPRESENTABLE: u64 = 253_402_300_799;
+        let seconds = seconds.min(LAST_REPRESENTABLE);
+        let days = seconds / 86_400;
+        let hour = (seconds % 86_400) / 3_600;
+        let minute = (seconds % 3_600) / 60;
+        let second = seconds % 60;
+
+        // Howard Hinnant's civil_from_days, with days shifted so that era 0
+        // starts on 0000-03-01.
+        let shifted = days + 719_468;
+        let era = shifted / 146_097;
+        let day_of_era = shifted % 146_097;
+        let year_of_era =
+            (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+        let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        let march_based_month = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * march_based_month + 2) / 5 + 1;
+        let month = if march_based_month < 10 {
+            march_based_month + 3
+        } else {
+            march_based_month - 9
+        };
+        let year = year_of_era + era * 400 + u64::from(month <= 2);
+
+        Self(format!(
+            "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+        ))
+    }
 }
 
 /// The live state the journal records (`state`).
@@ -124,6 +162,21 @@ impl LiveIntent {
             Self::Frozen => "frozen",
             Self::Blackout => "blackout",
             Self::Disconnected => "disconnected",
+        }
+    }
+
+    /// The journal's spelling of an Engine live state. Both `Disconnected`
+    /// values journal as `disconnected`: `display_back` is not recorded,
+    /// because the output stays black until the operator acts (Decision 272).
+    pub fn of(live: crate::state::LiveState) -> Self {
+        use crate::state::LiveState;
+        match live {
+            LiveState::OutputDisabled => Self::OutputDisabled,
+            LiveState::EnabledBlack => Self::EnabledBlack,
+            LiveState::Live => Self::Live,
+            LiveState::Frozen => Self::Frozen,
+            LiveState::Blackout => Self::Blackout,
+            LiveState::Disconnected { .. } => Self::Disconnected,
         }
     }
 

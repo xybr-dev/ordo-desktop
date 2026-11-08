@@ -25,8 +25,8 @@ use gpui::{
 use platform::{
     congregation_window::congregation_window_options,
     display::{
-        DisplayEvent, DisplayId, OutputAction, OutputController, OutputLifecycle, OutputRefusal,
-        Recognition,
+        DisplayEvent, DisplayEvidence, DisplayId, OutputAction, OutputController, OutputLifecycle,
+        OutputRefusal, Recognition,
     },
 };
 use ui::environment::UiEnvironment;
@@ -281,6 +281,17 @@ impl OutputOwner {
         self.pointer_over = false;
         self.controller.disable();
         true
+    }
+
+    /// The evidence of the display the output was placed on, while it is
+    /// enabled or disconnected; `None` once output is disabled. The recovery
+    /// journal records it.
+    pub fn evidence(&self) -> Option<&DisplayEvidence> {
+        match self.controller.control().output() {
+            OutputLifecycle::Enabled { evidence, .. }
+            | OutputLifecycle::Disconnected { evidence } => Some(evidence),
+            OutputLifecycle::Disabled => None,
+        }
     }
 
     /// The display the output is on, while it is enabled.

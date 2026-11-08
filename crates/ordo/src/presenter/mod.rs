@@ -80,7 +80,7 @@ use self::{
     rail::{PinControl, RailItem, RailModel, RailSection},
     session_header::{
         DisplayHealth, HeaderModel, OnCueView,
-        exit::{ExitRequested, SessionHooks},
+        exit::{ExitRequested, JournalMoment, SessionHooks},
     },
     surfaces::{Surface, SurfaceStack},
     timeline::{CueKind, CueModel, GroupModel, TimelineModel},
@@ -330,6 +330,8 @@ pub struct PresenterView {
     quit_focus: FocusHandle,
     /// What the owner plugs into a planned exit (no-ops until set).
     hooks: SessionHooks,
+    /// Set by [`PresenterView::end_session`]: the session ends at most once.
+    session_ended: bool,
     /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
     /// panel reads as `FocusContext::ShortcutReference` for key policy.
     reference_focus: FocusHandle,
@@ -460,6 +462,7 @@ impl PresenterView {
             stay_focus: cx.focus_handle(),
             quit_focus: cx.focus_handle(),
             hooks: SessionHooks::default(),
+            session_ended: false,
             reference_focus: cx.focus_handle(),
             reference_close_focus: cx.focus_handle(),
             reference_scroll: Scroll::new(),
@@ -648,6 +651,9 @@ impl PresenterView {
             return;
         };
         let change = output.refresh(operator, cx);
+        // The display's evidence may have changed without any Engine command;
+        // the recorder skips the point when the recorded content is unchanged.
+        self.journal(JournalMoment::Changed);
         match self.engine.state().live() {
             LiveState::OutputDisabled => {}
             LiveState::Disconnected { display_back } => {
@@ -998,7 +1004,7 @@ impl PresenterView {
         let enabled = self.engine.state().live() != LiveState::OutputDisabled;
         match platform::presenter_mode::exit_plan(enabled) {
             platform::presenter_mode::ExitPlan::Direct => {
-                (self.hooks.on_session_ended)();
+                self.end_session();
                 cx.emit(ExitRequested);
             }
             platform::presenter_mode::ExitPlan::Confirm => {
@@ -1018,9 +1024,32 @@ impl PresenterView {
     /// nothing here waits on the platform.
     fn end_presentation(&mut self, cx: &mut Context<Self>) {
         self.close_output_safely(cx);
-        // T1.7: mark the session complete and clear recovery
-        (self.hooks.on_session_ended)();
+        self.end_session();
         cx.emit(ExitRequested);
+    }
+
+    /// The session is over on purpose: the journal records the clean end, then
+    /// the owner's `on_session_ended` runs. Call it after the output is closed,
+    /// so the end point sees the disabled output. Called once per session by
+    /// the exit paths and by the shell's confirmed quit.
+    pub(crate) fn end_session(&mut self) {
+        if self.session_ended {
+            return;
+        }
+        self.session_ended = true;
+        self.journal(JournalMoment::Ended);
+        (self.hooks.on_session_ended)();
+    }
+
+    /// Tell the journal hook about the session. The evidence is the display the
+    /// output was placed on, if any; the hook decides what to record.
+    fn journal(&self, moment: JournalMoment) {
+        let display = self
+            .output
+            .as_ref()
+            .and_then(|output| output.evidence())
+            .map(crate::recovery::display_record);
+        (self.hooks.journal)(&self.engine, display, moment);
     }
 
     /// The safe shutdown of the output: blackout if Live or Frozen, close the
@@ -1118,6 +1147,7 @@ impl PresenterView {
         self.reschedule(cx);
         self.reschedule_preparing(cx);
         cx.notify();
+        self.journal(JournalMoment::Changed);
     }
 
     /// The groups the timeline shows now, from where it was last laid out:
@@ -6218,6 +6248,7 @@ mod tests {
                         .push(format!("close:{:?}", engine.state().live()));
                 }),
                 on_session_ended: Rc::new(move || ended.borrow_mut().push("ended".into())),
+                ..Default::default()
             });
         });
         let exited = log.clone();
@@ -6358,5 +6389,76 @@ mod tests {
             .view
             .read_with(cx, |view, _| view.sent.borrow().clone());
         assert_eq!(sent, [Command::DisableOutput]);
+    }
+
+    #[gpui::test]
+    fn the_journal_hook_sees_changes_and_exactly_one_end_after_the_last_disable(
+        cx: &mut TestAppContext,
+    ) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let seen = Rc::new(RefCell::new(Vec::<(JournalMoment, LiveState)>::new()));
+        open.view.update(cx, |view, _| {
+            let seen = seen.clone();
+            view.set_session_hooks(SessionHooks {
+                journal: Rc::new(move |engine, _, moment| {
+                    seen.borrow_mut().push((moment, engine.state().live()));
+                }),
+                ..Default::default()
+            });
+        });
+        run(&open, cx, Command::EnableOutput).unwrap();
+        assert_eq!(
+            seen.borrow().last(),
+            Some(&(JournalMoment::Changed, LiveState::EnabledBlack))
+        );
+        run(&open, cx, Command::Take).unwrap();
+        assert_eq!(
+            seen.borrow().last().map(|(moment, _)| *moment),
+            Some(JournalMoment::Changed)
+        );
+        seen.borrow_mut().clear();
+
+        click(cx, "header-exit-presenter");
+        click(cx, "button-End presentation");
+
+        let seen = seen.borrow();
+        let ended: Vec<_> = seen
+            .iter()
+            .enumerate()
+            .filter(|(_, (moment, _))| *moment == JournalMoment::Ended)
+            .collect();
+        assert_eq!(ended.len(), 1, "{seen:?}");
+        assert_eq!(ended[0].0, seen.len() - 1, "Ended comes last: {seen:?}");
+        assert_eq!(
+            seen[seen.len() - 2],
+            (JournalMoment::Changed, LiveState::OutputDisabled),
+            "DisableOutput is recorded before the end"
+        );
+    }
+
+    #[gpui::test]
+    fn a_direct_exit_ends_the_session_exactly_once_even_if_ended_again(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let ends = Rc::new(RefCell::new((0usize, 0usize)));
+        open.view.update(cx, |view, _| {
+            let journal_ends = ends.clone();
+            let session_ends = ends.clone();
+            view.set_session_hooks(SessionHooks {
+                journal: Rc::new(move |_, _, moment| {
+                    if moment == JournalMoment::Ended {
+                        journal_ends.borrow_mut().0 += 1;
+                    }
+                }),
+                on_session_ended: Rc::new(move || session_ends.borrow_mut().1 += 1),
+                ..Default::default()
+            });
+        });
+
+        click(cx, "header-exit-presenter");
+        assert_eq!(*ends.borrow(), (1, 1));
+
+        // The shell's confirmed quit may follow; the session is already over.
+        open.view.update(cx, |view, _| view.end_session());
+        assert_eq!(*ends.borrow(), (1, 1));
     }
 }

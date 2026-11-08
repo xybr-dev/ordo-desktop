@@ -12,6 +12,7 @@ pub enum WorkerKind {
     Storage,
     Background,
     Canonical,
+    Journal,
 }
 
 impl WorkerKind {
@@ -20,6 +21,7 @@ impl WorkerKind {
             Self::Storage => "ordo-storage",
             Self::Background => "ordo-background",
             Self::Canonical => "ordo-canonical",
+            Self::Journal => "ordo-journal",
         }
     }
 }

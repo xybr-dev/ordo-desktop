@@ -42,9 +42,10 @@ presentation = { path = "crates/presentation" }
 ui = { path = "crates/ui" }
 platform = { path = "crates/platform" }
 async-channel = "2.5.0"
-# Only for the v5 (SHA-1) uuid that GPUI derives for Windows displays; already in
-# the lockfile through GPUI, so this adds no new crate.
-uuid = { version = "=1.25.0", default-features = false, features = ["v5"] }
+# v5 (SHA-1) is the uuid GPUI derives for Windows displays; v4 is the random
+# session id of the recovery journal (T1.7b). Both are already in the lockfile
+# (v4 uses `getrandom`), so this adds no new crate.
+uuid = { version = "=1.25.0", default-features = false, features = ["v4", "v5"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 # `deflate-flate2`, not `deflate`: zip 9's `deflate` forces flate2's zlib-rs backend
 # workspace-wide, which changes every PNG the spikes encode (T0.9 pins their

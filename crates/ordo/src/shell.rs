@@ -141,6 +141,9 @@ pub struct ShellView {
     appearance_changed_since_startup: bool,
     scale_changed_since_startup: bool,
     save_preferences: Option<Rc<dyn Fn(UiPreferences)>>,
+    /// The recovery journal's writer, when the runtime started one. A
+    /// Presenter session records through it.
+    journal: Option<crate::recovery::JournalWriter>,
     focus_handle: FocusHandle,
     _appearance_subscription: Subscription,
     /// Operator-only return guidance while the pointer is over congregation
@@ -227,6 +230,7 @@ impl ShellView {
             appearance_changed_since_startup: false,
             scale_changed_since_startup: false,
             save_preferences,
+            journal: None,
             focus_handle: cx.focus_handle(),
             _appearance_subscription: appearance_subscription,
             cursor_locator: None,
@@ -275,10 +279,19 @@ impl ShellView {
     /// window closes, which runs the existing shutdown path unchanged.
     fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(presenter) = self.presenter.clone() {
-            presenter.update(cx, |view, cx| view.close_output_safely(cx));
+            presenter.update(cx, |view, cx| {
+                view.close_output_safely(cx);
+                view.end_session();
+            });
         }
         self.quit_confirmed = true;
         window.remove_window();
+    }
+
+    /// Give the shell the runtime's journal writer. Without one a Presenter
+    /// session is not journaled (the lab and most tests).
+    pub fn set_journal_writer(&mut self, writer: crate::recovery::JournalWriter) {
+        self.journal = Some(writer);
     }
 
     /// Mirrors the congregation-output controller's cursor locator into this
@@ -1305,6 +1318,7 @@ mod tests {
     use std::cell::Cell;
     use ui::environment::InterfaceScale;
 
+    mod journal_wiring;
     mod output_lifecycle_e2e;
     mod quit_confirmation;
 
