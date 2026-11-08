@@ -12,11 +12,11 @@
 //! it can neither move `program_drawn()` nor reach the congregation window,
 //! and its text says the frame is not on screen now.
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use gpui::{
-    AnyElement, FontWeight, IntoElement, ParentElement, RenderImage, Role, SharedString, Styled,
-    div, prelude::*, px, rgb, svg,
+    AnyElement, App, FontWeight, IntoElement, ParentElement, RenderImage, Role, SharedString,
+    Styled, Window, div, prelude::*, px, rgb, svg,
 };
 use presentation::{journal::LiveIntent, state::LiveState};
 use rendering::Frame;
@@ -35,6 +35,9 @@ pub const STRIP_HEIGHT: f32 = 56.0;
 /// Unscaled width of the prior block's mini frame (the mockup's 64 px).
 const MINI_WIDTH: f32 = 64.0;
 
+/// The prior block's accessible name: what a click does.
+const SHOW_IN_PREVIEW: &str = "Show in Preview";
+
 const HEADLINE: &str = "Presentation recovered · Congregation output is black";
 
 /// Fallback when the journal recorded no display name.
@@ -42,6 +45,8 @@ const UNNAMED_DISPLAY: &str = "The congregation display";
 
 /// The private context of Program before the interruption.
 pub struct PriorModel {
+    /// The flat index of the prior Program Cue, which a click shows in Preview.
+    pub flat: usize,
     /// The Cue's frame once the thumbnail store has composed it; `None` draws
     /// the same black placeholder a timeline tile does.
     pub frame: Option<Arc<Frame>>,
@@ -133,9 +138,13 @@ fn info_color(environment: UiEnvironment) -> u32 {
     }
 }
 
-/// The strip row. Full width, a status node for assistive technology, and no
-/// interactive child.
-pub fn strip(model: StripModel) -> impl IntoElement {
+/// Shows a flat Cue in Preview. Navigation only: nothing it does goes live.
+pub type OnShowPrior = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+
+/// The strip row. Full width and a status node for assistive technology. Its
+/// only interactive child is the prior block, which navigates Preview; nothing
+/// in the strip dismisses it.
+pub fn strip(model: StripModel, show_prior: OnShowPrior) -> impl IntoElement {
     let environment = model.environment;
     let scale = environment.preferences().scale;
     let palette = tokens::palette(environment.appearance());
@@ -192,14 +201,23 @@ pub fn strip(model: StripModel) -> impl IntoElement {
                         .child(model.detail),
                 ),
         )
-        .children(model.prior.map(|prior| prior_block(prior, environment)))
+        .children(
+            model
+                .prior
+                .map(|prior| prior_block(prior, environment, show_prior)),
+        )
 }
 
 /// The dashed "Before the interruption" block: a mini frame and two lines.
-fn prior_block(prior: PriorModel, environment: UiEnvironment) -> AnyElement {
+fn prior_block(
+    prior: PriorModel,
+    environment: UiEnvironment,
+    show_prior: OnShowPrior,
+) -> AnyElement {
     let scale = environment.preferences().scale;
     let palette = tokens::palette(environment.appearance());
     let meta = prior.meta();
+    let flat = prior.flat;
     div()
         .id("recovery-prior")
         .debug_selector(|| "recovery-prior".into())
@@ -215,6 +233,12 @@ fn prior_block(prior: PriorModel, environment: UiEnvironment) -> AnyElement {
         .border_color(rgb(palette.border_strong))
         .rounded(px(scale.apply(tokens::radius::CONTROL)))
         .text_size(px(scale.apply(13.0)))
+        .hover(|style| style.bg(rgb(palette.surface_secondary)))
+        .cursor_pointer()
+        .role(Role::Button)
+        .aria_label(SHOW_IN_PREVIEW)
+        .aria_description(meta.clone())
+        .on_click(move |_, window, cx| show_prior(flat, window, cx))
         .child(
             div()
                 .debug_selector(|| "recovery-prior-mini".into())

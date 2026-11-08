@@ -832,3 +832,66 @@ fn a_found_session_opens_without_a_present_press_and_a_lost_worker_unlocks(
     arrive(&shell, cx, None);
     assert!(shell.read_with(cx, |shell, _| !shell.startup_check.is_pending()));
 }
+
+/// Frozen on flat Cue 0 while Preview was left on flat Cue 2.
+fn frozen_with_preview_elsewhere() -> RecoveryPoint {
+    interrupted_point(
+        OutputEvidence {
+            enabled: true,
+            display: Some(projector_record()),
+        },
+        LiveIntent::Frozen,
+        false,
+        Some(0),
+    )
+}
+
+#[gpui::test]
+fn clicking_the_prior_program_previews_it_without_going_live(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    write(&dir, &frozen_with_preview_elsewhere());
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+    recover(&shell, cx, found);
+    let presenter = presenter(&shell, cx);
+    let preview =
+        |cx: &VisualTestContext| presenter.read_with(cx, |view, _| view.engine().state().preview());
+    assert_eq!(preview(cx), 2, "Preview came back where it was left");
+    assert_eq!(live(&presenter, cx), LiveState::EnabledBlack);
+
+    click(cx, "recovery-prior");
+
+    assert_eq!(preview(cx), 0, "Preview is on the prior Program Cue");
+    assert_eq!(live(&presenter, cx), LiveState::EnabledBlack);
+    assert!(presenter.read_with(cx, |view, _| view.program_drawn().frame.is_none()));
+    let handle = presenter
+        .read_with(cx, |view, _| view.output_window())
+        .expect("the congregation window is open");
+    let drawn = handle
+        .update(cx, |view, _, _| view.drawn_frame().cloned())
+        .unwrap();
+    assert!(drawn.is_none(), "the output still draws nothing");
+    assert!(strip_present(cx), "navigation keeps the recovered context");
+    assert!(cx.debug_bounds("recovery-prior").is_some());
+
+    // Already there: nothing changes.
+    let revision = presenter.read_with(cx, |view, _| view.engine().state().revision());
+    click(cx, "recovery-prior");
+    assert_eq!(
+        presenter.read_with(cx, |view, _| view.engine().state().revision()),
+        revision
+    );
+    assert_eq!(preview(cx), 0);
+
+    keys(cx, "space");
+
+    assert!(!strip_present(cx), "Space clears the strip");
+    assert!(
+        presenter.read_with(cx, |view, _| matches!(
+            view.engine().state().program(),
+            ProgramContent::Frame { cue: 0, .. }
+        )),
+        "Space took that Cue live"
+    );
+    assert!(presenter.read_with(cx, |view, _| view.program_drawn().frame.is_some()));
+}

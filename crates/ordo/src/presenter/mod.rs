@@ -1373,6 +1373,7 @@ impl PresenterView {
                 _ => (None, None),
             };
             Some(recovery_strip::PriorModel {
+                flat,
                 frame,
                 image,
                 state: recovery_strip::state_word(context.interrupted()),
@@ -2639,7 +2640,20 @@ impl PresenterView {
         // already takes the height the monitors need.
         let recovery_strip = self
             .recovery_strip_model(layout.regime == Regime::Constrained, environment)
-            .map(recovery_strip::strip);
+            .map(|model| {
+                let view = view.clone();
+                recovery_strip::strip(
+                    model,
+                    Rc::new(move |flat, _, cx| {
+                        // Navigation only, through the command path keyboard
+                        // navigation uses; the timeline follows Preview.
+                        view.update(cx, |view, cx| {
+                            view.command(Command::GoTo(flat), cx).ok();
+                        })
+                        .ok();
+                    }),
+                )
+            });
         let root = self
             .regions
             .root(window, cx)
