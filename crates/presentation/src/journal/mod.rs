@@ -240,11 +240,44 @@ pub struct RecoveryPoint {
 
 /// A point that matches its snapshot, with flat indexes in the Engine's Cue
 /// order (`PresentationSnapshot::positions`).
+///
+/// Only [`validate`] constructs one, so holding this type is the proof that
+/// the record was checked against the snapshot it will reopen.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedRecovery {
-    pub point: RecoveryPoint,
-    pub preview: usize,
-    pub program: Option<usize>,
+    point: RecoveryPoint,
+    preview: usize,
+    program: Option<usize>,
+}
+
+impl ValidatedRecovery {
+    /// The validated journal record.
+    pub fn point(&self) -> &RecoveryPoint {
+        &self.point
+    }
+
+    /// Flat index of the Preview Cue.
+    pub fn preview(&self) -> usize {
+        self.preview
+    }
+
+    /// Flat index of the last valid Program Cue, if anything had been live.
+    pub fn program(&self) -> Option<usize> {
+        self.program
+    }
+}
+
+#[cfg(test)]
+impl ValidatedRecovery {
+    /// Builds a validated recovery by hand for Engine tests that have no
+    /// [`LoadedSnapshot`]. Production code can only get one from [`validate`].
+    pub(crate) fn for_test(point: RecoveryPoint, preview: usize, program: Option<usize>) -> Self {
+        Self {
+            point,
+            preview,
+            program,
+        }
+    }
 }
 
 // ---- wire form: field order is the schema order and the canonical order ----

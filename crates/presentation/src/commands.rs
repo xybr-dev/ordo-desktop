@@ -50,7 +50,9 @@ pub enum Command {
     /// Stop auto-play (menu); a no-op when none is active.
     StopAutoPlay,
     /// Recovery or session restore: stops auto-play and changes nothing else.
-    /// Restored sessions never resume auto-play silently.
+    /// Restored sessions never resume auto-play silently. Unrelated to
+    /// [`crate::engine::Engine::recover`], which reopens an interrupted
+    /// session from the journal.
     Recover,
     /// A frame failed at runtime (render, asset, or decode failure reported by
     /// the frame scheduler). Every Cue projecting it becomes unavailable.

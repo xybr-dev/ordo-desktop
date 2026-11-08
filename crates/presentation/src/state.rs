@@ -7,6 +7,8 @@
 
 use domain::presentation::{FrameId, MassItemId, MassSectionId};
 
+use crate::journal::LiveIntent;
+
 /// A monotonic timestamp in milliseconds.
 ///
 /// The Engine never reads a clock. The caller supplies the time of every
@@ -237,12 +239,44 @@ impl FadeTimeline {
     }
 }
 
+/// Private operator context of a session reopened after an unexpected end
+/// (Decision 228). It never drives Program: it only names what Program showed
+/// before the interruption, so the operator can recognise where they were
+/// without Ordo reprojecting stale content.
+///
+/// It survives ordinary navigation and output changes, and is cleared when
+/// the live state newly becomes `Live` (a successful `Take`, including a
+/// Freeze or Blackout release; a Take on a Hold or Wait Cue clears it too
+/// while Program stays black) or by `DisableOutput`, the ordinary safe exit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RecoveredContext {
+    /// Flat index of the last valid Program Cue, `None` when nothing had been
+    /// live before the interruption.
+    pub(crate) program: Option<usize>,
+    /// The live state the session was in when it was interrupted.
+    pub(crate) interrupted: LiveIntent,
+}
+
+impl RecoveredContext {
+    /// Flat index of the last valid Program Cue before the interruption.
+    pub fn program(&self) -> Option<usize> {
+        self.program
+    }
+
+    /// The live state the session was in when it was interrupted.
+    pub fn interrupted(&self) -> LiveIntent {
+        self.interrupted
+    }
+}
+
 /// The Engine's complete state after one command.
 ///
 /// Invariants: while `live` is `OutputDisabled`, `EnabledBlack`, `Blackout`, or
 /// `Disconnected`, `program` is [`ProgramContent::Black`]; and
 /// `unavailable_black` is true only while `live` is `Live`. Every transition
 /// out of `Live` (Freeze, Blackout, Disable, display loss) clears it.
+/// `recovered` is `Some` only while `live` is neither `Live` nor `Frozen`, so
+/// Program is black.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EngineState {
     pub(crate) live: LiveState,
@@ -250,6 +284,9 @@ pub struct EngineState {
     pub(crate) program: ProgramContent,
     pub(crate) unavailable_black: bool,
     pub(crate) auto_play: Option<AutoPlayStatus>,
+    /// Set only by [`crate::engine::Engine::recover`]; see
+    /// [`RecoveredContext`].
+    pub(crate) recovered: Option<RecoveredContext>,
     pub(crate) revision: u64,
 }
 
@@ -284,6 +321,13 @@ impl EngineState {
         self.auto_play
     }
 
+    /// The private context of a recovered session, or `None` for an ordinary
+    /// one. It is observable: clearing it after the first Take is a real
+    /// change, so the revision moves exactly once for that command.
+    pub fn recovered(&self) -> Option<RecoveredContext> {
+        self.recovered
+    }
+
     /// Equality for change detection: everything but the revision and the
     /// auto-play clock, so a restarted timer alone is not a state change.
     pub(crate) fn same_observable(&self, other: &Self) -> bool {
@@ -292,6 +336,7 @@ impl EngineState {
             && self.program == other.program
             && self.unavailable_black == other.unavailable_black
             && self.auto_play.map(|run| run.scope) == other.auto_play.map(|run| run.scope)
+            && self.recovered == other.recovered
     }
 
     /// Counts state changes. It increments exactly once per
