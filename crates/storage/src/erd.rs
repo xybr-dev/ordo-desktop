@@ -308,7 +308,11 @@ fn render(tables: &[Table]) -> String {
                 "| {} | {} | {} | {} | {} | {} |",
                 escape_cell(&column.name),
                 escape_cell(&type_name),
-                if column.not_null { "no" } else { "yes" },
+                if column.not_null || is_implicit_integer_primary_key(table, column) {
+                    "no"
+                } else {
+                    "yes"
+                },
                 escape_cell(default),
                 primary_key_label(column.primary_key),
                 check
@@ -406,6 +410,20 @@ fn primary_key_label(position: i64) -> String {
     }
 }
 
+/// SQLite's `INTEGER PRIMARY KEY` is the rowid alias and is implicitly NOT
+/// NULL even though `pragma_table_info` reports `notnull = 0`.
+fn is_implicit_integer_primary_key(table: &Table, column: &Column) -> bool {
+    if table.without_rowid || column.primary_key == 0 {
+        return false;
+    }
+    let primary_key_columns = table
+        .columns
+        .iter()
+        .filter(|candidate| candidate.primary_key != 0)
+        .count();
+    primary_key_columns == 1 && column.type_name.trim().eq_ignore_ascii_case("integer")
+}
+
 fn mermaid_type(type_name: &str) -> String {
     let lower = type_name.trim().to_ascii_lowercase();
     if lower.is_empty() {
@@ -415,17 +433,51 @@ fn mermaid_type(type_name: &str) -> String {
     }
 }
 
+/// The exact canonical UUIDv4 CHECK the migration authors for `column`.
+fn canonical_uuid_check(column: &str) -> String {
+    format!(
+        "length({column}) = 36 AND {column} NOT GLOB '*[^0-9a-f-]*' \
+         AND length(replace({column}, '-', '')) = 32 \
+         AND substr({column}, 9, 1) = '-' \
+         AND substr({column}, 14, 1) = '-' \
+         AND substr({column}, 19, 1) = '-' \
+         AND substr({column}, 24, 1) = '-' \
+         AND substr({column}, 15, 1) = '4' \
+         AND substr({column}, 20, 1) IN ('8', '9', 'a', 'b')"
+    )
+}
+
+/// The GLOB half of the canonical UTC-time CHECK for `column`.
+fn canonical_time_glob(column: &str) -> String {
+    format!(
+        "{column} GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9].[0-9][0-9][0-9]Z'"
+    )
+}
+
+/// The exact canonical UTC-time CHECK the migration authors for a non-null
+/// `column`.
+fn canonical_time_check(column: &str) -> String {
+    format!(
+        "{} AND strftime('%Y-%m-%dT%H:%M:%fZ', {column}) IS {column} \
+         AND substr({column}, 12, 2) <= '23'",
+        canonical_time_glob(column)
+    )
+}
+
+/// The exact nullable canonical UTC-time CHECK for `column`.
+fn nullable_canonical_time_check(column: &str) -> String {
+    format!("{column} IS NULL OR ({})", canonical_time_check(column))
+}
+
 fn summarize_check(column: &str, expression: &str) -> String {
-    let id_shape = format!("substr({column}, 15, 1) = '4'");
-    if expression.contains(&id_shape) {
+    if expression == canonical_uuid_check(column) {
         return "canonical UUIDv4".to_owned();
     }
-    if expression.contains("GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]") {
-        let nullable = format!("{column} IS NULL OR");
-        if expression.starts_with(&nullable) {
-            return "NULL or canonical UTC time".to_owned();
-        }
+    if expression == canonical_time_check(column) {
         return "canonical UTC time".to_owned();
+    }
+    if expression == nullable_canonical_time_check(column) {
+        return "NULL or canonical UTC time".to_owned();
     }
     expression.to_owned()
 }
@@ -569,19 +621,26 @@ fn index_columns(conn: &Connection, index: &str) -> Vec<String> {
         .collect()
 }
 
-/// Split one table body at top-level commas, respecting quoted strings.
+/// Split one table body at top-level commas, respecting quoted strings and
+/// quoted identifiers.
 fn split_segments(body: &str) -> Vec<&str> {
     let bytes = body.as_bytes();
     let mut segments = Vec::new();
     let mut start = 0;
     let mut depth = 0_u32;
-    let mut quoted = false;
+    let mut quote: Option<u8> = None;
     for (index, byte) in bytes.iter().copied().enumerate() {
+        if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+            continue;
+        }
         match byte {
-            b'\'' => quoted = !quoted,
-            b'(' if !quoted => depth += 1,
-            b')' if !quoted => depth = depth.saturating_sub(1),
-            b',' if !quoted && depth == 0 => {
+            b'\'' | b'"' => quote = Some(byte),
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
                 segments.push(&body[start..index]);
                 start = index + 1;
             }
@@ -590,6 +649,22 @@ fn split_segments(body: &str) -> Vec<&str> {
     }
     segments.push(&body[start..]);
     segments
+}
+
+/// The first token of a column definition, with double-quoted identifiers
+/// unquoted. A quoted name may contain whitespace; an unquoted name ends at
+/// whitespace or the opening parenthesis of its declared type.
+fn first_token(segment: &str) -> &str {
+    let segment = segment.trim_start();
+    if let Some(rest) = segment.strip_prefix('"')
+        && let Some(end) = rest.find('"')
+    {
+        return &rest[..end];
+    }
+    segment
+        .split(|character: char| character.is_ascii_whitespace() || character == '(')
+        .next()
+        .unwrap_or_default()
 }
 
 /// Parse column-level and table-level CHECK expressions from one table SQL.
@@ -608,10 +683,7 @@ fn parse_checks(sql: &str) -> Checks {
         if segment.is_empty() {
             continue;
         }
-        let first = segment
-            .split(|character: char| character.is_ascii_whitespace() || character == '(')
-            .next()
-            .unwrap_or_default();
+        let first = first_token(segment);
         let expressions = extract_checks(segment);
         if expressions.is_empty() {
             continue;
@@ -630,35 +702,53 @@ fn parse_checks(sql: &str) -> Checks {
     checks
 }
 
-/// Extract every `CHECK (...)` expression from one SQL fragment.
+/// Extract every `CHECK (...)` expression outside quoted strings and quoted
+/// identifiers.
 fn extract_checks(fragment: &str) -> Vec<String> {
     let lowercase = fragment.to_ascii_lowercase();
     let bytes = fragment.as_bytes();
+    let lower = lowercase.as_bytes();
     let mut checks = Vec::new();
-    let mut search = 0;
+    let mut index = 0;
+    let mut quote: Option<u8> = None;
 
-    while let Some(relative) = lowercase[search..].find("check") {
-        let at = search + relative;
-        let after = at + "check".len();
-        let word_before = at > 0 && is_word(bytes[at - 1]);
-        let word_after = after < bytes.len() && is_word(bytes[after]);
-        if word_before || word_after {
-            search = after;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+            index += 1;
             continue;
         }
-        let mut open = after;
-        while open < bytes.len() && bytes[open].is_ascii_whitespace() {
-            open += 1;
-        }
-        if bytes.get(open) != Some(&b'(') {
-            search = after;
+        if byte == b'\'' || byte == b'"' {
+            quote = Some(byte);
+            index += 1;
             continue;
         }
-        let Some(close) = matching_paren(bytes, open) else {
-            break;
-        };
-        checks.push(normalize_whitespace(&fragment[open + 1..close]));
-        search = close + 1;
+        if lower[index..].starts_with(b"check") {
+            let after = index + "check".len();
+            let word_before = index > 0 && is_word(bytes[index - 1]);
+            let word_after = after < bytes.len() && is_word(bytes[after]);
+            if word_before || word_after {
+                index = after;
+                continue;
+            }
+            let mut open = after;
+            while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+                open += 1;
+            }
+            if bytes.get(open) == Some(&b'(')
+                && let Some(close) = matching_paren(bytes, open)
+            {
+                checks.push(normalize_whitespace(&fragment[open + 1..close]));
+                index = close + 1;
+                continue;
+            }
+            index = after;
+            continue;
+        }
+        index += 1;
     }
 
     checks
@@ -670,12 +760,18 @@ fn is_word(byte: u8) -> bool {
 
 fn matching_paren(bytes: &[u8], open: usize) -> Option<usize> {
     let mut depth = 0_u32;
-    let mut quoted = false;
+    let mut quote: Option<u8> = None;
     for (index, byte) in bytes.iter().copied().enumerate().skip(open) {
+        if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+            continue;
+        }
         match byte {
-            b'\'' => quoted = !quoted,
-            b'(' if !quoted => depth += 1,
-            b')' if !quoted => {
+            b'\'' | b'"' => quote = Some(byte),
+            b'(' => depth += 1,
+            b')' => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
                     return Some(index);
@@ -742,6 +838,54 @@ fn check_parser_handles_nested_parentheses() {
 
     assert_eq!(checks.column("a"), Some("length(a) IN (1, 2)"));
     assert_eq!(checks.table, vec!["(a IS NULL) <> (b IS NULL)"]);
+}
+
+#[test]
+fn check_parser_ignores_quoted_check_text_and_unquotes_columns() {
+    let checks = parse_checks(
+        "CREATE TABLE t (\
+         a TEXT DEFAULT 'check (fake)', \
+         \"b\" TEXT CHECK (\"b\" GLOB '*[(]x'), \
+         c TEXT CHECK (c <> 'check (not a check)'), \
+         CHECK (a IS NULL OR c IS NULL))",
+    );
+
+    assert_eq!(checks.column("a"), None, "quoted CHECK text is ignored");
+    assert_eq!(checks.column("b"), Some("\"b\" GLOB '*[(]x'"));
+    assert_eq!(checks.column("c"), Some("c <> 'check (not a check)'"));
+    assert_eq!(checks.table, vec!["a IS NULL OR c IS NULL"]);
+}
+
+#[test]
+fn weakened_id_check_renders_verbatim() {
+    let canonical = canonical_uuid_check("id");
+    assert_eq!(summarize_check("id", &canonical), "canonical UUIDv4");
+
+    let weakened = canonical.replace(" AND substr(id, 20, 1) IN ('8', '9', 'a', 'b')", "");
+    assert_ne!(weakened, canonical);
+    assert_eq!(summarize_check("id", &weakened), weakened);
+}
+
+#[test]
+fn canonical_check_templates_match_the_bundled_migration() {
+    let tables = migrate_and_read();
+    let song = tables
+        .iter()
+        .find(|table| table.name == "song")
+        .expect("song table");
+
+    assert_eq!(
+        song.checks.column("id"),
+        Some(canonical_uuid_check("id").as_str())
+    );
+    assert_eq!(
+        song.checks.column("created_at"),
+        Some(canonical_time_check("created_at").as_str())
+    );
+    assert_eq!(
+        song.checks.column("archived_at"),
+        Some(nullable_canonical_time_check("archived_at").as_str())
+    );
 }
 
 #[test]
