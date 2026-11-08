@@ -17,6 +17,11 @@ gpui.workspace = true
 gpui_platform.workspace = true
 storage.workspace = true
 uuid.workspace = true
+# Local close time of an interrupted session (T1.7d): the journal stores UTC,
+# the operator reads local. `time` was already locked; `local-offset` adds
+# `num_threads` and `libc` (Unix only), and the lockfile lists `time-macros`
+# without building it.
+time = { version = "=0.3.55", default-features = false, features = ["local-offset", "parsing"] }
 # Row padding plus PNG encoding for finished viewport pixels, through the
 # same qualified edge and pin the canonical raster path uses.
 tiny-skia = "=0.11.4"

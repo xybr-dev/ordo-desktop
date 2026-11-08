@@ -81,10 +81,11 @@ impl Journal {
 
 fn start_journal() -> (Journal, JournalWriter) {
     let dir = TempDir::new();
-    let (writer, worker, shutdown) = spawn_journal_writer(dir.journal(), |failure| {
-        panic!("journal failure: {failure:?}")
-    })
-    .unwrap();
+    let (writer, worker, shutdown) =
+        spawn_journal_writer(dir.journal(), async_channel::bounded(1).0, |failure| {
+            panic!("journal failure: {failure:?}")
+        })
+        .unwrap();
     (
         Journal {
             dir,

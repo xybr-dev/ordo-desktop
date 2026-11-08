@@ -15,7 +15,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use gpui::{AppContext as _, Bounds, Context, Entity, Pixels, Window, WindowBounds};
@@ -30,14 +30,22 @@ use ui::{
     overlay::Toast,
 };
 
-use super::ShellView;
+use super::{ShellView, StartupCheck};
 use crate::{
     presenter::{
         PresenterView,
         session_header::exit::{ExitRequested, JournalMoment, SessionHooks},
     },
-    recovery::{JournalWriter, new_session_id},
+    recovery::{JournalWriter, RecoveredSession, StartupRecovery, new_session_id},
 };
+
+/// How long a pending startup check may run before the Present button says
+/// what it is waiting for. Shorter waits just look disabled, so nothing flashes.
+const CHECK_INDICATOR_DELAY: Duration = Duration::from_millis(150);
+
+/// How long the startup check may hold Present back. A stuck disk must never
+/// block Mass, so past this Present unlocks and the check is logged as lost.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn restore_bounds(bounds: Bounds<Pixels>) -> RestoreBounds {
     RestoreBounds::new(
@@ -116,7 +124,10 @@ impl ShellView {
     /// executor and the window changes only once it is in hand, so a slow
     /// read never blocks a frame and a failed one leaves Preparation as it was.
     pub(super) fn enter_presenter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.mode.is_presenter() || self.presenter_load.is_some() {
+        if self.mode.is_presenter()
+            || self.presenter_load.is_some()
+            || self.startup_check.is_pending()
+        {
             return;
         }
         self.presenter_load = Some(cx.spawn_in(window, async move |this, cx| {
@@ -156,6 +167,116 @@ impl ShellView {
                 return;
             }
         };
+        self.open_presenter(snapshot, directory, window, cx);
+    }
+
+    /// The runtime started the startup journal read: Present waits for its
+    /// answer. After 150 ms the button says so, and after 5 s the check is
+    /// given up so a stuck disk never blocks Mass.
+    pub fn begin_startup_check(&mut self, cx: &mut Context<Self>) {
+        self.startup_check = StartupCheck::Pending { slow: false };
+        self._startup_check_timers = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(CHECK_INDICATOR_DELAY).await;
+            let still_pending = this
+                .update(cx, |shell, cx| {
+                    if shell.startup_check.is_pending() {
+                        shell.startup_check = StartupCheck::Pending { slow: true };
+                        cx.notify();
+                    }
+                    shell.startup_check.is_pending()
+                })
+                .unwrap_or(false);
+            if !still_pending {
+                return;
+            }
+            cx.background_executor()
+                .timer(CHECK_TIMEOUT - CHECK_INDICATOR_DELAY)
+                .await;
+            this.update(cx, |shell, cx| {
+                if shell.startup_check.is_pending() {
+                    eprintln!("ordo: startup recovery check timed out");
+                    shell.end_startup_check(cx);
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// The check is over: Present unlocks and its timers are dropped.
+    fn end_startup_check(&mut self, cx: &mut Context<Self>) {
+        self.startup_check = StartupCheck::Done;
+        self._startup_check_timers = None;
+        cx.notify();
+    }
+
+    /// The startup read answered, or `None` when its worker is gone. Present
+    /// unlocks in every case; `Found` reopens the Presenter, `Rejected`
+    /// explains itself with one persistent toast, `Absent` does nothing.
+    pub fn startup_recovery_arrived(
+        &mut self,
+        result: Option<StartupRecovery>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Some(StartupRecovery::Found(found)) => self.finish_startup_recovery(*found, window, cx),
+            Some(StartupRecovery::Absent) => self.end_startup_check(cx),
+            Some(StartupRecovery::Rejected(rejection)) => {
+                self.end_startup_check(cx);
+                if let Some(reason) = rejection.operator_reason() {
+                    self.overlays.notify(
+                        Toast::failure(format!(
+                            "The last presentation couldn\u{2019}t be restored: {reason}. Ordo opened normally."
+                        )),
+                        cx,
+                    );
+                }
+            }
+            None => {
+                eprintln!("ordo: the recovery worker stopped before the startup check answered");
+                self.end_startup_check(cx);
+            }
+        }
+    }
+
+    /// The startup journal found a session to reopen (T1.7d). The Presenter
+    /// opens directly through the same entry as an ordinary one, with no
+    /// Preparation frame, dialog or toast, and then takes the recovered
+    /// state. A Presenter that is already open or loading wins: the journal
+    /// is dropped and logged.
+    pub fn finish_startup_recovery(
+        &mut self,
+        found: RecoveredSession,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.end_startup_check(cx);
+        if self.mode.is_presenter() || self.presenter_load.is_some() {
+            eprintln!("ordo: recovered session dropped: the Presenter is already open");
+            return;
+        }
+        let RecoveredSession {
+            snapshot,
+            recovery,
+            directory,
+            closed_at,
+        } = found;
+        let presenter = self.open_presenter(Arc::new(snapshot), directory, window, cx);
+        presenter.update(cx, |view, cx| {
+            view.recover_session(&recovery, closed_at.into(), window, cx)
+        });
+    }
+
+    /// Enters Presenter Mode over `snapshot`: full-screen, the environment
+    /// change, a journaled session under a new session id, the output on the
+    /// factory's display source, and focus on the timeline.
+    fn open_presenter(
+        &mut self,
+        snapshot: Arc<LoadedSnapshot>,
+        directory: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PresenterView> {
         self.return_focus = window.focused(cx).map(|focus| focus.downgrade());
         let (mode, toggle_fullscreen) = self.mode.enter(window_restore(window.window_bounds()));
         self.mode = mode;
@@ -168,6 +289,7 @@ impl ShellView {
         let clock: Rc<dyn Fn() -> Millis> =
             Rc::new(move || Millis(started.elapsed().as_millis() as u64));
         let environment = self.environment;
+        let display_source = self.display_source.clone();
         let save = self.save_preferences.clone();
         let hooks = self
             .journal
@@ -181,7 +303,7 @@ impl ShellView {
             if let Some(save) = save {
                 view.set_save_preferences(save);
             }
-            view.install_output(Box::new(crate::output::GpuiDisplaySource), window, cx);
+            view.install_output((display_source)(), window, cx);
             view
         });
         self._presenter_exit = Some(cx.subscribe_in(
@@ -190,8 +312,9 @@ impl ShellView {
             |shell, _, _: &ExitRequested, window, cx| shell.leave_presenter(window, cx),
         ));
         presenter.update(cx, |view, cx| view.focus_timeline(window, cx));
-        self.presenter = Some(presenter);
+        self.presenter = Some(presenter.clone());
         cx.notify();
+        presenter
     }
 
     /// Exit Presenter from outside the Presenter's own header. It takes the

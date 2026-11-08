@@ -48,6 +48,7 @@ use ui::{
     motion::Track,
     overlay::{Overlay, OverlayHost},
     primitives::{
+        Availability,
         button::{Button, Tone},
         list::{self, Badge, ListRow},
         selection::{Choice, SelectionState, Tabs},
@@ -97,6 +98,24 @@ const MAIN_EDITOR: &str = "Main editor";
 /// list plus the inset its rows carry.
 const LIST_WIDTH: f32 = 280.0;
 
+/// Whether the startup journal check is still running (T1.7d). Present waits
+/// for it so a recovery found a moment late can never race a manual entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupCheck {
+    /// No check is running: shells built without the runtime, and every shell
+    /// once the check answered or timed out.
+    Done,
+    /// Waiting for the journal worker. `slow` is set once the wait passes the
+    /// point where the Present button says so.
+    Pending { slow: bool },
+}
+
+impl StartupCheck {
+    fn is_pending(self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+}
+
 /// The Preparation shell: the rail, the current destination's local views, its
 /// list and viewer, and the one overlay layer.
 pub struct ShellView {
@@ -144,6 +163,11 @@ pub struct ShellView {
     /// The recovery journal's writer, when the runtime started one. A
     /// Presenter session records through it.
     journal: Option<crate::recovery::JournalWriter>,
+    /// Whether the startup journal check still holds Present back (T1.7d).
+    startup_check: StartupCheck,
+    /// The 150 ms indicator and 5 s safety timers of a pending check.
+    /// Dropping them cancels both.
+    _startup_check_timers: Option<gpui::Task<()>>,
     focus_handle: FocusHandle,
     _appearance_subscription: Subscription,
     /// Operator-only return guidance while the pointer is over congregation
@@ -160,6 +184,9 @@ pub struct ShellView {
     mode: platform::presenter_mode::PresenterMode,
     /// The snapshot read an entry is waiting on; dropping it cancels the entry.
     presenter_load: Option<gpui::Task<()>>,
+    /// Builds the display source a Presenter's output reads. GPUI by default;
+    /// tests install an in-memory one before the Presenter opens.
+    display_source: Rc<dyn Fn() -> Box<dyn crate::output::DisplaySource>>,
     _presenter_exit: Option<Subscription>,
     /// Where focus was when the Presenter opened, for the way back.
     return_focus: Option<gpui::WeakFocusHandle>,
@@ -231,6 +258,8 @@ impl ShellView {
             scale_changed_since_startup: false,
             save_preferences,
             journal: None,
+            startup_check: StartupCheck::Done,
+            _startup_check_timers: None,
             focus_handle: cx.focus_handle(),
             _appearance_subscription: appearance_subscription,
             cursor_locator: None,
@@ -239,6 +268,7 @@ impl ShellView {
             presenter: None,
             mode: Default::default(),
             presenter_load: None,
+            display_source: Rc::new(|| Box::new(crate::output::GpuiDisplaySource)),
             _presenter_exit: None,
             return_focus: None,
         }
@@ -292,6 +322,15 @@ impl ShellView {
     /// session is not journaled (the lab and most tests).
     pub fn set_journal_writer(&mut self, writer: crate::recovery::JournalWriter) {
         self.journal = Some(writer);
+    }
+
+    /// Replaces the display-source factory a Presenter opened afterwards uses.
+    #[cfg(test)]
+    pub(crate) fn set_display_source(
+        &mut self,
+        factory: Rc<dyn Fn() -> Box<dyn crate::output::DisplaySource>>,
+    ) {
+        self.display_source = factory;
     }
 
     /// Mirrors the congregation-output controller's cursor locator into this
@@ -640,7 +679,17 @@ impl ShellView {
         let environment = self.environment;
         let palette = tokens::palette(environment.appearance());
         let view = cx.entity().downgrade();
-        Button::new("present", "Present", environment)
+        let label = match self.startup_check {
+            StartupCheck::Pending { slow: true } => "Checking last session…",
+            _ => "Present",
+        };
+        let waiting = self.startup_check.is_pending();
+        Button::new("present", label, environment)
+            .availability(if waiting {
+                Availability::Disabled
+            } else {
+                Availability::Available
+            })
             .icon(assets::icon::PLAY)
             .tooltip("Enter Presenter Mode")
             .on_surface(palette.surface)
@@ -1321,6 +1370,7 @@ mod tests {
     mod journal_wiring;
     mod output_lifecycle_e2e;
     mod quit_confirmation;
+    mod recovery_startup;
 
     /// Real key down/up pairs, because a primitive's own raw handlers are half
     /// of what the shell is composing.

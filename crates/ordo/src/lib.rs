@@ -332,6 +332,7 @@ impl RuntimeWorkers {
         preferences: PreferencesFile,
         journal_path: PathBuf,
         restored_preferences: AsyncSender<std::io::Result<Option<String>>>,
+        startup_recovery: AsyncSender<recovery::StartupRecovery>,
     ) -> Result<(Self, recovery::JournalWriter), WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
         let (canonical_commands, canonical_requests) = mpsc::channel();
@@ -379,7 +380,7 @@ impl RuntimeWorkers {
             }
         };
         let (journal, journal_worker, journal_shutdown) =
-            match recovery::spawn_journal_writer(journal_path, |failure| {
+            match recovery::spawn_journal_writer(journal_path, startup_recovery, |failure| {
                 eprintln!("recovery journal: {failure:?}");
             }) {
                 Ok(started) => started,
@@ -486,10 +487,12 @@ pub fn open_native_runtime_with(
     cx.set_quit_mode(QuitMode::Explicit);
     init_ui(cx).map_err(RuntimeError::Ui)?;
     let (restore_tx, restore_rx) = async_channel::bounded(1);
+    let (recovery_tx, recovery_rx) = async_channel::bounded(1);
     let (workers, journal) = RuntimeWorkers::start(
         PreferencesFile::new(preferences_path.as_ref()),
         recovery::journal_path(preferences_path.as_ref()),
         restore_tx,
+        recovery_tx,
     )?;
     let workers = Rc::new(RefCell::new(workers));
     let canonical_commands = workers.borrow().canonical_commands.clone();
@@ -519,6 +522,7 @@ pub fn open_native_runtime_with(
                     cx,
                 );
                 root.set_journal_writer(journal);
+                root.begin_startup_check(cx);
                 window.focus(&root.focus_handle(cx), cx);
                 root
             })
@@ -549,6 +553,20 @@ pub fn open_native_runtime_with(
             };
             let _ = restore_target.update(cx, |root, _, cx| {
                 root.finish_preferences_restore(restored, cx);
+            });
+        }
+    })
+    .detach();
+
+    // A recovered session reopens straight into Presenter. Present waits for
+    // this answer; an absent journal changes nothing and a rejected one shows
+    // a toast.
+    cx.spawn({
+        let recovery_target = operator;
+        async move |cx| {
+            let result = recovery_rx.recv().await.ok();
+            let _ = recovery_target.update(cx, |root, window, cx| {
+                root.startup_recovery_arrived(result, window, cx);
             });
         }
     })
@@ -716,10 +734,12 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let preferences = directory.join("preferences.json");
         let (restore_tx, _restore_rx) = async_channel::bounded(1);
+        let (recovery_tx, _recovery_rx) = async_channel::bounded(1);
         let (mut workers, _journal) = RuntimeWorkers::start(
             PreferencesFile::new(&preferences),
             recovery::journal_path(&preferences),
             restore_tx,
+            recovery_tx,
         )
         .expect("workers must start");
         let live_preferences = workers.preference_commands.clone();
@@ -735,6 +755,54 @@ mod tests {
             .expect("shutdown must unblock channel-blocked workers while senders stay live");
         assert!(report.is_empty());
         drop((live_preferences, live_canonical));
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    /// Starts the real workers over `journal_bytes` and returns what the
+    /// startup read delivered, with the directory it ran in.
+    fn startup_read_of(journal_bytes: &[u8], name: &str) -> (recovery::StartupRecovery, PathBuf) {
+        let directory =
+            std::env::temp_dir().join(format!("ordo-startup-read-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let preferences = directory.join("preferences.json");
+        std::fs::write(recovery::journal_path(&preferences), journal_bytes).unwrap();
+        let (restore_tx, _restore_rx) = async_channel::bounded(1);
+        let (recovery_tx, recovery_rx) = async_channel::bounded(1);
+        let (mut workers, _journal) = RuntimeWorkers::start(
+            PreferencesFile::new(&preferences),
+            recovery::journal_path(&preferences),
+            restore_tx,
+            recovery_tx,
+        )
+        .expect("workers must start");
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = done_tx.send(recovery_rx.recv_blocking());
+        });
+        let delivered = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the journal worker delivers the startup read")
+            .expect("the channel is open");
+        assert!(workers.shutdown().is_empty());
+        (delivered, directory)
+    }
+
+    #[test]
+    fn the_journal_worker_delivers_a_valid_journal_as_found() {
+        let snapshot = recovery::tests::snapshot();
+        let bytes = presentation::journal::encode(&recovery::tests::fixture_point(&snapshot));
+        let (delivered, directory) = startup_read_of(&bytes, "valid");
+        assert!(matches!(delivered, recovery::StartupRecovery::Found(_)));
+        assert!(!directory.join(recovery::REJECTED_FILE).exists());
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn the_journal_worker_rejects_a_torn_journal_and_sets_it_aside() {
+        let (delivered, directory) = startup_read_of(b"{\"schema_version\": 2, \"se", "torn");
+        assert!(matches!(delivered, recovery::StartupRecovery::Rejected(_)));
+        assert!(directory.join(recovery::REJECTED_FILE).exists());
         std::fs::remove_dir_all(directory).ok();
     }
 

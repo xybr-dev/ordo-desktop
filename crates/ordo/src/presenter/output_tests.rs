@@ -8,11 +8,11 @@ use super::*;
 use gpui::{VisualTestContext, point, px};
 use platform::display::{
     DetectedDisplay, DisplayBounds, DisplayEvidence, DisplayId, InMemoryDisplayAdapter,
-    PlacementBounds,
+    OutputLifecycle, PlacementBounds,
 };
 
 /// Selectors only the operator's Presenter draws. None may reach the output.
-const OPERATOR_ONLY: [&str; 8] = [
+const OPERATOR_ONLY: [&str; 10] = [
     "program-state",
     "monitor-program-preparing",
     "program-auto-play",
@@ -21,6 +21,8 @@ const OPERATOR_ONLY: [&str; 8] = [
     "display-health",
     "presenter-header",
     "header-cursor-locator",
+    "recovery-strip",
+    "recovery-prior",
 ];
 
 type Adapter = Rc<RefCell<InMemoryDisplayAdapter>>;
@@ -536,4 +538,117 @@ fn a_bounds_change_of_the_operator_window_notices_the_loss(cx: &mut TestAppConte
 
     assert_eq!(sent(&open, cx), [Command::DisplayLost]);
     assert_eq!(window_count(cx), before - 1);
+}
+
+// ---- Recovery on the output owner (T1.7d review) ------------------------
+
+/// A validated recovery of `snapshot`'s first Cue, interrupted live on a
+/// display called `name` at the projector's place.
+fn recovery_of(snapshot: &LoadedSnapshot, name: &str) -> presentation::journal::ValidatedRecovery {
+    use presentation::journal::{
+        BoundsRecord, DisplayRecord, LiveIntent, OutputEvidence, RecoveryPoint, SessionId,
+        WrittenAt,
+    };
+    let cue = snapshot.snapshot().cue(0).unwrap().id();
+    let point = RecoveryPoint {
+        session_id: SessionId::parse("00000000-0000-4000-8000-000000000801").unwrap(),
+        seq: 1,
+        written_at: WrittenAt::parse("2026-11-08T09:00:00Z").unwrap(),
+        snapshot_id: snapshot.snapshot().id(),
+        manifest_hash: snapshot.manifest_hash(),
+        source_dir: "fixture".to_owned(),
+        preview: cue,
+        program: Some(cue),
+        state: LiveIntent::Live,
+        output: OutputEvidence {
+            enabled: true,
+            display: Some(DisplayRecord {
+                name: Some(name.to_owned()),
+                uuid: None,
+                bounds: BoundsRecord {
+                    x: 1920,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                },
+            }),
+        },
+        ended: false,
+    };
+    presentation::journal::validate(point, snapshot).expect("the point matches its snapshot")
+}
+
+/// The Engine cannot be made to refuse a validated recovery here (it checks
+/// only what `validate` already did), so this drives the reset it falls back
+/// to: a recovered controller with a window open goes back to a fresh,
+/// disabled one, and Enable Output then behaves as in a new session.
+#[gpui::test]
+fn resetting_the_output_owner_forgets_the_journaled_display(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    install(&open, cx, &displays(true));
+    let projector = DisplayEvidence {
+        name: None,
+        uuid: None,
+        bounds: DisplayBounds::new(1920, 0, 1280, 720),
+    };
+    open.view.update_in(cx, |view, window, cx| {
+        let operator = crate::output::window_display(window, &cx.displays(), cx);
+        view.output
+            .as_mut()
+            .unwrap()
+            .recover(projector, operator, cx);
+        assert!(view.try_open_output_window(window, cx).is_ok());
+    });
+    cx.run_until_parked();
+    assert!(output_window(&open, cx).is_some());
+
+    open.view.update_in(cx, |view, window, cx| {
+        let operator = crate::output::window_display(window, &cx.displays(), cx);
+        view.output.as_mut().unwrap().reset(operator, cx);
+        assert!(matches!(
+            view.output.as_ref().unwrap().lifecycle(),
+            OutputLifecycle::Disabled
+        ));
+    });
+    cx.run_until_parked();
+    assert!(output_window(&open, cx).is_none(), "the window closed");
+
+    open.view
+        .update_in(cx, |view, window, cx| view.enable_output(window, cx));
+    cx.run_until_parked();
+    assert_eq!(
+        open.view
+            .read_with(cx, |view, _| view.engine().state().live()),
+        presentation::state::LiveState::EnabledBlack
+    );
+    assert!(output_window(&open, cx).is_some());
+}
+
+#[gpui::test]
+fn the_strip_keeps_its_height_with_a_long_display_name(cx: &mut TestAppContext) {
+    let (open, cx) = open(cx, SIZES[0]);
+    install(&open, cx, &displays(false));
+    let long = "A very long congregation display name that goes on and on ".repeat(4);
+    let recovery = recovery_of(&fixture_snapshot(), &long);
+
+    open.view.update_in(cx, |view, window, cx| {
+        view.recover_session(&recovery, "9:31 AM".into(), window, cx)
+    });
+    cx.run_until_parked();
+
+    let strip = bounds(cx, "recovery-strip");
+    let limit = SIZES[0].2.apply(recovery_strip::STRIP_HEIGHT) + 0.5;
+    assert!(
+        f32::from(strip.size.height) <= limit,
+        "{:?} exceeds {limit}",
+        strip.size.height
+    );
+    assert!(
+        present(cx, "recovery-prior"),
+        "the prior block is still there"
+    );
+    assert!(
+        f32::from(bounds(cx, "recovery-detail").size.height) < limit,
+        "the detail is one truncated line"
+    );
 }

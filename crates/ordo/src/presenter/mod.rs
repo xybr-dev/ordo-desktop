@@ -36,6 +36,7 @@ pub mod layout;
 pub mod output;
 pub mod output_window;
 pub mod rail;
+pub(super) mod recovery_strip;
 pub mod session_header;
 pub mod surfaces;
 pub mod timeline;
@@ -55,6 +56,7 @@ use gpui::{
 use presentation::{
     commands::Command,
     engine::{AutoPlayRefusal, Availability, Engine, Outcome, Refusal, UnavailableSource},
+    journal::ValidatedRecovery,
     snapshot_reader::LoadedSnapshot,
     state::{LiveState, Millis, ProgramView},
 };
@@ -77,6 +79,7 @@ use self::{
         BAND_GAP, BAND_GUTTER, BAND_TOP_PADDING, DockLayout, LayoutInput, PresenterLayout,
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
+    output::OpenFailure,
     rail::{PinControl, RailItem, RailModel, RailSection},
     session_header::{
         DisplayHealth, HeaderModel, OnCueView,
@@ -260,6 +263,27 @@ impl Wanted {
     }
 }
 
+/// What a recovered session tells the operator about the interruption. The
+/// recovery strip (T1.7d WP7) shows it; the view only keeps it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryNotice {
+    /// When the interrupted session last journaled, in local time.
+    pub closed_at: SharedString,
+    /// The congregation display's journaled name, when it had one.
+    pub display_name: Option<SharedString>,
+    /// Whether the startup open recognized the journaled display (the
+    /// controller did not refuse it). Tells "wasn't recognized" apart from a
+    /// display that was recognized and then lost, or a window that failed to
+    /// open.
+    pub display_recognized: bool,
+}
+
+/// The number the timeline shows a Cue by: Mass item, then Cue within it,
+/// both counted from one. The recovery strip names its prior Cue the same way.
+fn cue_number(item: usize, at: usize) -> String {
+    format!("{}.{}", item + 1, at + 1)
+}
+
 /// The Presenter: header, rail, Cue timeline and Output Dock over one Engine.
 pub struct PresenterView {
     /// Reports each render's cost; `None` outside the measurement labs.
@@ -366,6 +390,9 @@ pub struct PresenterView {
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
+    /// Set once by [`PresenterView::recover_session`]; `None` for an ordinary
+    /// session.
+    recovery_notice: Option<RecoveryNotice>,
     save_preferences: Option<SavePreferences>,
     /// The deadline the sleeping task waits for, and the task. Dropped with
     /// the view.
@@ -479,6 +506,7 @@ impl PresenterView {
             sent: Rc::default(),
             cue_view: environment.preferences().cue_view,
             status: None,
+            recovery_notice: None,
             save_preferences: None,
             timer: None,
             program_wanted: Wanted::default(),
@@ -638,6 +666,114 @@ impl PresenterView {
         self.output = Some(owner);
     }
 
+    /// Reopens the interrupted session this Presenter was built for (T1.7d).
+    ///
+    /// Output that was enabled starts as a display loss across the restart:
+    /// the controller is `Disconnected` on the journaled display and the
+    /// ordinary open path decides whether that same display is connected. If
+    /// the window opens, the Engine starts `EnabledBlack`; otherwise it starts
+    /// `Disconnected` and the existing display-return and Resume Output flow
+    /// takes over. Program is black either way, so nothing reaches the
+    /// congregation until the operator presses Space. If the Engine rejects
+    /// the point (it cannot after `validate`, but it fails closed), the fresh
+    /// Engine stays and any window just opened is closed.
+    ///
+    /// Ends with `engine_changed`, which journals the first point of this
+    /// session at once, under its own session id, with the interrupted intent
+    /// (T1.7c notes).
+    pub fn recover_session(
+        &mut self,
+        recovery: &ValidatedRecovery,
+        closed_at: SharedString,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let point = recovery.point();
+        let mut recognized = false;
+        // Without enabled output there is no display to recognize or lose.
+        let mut display_recognized = true;
+        if point.output.enabled
+            && let Some(record) = point.output.display.as_ref()
+            && self.output.is_some()
+        {
+            let evidence = crate::recovery::display_evidence(record);
+            let operator = crate::output::window_display(window, &cx.displays(), cx);
+            if let Some(output) = self.output.as_mut() {
+                output.recover(evidence.clone(), operator, cx);
+            }
+            match self.try_open_output_window(window, cx) {
+                Ok(()) => recognized = true,
+                Err(OpenFailure::Refused(_)) => {
+                    // The recovery strip explains it (WP7); a refusal
+                    // toast-like status here would say it twice.
+                    display_recognized = false;
+                }
+                Err(failure @ OpenFailure::Window) => {
+                    self.status = Some(failure.message().into());
+                    cx.notify();
+                    // The controller accepted the open, so it now reads
+                    // Enabled (or Disabled after a failed window). The Engine
+                    // starts Disconnected, so put the controller back to the
+                    // same journaled loss: the Dock status and the Engine
+                    // must agree, and Resume Output stays the way back.
+                    if let Some(output) = self.output.as_mut() {
+                        output.recover(evidence, operator, cx);
+                    }
+                }
+            }
+        }
+        match Engine::recover(self.engine.snapshot().clone(), recovery, recognized) {
+            Ok(engine) => {
+                self.engine = engine;
+                self.recovery_notice = Some(RecoveryNotice {
+                    closed_at,
+                    display_name: point
+                        .output
+                        .display
+                        .as_ref()
+                        .and_then(|display| display.name.clone())
+                        .map(SharedString::from),
+                    display_recognized,
+                });
+            }
+            Err(rejection) => {
+                eprintln!("ordo: recovery journal not applied: {rejection}");
+                // A fresh session in every respect: no window, a controller
+                // that knows nothing of the journaled display, no strip, so a
+                // later Enable Output behaves as it would have without it.
+                if let Some(output) = self.output.as_mut() {
+                    let operator = crate::output::window_display(window, &cx.displays(), cx);
+                    output.reset(operator, cx);
+                }
+                self.recovery_notice = None;
+            }
+        }
+        self.engine_changed(cx);
+    }
+
+    /// What the interruption left to say, for the recovery strip.
+    pub fn recovery_notice(&self) -> Option<&RecoveryNotice> {
+        self.recovery_notice.as_ref()
+    }
+
+    /// What the recovery strip says, for tests: the announcement and the
+    /// prior block's second line, `None` while no strip is shown.
+    #[cfg(test)]
+    pub(crate) fn recovery_strip_texts(&self) -> Option<(String, Option<String>)> {
+        let model = self.recovery_strip_model(false, self.environment)?;
+        Some((
+            recovery_strip::announcement(&model.detail),
+            model.prior.as_ref().map(recovery_strip::PriorModel::meta),
+        ))
+    }
+
+    /// Test only: whether the strip's prior frame has been composed.
+    #[cfg(test)]
+    pub(crate) fn prior_frame_ready(&self) -> bool {
+        self.prior_frame()
+            .is_some_and(|id| matches!(self.frames.peek(id), FrameView::Ready { .. }))
+    }
+
     /// The displays may have changed: turns what the owner finds into Engine
     /// commands (T1.6 WP5). Loss closes the window and sends `DisplayLost`;
     /// a return is reported with the identity verdict and never resumes
@@ -761,8 +897,25 @@ impl PresenterView {
     /// Opens the congregation window through the controller. `false` after a
     /// refusal, which is shown as the status; nothing is sent to the Engine.
     fn open_output_window(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        match self.try_open_output_window(window, cx) {
+            Ok(()) => true,
+            Err(failure) => {
+                self.status = Some(failure.message().into());
+                cx.notify();
+                false
+            }
+        }
+    }
+
+    /// Opens the window and says why not, setting no status: the caller
+    /// decides how a failure is shown. With no output owner it is `Window`.
+    fn try_open_output_window(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), OpenFailure> {
         let Some(mut output) = self.output.take() else {
-            return false;
+            return Err(OpenFailure::Window);
         };
         let operator = crate::output::window_display(window, &cx.displays(), cx);
         let presenter = cx.entity();
@@ -775,14 +928,7 @@ impl PresenterView {
             cx,
         );
         self.output = Some(output);
-        match opened {
-            Ok(()) => true,
-            Err(failure) => {
-                self.status = Some(failure.message().into());
-                cx.notify();
-                false
-            }
-        }
+        opened
     }
 
     /// Close the congregation window, if open.
@@ -1170,9 +1316,76 @@ impl PresenterView {
     /// `render` itself.
     fn request_visible(&mut self, cx: &mut Context<Self>) {
         self.visible_range = self.visible_groups();
-        let ids = self.visible_frames(self.visible_range);
+        // The recovery strip's prior Program frame comes first, so it decodes
+        // even when the timeline wants more than the store takes.
+        let mut ids: Vec<FrameId> = self.prior_frame().into_iter().collect();
+        for id in self.visible_frames(self.visible_range) {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
         self.frames
             .request_visible(ids, |view| &mut view.frames, cx);
+    }
+
+    /// The Project frame of the recovered session's last Program Cue, while
+    /// the private recovery context exists and that Cue can still be shown.
+    fn prior_frame(&self) -> Option<FrameId> {
+        let flat = self.engine.state().recovered()?.program()?;
+        match self.engine.snapshot().cue(flat)?.behavior() {
+            CueBehavior::Project { frame, .. }
+                if matches!(
+                    self.engine.cue_availability(flat),
+                    Some(Availability::Presentable)
+                ) =>
+            {
+                Some(*frame)
+            }
+            _ => None,
+        }
+    }
+
+    /// The recovery strip's model, `None` unless the Engine still holds the
+    /// recovered context (it alone decides when the strip ends). The notice
+    /// supplies only the text parts; `compact` drops the prior block.
+    fn recovery_strip_model(
+        &self,
+        compact: bool,
+        environment: UiEnvironment,
+    ) -> Option<recovery_strip::StripModel> {
+        let context = self.engine.state().recovered()?;
+        let notice = self.recovery_notice.as_ref()?;
+        let detail = recovery_strip::detail(
+            &notice.closed_at,
+            self.engine.state().live(),
+            notice.display_name.as_deref(),
+            notice.display_recognized,
+        );
+        let snapshot = self.engine.snapshot();
+        let prior = context.program().filter(|_| !compact).and_then(|flat| {
+            let position = snapshot.positions().get(flat)?;
+            let item = snapshot.item_of(flat)?;
+            let (frame, image) = match snapshot.cue(flat)?.behavior() {
+                CueBehavior::Project { frame, .. } => match self.frames.peek(*frame) {
+                    FrameView::Ready { frame, image } => (Some(frame), image),
+                    FrameView::Pending | FrameView::Unavailable(_) => (None, None),
+                },
+                _ => (None, None),
+            };
+            Some(recovery_strip::PriorModel {
+                flat,
+                frame,
+                image,
+                state: recovery_strip::state_word(context.interrupted()),
+                item_title: item.title().to_owned().into(),
+                number: cue_number(position.item_flat, position.cue).into(),
+            })
+        });
+        Some(recovery_strip::StripModel {
+            detail: detail.into(),
+            prior,
+            environment,
+        })
     }
 
     /// Frames for `(first, last)` and, in Grid, each step outward, skipping
@@ -1826,7 +2039,7 @@ impl PresenterView {
                     }
                     cues.push(CueModel {
                         flat,
-                        number: format!("{}.{}", index + 1, at + 1).into(),
+                        number: cue_number(index, at).into(),
                         label: cue.label().to_owned().into(),
                         kind: if unavailable.is_some() {
                             CueKind::Unavailable
@@ -1902,9 +2115,16 @@ impl PresenterView {
         let scale = environment.preferences().scale;
         let palette = tokens::palette(environment.appearance());
         let size = window.viewport_size();
+        let strip_shown =
+            self.engine.state().recovered().is_some() && self.recovery_notice.is_some();
+        let strip_reserved = if strip_shown {
+            scale.apply(recovery_strip::STRIP_HEIGHT)
+        } else {
+            0.0
+        };
         let layout = presenter_layout(LayoutInput {
             width: f32::from(size.width),
-            height: f32::from(size.height),
+            height: (f32::from(size.height) - strip_reserved).max(0.0),
             scale,
             rail: self.rail_choice,
         });
@@ -2416,6 +2636,24 @@ impl PresenterView {
                 cx,
             )
         });
+        // Prior context is dropped in the Constrained layout, where the band
+        // already takes the height the monitors need.
+        let recovery_strip = self
+            .recovery_strip_model(layout.regime == Regime::Constrained, environment)
+            .map(|model| {
+                let view = view.clone();
+                recovery_strip::strip(
+                    model,
+                    Rc::new(move |flat, _, cx| {
+                        // Navigation only, through the command path keyboard
+                        // navigation uses; the timeline follows Preview.
+                        view.update(cx, |view, cx| {
+                            view.command(Command::GoTo(flat), cx).ok();
+                        })
+                        .ok();
+                    }),
+                )
+            });
         let root = self
             .regions
             .root(window, cx)
@@ -2430,6 +2668,7 @@ impl PresenterView {
             .font_family(tokens::typography::OPERATOR_FAMILY)
             .text_size(px(scale.apply(tokens::typography::BODY.size)))
             .child(header)
+            .children(recovery_strip)
             .child(body)
             .children(rail_overlay)
             .children(reference)
@@ -2981,6 +3220,17 @@ mod tests {
             scale,
             rail: RailChoice::Auto,
         })
+    }
+
+    #[gpui::test]
+    fn a_plain_presenter_never_shows_the_recovery_strip(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        assert!(!present(cx, "recovery-strip"));
+        assert!(!present(cx, "recovery-prior"));
+        assert!(
+            open.view
+                .read_with(cx, |view, _| view.recovery_strip_texts().is_none())
+        );
     }
 
     fn present(cx: &mut VisualTestContext, selector: &'static str) -> bool {
