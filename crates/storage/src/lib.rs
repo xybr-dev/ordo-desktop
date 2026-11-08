@@ -47,6 +47,9 @@
 //! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
 //! let _transaction = storage.transaction();
 //! ```
+//!
+//! The committed `ERD.md` is rendered from the bundled migrations and checked
+//! for drift by the test suite.
 
 use std::fmt;
 use std::future::Future;
@@ -57,6 +60,8 @@ use std::time::Duration;
 #[cfg(test)]
 mod erd;
 mod migrations;
+#[cfg(test)]
+mod parish_schema_tests;
 mod worker;
 
 use migrations::Migration;

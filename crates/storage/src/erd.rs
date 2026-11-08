@@ -6,11 +6,10 @@
 //! without a regenerated reference fails `cargo test -p storage`. Set
 //! `ORDO_BLESS_ERD=1` to rewrite the file.
 //!
-//! Ownership and lifecycle notes sit beside the renderer in [`TABLE_NOTES`].
-//! A new table without notes fails the same test, which keeps the narrative
-//! reference from quietly falling behind the physical schema.
+//! Ownership and lifecycle notes sit beside the renderer in [`NOTES`]. Every
+//! table needs exactly one note, and every note must name a live table.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -20,6 +19,9 @@ use crate::migrations;
 
 /// Write one line, treating a write to a `String` as infallible.
 macro_rules! write_line {
+    ($out:expr) => {
+        writeln!($out).expect("writing to a String cannot fail")
+    };
     ($out:expr, $($arg:tt)*) => {
         writeln!($out, $($arg)*).expect("writing to a String cannot fail")
     };
@@ -31,7 +33,8 @@ struct Table {
     columns: Vec<Column>,
     indexes: Vec<Index>,
     foreign_keys: Vec<ForeignKey>,
-    checks: Vec<String>,
+    checks: Checks,
+    without_rowid: bool,
 }
 
 struct Column {
@@ -53,214 +56,187 @@ struct ForeignKey {
     from: Vec<String>,
     table: String,
     to: Vec<String>,
+    on_update: String,
     on_delete: String,
 }
 
-/// Human ownership and lifecycle text for one table.
-struct Notes {
-    owner: &'static str,
-    lifecycle: &'static str,
+/// CHECK expressions parsed from one `CREATE TABLE` statement.
+#[derive(Default)]
+struct Checks {
+    /// `(column, expression)` pairs in declaration order.
+    columns: Vec<(String, String)>,
+    /// Table-level checks in declaration order.
+    table: Vec<String>,
 }
 
-const TABLE_NOTES: &[(&str, Notes)] = &[
-    (
-        "arrangement",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library (T2.3) owns Arrangement behavior.",
-            lifecycle: "Belongs to one Song work. Archived rather than deleted while history references it (Decision 43).",
-        },
-    ),
-    (
-        "arrangement_choir",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns Choir applicability.",
-            lifecycle: "Many-to-many link between an Arrangement and the Choirs that share that exact rendition.",
-        },
-    ),
-    (
-        "arrangement_language",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns language metadata.",
-            lifecycle: "One language tag per Arrangement. A translated rendition remains a separate Arrangement.",
-        },
-    ),
-    (
-        "arrangement_occasion",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns occasion applicability.",
-            lifecycle: "Advisory occasion tag on one Arrangement; never a liturgical restriction.",
-        },
-    ),
-    (
-        "arrangement_section",
-        Notes {
-            owner: "T2.1 parish foundation; the Arrangement editor owns section content.",
-            lifecycle: "Reusable musical or lyrical unit. Occurrences reference it, so deletion is reference-checked.",
-        },
-    ),
-    (
-        "celebration_package",
-        Notes {
-            owner: "T2.1 placeholder for portable Celebration Packages.",
-            lifecycle: "Rows arrive with package persistence; T2.1 creates the table only.",
-        },
-    ),
-    (
-        "choir",
-        Notes {
-            owner: "T2.1 parish foundation; the Choir workspace (T2.4) owns presentation.",
-            lifecycle: "Created explicitly and retained while an Arrangement references it.",
-        },
-    ),
-    (
-        "edit_revision",
-        Notes {
-            owner: "T2.2 edit-safety ledger (placeholder here).",
-            lifecycle: "Append-only revision history; each row names its parent and a content hash.",
-        },
-    ),
-    (
-        "managed_asset",
-        Notes {
-            owner: "T2.1 managed assets (T2.1c).",
-            lifecycle: "The original bytes live under `assets/<id>`; a row commits with its referencing record or not at all.",
-        },
-    ),
+impl Checks {
+    fn column(&self, name: &str) -> Option<&str> {
+        self.columns
+            .iter()
+            .find(|(column, _)| column == name)
+            .map(|(_, expression)| expression.as_str())
+    }
+}
+
+/// Ownership and lifecycle text for one table, verbatim from the T2.1 spec.
+const NOTES: &[(&str, &str, &str)] = &[
     (
         "ordo_migrations",
-        Notes {
-            owner: "Storage migration runner (T0.7); infrastructure, not parish data.",
-            lifecycle: "Append-only checksummed history. Each row records one applied migration.",
-        },
-    ),
-    (
-        "parish",
-        Notes {
-            owner: "T2.1 parish foundation; the parish store (T2.1b) owns access.",
-            lifecycle: "The single local Parish row, enforced by `singleton`; retained for the database lifetime.",
-        },
-    ),
-    (
-        "parish_backup",
-        Notes {
-            owner: "T2.1 placeholder for portable Parish Backups.",
-            lifecycle: "Rows arrive with backup persistence; T2.1 creates the table only.",
-        },
-    ),
-    (
-        "parish_note",
-        Notes {
-            owner: "T0.7 storage spike (`Storage::add_parish_note`).",
-            lifecycle: "Retained as applied migration history; T2.1 leaves the spike behavior untouched.",
-        },
+        "Storage migration runner",
+        "One row per applied migration, written in the same transaction as the migration; never edited.",
     ),
     (
         "parish_profile",
-        Notes {
-            owner: "T0.7 storage spike (`Storage::set_parish_name`); superseded by `parish`.",
-            lifecycle: "Retained as applied migration history; T2.1 leaves the spike behavior untouched.",
-        },
+        "T0.7 storage spike",
+        "Spike table kept so checksummed history stays valid; no product code reads it.",
     ),
     (
-        "parish_setting",
-        Notes {
-            owner: "T2.1 placeholder for parish-scoped key/value settings.",
-            lifecycle: "Rows arrive with later settings work; T2.1 does not write them.",
-        },
-    ),
-    (
-        "presentation_snapshot",
-        Notes {
-            owner: "T2.1 placeholder for the Presentation-snapshot ledger.",
-            lifecycle: "Rows arrive with snapshot persistence; T2.1 creates the table only.",
-        },
+        "parish_note",
+        "T0.7 storage spike",
+        "Spike table kept so checksummed history stays valid; no product code reads it.",
     ),
     (
         "schema_metadata",
-        Notes {
-            owner: "T2.1 schema-format marker.",
-            lifecycle: "Seeded with format `ordo-parish` version 1; later migrations advance the version.",
-        },
+        "Storage Module",
+        "Written by migrations only; identifies the file as an Ordo parish database.",
     ),
     (
-        "section_occurrence",
-        Notes {
-            owner: "T2.1 parish foundation; the Arrangement editor owns performance order.",
-            lifecycle: "One ordered placement of a section. Several occurrences may reference one reusable section.",
-        },
+        "parish",
+        "Parish setup",
+        "Exactly one row, created when new-Parish setup commits; never deleted.",
+    ),
+    (
+        "parish_setting",
+        "Parish settings (placeholder)",
+        "Upserted per key; schema only until Settings tasks use it.",
+    ),
+    (
+        "choir",
+        "Song Library",
+        "Created by the operator; archived by setting archived_at; never cascades.",
     ),
     (
         "song",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library (T2.3) owns Song-work behavior.",
-            lifecycle: "Canonical Song work. Archived rather than deleted while retained by history (Decision 43).",
-        },
+        "Song Library",
+        "Song work; archived by setting archived_at (non-cascading); permanent deletion only after reference checks.",
     ),
     (
         "song_alias",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns alias authoring.",
-            lifecycle: "Alias of one Song work. Never merges Songs and never rewrites the authored title.",
-        },
+        "Song Library",
+        "Owned by its song; ordered by position; replaced with the song's details.",
     ),
     (
         "song_liturgical_moment",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns liturgical moments.",
-            lifecycle: "One liturgical-moment tag per Song work; advisory metadata only.",
-        },
+        "Song Library",
+        "Owned by its song; replaced with the song's details.",
     ),
     (
         "song_occasion",
-        Notes {
-            owner: "T2.1 parish foundation; the Song Library owns occasion applicability.",
-            lifecycle: "One advisory occasion tag per Song work; never a liturgical restriction.",
-        },
+        "Song Library",
+        "Owned by its song; replaced with the song's details.",
+    ),
+    (
+        "arrangement",
+        "Song Library",
+        "Belongs to one song; archived independently of the song; permanent deletion only after reference checks.",
+    ),
+    (
+        "arrangement_language",
+        "Song Library",
+        "Owned by its arrangement; ordered by position.",
+    ),
+    (
+        "arrangement_choir",
+        "Song Library",
+        "Choir association of an arrangement; many choirs may share one arrangement.",
+    ),
+    (
+        "arrangement_occasion",
+        "Song Library",
+        "Owned by its arrangement.",
+    ),
+    (
+        "arrangement_section",
+        "Song Library",
+        "Owned by its arrangement; ordered by position; a blank line in lyrics is a slide boundary.",
+    ),
+    (
+        "section_occurrence",
+        "Song Library",
+        "One placement of a section of the same arrangement in its Sequence; ordered by position.",
+    ),
+    (
+        "managed_asset",
+        "Storage Module (managed assets)",
+        "Row committed together with its file under assets/<id>; bytes never change under one id.",
     ),
     (
         "theme",
-        Notes {
-            owner: "T2.1 placeholder carrying the first managed-asset reference (T2.1c).",
-            lifecycle: "Created with its background asset in one transaction; retained while referenced.",
-        },
+        "Themes (placeholder)",
+        "Placeholder for the Theme tasks; background_asset_id references a managed asset.",
+    ),
+    (
+        "edit_revision",
+        "Edit revisions (placeholder, T2.2)",
+        "Append-only; restoration adds a later revision; names exactly one song or arrangement.",
+    ),
+    (
+        "presentation_snapshot",
+        "Presentation snapshots (placeholder)",
+        "Immutable once captured; schema only until snapshot capture uses it.",
+    ),
+    (
+        "celebration_package",
+        "Celebration Packages (placeholder)",
+        "Schema only until package export and install use it.",
+    ),
+    (
+        "parish_backup",
+        "Parish Backups (placeholder)",
+        "Schema only until backup and restore use it.",
     ),
 ];
 
 /// Render the committed reference from a database migrated by this build.
-fn render(tables: &[Table]) -> Result<String, String> {
-    for (name, _) in TABLE_NOTES {
-        if !tables.iter().any(|table| table.name == *name) {
-            return Err(format!("ERD notes name missing table `{name}`"));
-        }
-    }
-
+fn render(tables: &[Table]) -> String {
+    let (version, name) = head_migration();
     let mut out = String::new();
+
+    write_line!(out, "# Ordo parish database ERD");
+    write_line!(out);
     write_line!(
         out,
-        "# Ordo parish storage ERD\n\n\
-         <!-- Generated from the authoritative migrations by \
-         `crates/storage/src/erd.rs`; do not edit by hand. -->\n\n\
-         This is the physical schema the bundled migrations create: the Mermaid\n\
-         overview lists every table and foreign-key relationship, and each table\n\
-         section records its columns, constraints, indexes, ownership, and lifecycle.\n\n\
-         Regenerate with `ORDO_BLESS_ERD=1 cargo test -p storage erd`.\n"
+        "<!-- Generated by `crates/storage/src/erd.rs` from the bundled migrations."
     );
-
-    write_line!(out, "## Physical overview\n");
+    write_line!(
+        out,
+        "     Do not edit by hand: run `ORDO_BLESS_ERD=1 cargo test -p storage erd`"
+    );
+    write_line!(
+        out,
+        "     and commit the result. Domain meaning lives in CONTEXT.md. -->"
+    );
+    write_line!(out);
+    write_line!(out, "Schema version: {version} (`{name}`).");
+    write_line!(out);
+    write_line!(out, "## Overview");
+    write_line!(out);
     write_line!(out, "```mermaid");
     write_line!(out, "erDiagram");
+
     for table in tables {
+        let foreign_columns: BTreeSet<&str> = table
+            .foreign_keys
+            .iter()
+            .flat_map(|foreign_key| foreign_key.from.iter().map(String::as_str))
+            .collect();
         write_line!(out, "    {} {{", table.name);
         for column in &table.columns {
             let mut key = String::new();
             if column.primary_key != 0 {
                 key.push_str(" PK");
             }
-            if table
-                .foreign_keys
-                .iter()
-                .any(|foreign_key| foreign_key.from.contains(&column.name))
-            {
+            if foreign_columns.contains(column.name.as_str()) {
                 if key.is_empty() {
                     key.push_str(" FK");
                 } else {
@@ -277,128 +253,185 @@ fn render(tables: &[Table]) -> Result<String, String> {
         }
         write_line!(out, "    }}");
     }
+
     for table in tables {
         for foreign_key in &table.foreign_keys {
+            let all_not_null = foreign_key.from.iter().all(|column| {
+                table
+                    .columns
+                    .iter()
+                    .find(|candidate| candidate.name == *column)
+                    .is_some_and(|candidate| candidate.not_null)
+            });
+            let cardinality = if all_not_null { "||" } else { "|o" };
             write_line!(
                 out,
-                "    {} ||--o{{ {} : \"{}\"",
+                "    {} {}--o{{ {} : \"{}\"",
                 foreign_key.table,
+                cardinality,
                 table.name,
                 foreign_key.from.join(", ")
             );
         }
     }
-    write_line!(out, "```\n");
+    write_line!(out, "```");
+    write_line!(out);
 
-    write_line!(out, "## Tables\n");
     for table in tables {
-        let Some((_, notes)) = TABLE_NOTES
-            .iter()
-            .find(|(name, _)| *name == table.name.as_str())
-        else {
-            return Err(format!("table `{}` has no ERD notes", table.name));
-        };
-        write_line!(out, "### `{}`\n", table.name);
-        write_line!(out, "- **Ownership:** {}", notes.owner);
-        write_line!(out, "- **Lifecycle:** {}\n", notes.lifecycle);
+        let (owner, lifecycle) = notes_for(&table.name);
+        write_line!(out, "## {}", table.name);
+        write_line!(out);
+        write_line!(out, "**Owner:** {owner}. **Lifecycle:** {lifecycle}");
+        write_line!(out);
+        write_line!(out, "| Column | Type | Null | Default | Key | Check |");
+        write_line!(out, "|---|---|---|---|---|---|");
 
-        write_line!(out, "| Column | Type | Null | Default | Key |");
-        write_line!(out, "| --- | --- | --- | --- | --- |");
         for column in &table.columns {
-            let key = if column.primary_key == 0 {
-                String::new()
+            let type_name = if column.type_name.trim().is_empty() {
+                "—".to_owned()
             } else {
-                "PK".to_owned()
+                column.type_name.trim().to_ascii_lowercase()
             };
-            let default = column
-                .default
-                .as_deref()
-                .filter(|value| !value.is_empty())
-                .map_or_else(|| "(none)".to_owned(), |value| format!("`{value}`"));
+            let default = column.default.as_deref().unwrap_or("—");
+            let check = table
+                .checks
+                .column(&column.name)
+                .map(|expression| {
+                    format!(
+                        "`{}`",
+                        escape_cell(&summarize_check(&column.name, expression))
+                    )
+                })
+                .unwrap_or_else(|| "—".to_owned());
             write_line!(
                 out,
-                "| `{}` | {} | {} | {} | {} |",
-                column.name,
-                column.type_name,
+                "| {} | {} | {} | {} | {} | {} |",
+                escape_cell(&column.name),
+                escape_cell(&type_name),
                 if column.not_null { "no" } else { "yes" },
-                default,
-                key
+                escape_cell(default),
+                primary_key_label(column.primary_key),
+                check
             );
         }
-        write_line!(out, "");
+        write_line!(out);
 
-        write_line!(out, "**Checks**\n");
-        if table.checks.is_empty() {
-            write_line!(out, "- (none)\n");
-        } else {
-            for check in &table.checks {
-                write_line!(out, "- `{}`", check);
-            }
-            write_line!(out, "");
+        let primary_key: Vec<&str> = table
+            .columns
+            .iter()
+            .filter(|column| column.primary_key != 0)
+            .map(|column| column.name.as_str())
+            .collect();
+        let mut details = false;
+        if primary_key.len() > 1 {
+            write_line!(out, "Primary key: ({}).", primary_key.join(", "));
+            details = true;
+        }
+        if table.without_rowid {
+            write_line!(out, "WITHOUT ROWID.");
+            details = true;
+        }
+        if details {
+            write_line!(out);
         }
 
-        write_line!(out, "**Indexes**\n");
         if table.indexes.is_empty() {
-            write_line!(out, "- (none)\n");
+            write_line!(out, "Indexes: none.");
         } else {
-            write_line!(out, "| Name | Unique | Origin | Columns |");
-            write_line!(out, "| --- | --- | --- | --- |");
+            write_line!(out, "Indexes:");
             for index in &table.indexes {
-                let columns = index
-                    .columns
-                    .iter()
-                    .map(|column| format!("`{column}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write_line!(
-                    out,
-                    "| `{}` | {} | {} | {} |",
-                    index.name,
-                    if index.unique { "yes" } else { "no" },
-                    origin(&index.origin),
-                    columns
-                );
+                let mut line = format!("- `{}` on ({})", index.name, index.columns.join(", "));
+                if index.unique {
+                    line.push_str(", unique");
+                }
+                if index.origin == "u" || index.origin == "pk" {
+                    line.push_str(" (constraint)");
+                }
+                write_line!(out, "{line}");
             }
-            write_line!(out, "");
         }
+        write_line!(out);
 
-        write_line!(out, "**Foreign keys**\n");
         if table.foreign_keys.is_empty() {
-            write_line!(out, "- (none)\n");
+            write_line!(out, "Foreign keys: none.");
         } else {
-            write_line!(out, "| Columns | References | On delete |");
-            write_line!(out, "| --- | --- | --- |");
+            write_line!(out, "Foreign keys:");
             for foreign_key in &table.foreign_keys {
-                let from = foreign_key
-                    .from
-                    .iter()
-                    .map(|column| format!("`{column}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let to = if foreign_key.to.is_empty() {
-                    "(primary key)".to_owned()
-                } else {
-                    foreign_key
-                        .to
-                        .iter()
-                        .map(|column| format!("`{column}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                };
                 write_line!(
                     out,
-                    "| {} | `{}`({}) | {} |",
-                    from,
+                    "- ({}) → `{}`({}), on delete {}, on update {}",
+                    foreign_key.from.join(", "),
                     foreign_key.table,
-                    to,
-                    foreign_key.on_delete
+                    foreign_key.to.join(", "),
+                    foreign_key.on_delete,
+                    foreign_key.on_update
                 );
             }
-            write_line!(out, "");
+        }
+        write_line!(out);
+
+        if !table.checks.table.is_empty() {
+            write_line!(out, "Table checks:");
+            for check in &table.checks.table {
+                write_line!(out, "- `{check}`");
+            }
+            write_line!(out);
         }
     }
 
-    Ok(out)
+    out
+}
+
+fn notes_for(table: &str) -> (&'static str, &'static str) {
+    let entry = NOTES
+        .iter()
+        .find(|(name, _, _)| *name == table)
+        .unwrap_or_else(|| panic!("table `{table}` has no ownership notes"));
+    (entry.1, entry.2)
+}
+
+/// The bundled head migration: schema version and name.
+fn head_migration() -> (u32, &'static str) {
+    let head = migrations::bundled()
+        .pop()
+        .expect("at least one bundled migration");
+    (head.id, head.name)
+}
+
+fn primary_key_label(position: i64) -> String {
+    match position {
+        0 => "—".to_owned(),
+        1 => "PK".to_owned(),
+        position => format!("PK({position})"),
+    }
+}
+
+fn mermaid_type(type_name: &str) -> String {
+    let lower = type_name.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        "any".to_owned()
+    } else {
+        lower
+    }
+}
+
+fn summarize_check(column: &str, expression: &str) -> String {
+    let id_shape = format!("substr({column}, 15, 1) = '4'");
+    if expression.contains(&id_shape) {
+        return "canonical UUIDv4".to_owned();
+    }
+    if expression.contains("GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]") {
+        let nullable = format!("{column} IS NULL OR");
+        if expression.starts_with(&nullable) {
+            return "NULL or canonical UTC time".to_owned();
+        }
+        return "canonical UTC time".to_owned();
+    }
+    expression.to_owned()
+}
+
+fn escape_cell(text: &str) -> String {
+    text.replace('|', "\\|")
 }
 
 /// The committed file lives at the repository root, two levels above this crate.
@@ -416,14 +449,14 @@ fn migrate_and_read() -> Vec<Table> {
              WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
         )
         .expect("read sqlite_master");
-    let names: Vec<(String, Option<String>)> = statement
+    let tables: Vec<(String, Option<String>)> = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .expect("query sqlite_master")
         .map(|row| row.expect("sqlite_master row"))
         .collect();
     drop(statement);
 
-    names
+    tables
         .into_iter()
         .map(|(name, sql)| read_table(&conn, name, sql.unwrap_or_default()))
         .collect()
@@ -479,7 +512,7 @@ fn read_table(conn: &Connection, name: String, sql: String) -> Table {
     let foreign_keys = {
         let mut statement = conn
             .prepare(
-                "SELECT id, \"table\", \"from\", \"to\", on_delete \
+                "SELECT id, seq, \"table\", \"from\", \"to\", on_update, on_delete \
                  FROM pragma_foreign_key_list(?1) ORDER BY id, seq",
             )
             .expect("prepare foreign_key_list");
@@ -487,20 +520,24 @@ fn read_table(conn: &Connection, name: String, sql: String) -> Table {
             .query_map([name.as_str()], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
                 ))
             })
             .expect("query foreign_key_list");
         let mut grouped: BTreeMap<i64, ForeignKey> = BTreeMap::new();
         for row in rows {
-            let (id, table, from, to, on_delete) = row.expect("foreign_key_list row");
+            let (id, _seq, table, from, to, on_update, on_delete) =
+                row.expect("foreign_key_list row");
             let entry = grouped.entry(id).or_insert_with(|| ForeignKey {
                 from: Vec::new(),
                 table,
                 to: Vec::new(),
+                on_update,
                 on_delete,
             });
             entry.from.push(from);
@@ -512,11 +549,12 @@ fn read_table(conn: &Connection, name: String, sql: String) -> Table {
     };
 
     Table {
-        checks: checks_in(&sql),
+        checks: parse_checks(&sql),
         name,
         columns,
         indexes,
         foreign_keys,
+        without_rowid: sql.to_ascii_uppercase().contains("WITHOUT ROWID"),
     }
 }
 
@@ -531,12 +569,74 @@ fn index_columns(conn: &Connection, index: &str) -> Vec<String> {
         .collect()
 }
 
-/// Extract `CHECK (...)` expressions from one table's original SQL text.
-fn checks_in(sql: &str) -> Vec<String> {
-    let lowercase = sql.to_ascii_lowercase();
-    let bytes = sql.as_bytes();
+/// Split one table body at top-level commas, respecting quoted strings.
+fn split_segments(body: &str) -> Vec<&str> {
+    let bytes = body.as_bytes();
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_u32;
+    let mut quoted = false;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        match byte {
+            b'\'' => quoted = !quoted,
+            b'(' if !quoted => depth += 1,
+            b')' if !quoted => depth = depth.saturating_sub(1),
+            b',' if !quoted && depth == 0 => {
+                segments.push(&body[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    segments.push(&body[start..]);
+    segments
+}
+
+/// Parse column-level and table-level CHECK expressions from one table SQL.
+fn parse_checks(sql: &str) -> Checks {
+    let mut checks = Checks::default();
+    let Some(open) = sql.find('(') else {
+        return checks;
+    };
+    let Some(close) = matching_paren(sql.as_bytes(), open) else {
+        return checks;
+    };
+    let body = &sql[open + 1..close];
+
+    for segment in split_segments(body) {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        let first = segment
+            .split(|character: char| character.is_ascii_whitespace() || character == '(')
+            .next()
+            .unwrap_or_default();
+        let expressions = extract_checks(segment);
+        if expressions.is_empty() {
+            continue;
+        }
+        if first.eq_ignore_ascii_case("check") {
+            checks.table.extend(expressions);
+        } else {
+            checks.columns.extend(
+                expressions
+                    .into_iter()
+                    .map(|expression| (first.to_owned(), expression)),
+            );
+        }
+    }
+
+    checks
+}
+
+/// Extract every `CHECK (...)` expression from one SQL fragment.
+fn extract_checks(fragment: &str) -> Vec<String> {
+    let lowercase = fragment.to_ascii_lowercase();
+    let bytes = fragment.as_bytes();
     let mut checks = Vec::new();
     let mut search = 0;
+
     while let Some(relative) = lowercase[search..].find("check") {
         let at = search + relative;
         let after = at + "check".len();
@@ -557,9 +657,10 @@ fn checks_in(sql: &str) -> Vec<String> {
         let Some(close) = matching_paren(bytes, open) else {
             break;
         };
-        checks.push(normalize_whitespace(&sql[open + 1..close]));
+        checks.push(normalize_whitespace(&fragment[open + 1..close]));
         search = close + 1;
     }
+
     checks
 }
 
@@ -575,7 +676,7 @@ fn matching_paren(bytes: &[u8], open: usize) -> Option<usize> {
             b'\'' => quoted = !quoted,
             b'(' if !quoted => depth += 1,
             b')' if !quoted => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 if depth == 0 {
                     return Some(index);
                 }
@@ -590,36 +691,68 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn mermaid_type(type_name: &str) -> String {
-    let compact = type_name.split_whitespace().collect::<Vec<_>>().join("");
-    if compact.is_empty() {
-        "ANY".to_owned()
-    } else {
-        compact
+#[test]
+fn erd_md_matches_the_bundled_schema() {
+    let tables = migrate_and_read();
+    let rendered = render(&tables);
+    let path = erd_path();
+
+    if std::env::var("ORDO_BLESS_ERD").as_deref() == Ok("1") {
+        std::fs::write(&path, &rendered).expect("write ERD.md");
+        return;
     }
+
+    let committed = std::fs::read_to_string(&path).expect("read ERD.md");
+    assert_eq!(
+        committed, rendered,
+        "ERD.md is stale; regenerate it with `ORDO_BLESS_ERD=1 cargo test -p storage erd`"
+    );
 }
 
-fn origin(origin: &str) -> &str {
-    match origin {
-        "c" => "created",
-        "u" => "unique constraint",
-        "pk" => "primary key",
-        other => other,
+#[test]
+fn every_table_has_ownership_notes() {
+    let tables = migrate_and_read();
+
+    for table in &tables {
+        let matches = NOTES
+            .iter()
+            .filter(|(name, _, _)| *name == table.name)
+            .count();
+        assert_eq!(
+            matches, 1,
+            "table `{}` must have exactly one ownership note",
+            table.name
+        );
+    }
+
+    for (name, _, _) in NOTES {
+        assert!(
+            tables.iter().any(|table| table.name == *name),
+            "ownership note names missing table `{name}`"
+        );
     }
 }
 
 #[test]
-fn erd_matches_the_authoritative_migrations() {
-    let tables = migrate_and_read();
-    let rendered = render(&tables).unwrap_or_else(|problem| panic!("ERD render failed: {problem}"));
-
-    let path = erd_path();
-    if std::env::var_os("ORDO_BLESS_ERD").is_some() {
-        std::fs::write(&path, &rendered).expect("write ERD.md");
-    }
-    let committed = std::fs::read_to_string(&path).expect("read ERD.md");
-    assert_eq!(
-        committed, rendered,
-        "ERD.md is stale; regenerate it with ORDO_BLESS_ERD=1 cargo test -p storage erd"
+fn check_parser_handles_nested_parentheses() {
+    let checks = parse_checks(
+        "CREATE TABLE t (a TEXT CHECK (length(a) IN (1, 2)), b INTEGER, \
+         CHECK ((a IS NULL) <> (b IS NULL)))",
     );
+
+    assert_eq!(checks.column("a"), Some("length(a) IN (1, 2)"));
+    assert_eq!(checks.table, vec!["(a IS NULL) <> (b IS NULL)"]);
+}
+
+#[test]
+fn mermaid_block_has_one_relationship_per_foreign_key() {
+    let tables = migrate_and_read();
+    let rendered = render(&tables);
+    let expected: usize = tables.iter().map(|table| table.foreign_keys.len()).sum();
+    let relationships = rendered
+        .lines()
+        .filter(|line| line.contains("--o{"))
+        .count();
+
+    assert_eq!(relationships, expected);
 }
