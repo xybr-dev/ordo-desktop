@@ -120,8 +120,18 @@ impl JournalRecorder {
 
     /// The content of `engine` now. Remembers the Program cue whenever Program
     /// shows a frame, so a later black Program still names it.
+    ///
+    /// A recovered session starts with Program black, so its recorder is
+    /// seeded once from [`crate::state::RecoveredContext::program`]: a second
+    /// crash before the first `Take` still names what Program showed before
+    /// the interruption. A frame that later reaches Program replaces it.
     fn content(&mut self, engine: &Engine, display: Option<DisplayRecord>) -> Content {
         let state = engine.state();
+        if self.last_valid_program.is_none()
+            && let Some(program) = state.recovered().and_then(|context| context.program())
+        {
+            self.last_valid_program = Some(cue_id_at(engine, program));
+        }
         if let ProgramContent::Frame { cue, .. } = state.program() {
             self.last_valid_program = Some(cue_id_at(engine, cue));
         }

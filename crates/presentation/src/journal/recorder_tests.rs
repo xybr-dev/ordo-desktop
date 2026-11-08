@@ -62,6 +62,35 @@ fn display() -> DisplayRecord {
     }
 }
 
+/// An Engine reopened from a journal point over the synthetic snapshot.
+fn recovered_engine(
+    snapshot: &LoadedSnapshot,
+    preview: usize,
+    program: Option<usize>,
+    state: LiveIntent,
+    enabled: bool,
+) -> Engine {
+    let point = RecoveryPoint {
+        session_id: session(),
+        seq: 1,
+        written_at: at(1),
+        snapshot_id: snapshot.snapshot().id(),
+        manifest_hash: snapshot.manifest_hash(),
+        source_dir: SOURCE_DIR.to_owned(),
+        preview: cue(snapshot, preview),
+        program: program.map(|flat| cue(snapshot, flat)),
+        state,
+        output: OutputEvidence {
+            enabled,
+            display: None,
+        },
+        ended: false,
+    };
+    let validated = validate(point, snapshot).expect("the point matches the snapshot");
+    Engine::recover(Arc::new(snapshot.snapshot().clone()), &validated, true)
+        .expect("recovery accepts the validated point")
+}
+
 #[test]
 fn every_live_state_has_its_journal_spelling() {
     let cases = [
@@ -380,6 +409,28 @@ fn a_black_landing_keeps_the_last_frame_cue_until_a_new_frame_replaces_it() {
         recorder.observe(&engine, None, || at(3)).unwrap().program,
         Some(cue(&snapshot, 6))
     );
+}
+
+#[test]
+fn a_recovered_session_seeds_the_prior_program_cue() {
+    let snapshot = load_snapshot();
+    let mut engine = recovered_engine(&snapshot, 0, Some(1), LiveIntent::EnabledBlack, true);
+    assert_eq!(engine.state().program(), ProgramContent::Black);
+    let mut recorder = recorder_for(&snapshot);
+
+    // Program is black after recovery, but the recorder still names what it
+    // showed before the interruption, so a second crash keeps the context.
+    let first = recorder.observe(&engine, None, || at(1)).unwrap();
+    assert_eq!(first.program, Some(cue(&snapshot, 1)));
+    assert_eq!(first.state, LiveIntent::EnabledBlack);
+    assert_eq!(first.preview, cue(&snapshot, 0));
+    assert!(first.output.enabled);
+
+    // A frame reaching Program afterwards replaces the seeded cue.
+    run(&mut engine, Command::Take);
+    let taken = recorder.observe(&engine, None, || at(2)).unwrap();
+    assert_eq!(taken.program, Some(cue(&snapshot, 0)));
+    assert_eq!(taken.state, LiveIntent::Live);
 }
 
 #[test]

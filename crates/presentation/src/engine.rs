@@ -30,8 +30,11 @@ use domain::presentation::{
 use rendering::UnavailableReason;
 
 use crate::commands::Command;
+use crate::journal::{JournalRejection, ValidatedRecovery};
 pub use crate::state::{AutoPlayScope, AutoPlayStatus, FADE_MS, ProgramView};
-use crate::state::{EngineState, FadeTimeline, LiveState, Millis, ProgramContent};
+use crate::state::{
+    EngineState, FadeTimeline, LiveState, Millis, ProgramContent, RecoveredContext,
+};
 
 /// Whether a command changed the Engine state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,6 +178,7 @@ impl Engine {
                 program: ProgramContent::Black,
                 unavailable_black: false,
                 auto_play: None,
+                recovered: None,
                 revision: 0,
             },
             last_now: Millis(0),
@@ -183,6 +187,66 @@ impl Engine {
             unavailable: BTreeMap::new(),
             projected,
         }
+    }
+
+    /// An Engine reopened from a validated journal point (Decision 228).
+    ///
+    /// Recovery is fail-closed: Program is always [`ProgramContent::Black`],
+    /// so nothing reaches the congregation until the operator deliberately
+    /// takes Preview. Preview is the journaled Cue and the live state follows
+    /// what the output was doing: `OutputDisabled` when it had been closed,
+    /// `EnabledBlack` when it had been open on a recognized display, and
+    /// `Disconnected { display_back: false }` otherwise. A journaled Frozen or
+    /// Blackout lives on only as the private [`EngineState::recovered`] label:
+    /// `Space` then resumes the ordinary linked Live state (Owner decision 3).
+    ///
+    /// Fails closed with [`JournalRejection::SnapshotMismatch`] when
+    /// `snapshot` is not the one the point was validated against, or when an
+    /// index no longer names the journaled Cue. A caller must never swap a
+    /// different snapshot in between validation and recovery.
+    pub fn recover(
+        snapshot: Arc<PresentationSnapshot>,
+        recovery: &ValidatedRecovery,
+        display_recognized: bool,
+    ) -> Result<Engine, JournalRejection> {
+        let point = &recovery.point;
+        if point.snapshot_id != snapshot.id() {
+            return Err(JournalRejection::SnapshotMismatch);
+        }
+        let positions = snapshot.positions();
+        let names = |flat: usize, cue: CueId| {
+            positions
+                .get(flat)
+                .is_some_and(|position| position.cue_id == cue)
+        };
+        if !names(recovery.preview, point.preview) {
+            return Err(JournalRejection::SnapshotMismatch);
+        }
+        match (recovery.program, point.program) {
+            (Some(flat), Some(cue)) if names(flat, cue) => {}
+            (None, None) => {}
+            _ => return Err(JournalRejection::SnapshotMismatch),
+        }
+
+        let mut engine = Self::new(snapshot);
+        engine.state.preview = recovery.preview;
+        engine.state.program = ProgramContent::Black;
+        engine.state.unavailable_black = false;
+        engine.state.auto_play = None;
+        engine.state.live = if !point.output.enabled {
+            LiveState::OutputDisabled
+        } else if display_recognized {
+            LiveState::EnabledBlack
+        } else {
+            LiveState::Disconnected {
+                display_back: false,
+            }
+        };
+        engine.state.recovered = Some(RecoveredContext {
+            program: recovery.program,
+            interrupted: point.state,
+        });
+        Ok(engine)
     }
 
     /// The current state.
@@ -365,6 +429,7 @@ impl Engine {
             run.cue_started = now;
         }
         self.settle_auto_play(&self.state, &mut next, now);
+        Self::settle_recovered(&self.state, &mut next, None);
         let changed = !next.same_observable(&self.state);
         self.commit(next, changed, now)
     }
@@ -477,6 +542,7 @@ impl Engine {
         let mut next = self.state.clone();
         self.transition(&mut next, command, now)?;
         self.settle_auto_play(&self.state, &mut next, now);
+        Self::settle_recovered(&self.state, &mut next, Some(command));
         let changed = !next.same_observable(&self.state);
         Ok((next, changed))
     }
@@ -523,6 +589,19 @@ impl Engine {
                 }
                 None => next.auto_play = None,
             }
+        }
+    }
+
+    /// The one place a recovered session's private context is cleared: when
+    /// operator-chosen content newly reaches Program (a successful `Take`,
+    /// including a Freeze or Blackout release), or on `DisableOutput`, the
+    /// ordinary safe exit. A refused command never reaches here, so it keeps
+    /// the context; navigation and output events do too. `tick` passes no
+    /// command.
+    fn settle_recovered(old: &EngineState, next: &mut EngineState, command: Option<Command>) {
+        let newly_live = next.live == LiveState::Live && old.live != LiveState::Live;
+        if newly_live || matches!(command, Some(Command::DisableOutput)) {
+            next.recovered = None;
         }
     }
 
@@ -3063,3 +3142,7 @@ mod availability_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "engine_recovery_tests.rs"]
+mod recovery_tests;
