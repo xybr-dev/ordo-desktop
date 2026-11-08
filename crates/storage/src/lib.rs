@@ -470,7 +470,8 @@ impl Storage {
 
     /// The next write transaction fails at its `step`-th write statement
     /// (1-based) with `StorageError::Sqlite("injected write failure")`, then
-    /// the hook clears.
+    /// the hook clears. A create that fails validation never opens a write
+    /// transaction and leaves the hook armed.
     pub fn inject_write_failure(
         &self,
         step: usize,

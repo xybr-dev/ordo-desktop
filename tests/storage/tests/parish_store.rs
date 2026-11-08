@@ -143,7 +143,10 @@ fn invalid(field: &'static str, reason: &'static str) -> StorageError {
 #[test]
 fn created_records_rehydrate_exactly_after_restart() {
     let dir = TempDir::new("rehydrate");
-    let storage = open(&dir);
+    // Scripted ids sort in creation order (parish, then the two choirs), so the
+    // (created_at, id) ordering of `choirs()` is deterministic even when the
+    // creates share a time. The remaining ids are random.
+    let storage = open_scripted(&dir, vec![[0x01; 16], [0x02; 16], [0x03; 16]]);
 
     let parish = bounded(storage.create_parish(NewParish {
         name: "St Mary".to_owned(),
@@ -402,6 +405,8 @@ fn missing_choir_or_song_rolls_back() {
     .expect("choir");
     let ghost_choir = ChoirId::from_entity(EntityId::from_random_bytes([9; 16]));
 
+    // Reference checks run before any insert, so no arrangement_choir row can exist.
+
     let mut with_ghost_choir = arrangement_input(song.id);
     with_ghost_choir.choirs = vec![choir.id, ghost_choir];
     with_ghost_choir.sections = vec![section(None, "a")];
@@ -584,5 +589,26 @@ fn not_found_reads() {
             id: arrangement.entity(),
         })
     );
+    assert_eq!(bounded(storage.shutdown()), ShutdownOutcome::Clean);
+}
+
+#[test]
+fn validation_failure_leaves_the_injected_fault_armed() {
+    let dir = TempDir::new("fault-armed");
+    let storage = open(&dir);
+    bounded(storage.inject_write_failure(1)).expect("arm hook");
+    assert_eq!(
+        bounded(storage.create_choir(NewChoir {
+            name: " ".to_owned()
+        })),
+        Err(invalid("name", "blank"))
+    );
+    assert_eq!(
+        bounded(storage.create_choir(NewChoir {
+            name: "Adults".to_owned()
+        })),
+        Err(StorageError::Sqlite("injected write failure".to_owned()))
+    );
+    assert_eq!(bounded(storage.choirs()), Ok(vec![]));
     assert_eq!(bounded(storage.shutdown()), ShutdownOutcome::Clean);
 }
