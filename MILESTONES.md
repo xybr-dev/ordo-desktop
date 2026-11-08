@@ -1015,7 +1015,7 @@ every authoring Module.
 
 - [ ] `[AUTO]` Store canonical lowercase UUIDv4 identities and explicit creation
       times; titles never serve as identity.
-- [ ] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
+- [x] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
       Arrangement, section, occurrence, Theme placeholders, revision ledger,
       managed asset, snapshot/package/backup placeholders, and schema metadata.
 - [ ] `[AUTO]` Managed assets use stable IDs and hashes and commit consistently
@@ -1027,7 +1027,7 @@ every authoring Module.
       cross records, and enforced foreign keys.
 - [ ] `[AUTO]` Storage errors preserve prior committed state and return a stable
       domain-relevant failure.
-- [ ] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
+- [x] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
       migrations: its Mermaid physical overview and per-table columns, types,
       null/default/constraint/index/FK/ownership/lifecycle details correspond
       directly to the schema rather than duplicating domain prose.
