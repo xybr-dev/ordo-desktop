@@ -49,6 +49,7 @@ struct Index {
     name: String,
     unique: bool,
     origin: String,
+    partial: bool,
     columns: Vec<String>,
 }
 
@@ -177,8 +178,8 @@ const NOTES: &[(&str, &str, &str)] = &[
     ),
     (
         "edit_revision",
-        "Edit revisions (placeholder, T2.2)",
-        "Append-only; restoration adds a later revision; names exactly one song or arrangement.",
+        "Edit revisions (T2.2)",
+        "Append-only, one linear chain per entity; every committed edit point and every restoration appends one; content is canonical JSON hashed by content_sha256.",
     ),
     (
         "presentation_snapshot",
@@ -351,6 +352,9 @@ fn render(tables: &[Table]) -> String {
                 if index.origin == "u" || index.origin == "pk" {
                     line.push_str(" (constraint)");
                 }
+                if index.partial {
+                    line.push_str(" (partial)");
+                }
                 write_line!(out, "{line}");
             }
         }
@@ -473,6 +477,9 @@ fn summarize_check(column: &str, expression: &str) -> String {
     if expression == canonical_uuid_check(column) {
         return "canonical UUIDv4".to_owned();
     }
+    if expression == nullable_canonical_uuid_check(column) {
+        return "NULL or canonical UUIDv4".to_owned();
+    }
     if expression == canonical_time_check(column) {
         return "canonical UTC time".to_owned();
     }
@@ -480,6 +487,11 @@ fn summarize_check(column: &str, expression: &str) -> String {
         return "NULL or canonical UTC time".to_owned();
     }
     expression.to_owned()
+}
+
+/// The exact nullable canonical UUIDv4 CHECK for `column`.
+fn nullable_canonical_uuid_check(column: &str) -> String {
+    format!("{column} IS NULL OR ({})", canonical_uuid_check(column))
 }
 
 fn escape_cell(text: &str) -> String {
@@ -539,24 +551,30 @@ fn read_table(conn: &Connection, name: String, sql: String) -> Table {
     let indexes = {
         let mut statement = conn
             .prepare(
-                "SELECT name, \"unique\", origin \
+                "SELECT name, \"unique\", origin, partial \
                  FROM pragma_index_list(?1) ORDER BY name",
             )
             .expect("prepare index_list");
-        let rows: Vec<(String, bool, String)> = statement
+        let rows: Vec<(String, bool, String, bool)> = statement
             .query_map([name.as_str()], |row| {
-                Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?))
+                Ok((
+                    row.get(0)?,
+                    row.get::<_, i64>(1)? != 0,
+                    row.get(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                ))
             })
             .expect("query index_list")
             .map(|row| row.expect("index_list row"))
             .collect();
         drop(statement);
         rows.into_iter()
-            .map(|(index, unique, origin)| Index {
+            .map(|(index, unique, origin, partial)| Index {
                 columns: index_columns(conn, &index),
                 name: index,
                 unique,
                 origin,
+                partial,
             })
             .collect()
     };
@@ -885,6 +903,35 @@ fn canonical_check_templates_match_the_bundled_migration() {
     assert_eq!(
         song.checks.column("archived_at"),
         Some(nullable_canonical_time_check("archived_at").as_str())
+    );
+}
+
+#[test]
+fn nullable_uuid_check_is_summarised_and_partial_indexes_are_marked() {
+    let tables = migrate_and_read();
+    let revision = tables
+        .iter()
+        .find(|table| table.name == "edit_revision")
+        .expect("edit_revision table");
+    assert_eq!(
+        revision.checks.column("session_id"),
+        Some(nullable_canonical_uuid_check("session_id").as_str())
+    );
+    assert_eq!(
+        summarize_check("session_id", &nullable_canonical_uuid_check("session_id")),
+        "NULL or canonical UUIDv4"
+    );
+    let rendered = render(&tables);
+    assert!(
+        rendered.contains("- `edit_revision_one_song_root` on (song_id), unique (partial)"),
+        "partial index must be marked"
+    );
+    assert!(
+        rendered.contains(
+            "- `edit_revision_by_song` on (song_id, created_at)
+"
+        ),
+        "ordinary index must not be marked partial"
     );
 }
 

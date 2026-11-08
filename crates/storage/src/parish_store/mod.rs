@@ -7,8 +7,9 @@
 
 mod read;
 mod records;
-mod write;
+pub(crate) mod write;
 
+pub(crate) use read::{read_arrangement, read_song};
 pub use records::{
     ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
     NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
@@ -23,6 +24,12 @@ mod tests {
             ("records.rs", include_str!("records.rs")),
             ("write.rs", include_str!("write.rs")),
             ("read.rs", include_str!("read.rs")),
+            (
+                "revisions/content.rs",
+                include_str!("../revisions/content.rs"),
+            ),
+            ("revisions/write.rs", include_str!("../revisions/write.rs")),
+            ("revisions/read.rs", include_str!("../revisions/read.rs")),
         ];
         for (name, text) in sources {
             for needle in ["format!", "execute_batch", "concat!", "push_str"] {
