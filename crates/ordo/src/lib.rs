@@ -332,10 +332,12 @@ impl RuntimeWorkers {
         preferences: PreferencesFile,
         journal_path: PathBuf,
         restored_preferences: AsyncSender<std::io::Result<Option<String>>>,
+        startup_recovery: AsyncSender<recovery::StartupRecovery>,
     ) -> Result<(Self, recovery::JournalWriter), WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
         let (canonical_commands, canonical_requests) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
+        let recovery_journal = journal_path.clone();
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
             // File access on this worker is never inside a GPUI-thread scope. The note
             // counts only if a read or write is moved onto the GPUI thread.
@@ -343,6 +345,13 @@ impl RuntimeWorkers {
                 crate::performance::hot_path::HotPathKind::FileAccess,
             );
             let _ = restored_preferences.send_blocking(preferences.read());
+            // The journal read and snapshot load are file work: they stay on
+            // this worker and only the finished result crosses to GPUI.
+            crate::performance::hot_path::note(
+                crate::performance::hot_path::HotPathKind::FileAccess,
+            );
+            let _ =
+                startup_recovery.send_blocking(recovery::read_startup_recovery(&recovery_journal));
             while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
                 crate::performance::hot_path::note(
                     crate::performance::hot_path::HotPathKind::FileAccess,
@@ -486,10 +495,12 @@ pub fn open_native_runtime_with(
     cx.set_quit_mode(QuitMode::Explicit);
     init_ui(cx).map_err(RuntimeError::Ui)?;
     let (restore_tx, restore_rx) = async_channel::bounded(1);
+    let (recovery_tx, recovery_rx) = async_channel::bounded(1);
     let (workers, journal) = RuntimeWorkers::start(
         PreferencesFile::new(preferences_path.as_ref()),
         recovery::journal_path(preferences_path.as_ref()),
         restore_tx,
+        recovery_tx,
     )?;
     let workers = Rc::new(RefCell::new(workers));
     let canonical_commands = workers.borrow().canonical_commands.clone();
@@ -550,6 +561,20 @@ pub fn open_native_runtime_with(
             let _ = restore_target.update(cx, |root, _, cx| {
                 root.finish_preferences_restore(restored, cx);
             });
+        }
+    })
+    .detach();
+
+    // A recovered session reopens straight into Presenter. Only `Found` does
+    // anything; absent and rejected journals leave Preparation as it is.
+    cx.spawn({
+        let recovery_target = operator;
+        async move |cx| {
+            if let Ok(recovery::StartupRecovery::Found(found)) = recovery_rx.recv().await {
+                let _ = recovery_target.update(cx, |root, window, cx| {
+                    root.finish_startup_recovery(*found, window, cx);
+                });
+            }
         }
     })
     .detach();
@@ -716,10 +741,12 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let preferences = directory.join("preferences.json");
         let (restore_tx, _restore_rx) = async_channel::bounded(1);
+        let (recovery_tx, _recovery_rx) = async_channel::bounded(1);
         let (mut workers, _journal) = RuntimeWorkers::start(
             PreferencesFile::new(&preferences),
             recovery::journal_path(&preferences),
             restore_tx,
+            recovery_tx,
         )
         .expect("workers must start");
         let live_preferences = workers.preference_commands.clone();

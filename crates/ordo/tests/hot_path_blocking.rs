@@ -20,7 +20,7 @@ const BLOCKING: [&str; 6] = [
 ];
 
 /// Reviewed production sites: (file relative to `src/`, trimmed line, why).
-const REVIEWED: [(&str, &str, &str); 7] = [
+const REVIEWED: [(&str, &str, &str); 8] = [
     (
         "canonical.rs",
         "while let Ok(command) = requests.recv() {",
@@ -35,6 +35,11 @@ const REVIEWED: [(&str, &str, &str); 7] = [
         "lib.rs",
         "let _ = restored_preferences.send_blocking(preferences.read());",
         "preference worker thread, startup restore",
+    ),
+    (
+        "lib.rs",
+        "startup_recovery.send_blocking(recovery::read_startup_recovery(&recovery_journal));",
+        "preference worker thread, startup recovery read",
     ),
     (
         "lib.rs",

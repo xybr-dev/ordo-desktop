@@ -34,10 +34,17 @@ use std::{
 };
 
 use platform::{
-    display::DisplayEvidence,
+    display::{DisplayBounds, DisplayEvidence},
     tasks::{CancellationToken, OwnedWorker, WorkerExit, WorkerKind, WorkerStartError},
 };
-use presentation::journal::{BoundsRecord, DisplayRecord, RecoveryPoint, SessionId, encode};
+use presentation::{
+    journal::{
+        BoundsRecord, DisplayRecord, JournalRejection, RecoveryPoint, SessionId, ValidatedRecovery,
+        decode, encode, validate,
+    },
+    snapshot_reader::{DirectorySource, LoadedSnapshot, read_snapshot},
+};
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 
 use crate::performance::hot_path::{HotPathKind, note};
 
@@ -74,6 +81,153 @@ pub fn display_record(evidence: &DisplayEvidence) -> DisplayRecord {
             height: evidence.bounds.height,
         },
     }
+}
+
+/// The platform display evidence a journal record stands for; the inverse of
+/// [`display_record`].
+pub fn display_evidence(record: &DisplayRecord) -> DisplayEvidence {
+    DisplayEvidence {
+        name: record.name.clone(),
+        uuid: record.uuid.clone(),
+        bounds: DisplayBounds::new(
+            record.bounds.x,
+            record.bounds.y,
+            record.bounds.width,
+            record.bounds.height,
+        ),
+    }
+}
+
+/// File a rejected journal is renamed to, beside the journal, so Diagnostics
+/// can show it later and it is never read again.
+pub const REJECTED_FILE: &str = "session-recovery.rejected.json";
+
+/// Why the journal found at startup cannot reopen a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryRejection {
+    /// The file exists but could not be read.
+    Read(io::ErrorKind),
+    /// The record is torn, unknown, stale, or does not match the snapshot.
+    Journal(JournalRejection),
+    /// The snapshot named by `source_dir` could not be loaded (its message).
+    Snapshot(String),
+    /// Output was enabled but no display was journaled. With nothing to
+    /// match, an enable could open on whichever display is connected.
+    NoDisplayEvidence,
+}
+
+impl std::fmt::Display for RecoveryRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read(kind) => write!(f, "the recovery journal could not be read ({kind})"),
+            Self::Journal(rejection) => rejection.fmt(f),
+            Self::Snapshot(message) => write!(
+                f,
+                "the recovery journal's snapshot could not be loaded: {message}"
+            ),
+            Self::NoDisplayEvidence => {
+                f.write_str("output was enabled but the recovery journal names no display")
+            }
+        }
+    }
+}
+
+/// A journal that validated against its snapshot, with what the Presenter
+/// needs to reopen it.
+#[derive(Debug)]
+pub struct RecoveredSession {
+    pub snapshot: LoadedSnapshot,
+    pub recovery: ValidatedRecovery,
+    /// The directory the snapshot was loaded from.
+    pub directory: PathBuf,
+    /// When the session was last journaled, in local time (`9:31 AM`).
+    pub closed_at: String,
+}
+
+/// What the startup read found.
+#[derive(Debug)]
+pub enum StartupRecovery {
+    /// No journal: the last session ended cleanly (or there was none).
+    Absent,
+    /// A journal that cannot be used. It has been renamed to
+    /// [`REJECTED_FILE`] and is never retried.
+    Rejected(RecoveryRejection),
+    /// Boxed: it carries the loaded snapshot, which is large.
+    Found(Box<RecoveredSession>),
+}
+
+/// Reads, decodes and validates the journal at `journal`, and loads the
+/// snapshot it names. Blocking file work: it runs on the Storage worker,
+/// never on the GPUI thread.
+///
+/// A rejected journal is renamed to [`REJECTED_FILE`] beside it (replacing an
+/// older one) and the reason is logged, so the next start finds `Absent`.
+pub fn read_startup_recovery(journal: &Path) -> StartupRecovery {
+    note(HotPathKind::FileAccess);
+    let bytes = match fs::read(journal) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return StartupRecovery::Absent,
+        Err(error) => return reject(journal, RecoveryRejection::Read(error.kind())),
+    };
+    match read_found(&bytes) {
+        Ok(found) => StartupRecovery::Found(Box::new(found)),
+        Err(rejection) => reject(journal, rejection),
+    }
+}
+
+fn read_found(bytes: &[u8]) -> Result<RecoveredSession, RecoveryRejection> {
+    let point = decode(bytes).map_err(RecoveryRejection::Journal)?;
+    let directory = PathBuf::from(&point.source_dir);
+    let snapshot = read_snapshot(&DirectorySource::new(directory.clone()))
+        .map_err(|error| RecoveryRejection::Snapshot(error.to_string()))?;
+    let recovery = validate(point, &snapshot).map_err(RecoveryRejection::Journal)?;
+    let evidence = &recovery.point().output;
+    if evidence.enabled && evidence.display.is_none() {
+        return Err(RecoveryRejection::NoDisplayEvidence);
+    }
+    let closed_at = format_closed_at(
+        recovery.point().written_at.as_str(),
+        UtcOffset::current_local_offset().ok(),
+    );
+    Ok(RecoveredSession {
+        snapshot,
+        recovery,
+        directory,
+        closed_at,
+    })
+}
+
+fn reject(journal: &Path, rejection: RecoveryRejection) -> StartupRecovery {
+    eprintln!("ordo: recovery journal rejected: {rejection}");
+    let rejected = journal.with_file_name(REJECTED_FILE);
+    // A rename onto an existing file fails on some platforms, so the older
+    // rejected file goes first. Best effort: a failure is reported only.
+    let _ = fs::remove_file(&rejected);
+    if let Err(error) = fs::rename(journal, &rejected) {
+        eprintln!("ordo: could not set the rejected recovery journal aside: {error}");
+    }
+    StartupRecovery::Rejected(rejection)
+}
+
+/// The close time the operator reads. `written_at` is UTC RFC 3339. With a
+/// local `offset` it is 12-hour (`9:31 AM`); without one it stays UTC and
+/// 24-hour (`01:31 UTC`), so it is never mistaken for local time.
+fn format_closed_at(written_at: &str, offset: Option<UtcOffset>) -> String {
+    let Ok(utc) = OffsetDateTime::parse(written_at, &Rfc3339) else {
+        return written_at.to_owned();
+    };
+    let Some(offset) = offset else {
+        return format!("{:02}:{:02} UTC", utc.hour(), utc.minute());
+    };
+    let local = utc.to_offset(offset);
+    let hour = local.hour();
+    let (meridiem, twelve) = match hour {
+        0 => ("AM", 12),
+        1..=11 => ("AM", hour),
+        12 => ("PM", 12),
+        _ => ("PM", hour - 12),
+    };
+    format!("{twelve}:{:02} {meridiem}", local.minute())
 }
 
 /// Why one journal write or delete failed. Reported, never a panic.
@@ -640,5 +794,181 @@ mod tests {
             thread::sleep(Duration::from_millis(25));
         }
         panic!("the journal never reached seq {seq}");
+    }
+
+    // ---- startup read (T1.7d) ----
+
+    fn fixture_point(snap: &LoadedSnapshot) -> RecoveryPoint {
+        let mut p = point(snap, 1, 3, false);
+        p.source_dir = crate::presenter::fixture_snapshot_dir()
+            .to_string_lossy()
+            .into_owned();
+        p.preview = snap.snapshot().cue(1).unwrap().id();
+        p.output.display = Some(DisplayRecord {
+            name: Some("Projector".to_owned()),
+            uuid: None,
+            bounds: BoundsRecord {
+                x: 1920,
+                y: 0,
+                width: 1280,
+                height: 720,
+            },
+        });
+        p
+    }
+
+    fn write_point(dir: &TempDir, p: &RecoveryPoint) {
+        fs::write(dir.journal(), encode(p)).unwrap();
+    }
+
+    fn rejected(dir: &TempDir) -> PathBuf {
+        dir.0.join(REJECTED_FILE)
+    }
+
+    fn expect_rejected(dir: &TempDir, expected: RecoveryRejection) {
+        match read_startup_recovery(&dir.journal()) {
+            StartupRecovery::Rejected(found) => assert_eq!(found, expected),
+            other => panic!("expected a rejection, got {other:?}"),
+        }
+        assert!(!dir.journal().exists(), "the journal is set aside");
+        assert!(rejected(dir).exists());
+        assert!(matches!(
+            read_startup_recovery(&dir.journal()),
+            StartupRecovery::Absent
+        ));
+    }
+
+    #[test]
+    fn display_evidence_inverts_display_record() {
+        let evidence = DisplayEvidence {
+            name: Some("Projector".to_owned()),
+            uuid: Some("abc".to_owned()),
+            bounds: DisplayBounds::new(-1280, 40, 1280, 720),
+        };
+        assert_eq!(display_evidence(&display_record(&evidence)), evidence);
+        let bare = DisplayEvidence {
+            name: None,
+            uuid: None,
+            bounds: DisplayBounds::new(0, 0, 1920, 1080),
+        };
+        assert_eq!(display_evidence(&display_record(&bare)), bare);
+    }
+
+    #[test]
+    fn no_journal_is_absent() {
+        let dir = TempDir::new();
+        assert!(matches!(
+            read_startup_recovery(&dir.journal()),
+            StartupRecovery::Absent
+        ));
+        assert!(!rejected(&dir).exists());
+    }
+
+    #[test]
+    fn a_valid_journal_is_found() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        write_point(&dir, &fixture_point(&snap));
+        let StartupRecovery::Found(found) = read_startup_recovery(&dir.journal()) else {
+            panic!("a valid journal is found");
+        };
+        assert_eq!(found.recovery.preview(), 1);
+        assert_eq!(found.recovery.program(), None);
+        assert_eq!(found.directory, crate::presenter::fixture_snapshot_dir());
+        assert!(!found.closed_at.is_empty());
+        assert!(dir.journal().exists(), "a found journal is left in place");
+        assert!(!rejected(&dir).exists());
+    }
+
+    #[test]
+    fn torn_bytes_are_rejected_and_set_aside() {
+        let dir = TempDir::new();
+        fs::write(dir.journal(), b"{\"schema_version\": 2, \"se").unwrap();
+        expect_rejected(&dir, RecoveryRejection::Journal(JournalRejection::Torn));
+    }
+
+    #[test]
+    fn an_ended_session_is_stale() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let mut p = fixture_point(&snap);
+        p.ended = true;
+        write_point(&dir, &p);
+        expect_rejected(&dir, RecoveryRejection::Journal(JournalRejection::Stale));
+    }
+
+    #[test]
+    fn a_wrong_manifest_hash_is_a_snapshot_mismatch() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let mut p = fixture_point(&snap);
+        p.manifest_hash = domain::presentation::ContentHash::from_bytes([9; 32]);
+        write_point(&dir, &p);
+        expect_rejected(
+            &dir,
+            RecoveryRejection::Journal(JournalRejection::SnapshotMismatch),
+        );
+    }
+
+    #[test]
+    fn a_missing_snapshot_directory_is_a_snapshot_rejection() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let mut p = fixture_point(&snap);
+        p.source_dir = dir.0.join("gone").to_string_lossy().into_owned();
+        write_point(&dir, &p);
+        match read_startup_recovery(&dir.journal()) {
+            StartupRecovery::Rejected(RecoveryRejection::Snapshot(message)) => {
+                assert!(!message.is_empty());
+            }
+            other => panic!("expected a snapshot rejection, got {other:?}"),
+        }
+        assert!(rejected(&dir).exists());
+    }
+
+    #[test]
+    fn enabled_output_without_display_evidence_is_rejected() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let mut p = fixture_point(&snap);
+        p.output.display = None;
+        write_point(&dir, &p);
+        expect_rejected(&dir, RecoveryRejection::NoDisplayEvidence);
+    }
+
+    #[test]
+    fn disabled_output_without_display_is_found() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let mut p = fixture_point(&snap);
+        p.output = OutputEvidence {
+            enabled: false,
+            display: None,
+        };
+        p.state = LiveIntent::OutputDisabled;
+        write_point(&dir, &p);
+        assert!(matches!(
+            read_startup_recovery(&dir.journal()),
+            StartupRecovery::Found(_)
+        ));
+    }
+
+    #[test]
+    fn an_older_rejected_file_is_replaced() {
+        let dir = TempDir::new();
+        fs::write(rejected(&dir), b"old").unwrap();
+        fs::write(dir.journal(), b"new torn bytes").unwrap();
+        expect_rejected(&dir, RecoveryRejection::Journal(JournalRejection::Torn));
+        assert_eq!(fs::read(rejected(&dir)).unwrap(), b"new torn bytes");
+    }
+
+    #[test]
+    fn close_time_reads_as_local_twelve_hour_time() {
+        let plus8 = UtcOffset::from_hms(8, 0, 0).ok();
+        assert_eq!(format_closed_at("2026-11-08T01:31:00Z", plus8), "9:31 AM");
+        assert_eq!(format_closed_at("2026-11-08T04:05:00Z", plus8), "12:05 PM");
+        assert_eq!(format_closed_at("2026-11-07T16:00:00Z", plus8), "12:00 AM");
+        assert_eq!(format_closed_at("2026-11-08T13:09:00Z", plus8), "9:09 PM");
+        assert_eq!(format_closed_at("2026-11-08T01:31:00Z", None), "01:31 UTC");
     }
 }

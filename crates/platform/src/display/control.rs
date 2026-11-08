@@ -115,6 +115,20 @@ impl DisplayControl {
         }
     }
 
+    /// A display loss that happened across a restart: `evidence` is assigned
+    /// and output starts `Disconnected` on it. Output resumes only through
+    /// an explicit enable on the same recognized display (Decision 272).
+    pub fn recovered(topology: Topology, evidence: DisplayEvidence) -> Self {
+        let assignment = Assignment::Assigned(evidence.clone());
+        let recognition = recognition_of(&assignment, &topology);
+        Self {
+            topology,
+            assignment,
+            output: OutputLifecycle::Disconnected { evidence },
+            recognition,
+        }
+    }
+
     pub fn topology(&self) -> &Topology {
         &self.topology
     }

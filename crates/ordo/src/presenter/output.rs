@@ -103,6 +103,19 @@ impl OutputOwner {
         }
     }
 
+    /// A restart interrupted enabled output: the controller starts
+    /// disconnected on the journaled `evidence`, over a fresh topology. Output
+    /// opens again only through [`Self::open`] on the same recognized display
+    /// (Decision 272); nothing opens here.
+    pub fn recover(
+        &mut self,
+        evidence: DisplayEvidence,
+        operator: Option<gpui::DisplayId>,
+        cx: &App,
+    ) {
+        self.controller = OutputController::recovered(self.source.snapshot(cx, operator), evidence);
+    }
+
     pub fn watch_displays(&mut self, watch: Subscription) {
         self.display_watch = Some(watch);
     }

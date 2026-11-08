@@ -160,6 +160,9 @@ pub struct ShellView {
     mode: platform::presenter_mode::PresenterMode,
     /// The snapshot read an entry is waiting on; dropping it cancels the entry.
     presenter_load: Option<gpui::Task<()>>,
+    /// Builds the display source a Presenter's output reads. GPUI by default;
+    /// tests install an in-memory one before the Presenter opens.
+    display_source: Rc<dyn Fn() -> Box<dyn crate::output::DisplaySource>>,
     _presenter_exit: Option<Subscription>,
     /// Where focus was when the Presenter opened, for the way back.
     return_focus: Option<gpui::WeakFocusHandle>,
@@ -239,6 +242,7 @@ impl ShellView {
             presenter: None,
             mode: Default::default(),
             presenter_load: None,
+            display_source: Rc::new(|| Box::new(crate::output::GpuiDisplaySource)),
             _presenter_exit: None,
             return_focus: None,
         }
@@ -292,6 +296,15 @@ impl ShellView {
     /// session is not journaled (the lab and most tests).
     pub fn set_journal_writer(&mut self, writer: crate::recovery::JournalWriter) {
         self.journal = Some(writer);
+    }
+
+    /// Replaces the display-source factory a Presenter opened afterwards uses.
+    #[cfg(test)]
+    pub(crate) fn set_display_source(
+        &mut self,
+        factory: Rc<dyn Fn() -> Box<dyn crate::output::DisplaySource>>,
+    ) {
+        self.display_source = factory;
     }
 
     /// Mirrors the congregation-output controller's cursor locator into this
@@ -1321,6 +1334,7 @@ mod tests {
     mod journal_wiring;
     mod output_lifecycle_e2e;
     mod quit_confirmation;
+    mod recovery_startup;
 
     /// Real key down/up pairs, because a primitive's own raw handlers are half
     /// of what the shell is composing.

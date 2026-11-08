@@ -36,7 +36,7 @@ use crate::{
         PresenterView,
         session_header::exit::{ExitRequested, JournalMoment, SessionHooks},
     },
-    recovery::{JournalWriter, new_session_id},
+    recovery::{JournalWriter, RecoveredSession, new_session_id},
 };
 
 fn restore_bounds(bounds: Bounds<Pixels>) -> RestoreBounds {
@@ -156,6 +156,46 @@ impl ShellView {
                 return;
             }
         };
+        self.open_presenter(snapshot, directory, window, cx);
+    }
+
+    /// The startup journal found a session to reopen (T1.7d). The Presenter
+    /// opens directly through the same entry as an ordinary one, with no
+    /// Preparation frame, dialog or toast, and then takes the recovered
+    /// state. A Presenter that is already open or loading wins: the journal
+    /// is dropped and logged.
+    pub fn finish_startup_recovery(
+        &mut self,
+        found: RecoveredSession,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.mode.is_presenter() || self.presenter_load.is_some() {
+            eprintln!("ordo: recovered session dropped: the Presenter is already open");
+            return;
+        }
+        let RecoveredSession {
+            snapshot,
+            recovery,
+            directory,
+            closed_at,
+        } = found;
+        let presenter = self.open_presenter(Arc::new(snapshot), directory, window, cx);
+        presenter.update(cx, |view, cx| {
+            view.recover_session(&recovery, closed_at.into(), window, cx)
+        });
+    }
+
+    /// Enters Presenter Mode over `snapshot`: full-screen, the environment
+    /// change, a journaled session under a new session id, the output on the
+    /// factory's display source, and focus on the timeline.
+    fn open_presenter(
+        &mut self,
+        snapshot: Arc<LoadedSnapshot>,
+        directory: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PresenterView> {
         self.return_focus = window.focused(cx).map(|focus| focus.downgrade());
         let (mode, toggle_fullscreen) = self.mode.enter(window_restore(window.window_bounds()));
         self.mode = mode;
@@ -168,6 +208,7 @@ impl ShellView {
         let clock: Rc<dyn Fn() -> Millis> =
             Rc::new(move || Millis(started.elapsed().as_millis() as u64));
         let environment = self.environment;
+        let display_source = self.display_source.clone();
         let save = self.save_preferences.clone();
         let hooks = self
             .journal
@@ -181,7 +222,7 @@ impl ShellView {
             if let Some(save) = save {
                 view.set_save_preferences(save);
             }
-            view.install_output(Box::new(crate::output::GpuiDisplaySource), window, cx);
+            view.install_output((display_source)(), window, cx);
             view
         });
         self._presenter_exit = Some(cx.subscribe_in(
@@ -190,8 +231,9 @@ impl ShellView {
             |shell, _, _: &ExitRequested, window, cx| shell.leave_presenter(window, cx),
         ));
         presenter.update(cx, |view, cx| view.focus_timeline(window, cx));
-        self.presenter = Some(presenter);
+        self.presenter = Some(presenter.clone());
         cx.notify();
+        presenter
     }
 
     /// Exit Presenter from outside the Presenter's own header. It takes the

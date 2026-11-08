@@ -55,6 +55,7 @@ use gpui::{
 use presentation::{
     commands::Command,
     engine::{AutoPlayRefusal, Availability, Engine, Outcome, Refusal, UnavailableSource},
+    journal::ValidatedRecovery,
     snapshot_reader::LoadedSnapshot,
     state::{LiveState, Millis, ProgramView},
 };
@@ -260,6 +261,16 @@ impl Wanted {
     }
 }
 
+/// What a recovered session tells the operator about the interruption. The
+/// recovery strip (T1.7d WP7) shows it; the view only keeps it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryNotice {
+    /// When the interrupted session last journaled, in local time.
+    pub closed_at: SharedString,
+    /// The congregation display's journaled name, when it had one.
+    pub display_name: Option<SharedString>,
+}
+
 /// The Presenter: header, rail, Cue timeline and Output Dock over one Engine.
 pub struct PresenterView {
     /// Reports each render's cost; `None` outside the measurement labs.
@@ -366,6 +377,9 @@ pub struct PresenterView {
     cue_view: CueView,
     /// The last refusal in words; cleared by the next accepted command.
     status: Option<SharedString>,
+    /// Set once by [`PresenterView::recover_session`]; `None` for an ordinary
+    /// session.
+    recovery_notice: Option<RecoveryNotice>,
     save_preferences: Option<SavePreferences>,
     /// The deadline the sleeping task waits for, and the task. Dropped with
     /// the view.
@@ -479,6 +493,7 @@ impl PresenterView {
             sent: Rc::default(),
             cue_view: environment.preferences().cue_view,
             status: None,
+            recovery_notice: None,
             save_preferences: None,
             timer: None,
             program_wanted: Wanted::default(),
@@ -636,6 +651,75 @@ impl PresenterView {
             });
         }));
         self.output = Some(owner);
+    }
+
+    /// Reopens the interrupted session this Presenter was built for (T1.7d).
+    ///
+    /// Output that was enabled starts as a display loss across the restart:
+    /// the controller is `Disconnected` on the journaled display and the
+    /// ordinary open path decides whether that same display is connected. If
+    /// the window opens, the Engine starts `EnabledBlack`; otherwise it starts
+    /// `Disconnected` and the existing display-return and Resume Output flow
+    /// takes over. Program is black either way, so nothing reaches the
+    /// congregation until the operator presses Space. If the Engine rejects
+    /// the point (it cannot after `validate`, but it fails closed), the fresh
+    /// Engine stays and any window just opened is closed.
+    ///
+    /// Ends with `engine_changed`, which journals the first point of this
+    /// session at once, under its own session id, with the interrupted intent
+    /// (T1.7c notes).
+    pub fn recover_session(
+        &mut self,
+        recovery: &ValidatedRecovery,
+        closed_at: SharedString,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let point = recovery.point();
+        let mut recognized = false;
+        if point.output.enabled
+            && let Some(record) = point.output.display.as_ref()
+            && self.output.is_some()
+        {
+            let operator = crate::output::window_display(window, &cx.displays(), cx);
+            if let Some(output) = self.output.as_mut() {
+                output.recover(crate::recovery::display_evidence(record), operator, cx);
+            }
+            recognized = self.open_output_window(window, cx);
+            if !recognized {
+                // The recovery strip explains it (WP7); a refusal toast-like
+                // status here would say it twice.
+                self.status = None;
+            }
+        }
+        match Engine::recover(
+            Arc::new(self.snapshot.snapshot().clone()),
+            recovery,
+            recognized,
+        ) {
+            Ok(engine) => self.engine = engine,
+            Err(rejection) => {
+                eprintln!("ordo: recovery journal not applied: {rejection}");
+                if recognized {
+                    self.close_output_window(cx);
+                }
+            }
+        }
+        self.recovery_notice = Some(RecoveryNotice {
+            closed_at,
+            display_name: point
+                .output
+                .display
+                .as_ref()
+                .and_then(|display| display.name.clone())
+                .map(SharedString::from),
+        });
+        self.engine_changed(cx);
+    }
+
+    /// What the interruption left to say, for the recovery strip.
+    pub fn recovery_notice(&self) -> Option<&RecoveryNotice> {
+        self.recovery_notice.as_ref()
     }
 
     /// The displays may have changed: turns what the owner finds into Engine

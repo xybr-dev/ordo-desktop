@@ -11,8 +11,8 @@
 //! Program is black before anything can be taken live.
 
 use super::{
-    AssignError, DisplayControl, DisplayEvent, DisplayId, DisplayStatus, EnableError,
-    OutputLifecycle, OutputPlacement, Recognition, Topology,
+    AssignError, DisplayControl, DisplayEvent, DisplayEvidence, DisplayId, DisplayStatus,
+    EnableError, OutputLifecycle, OutputPlacement, Recognition, Topology,
 };
 
 /// Why output was not opened.
@@ -60,6 +60,17 @@ impl OutputController {
     pub fn new(topology: Topology) -> Self {
         Self {
             control: DisplayControl::new(topology),
+        }
+    }
+
+    /// Output as it stands after a restart that interrupted an enabled
+    /// output: a display loss across the restart. The journaled `evidence`
+    /// is assigned and the lifecycle is `Disconnected`, so output resumes
+    /// only through [`Self::enable`] or [`Self::resume`] on the same
+    /// recognized display (Decision 272), and refuses any other.
+    pub fn recovered(topology: Topology, evidence: DisplayEvidence) -> Self {
+        Self {
+            control: DisplayControl::recovered(topology, evidence),
         }
     }
 
@@ -369,5 +380,43 @@ mod tests {
         assert!(matches!(controller.enable(pair()), OutputAction::Open(_)));
         assert_eq!(controller.disable(), OutputAction::Close);
         assert!(!controller.is_enabled());
+    }
+
+    #[test]
+    fn recovered_output_resumes_on_the_same_display_only() {
+        use super::super::test_support::named;
+        let projector = named(display(2, 1920, 0, 1280, 720), "Projector", None);
+        let with = |projector: DetectedDisplay| {
+            Topology::new(
+                vec![display(1, 0, 0, 1920, 1080), projector],
+                Some(DisplayId::new(1)),
+            )
+        };
+        let evidence = projector.evidence.clone();
+
+        let mut same = OutputController::recovered(with(projector.clone()), evidence.clone());
+        assert!(same.is_disconnected());
+        let OutputAction::Open(placement) = same.enable(with(projector.clone())) else {
+            panic!("the same display resumes");
+        };
+        assert_eq!(placement.display, DisplayId::new(2));
+        assert!(same.is_enabled());
+
+        let other = named(display(5, 1920, 0, 1280, 720), "Other TV", None);
+        let mut different = OutputController::recovered(with(other.clone()), evidence.clone());
+        assert_eq!(
+            different.enable(with(other)),
+            OutputAction::Refuse(OutputRefusal::DifferentDisplay)
+        );
+        assert!(different.is_disconnected());
+
+        let mut none =
+            OutputController::recovered(topology(vec![display(1, 0, 0, 1920, 1080)], 1), evidence);
+        assert_eq!(
+            none.enable(topology(vec![display(1, 0, 0, 1920, 1080)], 1)),
+            OutputAction::Refuse(OutputRefusal::Unavailable)
+        );
+        assert!(none.is_disconnected());
+        assert!(!none.is_enabled());
     }
 }
