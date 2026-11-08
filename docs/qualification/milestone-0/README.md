@@ -145,8 +145,8 @@ Notes on the table:
   stale, so a projector connected after launch could not be enabled. It is
   recorded as row 27 in `EXCEPTIONS.md` and requalified on the attempt-2
   hot-plug row in `WINDOWS-10-SIGNOFF.md` (`MILESTONES.md`, T0.5 hot-plug
-  note). Attempt 3 rechecks it, because the vendored GPUI patch (Decision 308)
-  changes the display-change handler that row exercises.
+  note). Attempt 3 rechecked it and it passed, because the vendored GPUI
+  patch (Decision 308) changes the display-change handler that row exercises.
 - Sign-off attempt 2 (1 Nov 2026, bundle `20261031T213536Z-4e8ea3d`) passed every row but display loss, which needed `F8`.
   The sheet's rule is that a rerun gets a new attempt row naming the attempt
   it reruns, so those passes stand: attempt 3 reruns display loss (and
@@ -154,9 +154,15 @@ Notes on the table:
   the corrective build. The impact since `4e8ea3d` is bounded: the vendored
   GPUI display-change handler (Decision 308), operator message text, and
   Preparation colour tokens the lab's checks do not show.
+- Sign-off attempt 3 (8 Nov 2026, bundle `20261107T130138Z-0495934`) reran
+  display loss and rechecked hot-plug; both passed. Program went black within
+  a second or two with no key pressed, and nothing appeared on another
+  display. Every native gate held. On this PC the projector is fed through an
+  HDMI splitter that also feeds a choir mirror display, and Windows keeps the
+  second display while any splitter output is connected, so a loss is seen
+  only when every output is disconnected.
 - T0.9 closed on attempt 2. T0.10's manual sign-off (AC2) and failed-proof
-  requalification (AC3) are unticked until attempt 3, so Phase 0 is not yet
-  closed. T0.6 closed
+  requalification (AC3) closed on attempt 3, which closes Phase 0. T0.6 closed
   on the church-PC run, its hot-path leg included (Decision 304).
 
 ## Reuse rule

@@ -645,12 +645,18 @@ platform assumption or an undocumented exception.
 - [x] `[AUTO]` All Phase 0 automated and native reports identify the exact
       commit, Rust toolchain, GPUI/platform/dependency revisions, OS, GPU, and
       fixture hashes.
-- [ ] `[MANUAL]` Windows 10 22H2 packaged checks are signed off with failures
+- [x] `[MANUAL]` Windows 10 22H2 packaged checks are signed off with failures
       and reruns retained. Supported-Linux packaged sign-off is retired to
       T6.2 (Decision 268).
-- [ ] `[AUTO]` Any failed proof is resolved inside the responsible GPUI/native
+      Signed on church-PC attempt 3 (2026-11-08, bundle
+      `20261107T130138Z-0495934`), which reran attempt 2's failed display-loss
+      row and rechecked hot-plug; attempts 1 and 2 are retained beside their
+      bundles.
+- [x] `[AUTO]` Any failed proof is resolved inside the responsible GPUI/native
       Adapter or Module Implementation and requalified; domain Interfaces
       remain independent of the workaround.
+      Display loss was fixed in the vendored GPUI Windows platform (Decision
+      308) and requalified on attempt 3; domain is unchanged.
 - [x] `[MANUAL]` If minimum hardware cannot meet a hard gate after profiling,
       release is blocked or the supported hardware profile is explicitly
       revised; failures are not hidden by adding a second production shell.

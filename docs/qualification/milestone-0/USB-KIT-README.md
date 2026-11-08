@@ -84,6 +84,11 @@ writes a note to storage.
    no key pressed; needing `F8` for it is a failure. Nothing appears on
    another display. Reconnect, then press `F6` (it re-reads the displays
    itself): output returns black, and content returns only after Space.
+   On the church PC the projector is behind an HDMI splitter, and Windows
+   loses the display only when every splitter output is disconnected (the
+   choir mirror too), or the splitter's input is unplugged at the PC.
+   Unplugging only the projector is not a display loss Windows reports.
+   Reconnecting any one output brings the display back.
    **Hot-plug:** launch the lab with the projector disconnected, then
    connect it. Press `F8`: the message shows the display count and the
    suggested congregation display. Press `F6` to enable output (black;
