@@ -1334,6 +1334,7 @@ mod tests {
     mod journal_wiring;
     mod output_lifecycle_e2e;
     mod quit_confirmation;
+    mod recovery_e2e;
     mod recovery_startup;
 
     /// Real key down/up pairs, because a primitive's own raw handlers are half
