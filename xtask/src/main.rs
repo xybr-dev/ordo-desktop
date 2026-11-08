@@ -12,6 +12,10 @@ fn main() -> ExitCode {
             .and_then(|()| xtask::verify_gpui_supply(&xtask::repo_root())),
         "bless-golden-frames" => xtask::bless_golden_frames(&xtask::repo_root()),
         "measure-presenter" => xtask::measure_presenter::measure_presenter(&xtask::repo_root()),
+        "recovery-drill" => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            xtask::recovery_drill::recovery_drill(&xtask::repo_root(), &args)
+        }
         "qualify" => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             xtask::qualify::qualify(&xtask::repo_root(), &args)
@@ -33,7 +37,7 @@ fn main() -> ExitCode {
         },
         _ => {
             eprintln!(
-                "Usage: cargo xtask <verify|context|architecture|tokens|decisions|offline|bless-golden-frames|measure-presenter|qualify [--skip <step>=<reason>]...|stage-example <example> <out-dir>|inspect-pptx>"
+                "Usage: cargo xtask <verify|context|architecture|tokens|decisions|offline|bless-golden-frames|measure-presenter|recovery-drill [--single-display]|qualify [--skip <step>=<reason>]...|stage-example <example> <out-dir>|inspect-pptx>"
             );
             return ExitCode::FAILURE;
         }

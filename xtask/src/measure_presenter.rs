@@ -481,7 +481,7 @@ pub(crate) fn build_example(root: &Path, example: &str) -> XtaskResult<PathBuf> 
 }
 
 /// The named example's executable in cargo's JSON build messages, if any.
-fn example_executable(messages: &str, example: &str) -> Option<PathBuf> {
+pub(crate) fn example_executable(messages: &str, example: &str) -> Option<PathBuf> {
     messages
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
