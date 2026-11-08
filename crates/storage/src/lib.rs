@@ -54,6 +54,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(test)]
+mod erd;
 mod migrations;
 mod worker;
 
@@ -441,7 +443,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(2));
+        assert_eq!(status.map(|s| s.version), Ok(3));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

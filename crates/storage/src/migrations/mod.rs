@@ -47,6 +47,11 @@ pub(crate) fn bundled() -> Vec<Migration> {
             name: "0002_parish_note",
             sql: include_str!("../../../../migrations/0002_parish_note.sql"),
         },
+        Migration {
+            id: 3,
+            name: "0003_parish_foundation",
+            sql: include_str!("../../../../migrations/0003_parish_foundation.sql"),
+        },
     ];
     debug_assert!(
         migrations.windows(2).all(|pair| pair[0].id < pair[1].id),
@@ -251,19 +256,196 @@ mod tests {
         assert!(status.is_ok());
         let status = status.unwrap_or_else(|_| unreachable!());
 
-        assert_eq!(status.version, 2);
-        assert_eq!(status.applied.len(), 2);
+        assert_eq!(status.version, 3);
+        assert_eq!(status.applied.len(), 3);
         assert_eq!(status.applied[0].id, 1);
         assert_eq!(status.applied[0].name, "0001_parish_profile");
         assert_eq!(status.applied[1].id, 2);
         assert_eq!(status.applied[1].name, "0002_parish_note");
+        assert_eq!(status.applied[2].id, 3);
+        assert_eq!(status.applied[2].name, "0003_parish_foundation");
         let bundled = bundled();
         assert_eq!(status.applied[0].checksum, checksum(bundled[0].sql));
         assert_eq!(status.applied[1].checksum, checksum(bundled[1].sql));
+        assert_eq!(status.applied[2].checksum, checksum(bundled[2].sql));
         assert_eq!(status.applied[0].checksum.len(), 64);
         assert_eq!(status.journal_mode, "wal");
         assert!(status.foreign_keys);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 2);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 3);
+    }
+
+    fn table_names(conn: &Connection) -> Vec<String> {
+        let mut statement = conn
+            .prepare(
+                "SELECT name FROM sqlite_master \
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            )
+            .unwrap_or_else(|_| unreachable!());
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap_or_else(|_| unreachable!())
+            .map(|row| row.unwrap_or_default())
+            .collect()
+    }
+
+    #[test]
+    fn foundation_tables_exist_with_clean_foreign_keys() {
+        let dir = TempDir::new("foundation-tables");
+        let mut conn = open(&dir);
+        assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
+
+        let tables = table_names(&conn);
+        for expected in [
+            "parish",
+            "parish_setting",
+            "choir",
+            "song",
+            "song_alias",
+            "song_liturgical_moment",
+            "song_occasion",
+            "arrangement",
+            "arrangement_language",
+            "arrangement_choir",
+            "arrangement_occasion",
+            "arrangement_section",
+            "section_occurrence",
+            "managed_asset",
+            "theme",
+            "edit_revision",
+            "presentation_snapshot",
+            "celebration_package",
+            "parish_backup",
+            "schema_metadata",
+        ] {
+            assert!(
+                tables.iter().any(|table| table == expected),
+                "missing table {expected}; found {tables:?}"
+            );
+        }
+
+        let violations = {
+            let mut statement = conn
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap_or_else(|_| unreachable!());
+            statement
+                .query_map([], |_| Ok(()))
+                .unwrap_or_else(|_| unreachable!())
+                .count()
+        };
+        assert_eq!(violations, 0, "foundation foreign keys are clean");
+    }
+
+    #[test]
+    fn occurrence_cannot_name_a_section_of_another_arrangement() {
+        let dir = TempDir::new("occurrence-arrangement");
+        let mut conn = open(&dir);
+        assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
+
+        let song = "00000000-0000-4000-8000-000000000001";
+        let first = "00000000-0000-4000-8000-000000000002";
+        let second = "00000000-0000-4000-8000-000000000003";
+        let section = "00000000-0000-4000-8000-000000000004";
+        let created_at = "2024-02-29T12:00:00.000Z";
+        assert!(
+            conn.execute(
+                "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
+                params![song, "Kyrie 8th", created_at],
+            )
+            .is_ok()
+        );
+        for (id, title) in [(first, "English"), (second, "Cebuano")] {
+            assert!(
+                conn.execute(
+                    "INSERT INTO arrangement (id, song_id, title, created_at) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id, song, title, created_at],
+                )
+                .is_ok()
+            );
+        }
+        assert!(
+            conn.execute(
+                "INSERT INTO arrangement_section \
+                 (id, arrangement_id, title, body, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![section, first, "Verse 1", "Kyrie eleison", created_at],
+            )
+            .is_ok()
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO section_occurrence \
+                 (id, arrangement_id, section_id, position, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    "00000000-0000-4000-8000-000000000005",
+                    first,
+                    section,
+                    0,
+                    created_at
+                ],
+            )
+            .is_ok(),
+            "a section occurrence of its own Arrangement is accepted"
+        );
+        let mismatch = conn.execute(
+            "INSERT INTO section_occurrence \
+             (id, arrangement_id, section_id, position, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                "00000000-0000-4000-8000-000000000006",
+                second,
+                section,
+                0,
+                created_at
+            ],
+        );
+        assert!(
+            mismatch.is_err(),
+            "an occurrence cannot place the other Arrangement's section"
+        );
+    }
+
+    #[test]
+    fn non_canonical_ids_and_times_are_refused_by_check_constraints() {
+        let dir = TempDir::new("canonical-checks");
+        let mut conn = open(&dir);
+        assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
+        let created_at = "2024-02-29T12:00:00.000Z";
+
+        for (id, reason) in [
+            ("00000000-0000-4000-8000-00000000000A", "uppercase hex"),
+            ("00000000-0000-3000-8000-000000000001", "version 3"),
+            ("00000000-0000-4000-7000-000000000001", "variant 7"),
+            ("00000000-0000-4000-8000-00000000001", "shortened"),
+        ] {
+            let result = conn.execute(
+                "INSERT INTO choir (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params![id, "Choir", created_at],
+            );
+            assert!(result.is_err(), "{reason} id must be refused");
+        }
+
+        for time in [
+            "2024-02-29 12:00:00.000Z",
+            "2024-02-29T12:00:00Z",
+            "2024-02-29T12:00:00.000",
+        ] {
+            let result = conn.execute(
+                "INSERT INTO choir (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params!["00000000-0000-4000-8000-000000000001", "Choir", time],
+            );
+            assert!(result.is_err(), "non-canonical time {time} must be refused");
+        }
+
+        assert!(
+            conn.execute(
+                "INSERT INTO choir (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params!["00000000-0000-4000-8000-000000000001", "Choir", created_at],
+            )
+            .is_ok(),
+            "canonical identity and time are accepted"
+        );
     }
 
     #[test]
@@ -302,13 +484,13 @@ mod tests {
 
         let mut broken = bundled();
         broken.push(Migration {
-            id: 3,
-            name: "0003_broken",
+            id: 4,
+            name: "0004_broken",
             sql: "CREATE TABLE extra_table (x INTEGER); INSERT INTO missing_table VALUES (1);",
         });
         let result = open_and_migrate(&mut conn, &broken);
         assert!(
-            matches!(result, Err(StorageError::MigrationFailed { id: 3, .. })),
+            matches!(result, Err(StorageError::MigrationFailed { id: 4, .. })),
             "unexpected result: {result:?}"
         );
 
@@ -317,8 +499,8 @@ mod tests {
             "SELECT COUNT(*) FROM sqlite_master WHERE name = 'extra_table'",
         );
         assert_eq!(extra, 0);
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 2);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 2);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 3);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 3);
         assert_eq!(
             scalar_i64(
                 &conn,
@@ -348,11 +530,11 @@ mod tests {
             result,
             Err(StorageError::NewerSchema {
                 found: 999,
-                supported: 2
+                supported: 3
             })
         );
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 3);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 2);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 4);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 3);
         assert_eq!(
             scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
             tables_before
@@ -371,11 +553,11 @@ mod tests {
             open_and_migrate(&mut conn, &bundled()),
             Err(StorageError::NewerSchema {
                 found: 7,
-                supported: 2
+                supported: 3
             })
         );
         assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 2);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 3);
         assert_eq!(
             scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
             tables_before
@@ -397,7 +579,7 @@ mod tests {
             open_and_migrate(&mut conn, &bundled()),
             Err(StorageError::UnknownMigrationLedger { id: 2 })
         );
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 1);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 2);
     }
 
     #[test]
