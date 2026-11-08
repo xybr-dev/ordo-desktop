@@ -4363,6 +4363,7 @@ dependencies = [
  "sysinfo",
  "tiny-skia",
  "ui",
+ "uuid",
 ]
 
 [[package]]

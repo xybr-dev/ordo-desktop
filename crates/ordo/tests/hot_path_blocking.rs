@@ -20,11 +20,16 @@ const BLOCKING: [&str; 6] = [
 ];
 
 /// Reviewed production sites: (file relative to `src/`, trimmed line, why).
-const REVIEWED: [(&str, &str, &str); 6] = [
+const REVIEWED: [(&str, &str, &str); 7] = [
     (
         "canonical.rs",
         "while let Ok(command) = requests.recv() {",
         "canonical worker thread loop",
+    ),
+    (
+        "recovery.rs",
+        "while let Ok(first) = commands.recv() {",
+        "journal worker thread loop",
     ),
     (
         "lib.rs",

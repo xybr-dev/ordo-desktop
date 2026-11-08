@@ -10,11 +10,18 @@
 //! The Presenter never calls back into the shell directly: it emits
 //! `ExitRequested` and the shell subscribes.
 
-use std::{rc::Rc, sync::Arc, time::Instant};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use gpui::{AppContext as _, Bounds, Context, Entity, Pixels, Window, WindowBounds};
 use platform::presenter_mode::{PresenterMode, RestoreBounds, WindowRestore};
 use presentation::{
+    journal::{JournalRecorder, SessionIdentity, WrittenAt},
     snapshot_reader::{DirectorySource, LoadedSnapshot, SnapshotLoadError, read_snapshot},
     state::Millis,
 };
@@ -24,7 +31,13 @@ use ui::{
 };
 
 use super::ShellView;
-use crate::presenter::{PresenterView, session_header::exit::ExitRequested};
+use crate::{
+    presenter::{
+        PresenterView,
+        session_header::exit::{ExitRequested, JournalMoment, SessionHooks},
+    },
+    recovery::{JournalWriter, new_session_id},
+};
 
 fn restore_bounds(bounds: Bounds<Pixels>) -> RestoreBounds {
     RestoreBounds::new(
@@ -41,6 +54,42 @@ fn window_restore(bounds: WindowBounds) -> WindowRestore {
         WindowBounds::Windowed(bounds) => WindowRestore::Windowed(restore_bounds(bounds)),
         WindowBounds::Maximized(bounds) => WindowRestore::Maximized(restore_bounds(bounds)),
         WindowBounds::Fullscreen(bounds) => WindowRestore::Fullscreen(restore_bounds(bounds)),
+    }
+}
+
+/// The Presenter's hooks for one journaled session: a fresh session id, a
+/// recorder owned by the hook closure, and the writer that does the file work
+/// on its own worker. The closure only builds points and sends them.
+fn journal_hooks(
+    writer: JournalWriter,
+    snapshot: &LoadedSnapshot,
+    directory: &std::path::Path,
+) -> SessionHooks {
+    let identity = SessionIdentity::of(
+        new_session_id(),
+        snapshot,
+        directory.to_string_lossy().into_owned(),
+    );
+    let recorder = Rc::new(RefCell::new(JournalRecorder::new(identity)));
+    SessionHooks {
+        journal: Rc::new(move |engine, display, moment| {
+            let seconds = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs());
+            let written_at = WrittenAt::from_unix_seconds(seconds);
+            let mut recorder = recorder.borrow_mut();
+            match moment {
+                JournalMoment::Changed => {
+                    if let Some(point) = recorder.observe(engine, display, written_at) {
+                        writer.record(point);
+                    }
+                }
+                JournalMoment::Ended => {
+                    writer.end_session(recorder.end(engine, display, written_at));
+                }
+            }
+        }),
+        ..SessionHooks::default()
     }
 }
 
@@ -68,11 +117,13 @@ impl ShellView {
                 .background_executor()
                 .spawn(async move {
                     let directory = crate::presenter::fixture_snapshot_dir();
-                    read_snapshot(&DirectorySource::new(directory))
+                    let loaded = read_snapshot(&DirectorySource::new(&directory));
+                    (loaded, directory)
                 })
                 .await;
+            let (loaded, directory) = loaded;
             this.update_in(cx, |shell, window, cx| {
-                shell.presenter_loaded(loaded, window, cx)
+                shell.presenter_loaded(loaded, directory, window, cx)
             })
             .ok();
         }));
@@ -81,6 +132,7 @@ impl ShellView {
     fn presenter_loaded(
         &mut self,
         loaded: Result<LoadedSnapshot, SnapshotLoadError>,
+        directory: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -108,8 +160,15 @@ impl ShellView {
             Rc::new(move || Millis(started.elapsed().as_millis() as u64));
         let environment = self.environment;
         let save = self.save_preferences.clone();
+        let hooks = self
+            .journal
+            .clone()
+            .map(|writer| journal_hooks(writer, &snapshot, &directory));
         let presenter = cx.new(|cx| {
             let mut view = PresenterView::new(snapshot, clock, environment, window, cx);
+            if let Some(hooks) = hooks {
+                view.set_session_hooks(hooks);
+            }
             if let Some(save) = save {
                 view.set_save_preferences(save);
             }

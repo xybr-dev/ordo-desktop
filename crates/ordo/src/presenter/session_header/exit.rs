@@ -7,13 +7,14 @@
 //! A confirmed exit runs in a fixed order, owned by `PresenterView`:
 //! Program to black through the Engine, then the Presenter closes its own
 //! congregation window (T1.6b), then [`SessionHooks::close_output`], then
-//! `DisableOutput`, then [`SessionHooks::on_session_ended`], then the
+//! `DisableOutput` (which records a last `Changed` journal point), then the
+//! `Ended` journal point and [`SessionHooks::on_session_ended`], then the
 //! event. Nothing on the congregation display may outlive the black frame.
 
 use std::rc::Rc;
 
 use gpui::{App, FocusHandle, Window};
-use presentation::engine::Engine;
+use presentation::{engine::Engine, journal::DisplayRecord};
 use ui::overlay::Overlay;
 
 /// Emitted by `PresenterView` once the session is over and the owner should
@@ -21,7 +22,20 @@ use ui::overlay::Overlay;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExitRequested;
 
-/// What the owner plugs into a planned exit. Both are no-ops by default.
+/// When the Presenter tells the journal hook about the session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JournalMoment {
+    /// The Engine changed; the hook records a point if the content differs.
+    Changed,
+    /// The session ended on purpose; the hook records the clean end.
+    Ended,
+}
+
+/// The journal hook's shape: the Engine, the assigned display's evidence and
+/// the moment.
+pub type JournalHook = Rc<dyn Fn(&Engine, Option<DisplayRecord>, JournalMoment)>;
+
+/// What the owner plugs into the session. Every hook is a no-op by default.
 #[derive(Clone)]
 pub struct SessionHooks {
     /// An extra step after Program is black and the Presenter has closed its
@@ -29,8 +43,12 @@ pub struct SessionHooks {
     /// the Engine so the owner can verify that. No-op by default.
     pub close_output: Rc<dyn Fn(&Engine)>,
     /// The session ended on purpose.
-    // T1.7: mark the session complete and clear recovery
     pub on_session_ended: Rc<dyn Fn()>,
+    /// The recovery journal. It sees the Engine, the evidence of the display
+    /// the output is on (if any) and why it is being called. The Presenter
+    /// itself touches no file, channel or clock: whatever the hook does with
+    /// this is the owner's business and must not block.
+    pub journal: JournalHook,
 }
 
 impl Default for SessionHooks {
@@ -38,6 +56,7 @@ impl Default for SessionHooks {
         Self {
             close_output: Rc::new(|_| {}),
             on_session_ended: Rc::new(|| {}),
+            journal: Rc::new(|_, _, _| {}),
         }
     }
 }

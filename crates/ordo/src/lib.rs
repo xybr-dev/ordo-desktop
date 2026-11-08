@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     error::Error,
     fmt,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{
         Arc,
@@ -33,6 +33,7 @@ pub mod diagnostics;
 pub mod output;
 pub mod performance;
 pub mod presenter;
+pub mod recovery;
 pub mod settings;
 pub mod shell;
 pub mod shortcut_reference;
@@ -108,9 +109,9 @@ impl CongregationView {
     /// Shows a new congregation state.
     ///
     /// Black Program applies immediately with no encode: the surface paints
-    /// its black background. Content is encoded off the GPUI thread — the
+    /// its black background. Content is encoded off the GPUI thread â€” the
     /// Program bytes (an `Arc` bump, no pixel copy) cross to the background
-    /// executor for the RGBA copy plus `tiny-skia` PNG encode — and replaces
+    /// executor for the RGBA copy plus `tiny-skia` PNG encode â€” and replaces
     /// the painted image only once complete, so no partial frame publishes.
     /// A superseded encode is dropped by generation, never by revision.
     pub fn set_state(&mut self, state: CongregationState, cx: &mut Context<Self>) {
@@ -319,14 +320,19 @@ enum PreferenceCommand {
 struct RuntimeWorkers {
     preference_commands: Sender<PreferenceCommand>,
     canonical_commands: Sender<canonical::CanonicalCommand>,
+    /// Unblocks the journal worker's `recv` at shutdown. Always `Some` from
+    /// [`RuntimeWorkers::start`]; `None` only in tests that build a partial
+    /// set of workers.
+    journal_shutdown: Option<recovery::JournalShutdown>,
     workers: Vec<OwnedWorker<()>>,
 }
 
 impl RuntimeWorkers {
     fn start(
         preferences: PreferencesFile,
+        journal_path: PathBuf,
         restored_preferences: AsyncSender<std::io::Result<Option<String>>>,
-    ) -> Result<Self, WorkerStartError> {
+    ) -> Result<(Self, recovery::JournalWriter), WorkerStartError> {
         let (preference_commands, commands) = mpsc::channel();
         let (canonical_commands, canonical_requests) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
@@ -365,17 +371,41 @@ impl RuntimeWorkers {
                 let mut partial = Self {
                     preference_commands,
                     canonical_commands,
+                    journal_shutdown: None,
                     workers: vec![storage, background],
                 };
                 partial.shutdown();
                 return Err(error);
             }
         };
-        Ok(Self {
-            preference_commands,
-            canonical_commands,
-            workers: vec![storage, background, canonical],
-        })
+        let (journal, journal_worker, journal_shutdown) =
+            match recovery::spawn_journal_writer(journal_path, |failure| {
+                eprintln!("recovery journal: {failure:?}");
+            }) {
+                Ok(started) => started,
+                Err(error) => {
+                    // Same rule: the canonical and storage workers are
+                    // blocked in `recv`, so the rollback goes through
+                    // `shutdown`, which sends their stop messages.
+                    let mut partial = Self {
+                        preference_commands,
+                        canonical_commands,
+                        journal_shutdown: None,
+                        workers: vec![storage, background, canonical],
+                    };
+                    partial.shutdown();
+                    return Err(error);
+                }
+            };
+        Ok((
+            Self {
+                preference_commands,
+                canonical_commands,
+                journal_shutdown: Some(journal_shutdown),
+                workers: vec![storage, background, canonical, journal_worker],
+            },
+            journal,
+        ))
     }
 
     fn shutdown(&mut self) -> Vec<WorkerFailure> {
@@ -386,6 +416,9 @@ impl RuntimeWorkers {
         let _ = self
             .canonical_commands
             .send(canonical::CanonicalCommand::Stop);
+        if let Some(journal) = &self.journal_shutdown {
+            journal.send();
+        }
         let mut failures = Vec::new();
         for worker in &mut self.workers {
             if let Err(failure) = worker.join() {
@@ -402,6 +435,9 @@ impl Drop for RuntimeWorkers {
         let _ = self
             .canonical_commands
             .send(canonical::CanonicalCommand::Stop);
+        if let Some(journal) = &self.journal_shutdown {
+            journal.send();
+        }
     }
 }
 
@@ -450,8 +486,11 @@ pub fn open_native_runtime_with(
     cx.set_quit_mode(QuitMode::Explicit);
     init_ui(cx).map_err(RuntimeError::Ui)?;
     let (restore_tx, restore_rx) = async_channel::bounded(1);
-    let workers =
-        RuntimeWorkers::start(PreferencesFile::new(preferences_path.as_ref()), restore_tx)?;
+    let (workers, journal) = RuntimeWorkers::start(
+        PreferencesFile::new(preferences_path.as_ref()),
+        recovery::journal_path(preferences_path.as_ref()),
+        restore_tx,
+    )?;
     let workers = Rc::new(RefCell::new(workers));
     let canonical_commands = workers.borrow().canonical_commands.clone();
     let save_preferences = {
@@ -472,13 +511,14 @@ pub fn open_native_runtime_with(
     let operator = cx
         .open_window(preparation_window_options(operator_bounds), |window, cx| {
             cx.new(|cx| {
-                let root = ShellView::with_preferences(
+                let mut root = ShellView::with_preferences(
                     BUILD_IDENTITY,
                     UiPreferences::default(),
                     Some(save_preferences),
                     window,
                     cx,
                 );
+                root.set_journal_writer(journal);
                 window.focus(&root.focus_handle(cx), cx);
                 root
             })
@@ -656,6 +696,7 @@ mod tests {
         let report = RuntimeWorkers {
             preference_commands: commands,
             canonical_commands,
+            journal_shutdown: None,
             workers: vec![storage, background],
         }
         .shutdown();
@@ -673,8 +714,12 @@ mod tests {
         let preferences =
             std::env::temp_dir().join(format!("ordo-shutdown-rollback-{}", std::process::id()));
         let (restore_tx, _restore_rx) = async_channel::bounded(1);
-        let mut workers = RuntimeWorkers::start(PreferencesFile::new(&preferences), restore_tx)
-            .expect("workers must start");
+        let (mut workers, _journal) = RuntimeWorkers::start(
+            PreferencesFile::new(&preferences),
+            recovery::journal_path(&preferences),
+            restore_tx,
+        )
+        .expect("workers must start");
         let live_preferences = workers.preference_commands.clone();
         let live_canonical = workers.canonical_commands.clone();
         // Join off-thread with a timeout so a regression fails instead of
@@ -705,6 +750,7 @@ mod tests {
         let report = RuntimeWorkers {
             preference_commands: commands,
             canonical_commands,
+            journal_shutdown: None,
             workers: vec![failed],
         }
         .shutdown();
@@ -730,6 +776,7 @@ mod tests {
         let workers = RuntimeWorkers {
             preference_commands: commands,
             canonical_commands,
+            journal_shutdown: None,
             workers: vec![storage],
         };
         let surviving_sender = workers.preference_commands.clone();

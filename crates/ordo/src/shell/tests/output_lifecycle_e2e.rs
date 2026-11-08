@@ -137,6 +137,7 @@ fn the_output_lifecycle_runs_from_entry_to_a_restored_exit(cx: &mut TestAppConte
                     .push(format!("close:{:?}", engine.state().live()));
             }),
             on_session_ended: Rc::new(|| {}),
+            ..Default::default()
         });
     });
     keys(cx, "space");
