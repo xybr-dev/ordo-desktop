@@ -45,6 +45,7 @@ pub mod icon {
         PIN_OFF => "pin-off.svg",
         PLAY => "play.svg",
         PLUS => "plus.svg",
+        ROTATE_CCW_CLOCK => "rotate-ccw-clock.svg",
         SETTINGS => "settings.svg",
         SNOWFLAKE => "snowflake.svg",
         SQUARE => "square.svg",

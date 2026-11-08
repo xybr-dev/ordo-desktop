@@ -166,9 +166,7 @@ pub fn strip(model: StripModel) -> impl IntoElement {
                 .flex_none()
                 .size(px(scale.apply(16.0)))
                 .text_color(rgb(info))
-                // The mockup uses `history`; the icon set has none, so INFO
-                // stands in until one is added.
-                .data(icon::INFO.as_bytes()),
+                .data(icon::ROTATE_CCW_CLOCK.as_bytes()),
         )
         .child(
             div()
