@@ -173,6 +173,7 @@ impl OutputOwner {
         program: Rc<RefCell<Shown>>,
         environment: UiEnvironment,
         operator: Option<gpui::DisplayId>,
+        paint_probe: Option<super::PaintProbe>,
         cx: &mut App,
     ) -> Result<(), OpenFailure> {
         if self.window.is_some() {
@@ -207,7 +208,16 @@ impl OutputOwner {
         });
         let opened = cx.open_window(congregation_window_options(&placement), |_, cx| {
             cx.new(|cx| {
-                OutputWindowView::new(presenter, program, environment, on_pointer, on_press, cx)
+                let mut view = OutputWindowView::new(
+                    presenter,
+                    program,
+                    environment,
+                    on_pointer,
+                    on_press,
+                    cx,
+                );
+                view.set_paint_probe(paint_probe);
+                view
             })
         });
         let Ok(window) = opened else {

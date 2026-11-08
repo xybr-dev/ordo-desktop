@@ -44,6 +44,8 @@ pub struct OutputWindowView {
     /// `CongregationView`): element hover misses a fast exit off a
     /// full-screen window, so the window's status is reported as well.
     window_hovered: bool,
+    /// Stamps this window's paint; `None` outside the measurement labs.
+    paint_probe: Option<super::PaintProbe>,
     /// Redraws this window when the Presenter changes. Dropped with it.
     _follow: Subscription,
 }
@@ -65,8 +67,13 @@ impl OutputWindowView {
             drawn: Shown::default(),
             pointer_inside: false,
             window_hovered: false,
+            paint_probe: None,
             _follow: cx.observe(presenter, |_, _, cx| cx.notify()),
         }
+    }
+
+    pub(super) fn set_paint_probe(&mut self, probe: Option<super::PaintProbe>) {
+        self.paint_probe = probe;
     }
 
     /// The frame the last render drew, `None` while the window painted black.
@@ -104,6 +111,13 @@ impl Render for OutputWindowView {
         let size = window.viewport_size();
         let (width, height) = (f32::from(size.width), f32::from(size.height));
         let fit = width.min(height * 16.0 / 9.0);
+        let stamp = self.paint_probe.as_ref().map(|probe| {
+            super::paint_stamp(
+                probe,
+                super::PaintedSurface::Congregation,
+                shown.frame.clone(),
+            )
+        });
         div()
             .id("congregation-root")
             .debug_selector(|| "output-window".into())
@@ -124,5 +138,6 @@ impl Render for OutputWindowView {
                 shown.opacity,
                 self.environment,
             )))
+            .children(stamp)
     }
 }
