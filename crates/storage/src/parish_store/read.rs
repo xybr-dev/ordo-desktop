@@ -17,18 +17,18 @@ use super::records::{
 };
 
 /// A stable error for a stored value the store cannot parse.
-fn corrupt(column: &'static str) -> StorageError {
-    StorageError::Sqlite(column.to_owned())
+fn corrupt(message: &'static str) -> StorageError {
+    StorageError::Sqlite(message.to_owned())
 }
 
 /// Parses one stored identity without panicking on corrupt text.
-fn entity<T: FromStr>(text: &str, column: &'static str) -> Result<T, StorageError> {
-    text.parse().map_err(|_| corrupt(column))
+fn entity<T: FromStr>(text: &str, message: &'static str) -> Result<T, StorageError> {
+    text.parse().map_err(|_| corrupt(message))
 }
 
 /// Parses one stored timestamp without panicking on corrupt text.
-fn time(text: &str, column: &'static str) -> Result<Timestamp, StorageError> {
-    Timestamp::parse(text).map_err(|_| corrupt(column))
+fn time(text: &str, message: &'static str) -> Result<Timestamp, StorageError> {
+    Timestamp::parse(text).map_err(|_| corrupt(message))
 }
 
 /// Reads one text column for all rows of a query, in the query's order.

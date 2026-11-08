@@ -24,25 +24,27 @@ const MAX_ID_ATTEMPTS: usize = 8;
 
 /// A failed insert that may be retried with a different identity.
 fn is_identity_collision(error: &rusqlite::Error) -> bool {
-    matches!(error.sqlite_extended_error_code(), Some(1555 | 2067))
+    matches!(error.sqlite_extended_error_code(), Some(1555))
 }
 
 /// Bookkeeping for one write transaction.
 ///
 /// `served` counts write statements so the fault hook can fail exactly its
 /// requested step; `collision` records whether the last statement failed with
-/// a primary-key or unique constraint that a fresh identity may resolve.
-pub(crate) struct WriteSteps<'a> {
-    fault: &'a mut Option<usize>,
+/// a primary-key constraint, the only failure a fresh identity may resolve.
+/// The scripted failure is taken from the worker when the transaction opens, so
+/// only a create that reached its write transaction consumes it.
+pub(crate) struct WriteSteps {
+    fault: Option<usize>,
     served: usize,
     collision: bool,
 }
 
-impl<'a> WriteSteps<'a> {
+impl WriteSteps {
     /// Starts counting at zero for one transaction.
-    pub(crate) fn new(fault: &'a mut Option<usize>) -> Self {
+    pub(crate) fn new(fault: &mut Option<usize>) -> Self {
         Self {
-            fault,
+            fault: fault.take(),
             served: 0,
             collision: false,
         }
@@ -58,14 +60,14 @@ impl<'a> WriteSteps<'a> {
 /// Runs one write statement, after the optional scripted failure at this step.
 pub(crate) fn write(
     tx: &Transaction<'_>,
-    step: &mut WriteSteps<'_>,
+    step: &mut WriteSteps,
     sql: &'static str,
     params: impl Params,
 ) -> Result<usize, StorageError> {
     step.served += 1;
     step.collision = false;
-    if *step.fault == Some(step.served) {
-        *step.fault = None;
+    if step.fault == Some(step.served) {
+        step.fault = None;
         return Err(StorageError::Sqlite("injected write failure".to_owned()));
     }
     tx.execute(sql, params).map_err(|error| {
@@ -80,9 +82,9 @@ pub(crate) fn write(
 /// inside the same transaction. Child rows with identities use this too.
 fn insert_entity(
     ids: &mut Sources,
-    steps: &mut WriteSteps<'_>,
+    steps: &mut WriteSteps,
     kind: RecordKind,
-    mut insert: impl FnMut(EntityId, &mut WriteSteps<'_>) -> Result<usize, StorageError>,
+    mut insert: impl FnMut(EntityId, &mut WriteSteps) -> Result<usize, StorageError>,
 ) -> Result<EntityId, StorageError> {
     for _ in 0..MAX_ID_ATTEMPTS {
         let id = EntityId::from_random_bytes(ids.next_bytes());
@@ -507,30 +509,21 @@ impl Core {
     ) -> Result<ParishRecord, StorageError> {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
-        let result = insert_parish(conn, ids, at, fault, parish);
-        // A scripted failure applies to one write transaction only.
-        *fault = None;
-        result
+        insert_parish(conn, ids, at, fault, parish)
     }
 
     /// Creates one Choir and its identity.
     pub(crate) fn create_choir(&mut self, choir: NewChoir) -> Result<ChoirRecord, StorageError> {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
-        let result = insert_choir(conn, ids, at, fault, choir);
-        // A scripted failure applies to one write transaction only.
-        *fault = None;
-        result
+        insert_choir(conn, ids, at, fault, choir)
     }
 
     /// Creates one Song with its aliases, moments, and occasions.
     pub(crate) fn create_song(&mut self, song: NewSong) -> Result<SongRecord, StorageError> {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
-        let result = insert_song(conn, ids, at, fault, song);
-        // A scripted failure applies to one write transaction only.
-        *fault = None;
-        result
+        insert_song(conn, ids, at, fault, song)
     }
 
     /// Creates one Arrangement with its sections, Sequence, and links.
@@ -540,9 +533,6 @@ impl Core {
     ) -> Result<ArrangementRecord, StorageError> {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
-        let result = insert_arrangement(conn, ids, at, fault, arrangement);
-        // A scripted failure applies to one write transaction only.
-        *fault = None;
-        result
+        insert_arrangement(conn, ids, at, fault, arrangement)
     }
 }
