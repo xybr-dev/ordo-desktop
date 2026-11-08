@@ -445,7 +445,8 @@ impl Storage {
     }
 
     /// Re-hashes every asset file and reports missing and corrupt ones.
-    /// Read-only; never repairs.
+    /// Read-only; never repairs. A read error other than a missing file
+    /// fails the report with `AssetWrite` instead of being classified.
     pub fn verify_assets(&self) -> impl Future<Output = Result<AssetReport, StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), |core: &mut Core| core.verify_assets())
     }

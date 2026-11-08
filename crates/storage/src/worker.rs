@@ -246,8 +246,8 @@ impl Core {
             asset_fault: false,
         };
         match Self::connect(config, migrations) {
-            Ok((conn, status)) => {
-                assets::prepare(&core.assets, &core.cache_dir, &conn);
+            Ok((mut conn, status)) => {
+                assets::prepare(&core.assets, &core.cache_dir, &mut conn);
                 core.conn = Some(conn);
                 core.status = Ok(status);
             }
@@ -256,17 +256,12 @@ impl Core {
         core
     }
 
-    /// Refuses overlapping directories, opens the database and migrates it.
+    /// Refuses unsafe directory layouts, opens the database and migrates it.
     fn connect(
         config: &StorageConfig,
         migrations: &[Migration],
     ) -> Result<(Connection, SchemaStatus), StorageError> {
-        if assets::overlaps(&config.assets_dir, &config.cache_dir) {
-            return Err(StorageError::InvalidInput {
-                field: "cache_dir",
-                reason: "overlaps assets",
-            });
-        }
+        assets::validate_dirs(&config.path, &config.assets_dir, &config.cache_dir)?;
         let mut conn = Connection::open(&config.path).map_err(map_error)?;
         conn.busy_timeout(config.busy_timeout).map_err(map_error)?;
         let status = migrations::open_and_migrate(&mut conn, migrations)?;

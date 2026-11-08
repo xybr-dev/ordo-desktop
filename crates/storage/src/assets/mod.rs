@@ -14,11 +14,11 @@
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use domain::identity::EntityId;
 use domain::presentation::ContentHash;
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use sha2::{Digest, Sha256};
 
 use crate::StorageError;
@@ -115,19 +115,61 @@ pub(crate) fn remove_files(layout: &AssetLayout, id: EntityId) {
     let _ = fs::remove_file(layout.path(id));
 }
 
-/// Reads the file of one asset; any failure to read it counts as missing.
-pub(crate) fn read_file(layout: &AssetLayout, id: EntityId) -> Option<Vec<u8>> {
-    fs::read(layout.path(id)).ok()
+/// Reads the file of one asset. A file that does not exist is `Ok(None)`; any
+/// other read error is an `AssetWrite` error, so a permissions or I/O problem
+/// is never misreported as a missing or corrupt asset.
+pub(crate) fn read_file(
+    layout: &AssetLayout,
+    id: EntityId,
+) -> Result<Option<Vec<u8>>, StorageError> {
+    match fs::read(layout.path(id)) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(io(&error)),
+    }
 }
 
-/// True when `cache` and `assets` are the same directory or nested.
-pub(crate) fn overlaps(assets: &Path, cache: &Path) -> bool {
-    assets.starts_with(cache) || cache.starts_with(assets)
+/// Checks the configured directories before anything touches the disk.
+///
+/// Refuses `..` components in either directory, equal or nested assets and
+/// cache directories, and a cache directory that is the database's directory
+/// or an ancestor of the database file (`clear_cache` deletes it recursively).
+/// Paths are made absolute against the current directory first, so a relative
+/// spelling cannot hide an overlap; they need not exist.
+pub(crate) fn validate_dirs(db: &Path, assets: &Path, cache: &Path) -> Result<(), StorageError> {
+    for (field, dir) in [("assets_dir", assets), ("cache_dir", cache)] {
+        if dir.components().any(|part| part == Component::ParentDir) {
+            return Err(StorageError::InvalidInput {
+                field,
+                reason: "relative parent",
+            });
+        }
+    }
+    let unresolved = |field| StorageError::InvalidInput {
+        field,
+        reason: "unresolvable path",
+    };
+    let db = std::path::absolute(db).map_err(|_| unresolved("path"))?;
+    let assets = std::path::absolute(assets).map_err(|_| unresolved("assets_dir"))?;
+    let cache = std::path::absolute(cache).map_err(|_| unresolved("cache_dir"))?;
+    if assets.starts_with(&cache) || cache.starts_with(&assets) {
+        return Err(StorageError::InvalidInput {
+            field: "cache_dir",
+            reason: "overlaps assets",
+        });
+    }
+    if db.starts_with(&cache) {
+        return Err(StorageError::InvalidInput {
+            field: "cache_dir",
+            reason: "contains database",
+        });
+    }
+    Ok(())
 }
 
 /// Creates the directories, then sweeps. Called after migrations succeed.
 /// Nothing here fails open.
-pub(crate) fn prepare(layout: &AssetLayout, cache_dir: &Path, conn: &Connection) {
+pub(crate) fn prepare(layout: &AssetLayout, cache_dir: &Path, conn: &mut Connection) {
     let _ = fs::create_dir_all(&layout.staging);
     let _ = fs::create_dir_all(cache_dir);
     sweep(layout, conn);
@@ -135,8 +177,18 @@ pub(crate) fn prepare(layout: &AssetLayout, cache_dir: &Path, conn: &Connection)
 
 /// Deletes staging leftovers and canonical-id-named files without a row.
 ///
-/// If the row list cannot be read nothing in `assets/` is deleted.
-fn sweep(layout: &AssetLayout, conn: &Connection) {
+/// The whole sweep runs inside an immediate transaction that is dropped
+/// (rolled back) at the end. Holding the write lock means no `create_theme`
+/// in another process sits between its file rename and its commit, so an
+/// unreferenced file really is an orphan. If the transaction cannot start
+/// (busy or any error), or the row list cannot be read, nothing is deleted.
+fn sweep(layout: &AssetLayout, conn: &mut Connection) {
+    let Ok(tx) = conn.transaction_with_behavior(TransactionBehavior::Immediate) else {
+        return;
+    };
+    let Some(known) = known_ids(&tx) else {
+        return;
+    };
     if let Ok(entries) = fs::read_dir(&layout.staging) {
         for entry in entries.flatten() {
             if entry.file_type().is_ok_and(|kind| kind.is_file()) {
@@ -144,9 +196,6 @@ fn sweep(layout: &AssetLayout, conn: &Connection) {
             }
         }
     }
-    let Some(known) = known_ids(conn) else {
-        return;
-    };
     let Ok(entries) = fs::read_dir(&layout.dir) else {
         return;
     };

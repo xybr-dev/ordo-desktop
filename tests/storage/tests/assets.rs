@@ -354,35 +354,182 @@ fn cache_is_disposable() {
     close(reopened);
 }
 
+/// Opens `config` and asserts it is refused with exactly this error.
+fn assert_refused(config: StorageConfig, field: &'static str, reason: &'static str) {
+    let storage = Storage::spawn(config);
+    let status = bounded(storage.ready());
+    assert_eq!(
+        status.map(|_| ()),
+        Err(StorageError::InvalidInput { field, reason })
+    );
+}
+
+/// A refused configuration creates no database, assets or cache directory.
+fn assert_untouched(dir: &TempDir) {
+    assert!(!dir.db().exists(), "database was created");
+    assert!(!dir.assets().exists(), "assets dir was created");
+    assert!(!dir.cache().exists(), "cache dir was created");
+}
+
 #[test]
 fn overlapping_cache_and_assets_is_refused() {
     let dir = TempDir::new("overlap");
-    let nested_cache = StorageConfig {
-        cache_dir: dir.assets().join("c"),
+    assert_refused(
+        StorageConfig {
+            cache_dir: dir.assets().join("c"),
+            ..dir.config()
+        },
+        "cache_dir",
+        "overlaps assets",
+    );
+    assert_refused(
+        StorageConfig {
+            assets_dir: dir.cache().join("a"),
+            ..dir.config()
+        },
+        "cache_dir",
+        "overlaps assets",
+    );
+    assert_refused(
+        StorageConfig {
+            cache_dir: dir.assets(),
+            ..dir.config()
+        },
+        "cache_dir",
+        "overlaps assets",
+    );
+    assert_untouched(&dir);
+}
+
+#[test]
+fn relative_spelling_cannot_hide_an_overlap() {
+    let dir = TempDir::new("relative");
+    let cwd = std::env::current_dir().expect("cwd");
+    let hidden = cwd.join("assets").join("c");
+    assert_refused(
+        StorageConfig {
+            assets_dir: PathBuf::from("./assets"),
+            cache_dir: hidden.clone(),
+            ..dir.config()
+        },
+        "cache_dir",
+        "overlaps assets",
+    );
+    assert!(!hidden.exists());
+    assert_untouched(&dir);
+}
+
+#[test]
+fn parent_components_are_refused() {
+    let dir = TempDir::new("parent");
+    assert_refused(
+        StorageConfig {
+            cache_dir: dir.0.join("..").join("elsewhere"),
+            ..dir.config()
+        },
+        "cache_dir",
+        "relative parent",
+    );
+    assert_refused(
+        StorageConfig {
+            assets_dir: dir.0.join("sub").join("..").join("assets"),
+            ..dir.config()
+        },
+        "assets_dir",
+        "relative parent",
+    );
+    assert_untouched(&dir);
+}
+
+#[test]
+fn cache_containing_the_database_is_refused() {
+    let dir = TempDir::new("contains-db");
+    let other = TempDir::new("contains-db-assets");
+    // The cache is the database's own directory: clear_cache would delete it.
+    assert_refused(
+        StorageConfig {
+            assets_dir: other.assets(),
+            cache_dir: dir.0.clone(),
+            ..dir.config()
+        },
+        "cache_dir",
+        "contains database",
+    );
+    // An ancestor of the database directory is refused too.
+    assert_refused(
+        StorageConfig {
+            path: dir.0.join("nested").join("parish.sqlite3"),
+            assets_dir: other.assets(),
+            cache_dir: dir.0.clone(),
+            ..dir.config()
+        },
+        "cache_dir",
+        "contains database",
+    );
+    assert!(!dir.db().exists(), "database was created");
+    assert!(!other.assets().exists(), "assets dir was created");
+}
+
+#[test]
+fn open_sweep_never_runs_while_another_writer_holds_the_lock() {
+    let dir = TempDir::new("sweep-lock");
+    let storage = open(&dir);
+    let kept = create(&storage, "Kept", b"kept bytes");
+    close(storage);
+
+    let orphan = dir.assets().join("5f0c2b1e-9d3a-4c7b-8e21-0a4b6c8d1e2f");
+    let part = dir.staging().join("x.part");
+    fs::write(&orphan, b"in flight").expect("orphan");
+    fs::write(&part, b"half").expect("part");
+
+    // Another process is between its file rename and its commit: it holds the
+    // write lock, so this open must not treat its file as an orphan.
+    let holder = Connection::open(dir.db()).expect("holder");
+    holder.execute_batch("BEGIN IMMEDIATE").expect("hold lock");
+    let busy = StorageConfig {
+        busy_timeout: Duration::from_millis(150),
         ..dir.config()
     };
-    let nested_assets = StorageConfig {
-        assets_dir: dir.cache().join("a"),
-        ..dir.config()
-    };
-    let same = StorageConfig {
-        cache_dir: dir.assets(),
-        ..dir.config()
-    };
-    for config in [nested_cache, nested_assets, same] {
-        let storage = Storage::spawn(config);
-        let status = bounded(storage.ready());
-        assert!(
-            matches!(
-                status,
-                Err(StorageError::InvalidInput {
-                    field: "cache_dir",
-                    reason: "overlaps assets"
-                })
-            ),
-            "{status:?}"
-        );
-    }
+    let locked = Storage::spawn(busy);
+    bounded(locked.ready()).expect("open succeeds without sweeping");
+    assert!(orphan.exists());
+    assert!(part.exists());
+    close(locked);
+
+    holder.execute_batch("ROLLBACK").expect("release");
+    drop(holder);
+    let reopened = open(&dir);
+    assert!(!orphan.exists());
+    assert!(!part.exists());
+    assert_eq!(
+        bounded(reopened.read_asset(background_id(&kept))),
+        Ok(b"kept bytes".to_vec())
+    );
+    close(reopened);
+}
+
+#[test]
+fn existing_file_at_a_drawn_asset_id_is_skipped_and_untouched() {
+    let dir = TempDir::new("draw-again");
+    let now = domain::identity::Timestamp::from_millis(1_700_000_000_000);
+    let storage =
+        Storage::spawn_with_sources(dir.config(), vec![[0x11; 16], [0x22; 16], [0x33; 16]], now);
+    bounded(storage.ready()).expect("ready");
+
+    // A file already sits at the first scripted id (planted after open, so the
+    // sweep does not remove it).
+    let first = domain::identity::EntityId::from_random_bytes([0x11; 16]);
+    let planted = dir.assets().join(first.to_string());
+    fs::write(&planted, b"planted").expect("plant");
+
+    let theme = create(&storage, "Drawn again", b"abc");
+    assert_ne!(background_id(&theme).entity(), first);
+    assert_eq!(fs::read(&planted).expect("planted"), b"planted");
+    assert_eq!(
+        bounded(storage.read_asset(background_id(&theme))),
+        Ok(b"abc".to_vec())
+    );
+    close(storage);
 }
 
 #[test]

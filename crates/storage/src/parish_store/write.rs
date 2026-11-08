@@ -519,6 +519,12 @@ fn validate_theme(theme: &NewTheme) -> Result<(), StorageError> {
                 reason: "empty",
             });
         }
+        if i64::try_from(upload.bytes.len()).is_err() {
+            return Err(StorageError::InvalidInput {
+                field: "background",
+                reason: "too large",
+            });
+        }
     }
     Ok(())
 }
@@ -558,6 +564,10 @@ fn insert_asset_and_theme(
     name: &str,
     created: &str,
 ) -> Result<EntityId, StorageError> {
+    let byte_len = i64::try_from(asset.byte_len).map_err(|_| StorageError::InvalidInput {
+        field: "background",
+        reason: "too large",
+    })?;
     let asset_text = asset.id.to_string();
     write(
         tx,
@@ -567,7 +577,7 @@ fn insert_asset_and_theme(
         params![
             asset_text,
             asset.sha256.to_string(),
-            i64::try_from(asset.byte_len).unwrap_or(i64::MAX),
+            byte_len,
             asset.media_type,
             created
         ],
@@ -666,7 +676,19 @@ fn insert_theme(
         }
     };
     if let Err(error) = tx.commit() {
-        assets::remove_files(layout, asset_id);
+        // A commit error can still mean the commit landed. Keep the file when
+        // its row is there, or when that cannot be checked: an unreferenced
+        // file is swept on the next open, a referenced missing file is a loss.
+        let landed = conn
+            .query_row(
+                "SELECT 1 FROM managed_asset WHERE id = ?1",
+                params![asset_id.to_string()],
+                |_row| Ok(()),
+            )
+            .optional();
+        if matches!(landed, Ok(None)) {
+            assets::remove_files(layout, asset_id);
+        }
         return Err(map_error(error));
     }
     Ok(ThemeRecord {

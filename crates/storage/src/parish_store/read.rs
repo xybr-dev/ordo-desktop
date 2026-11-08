@@ -484,7 +484,7 @@ fn read_asset_bytes(
             id: id.entity(),
         })?
     };
-    match assets::read_file(layout, id.entity()) {
+    match assets::read_file(layout, id.entity())? {
         Some(bytes) if intact(&record, &bytes) => Ok(bytes),
         _ => Err(StorageError::AssetIntegrity { id }),
     }
@@ -526,7 +526,7 @@ fn verify_all_assets(
         corrupt: Vec::new(),
     };
     for record in &records {
-        match assets::read_file(layout, record.id.entity()) {
+        match assets::read_file(layout, record.id.entity())? {
             None => report.missing.push(record.id),
             Some(bytes) if !intact(record, &bytes) => report.corrupt.push(record.id),
             Some(_) => {}
@@ -590,7 +590,8 @@ impl Core {
         read_asset_bytes(conn, layout, id)
     }
 
-    /// Re-hashes every asset file; read-only, never repairs.
+    /// Re-hashes every asset file; read-only, never repairs. A read error
+    /// other than a missing file fails the whole report.
     pub(crate) fn verify_assets(&mut self) -> Result<AssetReport, StorageError> {
         let (conn, layout) = self.asset_read_parts()?;
         verify_all_assets(conn, layout)
