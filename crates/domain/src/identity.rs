@@ -217,8 +217,24 @@ impl Timestamp {
         ))
     }
 
-    /// Write the canonical text form.
-    fn write_canonical(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// The canonical text form, or `None` when the instant falls outside years
+    /// 0000 through 9999.
+    ///
+    /// This is the fallible counterpart to the `Display` text form for
+    /// callers that must not emit a year the four-digit canonical field cannot
+    /// spell.
+    pub fn canonical_text(self) -> Option<String> {
+        let (year, month, day, hour, minute, second, millis) = self.canonical_parts();
+        if !(0..=9999).contains(&year) {
+            return None;
+        }
+        Some(format!(
+            "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z"
+        ))
+    }
+
+    /// The fields of the canonical text form.
+    fn canonical_parts(self) -> (i64, u32, u32, i64, i64, i64, i64) {
         let total_seconds = self.0.div_euclid(1_000);
         let millis = self.0.rem_euclid(1_000);
         let days = total_seconds.div_euclid(86_400);
@@ -227,6 +243,12 @@ impl Timestamp {
         let hour = seconds_of_day / 3_600;
         let minute = (seconds_of_day % 3_600) / 60;
         let second = seconds_of_day % 60;
+        (year, month, day, hour, minute, second, millis)
+    }
+
+    /// Write the canonical text form.
+    fn write_canonical(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (year, month, day, hour, minute, second, millis) = self.canonical_parts();
         write!(
             f,
             "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z"
@@ -242,6 +264,11 @@ impl FromStr for Timestamp {
     }
 }
 
+/// Write the canonical form when the instant is inside years 0000 through 9999.
+///
+/// Values outside that range still print, but their year is not the canonical
+/// four-digit field; use [`Timestamp::canonical_text`] when a canonical string
+/// is required.
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.write_canonical(f)
@@ -357,6 +384,8 @@ typed_entity_ids! {
     ThemeId,
     /// Identifies one managed binary asset.
     ManagedAssetId,
+    /// Identifies one Edit revision.
+    RevisionId,
 }
 
 /// Parse one decimal field at a fixed position in canonical timestamp text.
@@ -463,6 +492,7 @@ mod tests {
         assert_eq!(OccurrenceId::from_entity(entity).entity(), entity);
         assert_eq!(ThemeId::from_entity(entity).entity(), entity);
         assert_eq!(ManagedAssetId::from_entity(entity).entity(), entity);
+        assert_eq!(RevisionId::from_entity(entity).entity(), entity);
     }
 
     #[test]
@@ -480,6 +510,46 @@ mod tests {
             assert_eq!(parsed.to_string(), text);
             assert_eq!(Timestamp::from_millis(millis).to_string(), text);
         }
+    }
+
+    #[test]
+    fn canonical_text_reports_the_supported_year_range() {
+        let first = Timestamp::parse("0000-01-01T00:00:00.000Z").expect("first canonical");
+        let last = Timestamp::parse("9999-12-31T23:59:59.999Z").expect("last canonical");
+
+        assert_eq!(
+            first.canonical_text(),
+            Some("0000-01-01T00:00:00.000Z".to_owned())
+        );
+        assert_eq!(
+            last.canonical_text(),
+            Some("9999-12-31T23:59:59.999Z".to_owned())
+        );
+        assert_eq!(
+            Timestamp::from_millis(first.millis()).canonical_text(),
+            Some("0000-01-01T00:00:00.000Z".to_owned())
+        );
+        assert_eq!(
+            Timestamp::from_millis(last.millis()).canonical_text(),
+            Some("9999-12-31T23:59:59.999Z".to_owned())
+        );
+        assert_eq!(first.to_string(), "0000-01-01T00:00:00.000Z");
+        assert_eq!(last.to_string(), "9999-12-31T23:59:59.999Z");
+
+        assert!(
+            Timestamp::from_millis(first.millis() - 1)
+                .canonical_text()
+                .is_none(),
+            "one millisecond before year 0000 is out of range"
+        );
+        assert!(
+            Timestamp::from_millis(last.millis() + 1)
+                .canonical_text()
+                .is_none(),
+            "one millisecond after year 9999 is out of range"
+        );
+        assert!(Timestamp::from_millis(i64::MIN).canonical_text().is_none());
+        assert!(Timestamp::from_millis(i64::MAX).canonical_text().is_none());
     }
 
     #[test]

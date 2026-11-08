@@ -217,6 +217,17 @@ fn ids_must_be_canonical_uuid_v4() {
         );
     }
 
+    let null_error = conn
+        .execute(
+            "INSERT INTO song (id, title, created_at) VALUES (NULL, ?1, ?2)",
+            params!["No identity", CREATED_AT],
+        )
+        .expect_err("a NULL id must be refused");
+    assert!(
+        null_error.to_string().contains("NOT NULL"),
+        "expected a NOT NULL constraint error for a NULL id, got: {null_error}"
+    );
+
     conn.execute(
         "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
         params![id(31), "Canonical", CREATED_AT],
@@ -232,6 +243,10 @@ fn times_must_be_canonical() {
         "2026-11-09 01:00:00",
         "2026-11-09T01:00:00Z",
         "2026-11-09T01:00:00.000+00:00",
+        "2026-13-01T00:00:00.000Z",
+        "2026-02-30T00:00:00.000Z",
+        "2026-01-01T24:00:00.000Z",
+        "2026-01-01T23:60:00.000Z",
     ]
     .into_iter()
     .enumerate()
@@ -250,7 +265,13 @@ fn times_must_be_canonical() {
 
     conn.execute(
         "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
-        params![id(49), "Canonical", CREATED_AT],
+        params![id(47), "Leap day", "2024-02-29T23:59:59.999Z"],
+    )
+    .expect("a canonical leap day is accepted");
+
+    conn.execute(
+        "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
+        params![id(48), "Canonical", CREATED_AT],
     )
     .expect("a canonical time is accepted");
 }
@@ -273,7 +294,7 @@ fn parish_is_a_single_row() {
         .expect_err("a second parish row must be refused");
 
     assert!(
-        error.to_string().contains("UNIQUE"),
+        error.to_string().contains("parish.singleton"),
         "expected the singleton UNIQUE constraint, got: {error}"
     );
 }

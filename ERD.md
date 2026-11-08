@@ -165,7 +165,7 @@ erDiagram
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | song_id | text | no | — | — | — |
 | title | text | no | — | — | `length(trim(title)) > 0` |
 | rendition_attribution | text | yes | — | — | — |
@@ -243,7 +243,7 @@ Foreign keys:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | arrangement_id | text | no | — | — | — |
 | position | integer | no | — | — | `position >= 0` |
 | label | text | yes | — | — | `label IS NULL OR length(trim(label)) > 0` |
@@ -264,7 +264,7 @@ Foreign keys:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
 | created_at | text | no | — | — | `canonical UTC time` |
 
@@ -279,7 +279,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | name | text | no | — | — | `length(trim(name)) > 0` |
 | created_at | text | no | — | — | `canonical UTC time` |
 | archived_at | text | yes | — | — | `NULL or canonical UTC time` |
@@ -295,7 +295,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | song_id | text | yes | — | — | — |
 | arrangement_id | text | yes | — | — | — |
 | parent_id | text | yes | — | — | — |
@@ -322,7 +322,7 @@ Table checks:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | sha256 | text | no | — | — | `length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'` |
 | byte_len | integer | no | — | — | `byte_len >= 0` |
 | media_type | text | no | — | — | `media_type GLOB '?*/?*'` |
@@ -339,7 +339,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | integer | yes | — | PK | — |
+| id | integer | no | — | PK | — |
 | name | text | no | — | — | — |
 | checksum | text | no | — | — | — |
 | applied_at | text | no | — | — | — |
@@ -354,7 +354,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | singleton | integer | no | 1 | — | `singleton = 1` |
 | name | text | no | — | — | `length(trim(name)) > 0` |
 | created_at | text | no | — | — | `canonical UTC time` |
@@ -371,7 +371,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
 | created_at | text | no | — | — | `canonical UTC time` |
 
@@ -386,7 +386,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | integer | yes | — | PK | — |
+| id | integer | no | — | PK | — |
 | profile_id | integer | no | — | — | — |
 | body | text | no | — | — | — |
 
@@ -401,7 +401,7 @@ Foreign keys:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | integer | yes | — | PK | `id = 1` |
+| id | integer | no | — | PK | `id = 1` |
 | name | text | no | — | — | — |
 
 Indexes: none.
@@ -431,7 +431,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
 | created_at | text | no | — | — | `canonical UTC time` |
 
@@ -462,7 +462,7 @@ Foreign keys: none.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | arrangement_id | text | no | — | — | — |
 | section_id | text | no | — | — | — |
 | position | integer | no | — | — | `position >= 0` |
@@ -483,7 +483,7 @@ Foreign keys:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | title | text | no | — | — | `length(trim(title)) > 0` |
 | original_attribution | text | yes | — | — | — |
 | provenance | text | yes | — | — | — |
@@ -557,7 +557,7 @@ Foreign keys:
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
-| id | text | yes | — | PK | `canonical UUIDv4` |
+| id | text | no | — | PK | `canonical UUIDv4` |
 | name | text | no | — | — | `length(trim(name)) > 0` |
 | background_asset_id | text | yes | — | — | — |
 | created_at | text | no | — | — | `canonical UTC time` |
