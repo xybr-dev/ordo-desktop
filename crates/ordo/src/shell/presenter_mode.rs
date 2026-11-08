@@ -59,24 +59,31 @@ fn window_restore(bounds: WindowBounds) -> WindowRestore {
 
 /// The Presenter's hooks for one journaled session: a fresh session id, a
 /// recorder owned by the hook closure, and the writer that does the file work
-/// on its own worker. The closure only builds points and sends them.
+/// on its own worker. The closure only builds points and sends them. `None`
+/// (after saying why) when the snapshot directory is not valid UTF-8: the
+/// journal records the path as text, and a lossy path could reopen a different
+/// directory.
 fn journal_hooks(
     writer: JournalWriter,
     snapshot: &LoadedSnapshot,
     directory: &std::path::Path,
-) -> SessionHooks {
-    let identity = SessionIdentity::of(
-        new_session_id(),
-        snapshot,
-        directory.to_string_lossy().into_owned(),
-    );
+) -> Option<SessionHooks> {
+    let Some(source_dir) = directory.to_str() else {
+        eprintln!(
+            "recovery journal off for this session: the snapshot directory is not valid UTF-8"
+        );
+        return None;
+    };
+    let identity = SessionIdentity::of(new_session_id(), snapshot, source_dir);
     let recorder = Rc::new(RefCell::new(JournalRecorder::new(identity)));
-    SessionHooks {
+    Some(SessionHooks {
         journal: Rc::new(move |engine, display, moment| {
-            let seconds = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_secs());
-            let written_at = WrittenAt::from_unix_seconds(seconds);
+            let written_at = || {
+                let seconds = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |elapsed| elapsed.as_secs());
+                WrittenAt::from_unix_seconds(seconds)
+            };
             let mut recorder = recorder.borrow_mut();
             match moment {
                 JournalMoment::Changed => {
@@ -85,12 +92,14 @@ fn journal_hooks(
                     }
                 }
                 JournalMoment::Ended => {
-                    writer.end_session(recorder.end(engine, display, written_at));
+                    if let Some(point) = recorder.end(engine, display, written_at) {
+                        writer.end_session(point);
+                    }
                 }
             }
         }),
         ..SessionHooks::default()
-    }
+    })
 }
 
 impl ShellView {
@@ -163,7 +172,7 @@ impl ShellView {
         let hooks = self
             .journal
             .clone()
-            .map(|writer| journal_hooks(writer, &snapshot, &directory));
+            .and_then(|writer| journal_hooks(writer, &snapshot, &directory));
         let presenter = cx.new(|cx| {
             let mut view = PresenterView::new(snapshot, clock, environment, window, cx);
             if let Some(hooks) = hooks {

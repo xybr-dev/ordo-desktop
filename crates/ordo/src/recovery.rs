@@ -47,9 +47,9 @@ pub const JOURNAL_FILE: &str = "session-recovery.json";
 /// Suffix of the file a write is staged in before it replaces the journal.
 const TEMP_SUFFIX: &str = ".tmp";
 
-/// How long to wait before the one retry of a refused rename. On Windows an
-/// antivirus scan or the indexer can hold the target for a moment.
-const RENAME_RETRY_DELAY: Duration = Duration::from_millis(50);
+/// How long to wait before the one retry of a failed write. On Windows an
+/// antivirus scan or the indexer can hold the files for a moment.
+const RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// The journal beside the installation preferences file.
 pub fn journal_path(preferences_path: &Path) -> PathBuf {
@@ -157,9 +157,18 @@ fn exit_of(cancel: &CancellationToken) -> WorkerExit<()> {
 fn serve_journal(
     commands: Receiver<JournalCommand>,
     path: PathBuf,
+    report: impl FnMut(JournalFailure),
+) -> usize {
+    serve(commands, JournalFile::new(path), report)
+}
+
+/// [`serve_journal`] over an already built file, which tests use to inject a
+/// failing stage.
+fn serve(
+    commands: Receiver<JournalCommand>,
+    mut file: JournalFile,
     mut report: impl FnMut(JournalFailure),
 ) -> usize {
-    let mut file = JournalFile::new(path);
     // `recv` ends when every sender is gone or Shutdown arrives.
     while let Ok(first) = commands.recv() {
         let mut batch = vec![first];
@@ -206,6 +215,9 @@ struct JournalFile {
     /// `(session_id, seq)` of the last point written.
     last: Option<(String, u64)>,
     writes: usize,
+    /// Test only: how many upcoming staging attempts fail before touching disk.
+    #[cfg(test)]
+    fail_stages: usize,
 }
 
 impl JournalFile {
@@ -214,6 +226,8 @@ impl JournalFile {
             path,
             last: None,
             writes: 0,
+            #[cfg(test)]
+            fail_stages: 0,
         }
     }
 
@@ -253,7 +267,23 @@ impl JournalFile {
         Ok(())
     }
 
-    fn stage_and_replace(&self, temp: &Path, bytes: &[u8]) -> io::Result<()> {
+    /// Stage and replace, retrying the whole sequence once: an antivirus scan
+    /// or the indexer can hold the temp file or the target for a moment, and
+    /// the failure may be in any step, not only the rename.
+    fn stage_and_replace(&mut self, temp: &Path, bytes: &[u8]) -> io::Result<()> {
+        if self.stage_once(temp, bytes).is_ok() {
+            return Ok(());
+        }
+        thread::sleep(RETRY_DELAY);
+        self.stage_once(temp, bytes)
+    }
+
+    fn stage_once(&mut self, temp: &Path, bytes: &[u8]) -> io::Result<()> {
+        #[cfg(test)]
+        if self.fail_stages > 0 {
+            self.fail_stages -= 1;
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
         if let Some(parent) = self.path.parent()
             && !parent.as_os_str().is_empty()
         {
@@ -263,11 +293,7 @@ impl JournalFile {
         staged.write_all(bytes)?;
         staged.sync_all()?;
         drop(staged);
-        if fs::rename(temp, &self.path).is_err() {
-            thread::sleep(RENAME_RETRY_DELAY);
-            fs::rename(temp, &self.path)?;
-        }
-        Ok(())
+        fs::rename(temp, &self.path)
     }
 
     /// Remove the journal; a file that is already gone is success. A leftover
@@ -472,23 +498,72 @@ mod tests {
         fs::write(&blocker, b"not a directory").unwrap();
         let failures = Arc::new(Mutex::new(Vec::new()));
         let seen = failures.clone();
+        let target = blocker.join(JOURNAL_FILE);
         let (writer, mut worker, shutdown) =
-            spawn_journal_writer(blocker.join(JOURNAL_FILE), move |f| {
-                seen.lock().unwrap().push(f)
-            })
-            .unwrap();
+            spawn_journal_writer(target.clone(), move |f| seen.lock().unwrap().push(f)).unwrap();
         writer.record(point(&snap, 1, 1, false));
-        writer.end_session(point(&snap, 1, 2, true));
-        shutdown.send();
-        assert_eq!(worker.join().unwrap(), WorkerExit::Completed(()));
-        let failures = failures.lock().unwrap();
+        for _ in 0..200 {
+            if !failures.lock().unwrap().is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
         assert!(
-            failures
-                .iter()
-                .any(|failure| matches!(failure, JournalFailure::Write(_))),
-            "{failures:?}"
+            matches!(
+                failures.lock().unwrap().as_slice(),
+                [JournalFailure::Write(_)]
+            ),
+            "{:?}",
+            failures.lock().unwrap()
         );
         assert_eq!(fs::read(&blocker).unwrap(), b"not a directory");
+
+        // The obstacle goes away; the worker is still serving and a later
+        // point (a separate batch) reaches the disk.
+        fs::remove_file(&blocker).unwrap();
+        writer.record(point(&snap, 1, 2, false));
+        wait_for_seq(&target, 2);
+        shutdown.send();
+        assert_eq!(worker.join().unwrap(), WorkerExit::Completed(()));
+        assert_eq!(failures.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_stage_that_fails_once_is_retried_and_succeeds() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let (sender, received) = mpsc::channel();
+        sender
+            .send(JournalCommand::Record(point(&snap, 1, 1, false)))
+            .unwrap();
+        sender.send(JournalCommand::Shutdown).unwrap();
+        let mut file = JournalFile::new(dir.journal());
+        file.fail_stages = 1;
+        let mut failures = Vec::new();
+        let writes = serve(received, file, |failure| failures.push(failure));
+        assert_eq!((writes, failures.len()), (1, 0));
+        assert_eq!(on_disk(&dir.journal()).seq, 1);
+    }
+
+    #[test]
+    fn a_stage_that_fails_twice_is_reported_once() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        let (sender, received) = mpsc::channel();
+        sender
+            .send(JournalCommand::Record(point(&snap, 1, 1, false)))
+            .unwrap();
+        sender.send(JournalCommand::Shutdown).unwrap();
+        let mut file = JournalFile::new(dir.journal());
+        file.fail_stages = 2;
+        let mut failures = Vec::new();
+        let writes = serve(received, file, |failure| failures.push(failure));
+        assert_eq!(writes, 0);
+        assert_eq!(
+            failures,
+            [JournalFailure::Write(io::ErrorKind::PermissionDenied)]
+        );
+        assert!(!dir.journal().exists());
     }
 
     #[test]

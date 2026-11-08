@@ -1318,6 +1318,7 @@ mod tests {
     use std::cell::Cell;
     use ui::environment::InterfaceScale;
 
+    mod journal_wiring;
     mod output_lifecycle_e2e;
     mod quit_confirmation;
 

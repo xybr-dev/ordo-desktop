@@ -137,12 +137,12 @@ fn the_first_observe_emits_seq_one_and_an_unchanged_engine_emits_nothing() {
     let engine = engine_on(&snapshot);
     let mut recorder = recorder_for(&snapshot);
     let first = recorder
-        .observe(&engine, None, at(1))
+        .observe(&engine, None, || at(1))
         .expect("the first observe emits");
     assert_eq!(first.seq, 1);
     assert!(!first.ended);
-    assert_eq!(recorder.observe(&engine, None, at(2)), None);
-    assert_eq!(recorder.observe(&engine, None, at(3)), None);
+    assert_eq!(recorder.observe(&engine, None, || at(2)), None);
+    assert_eq!(recorder.observe(&engine, None, || at(3)), None);
 }
 
 #[test]
@@ -159,11 +159,11 @@ fn seq_rises_by_one_per_point_and_holds_still_on_none() {
         Command::ToggleFreeze,
     ];
 
-    seqs.push(recorder.observe(&engine, None, at(1)).unwrap().seq);
+    seqs.push(recorder.observe(&engine, None, || at(1)).unwrap().seq);
     for command in steps {
         run(&mut engine, command);
-        seqs.push(recorder.observe(&engine, None, at(2)).unwrap().seq);
-        assert_eq!(recorder.observe(&engine, None, at(3)), None);
+        seqs.push(recorder.observe(&engine, None, || at(2)).unwrap().seq);
+        assert_eq!(recorder.observe(&engine, None, || at(3)), None);
     }
     let expected: Vec<u64> = (1..=steps.len() as u64 + 1).collect();
     assert_eq!(seqs, expected);
@@ -176,18 +176,18 @@ fn a_display_change_alone_is_a_change() {
     run(&mut engine, Command::EnableOutput);
     let mut recorder = recorder_for(&snapshot);
 
-    let first = recorder.observe(&engine, None, at(1)).unwrap();
+    let first = recorder.observe(&engine, None, || at(1)).unwrap();
     assert_eq!(first.output.display, None);
 
     let assigned = recorder
-        .observe(&engine, Some(display()), at(2))
+        .observe(&engine, Some(display()), || at(2))
         .expect("a display appearing is a change");
     assert_eq!(assigned.seq, 2);
     assert_eq!(assigned.output.display, Some(display()));
-    assert_eq!(recorder.observe(&engine, Some(display()), at(3)), None);
+    assert_eq!(recorder.observe(&engine, Some(display()), || at(3)), None);
 
     let lost = recorder
-        .observe(&engine, None, at(4))
+        .observe(&engine, None, || at(4))
         .expect("a display disappearing is a change");
     assert_eq!(lost.seq, 3);
     assert_eq!(lost.output.display, None);
@@ -200,23 +200,37 @@ fn end_is_always_emitted_bumps_seq_and_stops_observe() {
     run(&mut engine, Command::EnableOutput);
     let mut recorder = recorder_for(&snapshot);
 
-    let observed = recorder.observe(&engine, None, at(1)).unwrap();
+    let observed = recorder.observe(&engine, None, || at(1)).unwrap();
     assert!(!observed.ended);
 
     // Nothing changed since the last point, and `end` still writes one.
-    let ended = recorder.end(&engine, None, at(2));
+    let ended = recorder.end(&engine, None, || at(2)).unwrap();
     assert!(ended.ended);
     assert_eq!(ended.seq, observed.seq + 1);
     assert_eq!(ended.written_at, at(2));
 
     // A clean end is final: the session cannot record a live point again.
     run(&mut engine, Command::Take);
-    assert_eq!(recorder.observe(&engine, None, at(3)), None);
+    assert_eq!(recorder.observe(&engine, None, || at(3)), None);
 
-    let again = recorder.end(&engine, None, at(4));
-    assert!(again.ended);
-    assert_eq!(again.seq, ended.seq + 1);
-    assert_eq!(again.state, LiveIntent::Live);
+    // The end is emitted once: a second call yields nothing and does not
+    // even ask for the time.
+    assert_eq!(
+        recorder.end(&engine, None, || panic!("no point, so no timestamp")),
+        None
+    );
+}
+
+#[test]
+fn the_timestamp_is_asked_for_only_when_a_point_is_emitted() {
+    let snapshot = load_snapshot();
+    let engine = engine_on(&snapshot);
+    let mut recorder = recorder_for(&snapshot);
+    assert!(recorder.observe(&engine, None, || at(1)).is_some());
+    assert_eq!(
+        recorder.observe(&engine, None, || panic!("unchanged, so no timestamp")),
+        None
+    );
 }
 
 #[test]
@@ -224,10 +238,10 @@ fn every_point_carries_the_session_identity() {
     let snapshot = load_snapshot();
     let mut engine = engine_on(&snapshot);
     let mut recorder = recorder_for(&snapshot);
-    let mut points = vec![recorder.observe(&engine, None, at(1)).unwrap()];
+    let mut points = vec![recorder.observe(&engine, None, || at(1)).unwrap()];
     run(&mut engine, Command::EnableOutput);
-    points.push(recorder.observe(&engine, None, at(2)).unwrap());
-    points.push(recorder.end(&engine, None, at(3)));
+    points.push(recorder.observe(&engine, None, || at(2)).unwrap());
+    points.extend(recorder.end(&engine, None, || at(3)));
 
     for point in &points {
         assert_eq!(point.session_id, session());
@@ -284,7 +298,7 @@ fn every_live_state_is_recorded_with_its_output_evidence() {
             run(&mut engine, *command);
         }
         let mut recorder = recorder_for(&snapshot);
-        let point = recorder.observe(&engine, None, at(1)).unwrap();
+        let point = recorder.observe(&engine, None, || at(1)).unwrap();
         assert_eq!(point.state, intent, "{commands:?}");
         assert_eq!(point.output.enabled, enabled, "{commands:?}");
     }
@@ -297,11 +311,11 @@ fn program_is_none_until_a_frame_has_been_on_program() {
     run(&mut engine, Command::EnableOutput);
     let mut recorder = recorder_for(&snapshot);
 
-    let point = recorder.observe(&engine, None, at(1)).unwrap();
+    let point = recorder.observe(&engine, None, || at(1)).unwrap();
     assert_eq!(point.program, None);
     for command in [Command::Next, Command::Next, Command::GoTo(4)] {
         run(&mut engine, command);
-        let point = recorder.observe(&engine, None, at(2)).unwrap();
+        let point = recorder.observe(&engine, None, || at(2)).unwrap();
         assert_eq!(point.program, None, "{command:?}");
         assert_eq!(point.preview, cue(&snapshot, engine.state().preview()));
     }
@@ -320,13 +334,13 @@ fn program_keeps_the_last_valid_cue_through_black() {
         run(&mut engine, Command::Take);
         let mut recorder = recorder_for(&snapshot);
         assert_eq!(
-            recorder.observe(&engine, None, at(1)).unwrap().program,
+            recorder.observe(&engine, None, || at(1)).unwrap().program,
             Some(cue(&snapshot, 0))
         );
 
         run(&mut engine, black);
         assert_eq!(engine.state().program(), ProgramContent::Black, "{black:?}");
-        let point = recorder.observe(&engine, None, at(2)).unwrap();
+        let point = recorder.observe(&engine, None, || at(2)).unwrap();
         assert_eq!(point.program, Some(cue(&snapshot, 0)), "{black:?}");
     }
 }
@@ -344,7 +358,7 @@ fn a_black_landing_keeps_the_last_frame_cue_until_a_new_frame_replaces_it() {
         run(&mut engine, Command::Next);
     }
     assert_eq!(
-        recorder.observe(&engine, None, at(1)).unwrap().program,
+        recorder.observe(&engine, None, || at(1)).unwrap().program,
         Some(cue(&snapshot, 4))
     );
 
@@ -352,7 +366,7 @@ fn a_black_landing_keeps_the_last_frame_cue_until_a_new_frame_replaces_it() {
     run(&mut engine, Command::Next);
     assert_eq!(engine.state().program(), ProgramContent::Black);
     assert_eq!(
-        recorder.observe(&engine, None, at(2)).unwrap().program,
+        recorder.observe(&engine, None, || at(2)).unwrap().program,
         Some(cue(&snapshot, 4))
     );
 
@@ -363,7 +377,7 @@ fn a_black_landing_keeps_the_last_frame_cue_until_a_new_frame_replaces_it() {
         ProgramContent::Frame { cue: 6, .. }
     ));
     assert_eq!(
-        recorder.observe(&engine, None, at(3)).unwrap().program,
+        recorder.observe(&engine, None, || at(3)).unwrap().program,
         Some(cue(&snapshot, 6))
     );
 }
@@ -374,18 +388,18 @@ fn recorded_points_round_trip_and_validate_against_their_snapshot() {
     let mut engine = engine_on(&snapshot);
     let mut recorder = recorder_for(&snapshot);
     let mut points = Vec::new();
-    points.extend(recorder.observe(&engine, None, at(1)));
+    points.extend(recorder.observe(&engine, None, || at(1)));
     run(&mut engine, Command::EnableOutput);
-    points.extend(recorder.observe(&engine, Some(display()), at(2)));
+    points.extend(recorder.observe(&engine, Some(display()), || at(2)));
     run(&mut engine, Command::Next);
     run(&mut engine, Command::Take);
     run(&mut engine, Command::Next);
-    points.extend(recorder.observe(&engine, Some(display()), at(3)));
+    points.extend(recorder.observe(&engine, Some(display()), || at(3)));
     run(&mut engine, Command::ToggleFreeze);
-    points.extend(recorder.observe(&engine, Some(display()), at(4)));
+    points.extend(recorder.observe(&engine, Some(display()), || at(4)));
     run(&mut engine, Command::DisplayLost);
-    points.extend(recorder.observe(&engine, None, at(5)));
-    points.push(recorder.end(&engine, None, at(6)));
+    points.extend(recorder.observe(&engine, None, || at(5)));
+    points.extend(recorder.end(&engine, None, || at(6)));
     assert_eq!(points.len(), 6);
 
     for point in &points {

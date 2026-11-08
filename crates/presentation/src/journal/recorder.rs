@@ -1,7 +1,7 @@
 //! Turns Engine state into recovery points for one Presentation session.
 //!
-//! The recorder is pure. The caller supplies the time of each point and the
-//! display evidence; the recorder owns the sequence number and the last valid
+//! The recorder is pure. The caller supplies the time of each point (as a
+//! closure, asked for only when a point is emitted) and the display evidence; the recorder owns the sequence number and the last valid
 //! Program cue, which the Engine forgets once Program goes black. Points are
 //! emitted only when the recorded content changes, so ticks and fades never
 //! write.
@@ -89,7 +89,7 @@ impl JournalRecorder {
         &mut self,
         engine: &Engine,
         display: Option<DisplayRecord>,
-        written_at: WrittenAt,
+        written_at: impl FnOnce() -> WrittenAt,
     ) -> Option<RecoveryPoint> {
         if self.ended {
             return None;
@@ -98,19 +98,24 @@ impl JournalRecorder {
         if self.last.as_ref() == Some(&content) {
             return None;
         }
-        Some(self.emit(content, written_at, false))
+        Some(self.emit(content, written_at(), false))
     }
 
-    /// The clean-end point: the current content with `ended: true`. Always emitted.
+    /// The clean-end point: the current content with `ended: true`, emitted
+    /// even when nothing changed. A session ends once, so every later call
+    /// returns `None`.
     pub fn end(
         &mut self,
         engine: &Engine,
         display: Option<DisplayRecord>,
-        written_at: WrittenAt,
-    ) -> RecoveryPoint {
+        written_at: impl FnOnce() -> WrittenAt,
+    ) -> Option<RecoveryPoint> {
+        if self.ended {
+            return None;
+        }
         let content = self.content(engine, display);
         self.ended = true;
-        self.emit(content, written_at, true)
+        Some(self.emit(content, written_at(), true))
     }
 
     /// The content of `engine` now. Remembers the Program cue whenever Program

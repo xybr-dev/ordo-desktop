@@ -711,8 +711,10 @@ mod tests {
         // senders stay live. Cancel/unpark cannot wake `recv`; without each
         // stop message this times out instead of hanging the suite the way
         // failed startup would.
-        let preferences =
+        let directory =
             std::env::temp_dir().join(format!("ordo-shutdown-rollback-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let preferences = directory.join("preferences.json");
         let (restore_tx, _restore_rx) = async_channel::bounded(1);
         let (mut workers, _journal) = RuntimeWorkers::start(
             PreferencesFile::new(&preferences),
@@ -733,7 +735,7 @@ mod tests {
             .expect("shutdown must unblock channel-blocked workers while senders stay live");
         assert!(report.is_empty());
         drop((live_preferences, live_canonical));
-        std::fs::remove_file(preferences).ok();
+        std::fs::remove_dir_all(directory).ok();
     }
 
     #[test]

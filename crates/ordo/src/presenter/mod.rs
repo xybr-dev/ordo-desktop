@@ -330,6 +330,8 @@ pub struct PresenterView {
     quit_focus: FocusHandle,
     /// What the owner plugs into a planned exit (no-ops until set).
     hooks: SessionHooks,
+    /// Set by [`PresenterView::end_session`]: the session ends at most once.
+    session_ended: bool,
     /// Tracked on the Keyboard shortcuts panel while it is open, so a focused
     /// panel reads as `FocusContext::ShortcutReference` for key policy.
     reference_focus: FocusHandle,
@@ -460,6 +462,7 @@ impl PresenterView {
             stay_focus: cx.focus_handle(),
             quit_focus: cx.focus_handle(),
             hooks: SessionHooks::default(),
+            session_ended: false,
             reference_focus: cx.focus_handle(),
             reference_close_focus: cx.focus_handle(),
             reference_scroll: Scroll::new(),
@@ -648,6 +651,9 @@ impl PresenterView {
             return;
         };
         let change = output.refresh(operator, cx);
+        // The display's evidence may have changed without any Engine command;
+        // the recorder skips the point when the recorded content is unchanged.
+        self.journal(JournalMoment::Changed);
         match self.engine.state().live() {
             LiveState::OutputDisabled => {}
             LiveState::Disconnected { display_back } => {
@@ -1027,6 +1033,10 @@ impl PresenterView {
     /// so the end point sees the disabled output. Called once per session by
     /// the exit paths and by the shell's confirmed quit.
     pub(crate) fn end_session(&mut self) {
+        if self.session_ended {
+            return;
+        }
+        self.session_ended = true;
         self.journal(JournalMoment::Ended);
         (self.hooks.on_session_ended)();
     }
@@ -6424,5 +6434,31 @@ mod tests {
             (JournalMoment::Changed, LiveState::OutputDisabled),
             "DisableOutput is recorded before the end"
         );
+    }
+
+    #[gpui::test]
+    fn a_direct_exit_ends_the_session_exactly_once_even_if_ended_again(cx: &mut TestAppContext) {
+        let (open, cx) = open(cx, SIZES[0]);
+        let ends = Rc::new(RefCell::new((0usize, 0usize)));
+        open.view.update(cx, |view, _| {
+            let journal_ends = ends.clone();
+            let session_ends = ends.clone();
+            view.set_session_hooks(SessionHooks {
+                journal: Rc::new(move |_, _, moment| {
+                    if moment == JournalMoment::Ended {
+                        journal_ends.borrow_mut().0 += 1;
+                    }
+                }),
+                on_session_ended: Rc::new(move || session_ends.borrow_mut().1 += 1),
+                ..Default::default()
+            });
+        });
+
+        click(cx, "header-exit-presenter");
+        assert_eq!(*ends.borrow(), (1, 1));
+
+        // The shell's confirmed quit may follow; the session is already over.
+        open.view.update(cx, |view, _| view.end_session());
+        assert_eq!(*ends.borrow(), (1, 1));
     }
 }
