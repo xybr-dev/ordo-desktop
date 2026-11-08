@@ -76,6 +76,12 @@ pub enum EditPoint {
 /// Idle time after the last keystroke before a pending text edit commits.
 pub const IDLE_MS: i64 = 1_000;
 
+/// Identifies one recorded text edit. Generations increase monotonically for
+/// the life of a [`TextCoalescer`], so a save can tell whether typing
+/// continued after the snapshot it saved was taken.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct EditGeneration(u64);
+
 /// Coalesces continuous typing into one committed point (Decision 138):
 /// a pending text edit commits after `IDLE_MS` without further edits, or as
 /// soon as focus leaves the edited field.
@@ -83,6 +89,7 @@ pub const IDLE_MS: i64 = 1_000;
 pub struct TextCoalescer {
     last_edit_ms: Option<i64>,
     focus_left: bool,
+    latest: u64,
 }
 
 impl TextCoalescer {
@@ -91,13 +98,23 @@ impl TextCoalescer {
         Self {
             last_edit_ms: None,
             focus_left: false,
+            latest: 0,
         }
     }
 
-    /// Records an edit at `now_ms`; it stays pending until due.
-    pub fn edited(&mut self, now_ms: i64) {
+    /// Records an edit at `now_ms`; it stays pending until due. Returns the
+    /// edit's generation, which the caller passes to [`TextCoalescer::settle`]
+    /// once the snapshot taken at this point has been saved.
+    pub fn edited(&mut self, now_ms: i64) -> EditGeneration {
+        self.latest = self.latest.saturating_add(1);
         self.last_edit_ms = Some(now_ms);
         self.focus_left = false;
+        EditGeneration(self.latest)
+    }
+
+    /// The generation of the pending edit, or `None` when nothing is pending.
+    pub fn generation(&self) -> Option<EditGeneration> {
+        self.last_edit_ms.map(|_| EditGeneration(self.latest))
     }
 
     /// True when a pending edit exists and it is due: focus has left, or
@@ -121,10 +138,14 @@ impl TextCoalescer {
         }
     }
 
-    /// The pending edit was committed (or discarded); clears it.
-    pub fn settle(&mut self) {
-        self.last_edit_ms = None;
-        self.focus_left = false;
+    /// The snapshot taken at generation `saved` was committed (or discarded).
+    /// Clears the pending edit only when no newer edit was recorded since;
+    /// otherwise the newer edit stays pending with its own timing.
+    pub fn settle(&mut self, saved: EditGeneration) {
+        if saved.0 >= self.latest {
+            self.last_edit_ms = None;
+            self.focus_left = false;
+        }
     }
 
     /// Whether an edit is waiting to commit.
@@ -142,7 +163,7 @@ impl TextCoalescer {
         if now_ms < last {
             return Some(IDLE_MS);
         }
-        Some(IDLE_MS.saturating_sub(now_ms.saturating_sub(last)).max(0))
+        Some((IDLE_MS - now_ms.saturating_sub(last)).max(0))
     }
 }
 
@@ -180,8 +201,21 @@ impl<C: Clone + Eq> UndoStack<C> {
         true
     }
 
-    /// Moves back one state and returns it (the caller commits it as a new
-    /// durable revision); `None` at the oldest state.
+    /// The state [`UndoStack::undo`] would move to, without moving.
+    pub fn peek_undo(&self) -> Option<&C> {
+        self.cursor.checked_sub(1).map(|index| &self.states[index])
+    }
+
+    /// The state [`UndoStack::redo`] would move to, without moving.
+    pub fn peek_redo(&self) -> Option<&C> {
+        self.states.get(self.cursor + 1)
+    }
+
+    /// Moves back one state and returns it; `None` at the oldest state.
+    ///
+    /// Call this only after the durable commit of the state returned by
+    /// [`UndoStack::peek_undo`] succeeded, so a failed save leaves the stack
+    /// unchanged.
     pub fn undo(&mut self) -> Option<C> {
         if self.cursor == 0 {
             return None;
@@ -191,6 +225,9 @@ impl<C: Clone + Eq> UndoStack<C> {
     }
 
     /// Moves forward one state and returns it; `None` at the newest state.
+    ///
+    /// Call this only after the durable commit of the state returned by
+    /// [`UndoStack::peek_redo`] succeeded.
     pub fn redo(&mut self) -> Option<C> {
         if self.cursor + 1 >= self.states.len() {
             return None;
@@ -251,19 +288,20 @@ impl SessionClock {
         now_ms: i64,
         fresh: HistorySessionId,
     ) -> HistorySessionId {
-        let session = match self.open {
+        let (session, last_commit_ms) = match self.open {
             Some(open)
                 if open.entity == entity
                     && now_ms.saturating_sub(open.last_commit_ms) <= SESSION_IDLE_MS =>
             {
-                open.session
+                // A backwards clock never moves the idle reference earlier.
+                (open.session, open.last_commit_ms.max(now_ms))
             }
-            _ => fresh,
+            _ => (fresh, now_ms),
         };
         self.open = Some(OpenSession {
             entity,
             session,
-            last_commit_ms: now_ms,
+            last_commit_ms,
         });
         session
     }
@@ -382,13 +420,13 @@ mod tests {
     #[test]
     fn coalescer_focus_left_makes_pending_edit_due_at_once() {
         let mut c = TextCoalescer::new();
-        c.edited(0);
+        let g = c.edited(0);
         assert!(!c.is_due(10));
         assert!(c.focus_left());
         assert!(c.is_due(10));
         assert!(c.is_due(-5));
         assert_eq!(c.due_in(10), Some(0));
-        c.settle();
+        c.settle(g);
         assert!(!c.is_due(10));
     }
 
@@ -404,11 +442,43 @@ mod tests {
     #[test]
     fn coalescer_settle_clears_pending() {
         let mut c = TextCoalescer::new();
-        c.edited(0);
-        c.settle();
+        let g = c.edited(0);
+        assert_eq!(c.generation(), Some(g));
+        c.settle(g);
+        assert_eq!(c.generation(), None);
         assert!(!c.is_pending());
         assert!(!c.is_due(5_000));
         assert_eq!(c.due_in(5_000), None);
+    }
+
+    #[test]
+    fn coalescer_settle_keeps_typing_recorded_during_a_save() {
+        let mut c = TextCoalescer::new();
+        let saved = c.edited(0);
+        assert!(c.is_due(1_000));
+        // The save of that snapshot starts; the user types again.
+        let newer = c.edited(1_200);
+        assert!(newer > saved);
+        // The first save finishes: the newer edit must stay pending.
+        c.settle(saved);
+        assert!(c.is_pending());
+        assert_eq!(c.generation(), Some(newer));
+        assert!(!c.is_due(2_199), "newer edit keeps its own timing");
+        assert!(c.is_due(2_200));
+        assert_eq!(c.due_in(1_700), Some(500));
+        c.settle(newer);
+        assert!(!c.is_pending());
+    }
+
+    #[test]
+    fn coalescer_settle_of_stale_generation_keeps_focus_departure_of_newer_edit() {
+        let mut c = TextCoalescer::new();
+        let saved = c.edited(0);
+        let newer = c.edited(10);
+        assert!(c.focus_left());
+        c.settle(saved);
+        assert_eq!(c.generation(), Some(newer));
+        assert!(c.is_due(10));
     }
 
     #[test]
@@ -482,6 +552,28 @@ mod tests {
     }
 
     #[test]
+    fn undo_stack_peek_leaves_stack_unchanged_until_undo_or_redo() {
+        let mut s = UndoStack::new(1);
+        assert_eq!(s.peek_undo(), None);
+        assert_eq!(s.peek_redo(), None);
+        s.commit(2);
+        s.commit(3);
+        // A failed save: peek, then do not move.
+        assert_eq!(s.peek_undo(), Some(&2));
+        assert_eq!(s.peek_undo(), Some(&2));
+        assert_eq!(s.current(), &3);
+        assert!(!s.can_redo());
+        assert_eq!(s.peek_redo(), None);
+        // A successful save moves.
+        assert_eq!(s.undo(), Some(2));
+        assert_eq!(s.peek_redo(), Some(&3));
+        assert_eq!(s.peek_redo(), Some(&3));
+        assert_eq!(s.current(), &2);
+        assert_eq!(s.redo(), Some(3));
+        assert_eq!(s.current(), &3);
+    }
+
+    #[test]
     fn undo_stack_undo_at_oldest_is_none() {
         let mut s = UndoStack::new(1);
         assert_eq!(s.undo(), None);
@@ -523,6 +615,26 @@ mod tests {
         clock.end();
         let d = clock.on_edit(song(2), now + 2, session(15));
         assert_eq!(d, session(15));
+    }
+
+    #[test]
+    fn session_clock_backwards_clock_keeps_the_latest_commit_as_reference() {
+        let mut clock = SessionClock::new();
+        let e = song(1);
+        let a = clock.on_edit(e, 10_000, session(1));
+        assert_eq!(
+            clock.on_edit(e, 5_000, session(2)),
+            a,
+            "backwards continues"
+        );
+        // Reference stays 10_000, not 5_000.
+        assert_eq!(
+            clock.on_edit(e, 10_000 + SESSION_IDLE_MS, session(3)),
+            a,
+            "exactly the idle gap from the latest commit continues"
+        );
+        let b = clock.on_edit(e, 10_000 + 2 * SESSION_IDLE_MS + 1, session(4));
+        assert_eq!(b, session(4));
     }
 
     #[test]
