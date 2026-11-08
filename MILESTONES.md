@@ -1013,7 +1013,7 @@ every authoring Module.
 
 **AC**
 
-- [ ] `[AUTO]` Store canonical lowercase UUIDv4 identities and explicit creation
+- [x] `[AUTO]` Store canonical lowercase UUIDv4 identities and explicit creation
       times; titles never serve as identity.
 - [x] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
       Arrangement, section, occurrence, Theme placeholders, revision ledger,
@@ -1023,7 +1023,7 @@ every authoring Module.
       asset.
 - [ ] `[AUTO]` Cache files are clearly separate from authoritative assets and
       can be deleted and rebuilt without content loss.
-- [ ] `[AUTO]` Every write uses parameterized SQL, transactions where invariants
+- [x] `[AUTO]` Every write uses parameterized SQL, transactions where invariants
       cross records, and enforced foreign keys.
 - [ ] `[AUTO]` Storage errors preserve prior committed state and return a stable
       domain-relevant failure.
