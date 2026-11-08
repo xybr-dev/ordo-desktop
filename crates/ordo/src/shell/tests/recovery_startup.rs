@@ -277,6 +277,10 @@ fn a_different_display_leaves_output_disconnected_until_the_projector_returns(
     );
     assert_eq!(windows_open(cx), 1, "no congregation window opened");
     assert!(presenter.read_with(cx, |view, _| view.engine().state().recovered().is_some()));
+    assert!(presenter.read_with(cx, |view, _| {
+        view.recovery_notice()
+            .is_some_and(|notice| !notice.display_recognized)
+    }));
 
     // The recognized display is connected and the displays are re-read.
     adapter.borrow_mut().connect(display(3, 3000, 1280, 720));
@@ -286,12 +290,25 @@ fn a_different_display_leaves_output_disconnected_until_the_projector_returns(
         LiveState::Disconnected { display_back: true }
     );
     assert_eq!(windows_open(cx), 1, "a return never opens output by itself");
+    assert!(
+        presenter.read_with(cx, |view, _| view.program_drawn().frame.is_none()),
+        "Program is still black"
+    );
+    let (announcement, _) = texts(&presenter, cx).expect("the strip is still shown");
+    assert!(
+        announcement.ends_with(
+            " The congregation display is back. Space resumes output and takes Preview live."
+        ),
+        "{announcement}"
+    );
 
     keys(cx, "space");
 
     assert_eq!(live(&presenter, cx), LiveState::Live);
     assert_eq!(windows_open(cx), 2);
     assert!(presenter.read_with(cx, |view, _| view.output_window().is_some()));
+    assert!(presenter.read_with(cx, |view, _| view.engine().state().recovered().is_none()));
+    assert!(!strip_present(cx), "Space clears the strip");
 }
 
 #[gpui::test]
@@ -375,10 +392,11 @@ fn recovered_with_writer(
     let dir = TempDir::new();
     write(&dir, &live_on_projector());
     let found = found(&dir);
-    let (writer, worker, shutdown) = spawn_journal_writer(dir.journal(), |failure| {
-        panic!("journal failure: {failure:?}")
-    })
-    .unwrap();
+    let (writer, worker, shutdown) =
+        spawn_journal_writer(dir.journal(), async_channel::bounded(1).0, |failure| {
+            panic!("journal failure: {failure:?}")
+        })
+        .unwrap();
     let (shell, cx) = shell_on(cx, &with_projector());
     shell.update(cx, |shell, _| shell.set_journal_writer(writer));
     recover(&shell, cx, found);
@@ -576,4 +594,90 @@ fn exiting_from_the_recovered_state_never_brings_the_strip_back(cx: &mut TestApp
     assert!(!strip_present(cx));
     cx.run_until_parked();
     assert!(!strip_present(cx), "Preparation never shows the strip");
+}
+
+#[gpui::test]
+fn a_refused_space_on_an_unavailable_preview_keeps_the_strip_and_the_black(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    write(&dir, &live_on_projector());
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+    recover(&shell, cx, found);
+    let presenter = presenter(&shell, cx);
+    assert_eq!(live(&presenter, cx), LiveState::EnabledBlack);
+    let windows = windows_open(cx);
+
+    // Preview's own frame fails to compose.
+    let frame = presenter.read_with(cx, |view, _| {
+        let snapshot = view.engine().snapshot();
+        match snapshot.cue(2).unwrap().behavior() {
+            domain::presentation::CueBehavior::Project { frame, .. } => *frame,
+            other => panic!("the fixture's third Cue projects, got {other:?}"),
+        }
+    });
+    presenter.update(cx, |view, cx| {
+        view.command(
+            presentation::commands::Command::FrameUnavailable {
+                frame,
+                reason: rendering::UnavailableReason::DecodeFailed,
+            },
+            cx,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+
+    keys(cx, "space");
+
+    assert!(strip_present(cx), "the refused Space leaves the strip");
+    assert_eq!(live(&presenter, cx), LiveState::EnabledBlack);
+    assert!(presenter.read_with(cx, |view, _| {
+        view.engine().state().recovered().is_some() && view.program_drawn().frame.is_none()
+    }));
+    assert_eq!(windows_open(cx), windows, "nothing opened or closed");
+}
+
+#[gpui::test]
+fn enabling_output_after_a_disabled_recovery_switches_the_strip_to_space(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    write(
+        &dir,
+        &interrupted_point(
+            OutputEvidence {
+                enabled: false,
+                display: None,
+            },
+            LiveIntent::OutputDisabled,
+            false,
+            None,
+        ),
+    );
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+    recover(&shell, cx, found);
+    let presenter = presenter(&shell, cx);
+    assert!(
+        texts(&presenter, cx)
+            .unwrap()
+            .0
+            .ends_with(" Enable Output, then Space takes Preview live.")
+    );
+
+    presenter.update_in(cx, |view, window, cx| view.enable_output(window, cx));
+    cx.run_until_parked();
+
+    assert_eq!(live(&presenter, cx), LiveState::EnabledBlack);
+    assert_eq!(windows_open(cx), 2, "the congregation window opened");
+    assert!(presenter.read_with(cx, |view, _| view.program_drawn().frame.is_none()));
+    assert!(strip_present(cx), "Enable Output does not clear the strip");
+    let (announcement, _) = texts(&presenter, cx).unwrap();
+    assert!(announcement.ends_with(" Space takes Preview live."));
+    assert!(!announcement.contains("Enable Output"), "{announcement}");
+
+    keys(cx, "space");
+
+    assert_eq!(live(&presenter, cx), LiveState::Live);
+    assert!(!strip_present(cx), "Space clears the strip");
 }

@@ -337,7 +337,6 @@ impl RuntimeWorkers {
         let (preference_commands, commands) = mpsc::channel();
         let (canonical_commands, canonical_requests) = mpsc::channel();
         let background = controlled_worker(WorkerKind::Background)?;
-        let recovery_journal = journal_path.clone();
         let storage = OwnedWorker::spawn(WorkerKind::Storage, move |cancel| {
             // File access on this worker is never inside a GPUI-thread scope. The note
             // counts only if a read or write is moved onto the GPUI thread.
@@ -345,13 +344,6 @@ impl RuntimeWorkers {
                 crate::performance::hot_path::HotPathKind::FileAccess,
             );
             let _ = restored_preferences.send_blocking(preferences.read());
-            // The journal read and snapshot load are file work: they stay on
-            // this worker and only the finished result crosses to GPUI.
-            crate::performance::hot_path::note(
-                crate::performance::hot_path::HotPathKind::FileAccess,
-            );
-            let _ =
-                startup_recovery.send_blocking(recovery::read_startup_recovery(&recovery_journal));
             while let Ok(PreferenceCommand::Save(contents)) = commands.recv() {
                 crate::performance::hot_path::note(
                     crate::performance::hot_path::HotPathKind::FileAccess,
@@ -388,7 +380,7 @@ impl RuntimeWorkers {
             }
         };
         let (journal, journal_worker, journal_shutdown) =
-            match recovery::spawn_journal_writer(journal_path, |failure| {
+            match recovery::spawn_journal_writer(journal_path, startup_recovery, |failure| {
                 eprintln!("recovery journal: {failure:?}");
             }) {
                 Ok(started) => started,
@@ -762,6 +754,54 @@ mod tests {
             .expect("shutdown must unblock channel-blocked workers while senders stay live");
         assert!(report.is_empty());
         drop((live_preferences, live_canonical));
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    /// Starts the real workers over `journal_bytes` and returns what the
+    /// startup read delivered, with the directory it ran in.
+    fn startup_read_of(journal_bytes: &[u8], name: &str) -> (recovery::StartupRecovery, PathBuf) {
+        let directory =
+            std::env::temp_dir().join(format!("ordo-startup-read-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let preferences = directory.join("preferences.json");
+        std::fs::write(recovery::journal_path(&preferences), journal_bytes).unwrap();
+        let (restore_tx, _restore_rx) = async_channel::bounded(1);
+        let (recovery_tx, recovery_rx) = async_channel::bounded(1);
+        let (mut workers, _journal) = RuntimeWorkers::start(
+            PreferencesFile::new(&preferences),
+            recovery::journal_path(&preferences),
+            restore_tx,
+            recovery_tx,
+        )
+        .expect("workers must start");
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = done_tx.send(recovery_rx.recv_blocking());
+        });
+        let delivered = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the journal worker delivers the startup read")
+            .expect("the channel is open");
+        assert!(workers.shutdown().is_empty());
+        (delivered, directory)
+    }
+
+    #[test]
+    fn the_journal_worker_delivers_a_valid_journal_as_found() {
+        let snapshot = recovery::tests::snapshot();
+        let bytes = presentation::journal::encode(&recovery::tests::fixture_point(&snapshot));
+        let (delivered, directory) = startup_read_of(&bytes, "valid");
+        assert!(matches!(delivered, recovery::StartupRecovery::Found(_)));
+        assert!(!directory.join(recovery::REJECTED_FILE).exists());
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn the_journal_worker_rejects_a_torn_journal_and_sets_it_aside() {
+        let (delivered, directory) = startup_read_of(b"{\"schema_version\": 2, \"se", "torn");
+        assert!(matches!(delivered, recovery::StartupRecovery::Rejected(_)));
+        assert!(directory.join(recovery::REJECTED_FILE).exists());
         std::fs::remove_dir_all(directory).ok();
     }
 

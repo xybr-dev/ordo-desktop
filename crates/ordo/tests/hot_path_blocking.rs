@@ -32,14 +32,14 @@ const REVIEWED: [(&str, &str, &str); 8] = [
         "journal worker thread loop",
     ),
     (
-        "lib.rs",
-        "let _ = restored_preferences.send_blocking(preferences.read());",
-        "preference worker thread, startup restore",
+        "recovery.rs",
+        "let _ = startup.send_blocking(read_startup_recovery(&path));",
+        "journal worker thread, startup recovery read",
     ),
     (
         "lib.rs",
-        "startup_recovery.send_blocking(recovery::read_startup_recovery(&recovery_journal));",
-        "preference worker thread, startup recovery read",
+        "let _ = restored_preferences.send_blocking(preferences.read());",
+        "preference worker thread, startup restore",
     ),
     (
         "lib.rs",

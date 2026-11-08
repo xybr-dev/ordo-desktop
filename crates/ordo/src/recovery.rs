@@ -33,6 +33,7 @@ use std::{
     time::Duration,
 };
 
+use async_channel::Sender as AsyncSender;
 use platform::{
     display::{DisplayBounds, DisplayEvidence},
     tasks::{CancellationToken, OwnedWorker, WorkerExit, WorkerKind, WorkerStartError},
@@ -157,7 +158,7 @@ pub enum StartupRecovery {
 }
 
 /// Reads, decodes and validates the journal at `journal`, and loads the
-/// snapshot it names. Blocking file work: it runs on the Storage worker,
+/// snapshot it names. Blocking file work: it runs on the journal worker,
 /// never on the GPUI thread.
 ///
 /// A rejected journal is renamed to [`REJECTED_FILE`] beside it (replacing an
@@ -200,9 +201,10 @@ fn read_found(bytes: &[u8]) -> Result<RecoveredSession, RecoveryRejection> {
 fn reject(journal: &Path, rejection: RecoveryRejection) -> StartupRecovery {
     eprintln!("ordo: recovery journal rejected: {rejection}");
     let rejected = journal.with_file_name(REJECTED_FILE);
-    // A rename onto an existing file fails on some platforms, so the older
-    // rejected file goes first. Best effort: a failure is reported only.
-    let _ = fs::remove_file(&rejected);
+    // `fs::rename` replaces an existing target (`MoveFileExW` with
+    // `MOVEFILE_REPLACE_EXISTING` on Windows), so the older rejected copy is
+    // only lost once the new one is in place. If the rename fails the older
+    // copy stays; the failure is reported only.
     if let Err(error) = fs::rename(journal, &rejected) {
         eprintln!("ordo: could not set the rejected recovery journal aside: {error}");
     }
@@ -281,12 +283,21 @@ impl JournalShutdown {
 
 /// Spawn the writer as an owned [`WorkerKind::Journal`] worker. `report` runs
 /// on the worker for each failure.
+///
+/// The worker first reads the journal the previous run left (with
+/// [`read_startup_recovery`], which may set a bad one aside) and sends the
+/// result on `startup`, and only then serves commands. The read therefore
+/// happens before the first write of this session, whatever the GPUI thread
+/// queues meanwhile: those commands wait in the channel, so a new point can
+/// never replace the journal that is about to be recovered.
 pub fn spawn_journal_writer(
     path: PathBuf,
+    startup: AsyncSender<StartupRecovery>,
     report: impl FnMut(JournalFailure) + Send + 'static,
 ) -> Result<(JournalWriter, OwnedWorker<()>, JournalShutdown), WorkerStartError> {
     let (commands, received) = mpsc::channel();
     let worker = OwnedWorker::spawn(WorkerKind::Journal, move |cancel| {
+        let _ = startup.send_blocking(read_startup_recovery(&path));
         serve_journal(received, path, report);
         Ok(exit_of(&cancel))
     })?;
@@ -464,7 +475,7 @@ impl JournalFile {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -505,7 +516,7 @@ mod tests {
         }
     }
 
-    fn snapshot() -> LoadedSnapshot {
+    pub(crate) fn snapshot() -> LoadedSnapshot {
         let directory = crate::presenter::fixture_snapshot_dir();
         read_snapshot(&DirectorySource::new(directory)).expect("the fixture snapshot loads")
     }
@@ -547,6 +558,15 @@ mod tests {
         (writes, failures)
     }
 
+    /// [`spawn_journal_writer`] for tests that do not read the startup result.
+    fn spawn_quiet(
+        path: PathBuf,
+        report: impl FnMut(JournalFailure) + Send + 'static,
+    ) -> (JournalWriter, OwnedWorker<()>, JournalShutdown) {
+        let (startup, _unread) = async_channel::bounded(1);
+        spawn_journal_writer(path, startup, report).unwrap()
+    }
+
     fn on_disk(path: &Path) -> RecoveryPoint {
         decode(&fs::read(path).unwrap()).expect("the journal on disk decodes")
     }
@@ -558,7 +578,7 @@ mod tests {
         let failures = Arc::new(Mutex::new(Vec::new()));
         let seen = failures.clone();
         let (writer, mut worker, shutdown) =
-            spawn_journal_writer(dir.journal(), move |f| seen.lock().unwrap().push(f)).unwrap();
+            spawn_quiet(dir.journal(), move |f| seen.lock().unwrap().push(f));
         writer.record(point(&snap, 1, 1, false));
         shutdown.send();
         assert_eq!(worker.join().unwrap(), WorkerExit::Completed(()));
@@ -585,7 +605,7 @@ mod tests {
         let dir = TempDir::new();
         let snap = snapshot();
         // Separate batches: the first is written before the second arrives.
-        let (writer, mut worker, shutdown) = spawn_journal_writer(dir.journal(), |_| {}).unwrap();
+        let (writer, mut worker, shutdown) = spawn_quiet(dir.journal(), |_| {});
         writer.record(point(&snap, 1, 5, false));
         wait_for_seq(&dir.journal(), 5);
         writer.record(point(&snap, 1, 3, false));
@@ -615,7 +635,7 @@ mod tests {
     fn a_new_session_id_with_a_low_seq_is_written_after_a_high_one() {
         let dir = TempDir::new();
         let snap = snapshot();
-        let (writer, mut worker, shutdown) = spawn_journal_writer(dir.journal(), |_| {}).unwrap();
+        let (writer, mut worker, shutdown) = spawn_quiet(dir.journal(), |_| {});
         writer.record(point(&snap, 1, 9, false));
         wait_for_seq(&dir.journal(), 9);
         writer.record(point(&snap, 2, 1, false));
@@ -654,7 +674,7 @@ mod tests {
         let seen = failures.clone();
         let target = blocker.join(JOURNAL_FILE);
         let (writer, mut worker, shutdown) =
-            spawn_journal_writer(target.clone(), move |f| seen.lock().unwrap().push(f)).unwrap();
+            spawn_quiet(target.clone(), move |f| seen.lock().unwrap().push(f));
         writer.record(point(&snap, 1, 1, false));
         for _ in 0..200 {
             if !failures.lock().unwrap().is_empty() {
@@ -798,7 +818,7 @@ mod tests {
 
     // ---- startup read (T1.7d) ----
 
-    fn fixture_point(snap: &LoadedSnapshot) -> RecoveryPoint {
+    pub(crate) fn fixture_point(snap: &LoadedSnapshot) -> RecoveryPoint {
         let mut p = point(snap, 1, 3, false);
         p.source_dir = crate::presenter::fixture_snapshot_dir()
             .to_string_lossy()
@@ -960,6 +980,26 @@ mod tests {
         fs::write(dir.journal(), b"new torn bytes").unwrap();
         expect_rejected(&dir, RecoveryRejection::Journal(JournalRejection::Torn));
         assert_eq!(fs::read(rejected(&dir)).unwrap(), b"new torn bytes");
+    }
+
+    #[test]
+    fn the_startup_read_happens_before_the_first_write() {
+        let dir = TempDir::new();
+        let snap = snapshot();
+        write_point(&dir, &fixture_point(&snap));
+        let (startup, received) = async_channel::bounded(1);
+        let (writer, mut worker, shutdown) =
+            spawn_journal_writer(dir.journal(), startup, |_| {}).unwrap();
+        // Queued at once, before the worker can have read anything.
+        writer.record(point(&snap, 2, 1, false));
+        shutdown.send();
+        assert_eq!(worker.join().unwrap(), WorkerExit::Completed(()));
+        let StartupRecovery::Found(found) = received.recv_blocking().unwrap() else {
+            panic!("the previous session's journal is what startup reads");
+        };
+        assert_eq!(found.recovery.point().session_id, session(1));
+        let last = on_disk(&dir.journal());
+        assert_eq!((last.session_id, last.seq), (session(2), 1));
     }
 
     #[test]

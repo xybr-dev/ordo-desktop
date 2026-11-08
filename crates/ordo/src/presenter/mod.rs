@@ -79,6 +79,7 @@ use self::{
         BAND_GAP, BAND_GUTTER, BAND_TOP_PADDING, DockLayout, LayoutInput, PresenterLayout,
         RAIL_PINNED_WIDTH, RailChoice, RailLayout, Regime, presenter_layout,
     },
+    output::OpenFailure,
     rail::{PinControl, RailItem, RailModel, RailSection},
     session_header::{
         DisplayHealth, HeaderModel, OnCueView,
@@ -270,6 +271,11 @@ pub struct RecoveryNotice {
     pub closed_at: SharedString,
     /// The congregation display's journaled name, when it had one.
     pub display_name: Option<SharedString>,
+    /// Whether the startup open recognized the journaled display (the
+    /// controller did not refuse it). Tells "wasn't recognized" apart from a
+    /// display that was recognized and then lost, or a window that failed to
+    /// open.
+    pub display_recognized: bool,
 }
 
 /// The number the timeline shows a Cue by: Mass item, then Cue within it,
@@ -684,43 +690,64 @@ impl PresenterView {
     ) {
         let point = recovery.point();
         let mut recognized = false;
+        // Without enabled output there is no display to recognize or lose.
+        let mut display_recognized = true;
         if point.output.enabled
             && let Some(record) = point.output.display.as_ref()
             && self.output.is_some()
         {
+            let evidence = crate::recovery::display_evidence(record);
             let operator = crate::output::window_display(window, &cx.displays(), cx);
             if let Some(output) = self.output.as_mut() {
-                output.recover(crate::recovery::display_evidence(record), operator, cx);
+                output.recover(evidence.clone(), operator, cx);
             }
-            recognized = self.open_output_window(window, cx);
-            if !recognized {
-                // The recovery strip explains it (WP7); a refusal toast-like
-                // status here would say it twice.
-                self.status = None;
-            }
-        }
-        match Engine::recover(
-            Arc::new(self.snapshot.snapshot().clone()),
-            recovery,
-            recognized,
-        ) {
-            Ok(engine) => self.engine = engine,
-            Err(rejection) => {
-                eprintln!("ordo: recovery journal not applied: {rejection}");
-                if recognized {
-                    self.close_output_window(cx);
+            match self.try_open_output_window(window, cx) {
+                Ok(()) => recognized = true,
+                Err(OpenFailure::Refused(_)) => {
+                    // The recovery strip explains it (WP7); a refusal
+                    // toast-like status here would say it twice.
+                    display_recognized = false;
+                }
+                Err(failure @ OpenFailure::Window) => {
+                    self.status = Some(failure.message().into());
+                    cx.notify();
+                    // The controller accepted the open, so it now reads
+                    // Enabled (or Disabled after a failed window). The Engine
+                    // starts Disconnected, so put the controller back to the
+                    // same journaled loss: the Dock status and the Engine
+                    // must agree, and Resume Output stays the way back.
+                    if let Some(output) = self.output.as_mut() {
+                        output.recover(evidence, operator, cx);
+                    }
                 }
             }
         }
-        self.recovery_notice = Some(RecoveryNotice {
-            closed_at,
-            display_name: point
-                .output
-                .display
-                .as_ref()
-                .and_then(|display| display.name.clone())
-                .map(SharedString::from),
-        });
+        match Engine::recover(self.engine.snapshot().clone(), recovery, recognized) {
+            Ok(engine) => {
+                self.engine = engine;
+                self.recovery_notice = Some(RecoveryNotice {
+                    closed_at,
+                    display_name: point
+                        .output
+                        .display
+                        .as_ref()
+                        .and_then(|display| display.name.clone())
+                        .map(SharedString::from),
+                    display_recognized,
+                });
+            }
+            Err(rejection) => {
+                eprintln!("ordo: recovery journal not applied: {rejection}");
+                // A fresh session in every respect: no window, a controller
+                // that knows nothing of the journaled display, no strip, so a
+                // later Enable Output behaves as it would have without it.
+                if let Some(output) = self.output.as_mut() {
+                    let operator = crate::output::window_display(window, &cx.displays(), cx);
+                    output.reset(operator, cx);
+                }
+                self.recovery_notice = None;
+            }
+        }
         self.engine_changed(cx);
     }
 
@@ -870,8 +897,25 @@ impl PresenterView {
     /// Opens the congregation window through the controller. `false` after a
     /// refusal, which is shown as the status; nothing is sent to the Engine.
     fn open_output_window(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        match self.try_open_output_window(window, cx) {
+            Ok(()) => true,
+            Err(failure) => {
+                self.status = Some(failure.message().into());
+                cx.notify();
+                false
+            }
+        }
+    }
+
+    /// Opens the window and says why not, setting no status: the caller
+    /// decides how a failure is shown. With no output owner it is `Window`.
+    fn try_open_output_window(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), OpenFailure> {
         let Some(mut output) = self.output.take() else {
-            return false;
+            return Err(OpenFailure::Window);
         };
         let operator = crate::output::window_display(window, &cx.displays(), cx);
         let presenter = cx.entity();
@@ -884,14 +928,7 @@ impl PresenterView {
             cx,
         );
         self.output = Some(output);
-        match opened {
-            Ok(()) => true,
-            Err(failure) => {
-                self.status = Some(failure.message().into());
-                cx.notify();
-                false
-            }
-        }
+        opened
     }
 
     /// Close the congregation window, if open.
@@ -1322,6 +1359,7 @@ impl PresenterView {
             &notice.closed_at,
             self.engine.state().live(),
             notice.display_name.as_deref(),
+            notice.display_recognized,
         );
         let snapshot = self.engine.snapshot();
         let prior = context.program().filter(|_| !compact).and_then(|flat| {

@@ -86,13 +86,33 @@ pub fn state_word(interrupted: LiveIntent) -> &'static str {
 
 /// What the operator needs to do next, from the Engine's live state now (not
 /// from the journal, which only says what the interrupted session was doing).
-pub fn detail(closed_at: &str, live: LiveState, display_name: Option<&str>) -> String {
+///
+/// `display_recognized` is whether startup recognized the journaled display.
+/// A `Disconnected` Engine then has three different causes: the display was
+/// not recognized, it was recognized and later lost (or its window failed to
+/// open), or it has come back since.
+pub fn detail(
+    closed_at: &str,
+    live: LiveState,
+    display_name: Option<&str>,
+    display_recognized: bool,
+) -> String {
     let lead = format!("Ordo closed unexpectedly at {closed_at}. Your place is back.");
+    let display = display_name.unwrap_or(UNNAMED_DISPLAY);
     match live {
-        LiveState::Disconnected { .. } => format!(
-            "{lead} {} wasn’t recognized, so output is disconnected.",
-            display_name.unwrap_or(UNNAMED_DISPLAY)
-        ),
+        LiveState::Disconnected { display_back: true } => {
+            format!("{lead} {display} is back. Space resumes output and takes Preview live.")
+        }
+        LiveState::Disconnected {
+            display_back: false,
+        } if !display_recognized => {
+            format!("{lead} {display} wasn’t recognized, so output is disconnected.")
+        }
+        LiveState::Disconnected {
+            display_back: false,
+        } => {
+            format!("{lead} {display} is disconnected.")
+        }
         LiveState::OutputDisabled => {
             format!("{lead} Enable Output, then Space takes Preview live.")
         }
@@ -129,7 +149,8 @@ pub fn strip(model: StripModel) -> impl IntoElement {
         .aria_label(label)
         .flex_none()
         .w_full()
-        .min_h(px(scale.apply(STRIP_HEIGHT)))
+        .h(px(scale.apply(STRIP_HEIGHT)))
+        .overflow_hidden()
         .flex()
         .flex_row()
         .items_center()
@@ -145,6 +166,8 @@ pub fn strip(model: StripModel) -> impl IntoElement {
                 .flex_none()
                 .size(px(scale.apply(16.0)))
                 .text_color(rgb(info))
+                // The mockup uses `history`; the icon set has none, so INFO
+                // stands in until one is added.
                 .data(icon::INFO.as_bytes()),
         )
         .child(
@@ -153,19 +176,21 @@ pub fn strip(model: StripModel) -> impl IntoElement {
                 .flex_1()
                 .min_w_0()
                 .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_x(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                .flex_col()
+                .overflow_hidden()
                 .text_color(rgb(palette.text))
                 .child(
                     div()
+                        .debug_selector(|| "recovery-headline".into())
                         .font_weight(FontWeight::BOLD)
-                        .whitespace_nowrap()
+                        .truncate()
                         .child(HEADLINE),
                 )
                 .child(
                     div()
+                        .debug_selector(|| "recovery-detail".into())
                         .text_color(rgb(palette.text_muted))
+                        .truncate()
                         .child(model.detail),
                 ),
         )
@@ -232,26 +257,55 @@ mod tests {
         display_back: false,
     };
 
+    const LEAD: &str = "Ordo closed unexpectedly at 9:31. Your place is back.";
+
     #[test]
     fn detail_follows_the_live_state() {
         assert_eq!(
-            detail("9:31", LiveState::EnabledBlack, None),
-            "Ordo closed unexpectedly at 9:31. Your place is back. Space takes Preview live."
+            detail("9:31", LiveState::EnabledBlack, None, true),
+            format!("{LEAD} Space takes Preview live.")
         );
         assert_eq!(
-            detail("9:31", LiveState::OutputDisabled, None),
-            "Ordo closed unexpectedly at 9:31. Your place is back. Enable Output, then Space \
-             takes Preview live."
+            detail("9:31", LiveState::OutputDisabled, None, true),
+            format!("{LEAD} Enable Output, then Space takes Preview live.")
+        );
+    }
+
+    #[test]
+    fn disconnected_detail_names_the_real_situation() {
+        let back = LiveState::Disconnected { display_back: true };
+        // Not recognized at startup.
+        assert_eq!(
+            detail("9:31", DISCONNECTED, Some("Display 2"), false),
+            format!("{LEAD} Display 2 wasn’t recognized, so output is disconnected.")
         );
         assert_eq!(
-            detail("9:31", DISCONNECTED, Some("Display 2")),
-            "Ordo closed unexpectedly at 9:31. Your place is back. Display 2 wasn’t \
-             recognized, so output is disconnected."
+            detail("9:31", DISCONNECTED, None, false),
+            format!(
+                "{LEAD} The congregation display wasn’t recognized, so output is disconnected."
+            )
+        );
+        // Recognized, then lost or the window failed to open.
+        assert_eq!(
+            detail("9:31", DISCONNECTED, Some("Display 2"), true),
+            format!("{LEAD} Display 2 is disconnected.")
         );
         assert_eq!(
-            detail("9:31", DISCONNECTED, None),
-            "Ordo closed unexpectedly at 9:31. Your place is back. The congregation display \
-             wasn’t recognized, so output is disconnected."
+            detail("9:31", DISCONNECTED, None, true),
+            format!("{LEAD} The congregation display is disconnected.")
+        );
+        // Back, whichever way it was lost.
+        for recognized in [false, true] {
+            assert_eq!(
+                detail("9:31", back, Some("Display 2"), recognized),
+                format!("{LEAD} Display 2 is back. Space resumes output and takes Preview live.")
+            );
+        }
+        assert_eq!(
+            detail("9:31", back, None, true),
+            format!(
+                "{LEAD} The congregation display is back. Space resumes output and takes Preview live."
+            )
         );
     }
 

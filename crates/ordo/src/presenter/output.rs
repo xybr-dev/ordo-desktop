@@ -116,6 +116,20 @@ impl OutputOwner {
         self.controller = OutputController::recovered(self.source.snapshot(cx, operator), evidence);
     }
 
+    /// Back to a fresh, disabled controller on the current topology, with any
+    /// window closed. Used when a recovery the Engine refused must leave
+    /// nothing of the journaled display behind.
+    pub fn reset(&mut self, operator: Option<gpui::DisplayId>, cx: &mut App) {
+        self.close(cx);
+        self.controller = OutputController::new(self.source.snapshot(cx, operator));
+    }
+
+    /// Test only: the controller's output lifecycle.
+    #[cfg(test)]
+    pub(super) fn lifecycle(&self) -> &OutputLifecycle {
+        self.controller.control().output()
+    }
+
     pub fn watch_displays(&mut self, watch: Subscription) {
         self.display_watch = Some(watch);
     }
