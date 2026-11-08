@@ -949,17 +949,17 @@ plans make the state larger.
 
 **AC**
 
-- [ ] `[AUTO]` Journal schema records snapshot identity, Preview, last valid
+- [x] `[AUTO]` Journal schema records snapshot identity, Preview, last valid
       Program context, state intent, output evidence, and monotonic sequence.
-- [ ] `[AUTO]` Writes are asynchronous, ordered, compact, and absent from the
+- [x] `[AUTO]` Writes are asynchronous, ordered, compact, and absent from the
       keydown-to-paint path.
-- [ ] `[AUTO]` Torn, stale, unknown-version, or mismatched-snapshot journals are
+- [x] `[AUTO]` Torn, stale, unknown-version, or mismatched-snapshot journals are
       rejected without guessing.
-- [ ] `[UI-AUTO]` Unexpected restart reopens directly into recovered Presenter
+- [x] `[UI-AUTO]` Unexpected restart reopens directly into recovered Presenter
       with output black and a persistent recovery strip, not a blocking dialog.
-- [ ] `[UI-AUTO]` Preview and navigation intent return; prior Program is shown
+- [x] `[UI-AUTO]` Preview and navigation intent return; prior Program is shown
       only as private context and is never claimed as external output.
-- [ ] `[UI-AUTO]` Space on a valid recovered Preview takes it live and clears
+- [x] `[UI-AUTO]` Space on a valid recovered Preview takes it live and clears
       the recovery strip; ordinary safe exit remains available.
 
 **E2E** `[UI-AUTO]` — Terminate the app after a journaled Live, Frozen, and

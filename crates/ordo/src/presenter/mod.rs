@@ -856,6 +856,15 @@ impl PresenterView {
             .unwrap_or_default()
     }
 
+    /// Test only: the display evidence the output is placed on, so the
+    /// recovery E2E can compare it across a restart.
+    #[cfg(test)]
+    pub(crate) fn output_evidence(&self) -> Option<platform::display::DisplayEvidence> {
+        self.output
+            .as_ref()
+            .and_then(|output| output.evidence().cloned())
+    }
+
     /// What Program drew on the last render: the frame, its decoded image and
     /// the fade opacity. The congregation window draws this same value.
     pub fn program_drawn(&self) -> Shown {
