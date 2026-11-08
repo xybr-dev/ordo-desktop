@@ -133,6 +133,28 @@ impl std::fmt::Display for RecoveryRejection {
     }
 }
 
+impl RecoveryRejection {
+    /// The reason Preparation tells the operator, finishing "The last
+    /// presentation couldn't be restored: ...". `None` for a stale journal: it
+    /// records a session that ended on purpose, so there is nothing to restore
+    /// and nothing to apologize for.
+    pub fn operator_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::Read(_) | Self::NoDisplayEvidence | Self::Journal(JournalRejection::Torn) => {
+                Some("its recovery file is damaged")
+            }
+            Self::Journal(JournalRejection::UnknownVersion(_)) => {
+                Some("it was saved by another version of Ordo")
+            }
+            Self::Journal(JournalRejection::SnapshotMismatch | JournalRejection::UnknownCue) => {
+                Some("its Mass plan has changed since")
+            }
+            Self::Snapshot(_) => Some("its Mass plan could not be opened"),
+            Self::Journal(JournalRejection::Stale) => None,
+        }
+    }
+}
+
 /// A journal that validated against its snapshot, with what the Presenter
 /// needs to reopen it.
 #[derive(Debug)]
@@ -476,6 +498,38 @@ impl JournalFile {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn every_rejection_has_its_operator_reason() {
+        let damaged = Some("its recovery file is damaged");
+        for (rejection, expected) in [
+            (
+                RecoveryRejection::Read(io::ErrorKind::PermissionDenied),
+                damaged,
+            ),
+            (RecoveryRejection::Journal(JournalRejection::Torn), damaged),
+            (RecoveryRejection::NoDisplayEvidence, damaged),
+            (
+                RecoveryRejection::Journal(JournalRejection::UnknownVersion(9)),
+                Some("it was saved by another version of Ordo"),
+            ),
+            (
+                RecoveryRejection::Journal(JournalRejection::SnapshotMismatch),
+                Some("its Mass plan has changed since"),
+            ),
+            (
+                RecoveryRejection::Journal(JournalRejection::UnknownCue),
+                Some("its Mass plan has changed since"),
+            ),
+            (
+                RecoveryRejection::Snapshot("gone".to_owned()),
+                Some("its Mass plan could not be opened"),
+            ),
+            (RecoveryRejection::Journal(JournalRejection::Stale), None),
+        ] {
+            assert_eq!(rejection.operator_reason(), expected, "{rejection:?}");
+        }
+    }
+
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},

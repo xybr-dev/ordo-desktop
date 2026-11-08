@@ -522,6 +522,7 @@ pub fn open_native_runtime_with(
                     cx,
                 );
                 root.set_journal_writer(journal);
+                root.begin_startup_check(cx);
                 window.focus(&root.focus_handle(cx), cx);
                 root
             })
@@ -557,16 +558,16 @@ pub fn open_native_runtime_with(
     })
     .detach();
 
-    // A recovered session reopens straight into Presenter. Only `Found` does
-    // anything; absent and rejected journals leave Preparation as it is.
+    // A recovered session reopens straight into Presenter. Present waits for
+    // this answer; an absent journal changes nothing and a rejected one shows
+    // a toast.
     cx.spawn({
         let recovery_target = operator;
         async move |cx| {
-            if let Ok(recovery::StartupRecovery::Found(found)) = recovery_rx.recv().await {
-                let _ = recovery_target.update(cx, |root, window, cx| {
-                    root.finish_startup_recovery(*found, window, cx);
-                });
-            }
+            let result = recovery_rx.recv().await.ok();
+            let _ = recovery_target.update(cx, |root, window, cx| {
+                root.startup_recovery_arrived(result, window, cx);
+            });
         }
     })
     .detach();

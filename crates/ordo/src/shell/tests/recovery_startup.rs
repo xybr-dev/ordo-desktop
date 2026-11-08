@@ -681,3 +681,154 @@ fn enabling_output_after_a_disabled_recovery_switches_the_strip_to_space(cx: &mu
     assert_eq!(live(&presenter, cx), LiveState::Live);
     assert!(!strip_present(cx), "Space clears the strip");
 }
+
+fn begin_check(shell: &gpui::Entity<ShellView>, cx: &mut VisualTestContext) {
+    shell.update(cx, |shell, cx| shell.begin_startup_check(cx));
+    cx.run_until_parked();
+}
+
+fn arrive(
+    shell: &gpui::Entity<ShellView>,
+    cx: &mut VisualTestContext,
+    result: Option<StartupRecovery>,
+) {
+    shell.update_in(cx, |shell, window, cx| {
+        shell.startup_recovery_arrived(result, window, cx)
+    });
+    cx.run_until_parked();
+}
+
+fn present_is_on_screen(cx: &mut VisualTestContext, label: &str) -> bool {
+    cx.debug_bounds(sel(format!("button-{label}"))).is_some()
+}
+
+fn presenter_open_or_loading(shell: &gpui::Entity<ShellView>, cx: &VisualTestContext) -> bool {
+    shell.read_with(cx, |shell, _| {
+        shell.presenter().is_some() || shell.presenter_load.is_some()
+    })
+}
+
+#[gpui::test]
+fn present_does_nothing_until_the_startup_check_answers(cx: &mut TestAppContext) {
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+
+    // The button is on screen but disabled; every path into the Presenter is
+    // gated in `enter_presenter` itself.
+    if present_is_on_screen(cx, "Present") {
+        click(cx, "button-Present");
+    }
+    shell.update_in(cx, |shell, window, cx| shell.enter_presenter(window, cx));
+    cx.run_until_parked();
+    assert!(!presenter_open_or_loading(&shell, cx));
+
+    arrive(&shell, cx, Some(StartupRecovery::Absent));
+
+    click(cx, "button-Present");
+    assert!(shell.read_with(cx, |shell, _| shell.presenter_mode().is_presenter()));
+}
+
+#[gpui::test]
+fn the_button_names_the_wait_only_after_150_ms(cx: &mut TestAppContext) {
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+    assert!(present_is_on_screen(cx, "Present"));
+
+    cx.executor().advance_clock(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert!(present_is_on_screen(cx, "Present"));
+
+    cx.executor().advance_clock(Duration::from_millis(60));
+    cx.run_until_parked();
+    assert!(present_is_on_screen(cx, "Checking last session…"));
+    assert!(!present_is_on_screen(cx, "Present"));
+
+    arrive(&shell, cx, Some(StartupRecovery::Absent));
+    assert!(present_is_on_screen(cx, "Present"));
+}
+
+#[gpui::test]
+fn present_unlocks_after_five_seconds_without_an_answer(cx: &mut TestAppContext) {
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+
+    cx.executor().advance_clock(Duration::from_millis(4900));
+    cx.run_until_parked();
+    shell.update_in(cx, |shell, window, cx| shell.enter_presenter(window, cx));
+    cx.run_until_parked();
+    assert!(!presenter_open_or_loading(&shell, cx), "still checking");
+
+    cx.executor().advance_clock(Duration::from_millis(200));
+    cx.run_until_parked();
+
+    assert!(present_is_on_screen(cx, "Present"));
+    click(cx, "button-Present");
+    assert!(shell.read_with(cx, |shell, _| shell.presenter_mode().is_presenter()));
+}
+
+#[gpui::test]
+fn a_rejected_journal_shows_one_failure_toast_and_a_stale_one_shows_none(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    std::fs::write(dir.journal(), b"not a journal").unwrap();
+    let rejected = read_startup_recovery(&dir.journal());
+    assert!(matches!(rejected, StartupRecovery::Rejected(_)));
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+
+    arrive(&shell, cx, Some(rejected));
+
+    let toasts = shell.read_with(cx, |shell, cx| shell.overlays.toasts(cx));
+    assert_eq!(
+        toasts,
+        vec![gpui::SharedString::from(
+            "The last presentation couldn’t be restored: its recovery file is damaged. Ordo opened normally."
+        )]
+    );
+    assert!(present_is_on_screen(cx, "Present"), "Present unlocked");
+
+    let dir = TempDir::new();
+    write(
+        &dir,
+        &interrupted_point(
+            OutputEvidence {
+                enabled: false,
+                display: None,
+            },
+            LiveIntent::OutputDisabled,
+            true,
+            None,
+        ),
+    );
+    let stale = read_startup_recovery(&dir.journal());
+    assert!(matches!(stale, StartupRecovery::Rejected(_)));
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+
+    arrive(&shell, cx, Some(stale));
+
+    assert!(shell.read_with(cx, |shell, cx| shell.overlays.toasts(cx).is_empty()));
+    assert!(present_is_on_screen(cx, "Present"), "Present unlocked");
+}
+
+#[gpui::test]
+fn a_found_session_opens_without_a_present_press_and_a_lost_worker_unlocks(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    write(&dir, &live_on_projector());
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+
+    arrive(&shell, cx, Some(StartupRecovery::Found(Box::new(found))));
+
+    assert!(shell.read_with(cx, |shell, _| shell.presenter_mode().is_presenter()));
+    assert!(
+        presenter(&shell, cx).read_with(cx, |view, _| view.engine().state().recovered().is_some())
+    );
+
+    let (shell, cx) = shell_on(cx, &with_projector());
+    begin_check(&shell, cx);
+    arrive(&shell, cx, None);
+    assert!(shell.read_with(cx, |shell, _| !shell.startup_check.is_pending()));
+}
