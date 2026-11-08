@@ -676,9 +676,11 @@ fn insert_theme(
         }
     };
     if let Err(error) = tx.commit() {
-        // A commit error can still mean the commit landed. Keep the file when
-        // its row is there, or when that cannot be checked: an unreferenced
-        // file is swept on the next open, a referenced missing file is a loss.
+        // A commit error can still mean the commit landed. Then the caller gets
+        // an error although the Theme exists, and a retry would create a second
+        // Theme. Keep the file when its row is there, or when that cannot be
+        // checked: an unreferenced file is swept on the next open, a referenced
+        // missing file is a loss.
         let landed = conn
             .query_row(
                 "SELECT 1 FROM managed_asset WHERE id = ?1",
@@ -736,6 +738,8 @@ impl Core {
     }
 
     /// Creates one Theme; with a background, its asset file and rows commit together.
+    /// If COMMIT reports failure but the rows landed, the caller gets an error
+    /// although the Theme exists, and a retry would create a second Theme.
     pub(crate) fn create_theme(&mut self, theme: NewTheme) -> Result<ThemeRecord, StorageError> {
         let at = self.timestamp();
         let parts = self.asset_write_parts()?;

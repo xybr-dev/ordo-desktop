@@ -131,13 +131,16 @@ pub(crate) fn read_file(
 
 /// Checks the configured directories before anything touches the disk.
 ///
-/// Refuses `..` components in either directory, equal or nested assets and
-/// cache directories, and a cache directory that is the database's directory
-/// or an ancestor of the database file (`clear_cache` deletes it recursively).
+/// Refuses `..` components in the database path or either directory, equal or
+/// nested assets and cache directories, and a cache directory that is the
+/// database's directory or an ancestor of the database file (`clear_cache`
+/// deletes it recursively).
 /// Paths are made absolute against the current directory first, so a relative
-/// spelling cannot hide an overlap; they need not exist.
+/// spelling cannot hide an overlap; they need not exist. Comparison is by path
+/// spelling only: letter case or symlinks (on Windows, also junctions and 8.3
+/// names) can still hide an overlap.
 pub(crate) fn validate_dirs(db: &Path, assets: &Path, cache: &Path) -> Result<(), StorageError> {
-    for (field, dir) in [("assets_dir", assets), ("cache_dir", cache)] {
+    for (field, dir) in [("path", db), ("assets_dir", assets), ("cache_dir", cache)] {
         if dir.components().any(|part| part == Component::ParentDir) {
             return Err(StorageError::InvalidInput {
                 field,

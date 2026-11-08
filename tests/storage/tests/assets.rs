@@ -438,6 +438,14 @@ fn parent_components_are_refused() {
         "assets_dir",
         "relative parent",
     );
+    assert_refused(
+        StorageConfig {
+            path: dir.0.join("..").join("p.sqlite3"),
+            ..dir.config()
+        },
+        "path",
+        "relative parent",
+    );
     assert_untouched(&dir);
 }
 
@@ -523,7 +531,11 @@ fn existing_file_at_a_drawn_asset_id_is_skipped_and_untouched() {
     fs::write(&planted, b"planted").expect("plant");
 
     let theme = create(&storage, "Drawn again", b"abc");
-    assert_ne!(background_id(&theme).entity(), first);
+    // The first scripted id was skipped, so the second one was used.
+    assert_eq!(
+        background_id(&theme).entity(),
+        domain::identity::EntityId::from_random_bytes([0x22; 16])
+    );
     assert_eq!(fs::read(&planted).expect("planted"), b"planted");
     assert_eq!(
         bounded(storage.read_asset(background_id(&theme))),
