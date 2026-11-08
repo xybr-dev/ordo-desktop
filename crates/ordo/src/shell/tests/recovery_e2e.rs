@@ -269,7 +269,9 @@ fn interrupted_session(cx: &mut TestAppContext, dir: &TempDir, how: LiveIntent) 
     cx.run_until_parked();
     assert_eq!(cx.windows().len(), 0, "session one's windows are gone");
     let left = std::fs::read(dir.journal()).expect("the journal survives the cut-off");
-    assert!(!decode(&left).expect("it still decodes").ended);
+    let left = decode(&left).expect("it still decodes");
+    assert!(!left.ended);
+    assert_eq!(left, before, "stopping the writer changed nothing on disk");
     recorded
 }
 
@@ -332,7 +334,15 @@ fn drive(cx: &mut TestAppContext, how: LiveIntent) {
         .expect("the congregation window is open");
     let mut on_output = VisualTestContext::from_window(handle.into(), cx);
     on_output.run_until_parked();
+    // The window has rendered, so "draws no frame" below is about its content.
+    assert!(on_output.debug_bounds("output-window").is_some());
     assert!(on_output.debug_bounds("recovery-strip").is_none());
+    // The startup open recognized the projector on the new adapter; the
+    // evidence check above alone round-trips through the journal.
+    assert!(presenter.read_with(cx, |view, _| {
+        view.recovery_notice()
+            .is_some_and(|notice| notice.display_recognized)
+    }));
     assert!(
         handle
             .update(cx, |view, _, _| view.drawn_frame().is_none())
@@ -369,9 +379,11 @@ fn drive(cx: &mut TestAppContext, how: LiveIntent) {
 
     // A normal exit leaves no journal.
     click(cx, "header-exit-presenter");
-    if presenter.read_with(cx, |view, cx| view.exit_confirmation_open(cx)) {
-        click(cx, "button-End presentation");
-    }
+    assert!(
+        presenter.read_with(cx, |view, cx| view.exit_confirmation_open(cx)),
+        "exit while Live asks first"
+    );
+    click(cx, "button-End presentation");
     assert!(shell.read_with(cx, |shell, _| shell.presenter().is_none()));
     stop(shutdown, worker);
     assert!(!dir.journal().exists(), "a clean exit leaves no journal");
