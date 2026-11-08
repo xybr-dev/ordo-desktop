@@ -436,3 +436,144 @@ fn exiting_from_the_recovered_state_takes_the_normal_path_and_leaves_no_journal(
     assert!(!dir.journal().exists(), "a clean exit leaves no journal");
     assert!(!dir.0.join(format!("{JOURNAL_FILE}.tmp")).exists());
 }
+
+fn strip_present(cx: &mut VisualTestContext) -> bool {
+    cx.debug_bounds("recovery-strip").is_some()
+}
+
+fn texts(
+    presenter: &gpui::Entity<crate::presenter::PresenterView>,
+    cx: &VisualTestContext,
+) -> Option<(String, Option<String>)> {
+    presenter.read_with(cx, |view, _| view.recovery_strip_texts())
+}
+
+#[gpui::test]
+fn the_strip_shows_prior_program_privately_and_space_clears_it(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    write(&dir, &live_on_projector());
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+
+    recover(&shell, cx, found);
+
+    let presenter = presenter(&shell, cx);
+    assert!(strip_present(cx), "the strip is on screen");
+    assert!(cx.debug_bounds("recovery-prior").is_some());
+    let title = presenter.read_with(cx, |view, _| {
+        view.engine()
+            .snapshot()
+            .item_of(0)
+            .unwrap()
+            .title()
+            .to_owned()
+    });
+    let (announcement, meta) = texts(&presenter, cx).expect("the strip has text");
+    assert!(announcement.starts_with("Presentation recovered · Congregation output is black. "));
+    assert!(announcement.ends_with(" Space takes Preview live."));
+    assert_eq!(
+        meta.as_deref(),
+        Some(format!("LIVE on {title} · 1.1 · not on screen now").as_str())
+    );
+    assert!(
+        presenter.read_with(cx, |view, _| view.prior_frame_ready()),
+        "the prior frame is requested and composed"
+    );
+
+    // Private: Program draws black and the congregation window has no strip.
+    assert!(presenter.read_with(cx, |view, _| view.program_drawn().frame.is_none()));
+    let handle = presenter
+        .read_with(cx, |view, _| view.output_window())
+        .expect("the congregation window is open");
+    let mut on_output = VisualTestContext::from_window(handle.into(), cx);
+    on_output.run_until_parked();
+    assert!(on_output.debug_bounds("recovery-strip").is_none());
+    assert!(on_output.debug_bounds("recovery-prior").is_none());
+    let drawn = handle
+        .update(cx, |view, _, _| view.drawn_frame().cloned())
+        .unwrap();
+    assert!(drawn.is_none(), "the output draws no frame");
+
+    keys(cx, "space");
+
+    assert!(!strip_present(cx), "Space clears the strip");
+    assert!(cx.debug_bounds("recovery-prior").is_none());
+    assert!(texts(&presenter, cx).is_none());
+    assert!(presenter.read_with(cx, |view, _| view.program_drawn().frame.is_some()));
+}
+
+#[gpui::test]
+fn a_refused_space_keeps_the_strip_and_names_the_display(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let mut point = live_on_projector();
+    point.output.display.as_mut().unwrap().name = Some("Hall projector".to_owned());
+    write(&dir, &point);
+    let found = found(&dir);
+    let adapter: Adapter = Rc::new(RefCell::new(InMemoryDisplayAdapter::new(
+        vec![display(1, 0, 1920, 1080), display(2, 1920, 1024, 768)],
+        Some(DisplayId::new(1)),
+    )));
+    let (shell, cx) = shell_on(cx, &adapter);
+
+    recover(&shell, cx, found);
+
+    let presenter = presenter(&shell, cx);
+    let (announcement, meta) = texts(&presenter, cx).expect("the strip has text");
+    assert!(announcement.ends_with("Hall projector wasn’t recognized, so output is disconnected."));
+    assert!(meta.is_some_and(|meta| meta.starts_with("LIVE on ")));
+    keys(cx, "space");
+    assert!(
+        presenter.read_with(cx, |view, _| view.engine().state().recovered().is_some()),
+        "the refused Space changed nothing"
+    );
+    assert!(strip_present(cx));
+}
+
+#[gpui::test]
+fn without_a_prior_program_or_output_the_strip_has_no_prior_block(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    write(
+        &dir,
+        &interrupted_point(
+            OutputEvidence {
+                enabled: false,
+                display: None,
+            },
+            LiveIntent::OutputDisabled,
+            false,
+            None,
+        ),
+    );
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+
+    recover(&shell, cx, found);
+
+    let presenter = presenter(&shell, cx);
+    assert!(strip_present(cx));
+    assert!(cx.debug_bounds("recovery-prior").is_none());
+    let (announcement, meta) = texts(&presenter, cx).unwrap();
+    assert!(announcement.ends_with(" Enable Output, then Space takes Preview live."));
+    assert_eq!(meta, None);
+}
+
+#[gpui::test]
+fn exiting_from_the_recovered_state_never_brings_the_strip_back(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    write(&dir, &live_on_projector());
+    let found = found(&dir);
+    let (shell, cx) = shell_on(cx, &with_projector());
+    recover(&shell, cx, found);
+    assert!(strip_present(cx));
+
+    click(cx, "header-exit-presenter");
+    if presenter(&shell, cx).read_with(cx, |view, cx| view.exit_confirmation_open(cx)) {
+        assert!(strip_present(cx), "the confirmation does not clear it");
+        click(cx, "button-End presentation");
+    }
+
+    assert!(shell.read_with(cx, |shell, _| shell.presenter().is_none()));
+    assert!(!strip_present(cx));
+    cx.run_until_parked();
+    assert!(!strip_present(cx), "Preparation never shows the strip");
+}

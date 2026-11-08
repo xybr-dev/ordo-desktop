@@ -12,7 +12,7 @@ use platform::display::{
 };
 
 /// Selectors only the operator's Presenter draws. None may reach the output.
-const OPERATOR_ONLY: [&str; 8] = [
+const OPERATOR_ONLY: [&str; 10] = [
     "program-state",
     "monitor-program-preparing",
     "program-auto-play",
@@ -21,6 +21,8 @@ const OPERATOR_ONLY: [&str; 8] = [
     "display-health",
     "presenter-header",
     "header-cursor-locator",
+    "recovery-strip",
+    "recovery-prior",
 ];
 
 type Adapter = Rc<RefCell<InMemoryDisplayAdapter>>;
