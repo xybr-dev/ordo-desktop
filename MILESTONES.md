@@ -980,8 +980,14 @@ context with black external Program until one explicit valid Space command.
       (`cargo xtask verify`; `storage` is a dev-dependency of `ordo` only, and
       `cargo xtask architecture` fails if the Presenter runtime crates reach
       `storage` or a SQLite driver through normal dependencies.)
-- [ ] `[NATIVE-AUTO]` A full Recovery Drill fixture run passes in packaged
+- [x] `[NATIVE-AUTO]` A full Recovery Drill fixture run passes in packaged
       Windows builds within latency and memory budgets.
+      (`cargo xtask measure-presenter`, run by `windows-presenter-performance`
+      and `cargo xtask qualify`: the release `live-control-lab --run-drill`
+      replays every drill line through `PresenterView` against
+      `commands.expect`, p95 under 50 ms, within 512 MiB, no hot-path
+      violations. `cargo xtask recovery-drill` adds a real kill and relaunch
+      of the release `ordo.exe` on two displays.)
 - [ ] `[MANUAL]` A human can run the sanitized Normal Mass fixture from keyboard
       alone without exposing private content or losing state clarity.
 
