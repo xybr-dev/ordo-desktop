@@ -197,6 +197,9 @@ fn creation_appends_the_first_revision() {
     let song = bounded(storage.create_song(song_input("Kyrie"))).expect("song");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let arrangement = bounded(storage.create_arrangement(NewArrangement {
@@ -473,6 +476,9 @@ fn failed_commit_changes_nothing() {
     let song = bounded(storage.create_song(song_input("Sanctus"))).expect("song");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let created = bounded(storage.create_arrangement(NewArrangement {
@@ -1182,10 +1188,10 @@ fn v3_database_with_t2_1_data_upgrades_to_v4() {
         }
     }
 
-    // Opening migrates 3 -> 4 and the T2.1 records read back unchanged.
+    // Opening migrates 3 -> head (5) and the T2.1 records read back unchanged.
     let storage = open(&dir);
     let status = bounded(storage.schema_status()).expect("status");
-    assert_eq!(status.version, 4);
+    assert_eq!(status.version, 5);
     let read_song = bounded(storage.song(song)).expect("song");
     assert_eq!(read_song.title, "Legacy");
     assert_eq!(read_song.aliases, vec!["Old".to_owned()]);

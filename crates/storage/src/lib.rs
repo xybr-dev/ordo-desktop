@@ -79,17 +79,18 @@ mod revisions;
 mod worker;
 
 use domain::identity::{
-    ArrangementId, EntityId, HistorySessionId, ManagedAssetId, RevisionId, SongId, ThemeId,
+    ArrangementId, ChoirId, EntityId, HistorySessionId, ManagedAssetId, RevisionId, SongId, ThemeId,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
+use domain::song_library::PaginationState;
 use migrations::Migration;
 use worker::{Core, Exit, Message, Sources};
 
 pub use domain::presentation::ContentHash;
 pub use parish_store::{
-    ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
-    NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
-    SectionRecord, SongRecord, ThemeRecord,
+    ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
+    ManagedAssetRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme,
+    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
     ArrangementContent, OccurrenceContent, RevisionContent, RevisionRecord, SectionContent,
@@ -230,6 +231,10 @@ pub enum StorageError {
         field: &'static str,
         reason: &'static str,
     },
+    /// The record is already archived, so it cannot be archived again.
+    AlreadyArchived { kind: RecordKind },
+    /// The record is not archived, so it cannot be restored.
+    NotArchived { kind: RecordKind },
     /// `create_parish` was called when the database already has its Parish.
     ParishExists,
     /// The id source produced colliding ids too many times in a row.
@@ -271,6 +276,8 @@ impl fmt::Display for StorageError {
                 write!(f, "referenced {kind} {id} does not exist")
             }
             Self::InvalidInput { field, reason } => write!(f, "invalid {field}: {reason}"),
+            Self::AlreadyArchived { kind } => write!(f, "the {kind} is already archived"),
+            Self::NotArchived { kind } => write!(f, "the {kind} is not archived"),
             Self::ParishExists => write!(f, "the parish already exists"),
             Self::IdentityExhausted { kind } => {
                 write!(f, "could not generate a unique {kind} id")
@@ -380,6 +387,106 @@ impl Storage {
     /// Reads every Choir ordered by creation time and identity.
     pub fn choirs(&self) -> impl Future<Output = Result<Vec<ChoirRecord>, StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), |core: &mut Core| core.choirs())
+    }
+
+    /// Replaces a Choir's details (name, short label, languages, notes).
+    ///
+    /// `NotFound` when the Choir is absent. Archive state is unchanged, and
+    /// the store does not refuse archived Choirs (the domain does).
+    pub fn edit_choir(
+        &self,
+        id: ChoirId,
+        details: ChoirDetails,
+    ) -> impl Future<Output = Result<ChoirRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.edit_choir(id, details)
+        })
+    }
+
+    /// Archives a Choir, stamping `archived_at` with the worker clock.
+    ///
+    /// `AlreadyArchived` when it already is. Archive never cascades and
+    /// appends no revision (archive History is T2.9).
+    pub fn archive_choir(
+        &self,
+        id: ChoirId,
+    ) -> impl Future<Output = Result<ChoirRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.archive_choir(id)
+        })
+    }
+
+    /// Restores an archived Choir; `NotArchived` when it is active.
+    pub fn restore_choir(
+        &self,
+        id: ChoirId,
+    ) -> impl Future<Output = Result<ChoirRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.restore_choir(id)
+        })
+    }
+
+    /// Archives a Song work, stamping `archived_at` with the worker clock.
+    ///
+    /// `AlreadyArchived` when it already is. Its Arrangements are untouched
+    /// and no revision is appended (archive History is T2.9).
+    pub fn archive_song(
+        &self,
+        id: SongId,
+    ) -> impl Future<Output = Result<SongRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.archive_song(id)
+        })
+    }
+
+    /// Restores an archived Song work; `NotArchived` when it is active.
+    pub fn restore_song(
+        &self,
+        id: SongId,
+    ) -> impl Future<Output = Result<SongRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.restore_song(id)
+        })
+    }
+
+    /// Archives an Arrangement, stamping `archived_at` with the worker clock.
+    ///
+    /// `AlreadyArchived` when it already is. No revision is appended
+    /// (archive History is T2.9).
+    pub fn archive_arrangement(
+        &self,
+        id: ArrangementId,
+    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.archive_arrangement(id)
+        })
+    }
+
+    /// Restores an archived Arrangement; `NotArchived` when it is active.
+    pub fn restore_arrangement(
+        &self,
+        id: ArrangementId,
+    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.restore_arrangement(id)
+        })
+    }
+
+    /// Sets an Arrangement's pagination state; `NotFound` when absent.
+    pub fn set_pagination_state(
+        &self,
+        id: ArrangementId,
+        state: PaginationState,
+    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.set_pagination_state(id, state)
+        })
+    }
+
+    /// Reads every Song, Arrangement and Choir in one read transaction, each
+    /// list ordered by creation time and identity.
+    pub fn library(&self) -> impl Future<Output = Result<LibraryRecords, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.library())
     }
 
     /// Creates a Song with its aliases, liturgical moments and occasions.
@@ -828,7 +935,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(4));
+        assert_eq!(status.map(|s| s.version), Ok(5));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

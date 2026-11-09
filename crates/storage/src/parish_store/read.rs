@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 use domain::identity::{ArrangementId, ChoirId, ManagedAssetId, SongId, ThemeId, Timestamp};
 use domain::presentation::ContentHash;
+use domain::song_library::PaginationState;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::assets;
@@ -15,8 +16,8 @@ use crate::worker::Core;
 use crate::{RecordKind, StorageError, map_error};
 
 use super::records::{
-    ArrangementRecord, AssetReport, ChoirRecord, ManagedAssetRecord, OccurrenceRecord,
-    ParishRecord, SectionRecord, SongRecord, ThemeRecord,
+    ArrangementRecord, AssetReport, ChoirRecord, LibraryRecords, ManagedAssetRecord,
+    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
 };
 
 /// A stable error for a stored value the store cannot parse.
@@ -73,35 +74,101 @@ fn read_parish(conn: &mut Connection) -> Result<Option<ParishRecord>, StorageErr
     }))
 }
 
-fn read_choirs(conn: &mut Connection) -> Result<Vec<ChoirRecord>, StorageError> {
-    let tx = conn.transaction().map_err(map_error)?;
-    let mut statement = tx
-        .prepare("SELECT id, name, created_at, archived_at FROM choir ORDER BY created_at, id")
-        .map_err(map_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })
-        .map_err(map_error)?;
-    let mut choirs = Vec::new();
-    for row in rows {
-        let (id, name, created_at, archived_at) = row.map_err(map_error)?;
-        choirs.push(ChoirRecord {
-            id: entity(&id, "corrupt id")?,
-            name,
-            created_at: time(&created_at, "corrupt created_at")?,
-            archived_at: match archived_at {
-                Some(text) => Some(time(&text, "corrupt archived_at")?),
-                None => None,
+/// Parses a stored pagination state without panicking on corrupt text.
+fn pagination(text: &str) -> Result<PaginationState, StorageError> {
+    match text {
+        "draft" => Ok(PaginationState::Draft),
+        "approved" => Ok(PaginationState::Approved),
+        "needs_review" => Ok(PaginationState::NeedsReview),
+        _ => Err(corrupt("corrupt pagination_state")),
+    }
+}
+
+/// Parses an optional stored archive time.
+fn archived(text: Option<String>) -> Result<Option<Timestamp>, StorageError> {
+    match text {
+        Some(text) => Ok(Some(time(&text, "corrupt archived_at")?)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn read_choir(
+    tx: &Transaction<'_>,
+    id: ChoirId,
+) -> Result<Option<ChoirRecord>, StorageError> {
+    let row = tx
+        .query_row(
+            "SELECT name, short_label, notes, created_at, archived_at FROM choir WHERE id = ?1",
+            params![id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
             },
-        });
+        )
+        .optional()
+        .map_err(map_error)?;
+    let Some((name, short_label, notes, created_at, archived_at)) = row else {
+        return Ok(None);
+    };
+    let languages = texts(
+        tx,
+        "SELECT language FROM choir_language WHERE choir_id = ?1 ORDER BY position",
+        &id.to_string(),
+    )?;
+    Ok(Some(ChoirRecord {
+        id,
+        name,
+        short_label,
+        languages,
+        notes,
+        created_at: time(&created_at, "corrupt created_at")?,
+        archived_at: archived(archived_at)?,
+    }))
+}
+
+/// Every Choir in one transaction, ordered by creation time and identity.
+fn choirs_in(tx: &Transaction<'_>) -> Result<Vec<ChoirRecord>, StorageError> {
+    let ids = {
+        let mut statement = tx
+            .prepare("SELECT id FROM choir ORDER BY created_at, id")
+            .map_err(map_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(map_error)?;
+        let mut ids = Vec::new();
+        for row in rows {
+            let text = row.map_err(map_error)?;
+            ids.push(entity::<ChoirId>(&text, "corrupt id")?);
+        }
+        ids
+    };
+    let mut choirs = Vec::with_capacity(ids.len());
+    for id in ids {
+        let choir = read_choir(tx, id)?.ok_or(StorageError::NotFound {
+            kind: RecordKind::Choir,
+            id: id.entity(),
+        })?;
+        choirs.push(choir);
     }
     Ok(choirs)
+}
+
+fn read_choirs(conn: &mut Connection) -> Result<Vec<ChoirRecord>, StorageError> {
+    let tx = conn.transaction().map_err(map_error)?;
+    choirs_in(&tx)
+}
+
+fn choir_by_id(conn: &mut Connection, id: ChoirId) -> Result<ChoirRecord, StorageError> {
+    let tx = conn.transaction().map_err(map_error)?;
+    read_choir(&tx, id)?.ok_or(StorageError::NotFound {
+        kind: RecordKind::Choir,
+        id: id.entity(),
+    })
 }
 
 pub(crate) fn read_song(
@@ -166,6 +233,11 @@ pub(crate) fn read_song(
 
 fn read_songs(conn: &mut Connection) -> Result<Vec<SongRecord>, StorageError> {
     let tx = conn.transaction().map_err(map_error)?;
+    songs_in(&tx)
+}
+
+/// Every Song in one transaction, ordered by creation time and identity.
+fn songs_in(tx: &Transaction<'_>) -> Result<Vec<SongRecord>, StorageError> {
     let ids = {
         let mut statement = tx
             .prepare("SELECT id FROM song ORDER BY created_at, id")
@@ -182,7 +254,7 @@ fn read_songs(conn: &mut Connection) -> Result<Vec<SongRecord>, StorageError> {
     };
     let mut songs = Vec::with_capacity(ids.len());
     for id in ids {
-        let song = read_song(&tx, id)?.ok_or(StorageError::NotFound {
+        let song = read_song(tx, id)?.ok_or(StorageError::NotFound {
             kind: RecordKind::Song,
             id: id.entity(),
         })?;
@@ -191,14 +263,50 @@ fn read_songs(conn: &mut Connection) -> Result<Vec<SongRecord>, StorageError> {
     Ok(songs)
 }
 
+/// Every Arrangement in one transaction, ordered by creation time and identity.
+fn arrangements_in(tx: &Transaction<'_>) -> Result<Vec<ArrangementRecord>, StorageError> {
+    let ids = {
+        let mut statement = tx
+            .prepare("SELECT id FROM arrangement ORDER BY created_at, id")
+            .map_err(map_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(map_error)?;
+        let mut ids = Vec::new();
+        for row in rows {
+            let text = row.map_err(map_error)?;
+            ids.push(entity::<ArrangementId>(&text, "corrupt id")?);
+        }
+        ids
+    };
+    let mut arrangements = Vec::with_capacity(ids.len());
+    for id in ids {
+        let arrangement = read_arrangement(tx, id)?.ok_or(StorageError::NotFound {
+            kind: RecordKind::Arrangement,
+            id: id.entity(),
+        })?;
+        arrangements.push(arrangement);
+    }
+    Ok(arrangements)
+}
+
+fn read_library(conn: &mut Connection) -> Result<LibraryRecords, StorageError> {
+    let tx = conn.transaction().map_err(map_error)?;
+    Ok(LibraryRecords {
+        songs: songs_in(&tx)?,
+        arrangements: arrangements_in(&tx)?,
+        choirs: choirs_in(&tx)?,
+    })
+}
+
 pub(crate) fn read_arrangement(
     tx: &Transaction<'_>,
     id: ArrangementId,
 ) -> Result<Option<ArrangementRecord>, StorageError> {
     let row = tx
         .query_row(
-            "SELECT song_id, title, rendition_attribution, created_at, archived_at \
-             FROM arrangement WHERE id = ?1",
+            "SELECT song_id, title, rendition_attribution, created_at, archived_at, \
+             pagination_state FROM arrangement WHERE id = ?1",
             params![id.to_string()],
             |row| {
                 Ok((
@@ -207,12 +315,15 @@ pub(crate) fn read_arrangement(
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
         .optional()
         .map_err(map_error)?;
-    let Some((song_id, title, rendition_attribution, created_at, archived_at)) = row else {
+    let Some((song_id, title, rendition_attribution, created_at, archived_at, pagination_text)) =
+        row
+    else {
         return Ok(None);
     };
     let id_text = id.to_string();
@@ -306,6 +417,7 @@ pub(crate) fn read_arrangement(
         occasions,
         sections,
         sequence,
+        pagination: pagination(&pagination_text)?,
         created_at: time(&created_at, "corrupt created_at")?,
         archived_at: match archived_at {
             Some(text) => Some(time(&text, "corrupt archived_at")?),
@@ -549,6 +661,18 @@ impl Core {
     pub(crate) fn choirs(&mut self) -> Result<Vec<ChoirRecord>, StorageError> {
         let conn = self.connection_mut()?;
         read_choirs(conn)
+    }
+
+    /// Reads one Choir or reports `NotFound`.
+    pub(crate) fn choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
+        let conn = self.connection_mut()?;
+        choir_by_id(conn, id)
+    }
+
+    /// Reads every Song, Arrangement and Choir in one transaction.
+    pub(crate) fn library(&mut self) -> Result<LibraryRecords, StorageError> {
+        let conn = self.connection_mut()?;
+        read_library(conn)
     }
 
     /// Reads one Song or reports `NotFound`.

@@ -11,9 +11,9 @@ pub(crate) mod write;
 
 pub(crate) use read::{read_arrangement, read_song};
 pub use records::{
-    ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
-    NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
-    SectionRecord, SongRecord, ThemeRecord,
+    ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
+    ManagedAssetRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme,
+    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
 };
 
 #[cfg(test)]

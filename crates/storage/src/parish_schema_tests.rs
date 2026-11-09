@@ -50,6 +50,7 @@ fn schema_lists_every_t2_1_table() {
         "parish",
         "parish_setting",
         "choir",
+        "choir_language",
         "song",
         "song_alias",
         "song_liturgical_moment",
@@ -506,7 +507,7 @@ fn migration_is_checksummed_and_versioned() {
     let conn = migrated();
     let status = migrations::status(&conn).expect("read status");
 
-    assert_eq!(status.version, 4);
+    assert_eq!(status.version, 5);
     let names: Vec<String> = status
         .applied
         .into_iter()
@@ -519,6 +520,7 @@ fn migration_is_checksummed_and_versioned() {
             "0002_parish_note".to_owned(),
             "0003_parish_foundation".to_owned(),
             "0004_edit_revisions".to_owned(),
+            "0005_library_details".to_owned(),
         ]
     );
 }

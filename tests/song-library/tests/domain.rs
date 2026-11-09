@@ -7,8 +7,9 @@ use domain::identity::{
     ArrangementId, ChoirId, EntityId, OccurrenceId, SectionId, SongId, Timestamp,
 };
 use domain::song_library::{
-    ArchiveState, ArrangementDraft, ArrangementVisibility, DeletionBlocker, DeletionVerdict,
-    DuplicateEvidence, DurableReference, MatchedOn, OccurrenceDraft, PaginationState, RecordRef,
+    ArchiveState, ArrangementDraft, ArrangementVisibility, ChoirDraft, DeletionBlocker,
+    DeletionVerdict, DuplicateEvidence, DurableReference, Field, HydrateArrangement, HydrateChoir,
+    HydrateSong, HydrationError, MatchedOn, OccurrenceDraft, PaginationState, RecordRef,
     SectionDraft, SongDraft, SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
 
@@ -116,7 +117,7 @@ macro_rules! assert_refused {
 fn small_library() -> SongLibrary {
     let mut library = SongLibrary::new();
     library
-        .create_choir(choir_id(20), at(0), "Youth".to_owned())
+        .create_choir(choir_id(20), at(0), ChoirDraft::named("Youth"))
         .unwrap();
     library
         .create_song(song_id(1), at(0), SongDraft::titled("Pagdayeg"))
@@ -284,7 +285,7 @@ fn ac4_choirs_share_one_arrangement_and_songs_are_valid_without_a_choir() {
     let mut library = SongLibrary::new();
     for (n, name) in [(20, "Youth"), (21, "Adult")] {
         library
-            .create_choir(choir_id(n), at(0), name.to_owned())
+            .create_choir(choir_id(n), at(0), ChoirDraft::named(name))
             .unwrap();
     }
     library
@@ -566,7 +567,7 @@ fn ac6_archive_and_restore_state_errors_name_the_record() {
 fn ac6_archived_entities_are_inspect_only_until_restored() {
     let mut library = small_library();
     library
-        .create_choir(choir_id(21), at(0), "Adult".to_owned())
+        .create_choir(choir_id(21), at(0), ChoirDraft::named("Adult"))
         .unwrap();
     library.archive_song(song_id(1), at(5)).unwrap();
     let song = RecordRef::Song(song_id(1));
@@ -656,7 +657,7 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
 fn ac6_archived_choir_is_inspect_only_and_cannot_be_newly_associated() {
     let mut library = small_library();
     library
-        .create_choir(choir_id(21), at(0), "Adult".to_owned())
+        .create_choir(choir_id(21), at(0), ChoirDraft::named("Adult"))
         .unwrap();
     library.archive_choir(choir_id(21), at(5)).unwrap();
     library.archive_choir(choir_id(20), at(5)).unwrap();
@@ -665,7 +666,7 @@ fn ac6_archived_choir_is_inspect_only_and_cannot_be_newly_associated() {
     assert_refused!(
         library,
         SongLibraryError::Archived(RecordRef::Choir(choir_id(20))),
-        library.edit_choir(choir_id(20), "Renamed".to_owned())
+        library.edit_choir(choir_id(20), ChoirDraft::named("Renamed"))
     );
     assert_refused!(
         library,
@@ -957,7 +958,7 @@ fn t2_3_e2e_numbered_kyries_translated_arrangements_archive_and_restore() {
     // 1. Choirs and two numbered Kyries.
     for (n, name) in [(20, "Youth"), (21, "Adult"), (22, "Children")] {
         library
-            .create_choir(choir_id(n), at(0), name.to_owned())
+            .create_choir(choir_id(n), at(0), ChoirDraft::named(name))
             .unwrap();
     }
     let (youth, adult, children) = (choir_id(20), choir_id(21), choir_id(22));
@@ -1124,4 +1125,330 @@ fn t2_3_e2e_numbered_kyries_translated_arrangements_archive_and_restore() {
         [cebuano]
     );
     assert!(library.song(song_id(3)).is_ok());
+}
+
+// ---- T2.4 WP1: Choir details and hydration -------------------------------
+
+/// A library with details, archives and pagination states worth round-tripping.
+fn rich_library() -> SongLibrary {
+    let mut library = SongLibrary::new();
+    library
+        .create_choir(
+            choir_id(20),
+            at(0),
+            ChoirDraft {
+                name: "Youth".to_owned(),
+                short_label: Some("YC".to_owned()),
+                languages: vec!["ceb".to_owned(), "en".to_owned()],
+                notes: Some("Rehearse Thursdays".to_owned()),
+            },
+        )
+        .unwrap();
+    library
+        .create_choir(choir_id(21), at(1), ChoirDraft::named("Adult"))
+        .unwrap();
+    library
+        .create_song(song_id(1), at(2), SongDraft::titled("Pagdayeg"))
+        .unwrap();
+    library
+        .create_song(song_id(2), at(3), SongDraft::titled("Kyrie"))
+        .unwrap();
+    library
+        .create_arrangement(
+            arrangement_id(10),
+            song_id(1),
+            at(4),
+            draft("Cebuano", "ceb", 100),
+            vec![choir_id(20), choir_id(21)],
+        )
+        .unwrap();
+    library
+        .create_arrangement(
+            arrangement_id(11),
+            song_id(1),
+            at(5),
+            draft("English", "en", 110),
+            Vec::new(),
+        )
+        .unwrap();
+    library.approve_pagination(arrangement_id(10)).unwrap();
+    library
+        .archive_arrangement(arrangement_id(11), at(6))
+        .unwrap();
+    library.archive_choir(choir_id(21), at(7)).unwrap();
+    library.archive_song(song_id(2), at(8)).unwrap();
+    library
+}
+
+type Exported = (Vec<HydrateSong>, Vec<HydrateArrangement>, Vec<HydrateChoir>);
+
+/// Exports `library` through its accessors into hydration inputs.
+fn export(library: &SongLibrary) -> Exported {
+    let songs = library
+        .songs()
+        .map(|song| HydrateSong {
+            id: song.id(),
+            created_at: song.created_at(),
+            draft: SongDraft {
+                title: song.title().to_owned(),
+                aliases: song.aliases().to_vec(),
+                original_attribution: song.original_attribution().map(str::to_owned),
+                provenance: song.provenance().map(str::to_owned),
+                rights_notes: song.rights_notes().map(str::to_owned),
+                liturgical_moments: song.liturgical_moments().iter().cloned().collect(),
+                occasions: song.occasions().iter().cloned().collect(),
+            },
+            archive_state: song.archive_state(),
+        })
+        .collect();
+    let arrangements = library
+        .arrangements()
+        .map(|arrangement| HydrateArrangement {
+            id: arrangement.id(),
+            song: arrangement.song(),
+            created_at: arrangement.created_at(),
+            draft: ArrangementDraft {
+                title: arrangement.title().to_owned(),
+                languages: arrangement.languages().to_vec(),
+                rendition_attribution: arrangement.rendition_attribution().map(str::to_owned),
+                occasions: arrangement.occasions().iter().cloned().collect(),
+                sections: arrangement
+                    .sections()
+                    .iter()
+                    .map(|section| SectionDraft {
+                        id: section.id(),
+                        label: section.label().map(str::to_owned),
+                        lyrics: section.lyrics().to_owned(),
+                    })
+                    .collect(),
+                sequence: arrangement
+                    .sequence()
+                    .iter()
+                    .map(|occurrence| OccurrenceDraft::new(occurrence.id(), occurrence.section()))
+                    .collect(),
+            },
+            choirs: arrangement.choirs().iter().copied().collect(),
+            pagination_state: arrangement.pagination_state(),
+            archive_state: arrangement.archive_state(),
+        })
+        .collect();
+    let choirs = library
+        .choirs()
+        .map(|choir| HydrateChoir {
+            id: choir.id(),
+            created_at: choir.created_at(),
+            draft: ChoirDraft {
+                name: choir.name().to_owned(),
+                short_label: choir.short_label().map(str::to_owned),
+                languages: choir.languages().to_vec(),
+                notes: choir.notes().map(str::to_owned),
+            },
+            archive_state: choir.archive_state(),
+        })
+        .collect();
+    (songs, arrangements, choirs)
+}
+
+#[test]
+fn t24_hydrate_round_trips_a_library_built_through_the_interface() {
+    let library = rich_library();
+    let (songs, arrangements, choirs) = export(&library);
+
+    let rebuilt = SongLibrary::hydrate(songs, arrangements, choirs).unwrap();
+
+    assert_eq!(rebuilt, library);
+    assert_eq!(
+        rebuilt
+            .arrangement(arrangement_id(10))
+            .unwrap()
+            .pagination_state(),
+        PaginationState::Approved
+    );
+    assert!(rebuilt.choir(choir_id(21)).unwrap().is_archived());
+    assert_eq!(
+        SongLibrary::hydrate(Vec::new(), Vec::new(), Vec::new()),
+        Ok(SongLibrary::new())
+    );
+}
+
+/// The expected breach and the record it names.
+fn breach(record: RecordRef, cause: SongLibraryError) -> HydrationError {
+    HydrationError { record, cause }
+}
+
+/// Hydrates `export` after `break_it` damages it.
+fn hydrate_broken(break_it: impl FnOnce(&mut Exported)) -> Result<SongLibrary, HydrationError> {
+    let mut stored = export(&rich_library());
+    break_it(&mut stored);
+    SongLibrary::hydrate(stored.0, stored.1, stored.2)
+}
+
+#[test]
+fn t24_hydrate_refuses_duplicate_identities() {
+    assert_eq!(
+        hydrate_broken(|s| s.2.push(s.2[0].clone())),
+        Err(breach(
+            RecordRef::Choir(choir_id(20)),
+            SongLibraryError::DuplicateChoir(choir_id(20))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.0.push(s.0[0].clone())),
+        Err(breach(
+            RecordRef::Song(song_id(1)),
+            SongLibraryError::DuplicateSong(song_id(1))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1.push(s.1[0].clone())),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::DuplicateArrangement(arrangement_id(10))
+        ))
+    );
+}
+
+#[test]
+fn t24_hydrate_refuses_missing_songs_and_choirs() {
+    assert_eq!(
+        hydrate_broken(|s| s.1[0].song = song_id(99)),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::UnknownSong(song_id(99))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1[0].choirs.push(choir_id(98))),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::UnknownChoir(choir_id(98))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1[0].choirs = vec![choir_id(20), choir_id(20)]),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::DuplicateField(Field::Choir)
+        ))
+    );
+}
+
+#[test]
+fn t24_hydrate_refuses_reused_and_foreign_section_identities() {
+    // Arrangement 11 reuses a section id that Arrangement 10 owns.
+    assert_eq!(
+        hydrate_broken(|s| {
+            s.1[1].draft.sections[0].id = section_id(100);
+            s.1[1].draft.sequence.clear();
+        }),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(11)),
+            SongLibraryError::DuplicateSection(section_id(100))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1[1].draft.sequence[0].id = occurrence_id(100)),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(11)),
+            SongLibraryError::DuplicateOccurrence(occurrence_id(100))
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1[0].draft.sequence[0].section = section_id(110)),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::SectionNotInArrangement {
+                arrangement: arrangement_id(10),
+                section: section_id(110)
+            }
+        ))
+    );
+}
+
+#[test]
+fn t24_hydrate_refuses_broken_text_rules() {
+    assert_eq!(
+        hydrate_broken(|s| s.0[0].draft.title = "  ".to_owned()),
+        Err(breach(
+            RecordRef::Song(song_id(1)),
+            SongLibraryError::BlankField(Field::SongTitle)
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.1[0].draft.title = String::new()),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(10)),
+            SongLibraryError::BlankField(Field::ArrangementTitle)
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.2[0].draft.name = " ".to_owned()),
+        Err(breach(
+            RecordRef::Choir(choir_id(20)),
+            SongLibraryError::BlankField(Field::ChoirName)
+        ))
+    );
+    assert_eq!(
+        hydrate_broken(|s| s.2[0].draft.languages = vec!["en".to_owned(), "en".to_owned()]),
+        Err(breach(
+            RecordRef::Choir(choir_id(20)),
+            SongLibraryError::DuplicateField(Field::ChoirLanguage)
+        ))
+    );
+}
+
+#[test]
+fn t24_choir_details_are_validated_on_create_and_edit() {
+    let mut library = SongLibrary::new();
+    library
+        .create_choir(choir_id(20), at(0), ChoirDraft::named("Youth"))
+        .unwrap();
+    let details = |short_label: Option<&str>, languages: &[&str], notes: Option<&str>| ChoirDraft {
+        name: "Youth".to_owned(),
+        short_label: short_label.map(str::to_owned),
+        languages: languages.iter().map(|l| (*l).to_owned()).collect(),
+        notes: notes.map(str::to_owned),
+    };
+
+    assert_refused!(
+        library,
+        SongLibraryError::BlankField(Field::ChoirShortLabel),
+        library.edit_choir(choir_id(20), details(Some("  "), &[], None))
+    );
+    assert_refused!(
+        library,
+        SongLibraryError::BlankField(Field::ChoirLanguage),
+        library.edit_choir(choir_id(20), details(None, &["en", " "], None))
+    );
+    assert_refused!(
+        library,
+        SongLibraryError::DuplicateField(Field::ChoirLanguage),
+        library.edit_choir(choir_id(20), details(None, &["en", "ceb", "en"], None))
+    );
+    assert_refused!(
+        library,
+        SongLibraryError::BlankField(Field::ChoirNotes),
+        library.edit_choir(choir_id(20), details(None, &[], Some("")))
+    );
+    assert_refused!(
+        library,
+        SongLibraryError::DuplicateChoir(choir_id(20)),
+        library.create_choir(choir_id(20), at(1), ChoirDraft::named("Again"))
+    );
+    assert_refused!(
+        library,
+        SongLibraryError::BlankField(Field::ChoirLanguage),
+        library.create_choir(choir_id(21), at(1), details(None, &[""], None))
+    );
+
+    let edited = library
+        .edit_choir(
+            choir_id(20),
+            details(Some("YC"), &["ceb", "en"], Some("Thursdays")),
+        )
+        .unwrap();
+    assert_eq!(edited.short_label(), Some("YC"));
+    assert_eq!(edited.languages(), ["ceb".to_owned(), "en".to_owned()]);
+    assert_eq!(edited.notes(), Some("Thursdays"));
+    assert_eq!(edited.created_at(), at(0));
 }

@@ -9,6 +9,7 @@ use domain::identity::{
     Timestamp,
 };
 use domain::presentation::ContentHash;
+use domain::song_library::PaginationState;
 
 /// Description of the Parish to create.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,6 +34,28 @@ pub struct ParishRecord {
 pub struct NewChoir {
     /// The Choir name exactly as authored.
     pub name: String,
+    /// A short label for tight layouts; when present, not blank.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order; no blanks, no duplicates.
+    pub languages: Vec<String>,
+    /// Private notes exactly as authored; when present, not blank.
+    pub notes: Option<String>,
+}
+
+/// The replacement details of an existing Choir.
+///
+/// The same rules as [`NewChoir`] apply. Identity, creation time and archive
+/// state are never changed by an edit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChoirDetails {
+    /// The Choir name exactly as authored.
+    pub name: String,
+    /// A short label for tight layouts; when present, not blank.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order; no blanks, no duplicates.
+    pub languages: Vec<String>,
+    /// Private notes exactly as authored; when present, not blank.
+    pub notes: Option<String>,
 }
 
 /// The stored Choir.
@@ -42,6 +65,12 @@ pub struct ChoirRecord {
     pub id: ChoirId,
     /// The name exactly as authored.
     pub name: String,
+    /// The short label, if any.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order.
+    pub languages: Vec<String>,
+    /// Private notes, if any.
+    pub notes: Option<String>,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Choir was archived, if it has been.
@@ -167,10 +196,25 @@ pub struct ArrangementRecord {
     pub sections: Vec<SectionRecord>,
     /// Sequence occurrences by performance position.
     pub sequence: Vec<OccurrenceRecord>,
+    /// Whether the pagination is a draft, approved, or needs review.
+    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Arrangement was archived, if it has been.
     pub archived_at: Option<Timestamp>,
+}
+
+/// Every Song Library record in one consistent read.
+///
+/// Each list is ordered by creation time, then identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LibraryRecords {
+    /// Every Song work, archived or not.
+    pub songs: Vec<SongRecord>,
+    /// Every Arrangement, archived or not, with its sections and Sequence.
+    pub arrangements: Vec<ArrangementRecord>,
+    /// Every Choir, archived or not.
+    pub choirs: Vec<ChoirRecord>,
 }
 
 /// Image bytes to store as a managed asset.

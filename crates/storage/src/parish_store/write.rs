@@ -11,6 +11,7 @@ use domain::identity::{
     ThemeId, Timestamp,
 };
 use domain::revisions::RevisionEntity;
+use domain::song_library::PaginationState;
 use rusqlite::{Connection, OptionalExtension, Params, Transaction, TransactionBehavior, params};
 
 use crate::assets::{self, AssetLayout};
@@ -21,8 +22,9 @@ use crate::worker::{AssetWriteParts, Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
 use super::records::{
-    ArrangementRecord, ChoirRecord, ManagedAssetRecord, NewArrangement, NewChoir, NewParish,
-    NewSong, NewTheme, OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
+    ArrangementRecord, ChoirDetails, ChoirRecord, ManagedAssetRecord, NewArrangement, NewChoir,
+    NewParish, NewSong, NewTheme, OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
+    ThemeRecord,
 };
 
 /// How many identities one entity insert may try before giving up.
@@ -139,6 +141,27 @@ pub(crate) fn require_distinct<T: PartialEq>(
                 reason: "duplicate",
             });
         }
+    }
+    Ok(())
+}
+
+/// The Choir field rules shared by create and edit.
+fn validate_choir_fields(
+    name: &str,
+    short_label: Option<&str>,
+    languages: &[String],
+    notes: Option<&str>,
+) -> Result<(), StorageError> {
+    require_present("name", name)?;
+    if let Some(value) = short_label {
+        require_present("short_label", value)?;
+    }
+    for language in languages {
+        require_present("language", language)?;
+    }
+    require_distinct("language", languages)?;
+    if let Some(value) = notes {
+        require_present("notes", value)?;
     }
     Ok(())
 }
@@ -297,7 +320,12 @@ fn insert_choir(
     fault: &mut Option<usize>,
     choir: NewChoir,
 ) -> Result<ChoirRecord, StorageError> {
-    require_present("name", &choir.name)?;
+    validate_choir_fields(
+        &choir.name,
+        choir.short_label.as_deref(),
+        &choir.languages,
+        choir.notes.as_deref(),
+    )?;
     let created = timestamp_text(at)?;
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -308,17 +336,193 @@ fn insert_choir(
         write(
             &tx,
             steps,
-            "INSERT INTO choir (id, name, created_at) VALUES (?1, ?2, ?3)",
-            params![id.to_string(), choir.name, created],
+            "INSERT INTO choir (id, name, short_label, notes, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id.to_string(),
+                choir.name,
+                choir.short_label.as_deref(),
+                choir.notes.as_deref(),
+                created
+            ],
         )
     })?;
+    let choir_text = id.to_string();
+    for (position, language) in choir.languages.iter().enumerate() {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO choir_language (choir_id, position, language) VALUES (?1, ?2, ?3)",
+            params![choir_text, position as i64, language],
+        )?;
+    }
     tx.commit().map_err(map_error)?;
     Ok(ChoirRecord {
         id: ChoirId::from_entity(id),
         name: choir.name,
+        short_label: choir.short_label,
+        languages: choir.languages,
+        notes: choir.notes,
         created_at: at,
         archived_at: None,
     })
+}
+
+/// Replaces one Choir's details and preferred languages in one transaction.
+fn replace_choir_details(
+    conn: &mut Connection,
+    fault: &mut Option<usize>,
+    id: ChoirId,
+    details: &ChoirDetails,
+) -> Result<(), StorageError> {
+    validate_choir_fields(
+        &details.name,
+        details.short_label.as_deref(),
+        &details.languages,
+        details.notes.as_deref(),
+    )?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+    let id_text = id.to_string();
+    let changed = write(
+        &tx,
+        &mut steps,
+        "UPDATE choir SET name = ?2, short_label = ?3, notes = ?4 WHERE id = ?1",
+        params![
+            id_text,
+            details.name,
+            details.short_label.as_deref(),
+            details.notes.as_deref()
+        ],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::NotFound {
+            kind: RecordKind::Choir,
+            id: id.entity(),
+        });
+    }
+    write(
+        &tx,
+        &mut steps,
+        "DELETE FROM choir_language WHERE choir_id = ?1",
+        params![id_text],
+    )?;
+    for (position, language) in details.languages.iter().enumerate() {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO choir_language (choir_id, position, language) VALUES (?1, ?2, ?3)",
+            params![id_text, position as i64, language],
+        )?;
+    }
+    tx.commit().map_err(map_error)
+}
+
+/// The statements that archive, restore and inspect one kind of record.
+struct ArchiveSql {
+    state: &'static str,
+    archive: &'static str,
+    restore: &'static str,
+}
+
+/// Archives (`at` is `Some`) or restores (`None`) one record.
+///
+/// The record must exist, and must be in the opposite state. Nothing else is
+/// touched: archive never cascades and appends no revision.
+fn change_archive_state(
+    conn: &mut Connection,
+    fault: &mut Option<usize>,
+    kind: RecordKind,
+    id: EntityId,
+    at: Option<String>,
+) -> Result<(), StorageError> {
+    let sql = match kind {
+        RecordKind::Song => ArchiveSql {
+            state: "SELECT archived_at FROM song WHERE id = ?1",
+            archive: "UPDATE song SET archived_at = ?2 WHERE id = ?1",
+            restore: "UPDATE song SET archived_at = NULL WHERE id = ?1",
+        },
+        RecordKind::Arrangement => ArchiveSql {
+            state: "SELECT archived_at FROM arrangement WHERE id = ?1",
+            archive: "UPDATE arrangement SET archived_at = ?2 WHERE id = ?1",
+            restore: "UPDATE arrangement SET archived_at = NULL WHERE id = ?1",
+        },
+        RecordKind::Choir => ArchiveSql {
+            state: "SELECT archived_at FROM choir WHERE id = ?1",
+            archive: "UPDATE choir SET archived_at = ?2 WHERE id = ?1",
+            restore: "UPDATE choir SET archived_at = NULL WHERE id = ?1",
+        },
+        _ => {
+            return Err(StorageError::InvalidInput {
+                field: "kind",
+                reason: "cannot be archived",
+            });
+        }
+    };
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+    let id_text = id.to_string();
+    let current = tx
+        .query_row(sql.state, params![id_text], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .optional()
+        .map_err(map_error)?
+        .ok_or(StorageError::NotFound { kind, id })?;
+    match at {
+        Some(stamp) => {
+            if current.is_some() {
+                return Err(StorageError::AlreadyArchived { kind });
+            }
+            write(&tx, &mut steps, sql.archive, params![id_text, stamp])?;
+        }
+        None => {
+            if current.is_none() {
+                return Err(StorageError::NotArchived { kind });
+            }
+            write(&tx, &mut steps, sql.restore, params![id_text])?;
+        }
+    }
+    tx.commit().map_err(map_error)
+}
+
+/// The stored text of a pagination state.
+fn pagination_text(state: PaginationState) -> &'static str {
+    match state {
+        PaginationState::Draft => "draft",
+        PaginationState::Approved => "approved",
+        PaginationState::NeedsReview => "needs_review",
+    }
+}
+
+/// Sets one Arrangement's pagination state in one transaction.
+fn change_pagination(
+    conn: &mut Connection,
+    fault: &mut Option<usize>,
+    id: ArrangementId,
+    state: PaginationState,
+) -> Result<(), StorageError> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+    let changed = write(
+        &tx,
+        &mut steps,
+        "UPDATE arrangement SET pagination_state = ?2 WHERE id = ?1",
+        params![id.to_string(), pagination_text(state)],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::NotFound {
+            kind: RecordKind::Arrangement,
+            id: id.entity(),
+        });
+    }
+    tx.commit().map_err(map_error)
 }
 
 fn insert_song(
@@ -615,6 +819,7 @@ fn insert_arrangement(
         occasions,
         sections,
         sequence,
+        pagination: PaginationState::Draft,
         created_at: at,
         archived_at: None,
     })
@@ -835,6 +1040,85 @@ impl Core {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
         insert_choir(conn, ids, at, fault, choir)
+    }
+
+    /// Replaces one Choir's details and languages.
+    pub(crate) fn edit_choir(
+        &mut self,
+        id: ChoirId,
+        details: ChoirDetails,
+    ) -> Result<ChoirRecord, StorageError> {
+        let (conn, _ids, fault) = self.write_parts()?;
+        replace_choir_details(conn, fault, id, &details)?;
+        self.choir(id)
+    }
+
+    /// Archives one Choir at the worker clock.
+    pub(crate) fn archive_choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
+        let stamp = timestamp_text(self.timestamp())?;
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(conn, fault, RecordKind::Choir, id.entity(), Some(stamp))?;
+        self.choir(id)
+    }
+
+    /// Restores one archived Choir.
+    pub(crate) fn restore_choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(conn, fault, RecordKind::Choir, id.entity(), None)?;
+        self.choir(id)
+    }
+
+    /// Archives one Song work at the worker clock; its Arrangements are untouched.
+    pub(crate) fn archive_song(&mut self, id: SongId) -> Result<SongRecord, StorageError> {
+        let stamp = timestamp_text(self.timestamp())?;
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(conn, fault, RecordKind::Song, id.entity(), Some(stamp))?;
+        self.song(id)
+    }
+
+    /// Restores one archived Song work.
+    pub(crate) fn restore_song(&mut self, id: SongId) -> Result<SongRecord, StorageError> {
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(conn, fault, RecordKind::Song, id.entity(), None)?;
+        self.song(id)
+    }
+
+    /// Archives one Arrangement at the worker clock.
+    pub(crate) fn archive_arrangement(
+        &mut self,
+        id: ArrangementId,
+    ) -> Result<ArrangementRecord, StorageError> {
+        let stamp = timestamp_text(self.timestamp())?;
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(
+            conn,
+            fault,
+            RecordKind::Arrangement,
+            id.entity(),
+            Some(stamp),
+        )?;
+        self.arrangement(id)
+    }
+
+    /// Restores one archived Arrangement.
+    pub(crate) fn restore_arrangement(
+        &mut self,
+        id: ArrangementId,
+    ) -> Result<ArrangementRecord, StorageError> {
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_archive_state(conn, fault, RecordKind::Arrangement, id.entity(), None)?;
+        self.arrangement(id)
+    }
+
+    /// Sets one Arrangement's pagination state.
+    pub(crate) fn set_pagination_state(
+        &mut self,
+        id: ArrangementId,
+        state: PaginationState,
+    ) -> Result<ArrangementRecord, StorageError> {
+        let (conn, _ids, fault) = self.write_parts()?;
+        change_pagination(conn, fault, id, state)?;
+        self.arrangement(id)
     }
 
     /// Creates one Song with its aliases, moments, and occasions.
