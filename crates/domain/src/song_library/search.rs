@@ -20,8 +20,10 @@
 //! "Arrangement filter match"): a Song is retained only when at least one of
 //! its counted Arrangements satisfies every active filter kind at once. Values
 //! within one kind are OR-ed; [`FilterValue::Unspecified`] matches only an
-//! Arrangement with no value of that kind. Occasion filters read the
-//! Arrangement's own occasion tags, not the Song's.
+//! Arrangement with no value of that kind. An Arrangement's occasions for
+//! filtering are the Song's occasion tags together with its own (CONTEXT
+//! "Occasion applicability tag"); `Unspecified` matches only when both are
+//! empty.
 //!
 //! # Archive rule
 //!
@@ -33,7 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{ArrangementId, ChoirId, SectionId, SongId};
 
-use super::{Arrangement, SongLibrary, SongWork, match_key};
+use super::{Arrangement, SongLibrary, SongWork};
 
 /// The most Lyric evidences one Song hit reports.
 const MAX_LYRIC_EVIDENCE: usize = 3;
@@ -123,7 +125,7 @@ pub enum Evidence {
         arrangement: ArrangementId,
         /// The Section holding the line.
         section: SectionId,
-        /// The whole matching line, verbatim.
+        /// The whole matching line, verbatim except its line terminator.
         line: String,
     },
 }
@@ -144,7 +146,7 @@ pub struct SongHit {
     pub total_arrangements: usize,
 }
 
-/// Search-only normalization: [`match_key`] (case and whitespace) plus
+/// Search-only normalization: [`super::match_key`] (case and whitespace) plus
 /// diacritic folding of Latin letters. Never applied to stored text.
 ///
 /// The fold is a fixed table, not Unicode decomposition: combining marks
@@ -164,6 +166,9 @@ pub struct SongHit {
 /// - t: ţ ť ŧ; th: þ
 /// - u: ù ú û ü ũ ū ŭ ů ű ų; w: ŵ
 /// - y: ý ÿ ŷ; z: ź ż ž
+///
+/// Precomposed letters outside this table (for example `ỹ` or `ǎ`) are
+/// kept as they are, while their decomposed forms fold to the base letter.
 pub fn search_key(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     search_key_into(text, &mut out);
@@ -189,11 +194,26 @@ fn search_key_into(text: &str, out: &mut String) {
         }
         return;
     }
-    for c in match_key(text).chars() {
-        match fold(c) {
+    // One pass: lowercase, drop combining marks, fold, and collapse
+    // whitespace. A dropped mark never creates or removes a separator.
+    let mut pending_space = false;
+    for c in text.to_lowercase().chars() {
+        if c.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        let folded = fold(c);
+        if matches!(folded, Fold::Drop) {
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        match folded {
             Fold::Keep => out.push(c),
-            Fold::Drop => {}
             Fold::To(s) => out.push_str(s),
+            Fold::Drop => {}
         }
     }
 }
@@ -277,7 +297,10 @@ fn ascii_contains(field: &[u8], needle: &[u8]) -> bool {
 fn ascii_matches_at(mut field: &[u8], needle: &[u8]) -> bool {
     for &want in needle {
         if want == b' ' {
-            let blanks = field.iter().take_while(|b| b.is_ascii_whitespace()).count();
+            let blanks = field
+                .iter()
+                .take_while(|&&b| b.is_ascii_whitespace() || b == 0x0B)
+                .count();
             if blanks == 0 {
                 return false;
             }
@@ -327,7 +350,7 @@ pub fn search(library: &SongLibrary, query: &LibraryQuery) -> Vec<SongHit> {
         let passing: Vec<&Arrangement> = counted
             .iter()
             .copied()
-            .filter(|a| passes_filters(a, query))
+            .filter(|a| passes_filters(song, a, query))
             .collect();
         if filters_active && passing.is_empty() {
             continue;
@@ -480,6 +503,7 @@ fn arrangement_text(
     }
     for section in arrangement.sections() {
         for line in section.lyrics().split('\n') {
+            let line = line.strip_suffix('\r').unwrap_or(line);
             if contains(line, needle) {
                 evidence.push(Evidence::Lyric {
                     arrangement: id,
@@ -496,15 +520,20 @@ fn arrangement_text(
 }
 
 /// Whether the Arrangement satisfies every active filter kind.
-fn passes_filters(arrangement: &Arrangement, query: &LibraryQuery) -> bool {
+fn passes_filters(song: &SongWork, arrangement: &Arrangement, query: &LibraryQuery) -> bool {
+    let occasions: BTreeSet<&String> = song
+        .occasions()
+        .iter()
+        .chain(arrangement.occasions())
+        .collect();
     kind_passes(&query.choirs, arrangement.choirs().len(), |c| {
         arrangement.choirs().contains(c)
     }) && kind_passes(&query.languages, arrangement.languages().len(), |value| {
         let key = search_key(value);
         arrangement.languages().iter().any(|l| search_key(l) == key)
-    }) && kind_passes(&query.occasions, arrangement.occasions().len(), |value| {
+    }) && kind_passes(&query.occasions, occasions.len(), |value| {
         let key = search_key(value);
-        arrangement.occasions().iter().any(|o| search_key(o) == key)
+        occasions.iter().any(|o| search_key(o) == key)
     })
 }
 
