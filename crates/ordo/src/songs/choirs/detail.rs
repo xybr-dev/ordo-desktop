@@ -178,10 +178,17 @@ pub(super) fn render(
     let arrangement_count = repertoire.len();
     let scale = environment.preferences().scale;
 
-    // The repertoire block's width: the viewport less the rail and the list
-    // pane, the pane's own padding on both sides.
-    let pane_width = window.viewport_size().width.to_f64() as f32
-        - scale.apply(crate::shell::rail::EXPANDED_WIDTH)
+    // The repertoire block's width: the viewport less the rail as it is
+    // actually drawn (collapsed or expanded) and the list pane, less the
+    // pane's own padding on both sides.
+    let viewport = window.viewport_size().width.to_f64() as f32;
+    let rail = if crate::shell::rail::collapsed(viewport, scale) {
+        crate::shell::rail::collapsed_width(scale)
+    } else {
+        scale.apply(crate::shell::rail::EXPANDED_WIDTH) + tokens::border::SEPARATOR
+    };
+    let pane_width = viewport
+        - rail
         - scale.apply(crate::shell::LIST_WIDTH)
         - 2.0 * scale.apply(tokens::spacing::GROUP);
     let narrow = pane_width < scale.apply(NARROW_BELOW);

@@ -11,7 +11,7 @@ use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, p
 
 use domain::{
     identity::{ChoirId, EntityId, Timestamp},
-    song_library::{ChoirDraft, RecordRef, SongLibrary, SongLibraryError},
+    song_library::{ChoirDraft, RecordRef, SongLibrary, SongLibraryError, match_key},
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
 use storage::{
@@ -61,7 +61,7 @@ impl StorageSlot {
         self.0.borrow().as_ref().map(f)
     }
 
-    fn put(&self, storage: Storage) {
+    pub(crate) fn put(&self, storage: Storage) {
         *self.0.borrow_mut() = Some(storage);
     }
 
@@ -307,10 +307,8 @@ impl LibraryStore {
         self.queue.push_back((write, reply));
         self.pump(cx);
         cx.spawn(async move |_, _| {
-            result
-                .recv()
-                .await
-                .unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
+            let outcome = result.recv().await;
+            outcome.unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
         })
     }
 
@@ -379,7 +377,28 @@ impl LibraryStore {
     /// The domain's verdict on a write, before any I/O.
     fn validate(&self, write: &ChoirWrite) -> Result<(), SharedString> {
         match write {
-            ChoirWrite::Create(draft) => check_draft(draft),
+            ChoirWrite::Create(draft) => {
+                check_draft(draft)?;
+                // One Choir per name, however it is cased or spaced, archived
+                // Choirs included: the Module refuses a duplicate itself.
+                let key = match_key(&draft.name);
+                match self
+                    .library
+                    .choirs()
+                    .find(|choir| match_key(choir.name()) == key)
+                {
+                    Some(existing) => Err(SharedString::from(format!(
+                        "A Choir named '{}' already exists{}.",
+                        existing.name(),
+                        if existing.is_archived() {
+                            " (archived)"
+                        } else {
+                            ""
+                        }
+                    ))),
+                    None => Ok(()),
+                }
+            }
             ChoirWrite::Edit(id, draft) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     return Err(refusal(SongLibraryError::Archived(RecordRef::Choir(*id))));
@@ -406,7 +425,11 @@ impl LibraryStore {
         }
     }
 
-    /// Applies the record storage returned to the in-memory library.
+    /// Applies the record storage returned to the in-memory library. Rarely,
+    /// storage has already succeeded and the library refuses the record (for
+    /// example an archive stamp is missing): the operator sees the failure
+    /// while the database is ahead of memory until the next open re-hydrates
+    /// it.
     fn apply(&mut self, write: &ChoirWrite, record: &ChoirRecord) -> Result<ChoirId, SharedString> {
         match write {
             ChoirWrite::Create(_) => {
@@ -420,7 +443,13 @@ impl LibraryStore {
                     .map_err(refusal)?;
             }
             ChoirWrite::Archive(id) => {
-                let at = record.archived_at.unwrap_or(record.created_at);
+                // Storage always stamps an archived record; one without a stamp
+                // is a storage fault, not something to paper over.
+                let at = record.archived_at.ok_or_else(|| {
+                    SharedString::from(
+                        "The parish store returned an archived Choir without a date.",
+                    )
+                })?;
                 self.library.archive_choir(*id, at).map_err(refusal)?;
             }
             ChoirWrite::Restore(id) => self.library.restore_choir(*id).map_err(refusal)?,
@@ -428,9 +457,10 @@ impl LibraryStore {
         Ok(record.id)
     }
 
-    /// Replaces the library and tells observers. Test and lab seam: no write
-    /// path exists in T2.4.
-    pub fn replace_library(&mut self, library: SongLibrary, cx: &mut Context<Self>) {
+    /// Replaces the library and tells observers. A test-only seam: production
+    /// changes go through the Choir write methods, which write to storage first.
+    #[cfg(test)]
+    pub(crate) fn replace_library(&mut self, library: SongLibrary, cx: &mut Context<Self>) {
         self.library = library;
         self.state = LibraryState::Ready;
         cx.emit(LibraryEvent::Changed);

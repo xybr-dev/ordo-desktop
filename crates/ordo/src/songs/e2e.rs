@@ -256,26 +256,52 @@ fn archived_only() -> SongLibrary {
 }
 
 #[gpui::test]
-fn t2_4_e2e_empty_library_keeps_its_state_across_a_choirs_round_trip(cx: &mut TestAppContext) {
+fn t2_4_e2e_empty_library_keeps_its_query_across_a_choirs_round_trip(cx: &mut TestAppContext) {
     let store = cx.new(|cx| LibraryStore::with_library(SongLibrary::new(), cx));
-    let (_shell, vcx) = open_store(cx, store);
+    let (shell, vcx) = open_store(cx, store);
+    let songs = shell.read_with(vcx, |shell, _| shell.songs().clone());
     assert!(present(vcx, "songs-empty"));
+    // The empty state draws no search box, but the query is the workspace's:
+    // text and Include archived set now are still there after the round trip.
+    let field = songs.read_with(vcx, |ws, _| ws.search_field().clone());
+    vcx.update(|window, cx| field.set_value("dayandayan", window, cx));
+    songs.update(vcx, |ws, cx| ws.set_include_archived(true, cx));
+    vcx.run_until_parked();
+    let query = songs.read_with(vcx, |ws, _| ws.query().clone());
+    assert_eq!(query.text, "dayandayan");
+    assert!(query.include_archived);
+
     click(vcx, "tab-3");
     assert!(present(vcx, "choirs-empty") && !present(vcx, "songs-empty"));
     click(vcx, "tab-0");
     assert!(present(vcx, "songs-empty") && present(vcx, "songs-detail-steps"));
+    songs.read_with(vcx, |ws, cx| {
+        assert_eq!(ws.query(), &query);
+        assert_eq!(ws.search_field().value(cx).as_ref(), "dayandayan");
+    });
 }
 
 #[gpui::test]
-fn t2_4_e2e_no_match_keeps_its_query_across_a_repertoire_round_trip(cx: &mut TestAppContext) {
+fn t2_4_e2e_no_match_keeps_its_query_and_filter_across_a_repertoire_round_trip(
+    cx: &mut TestAppContext,
+) {
     let store = cx.new(|cx| LibraryStore::with_library(memory().library, cx));
     let (shell, vcx) = open_store(cx, store);
     let songs = shell.read_with(vcx, |shell, _| shell.songs().clone());
+    click(vcx, "songs-filter-choir");
+    click(vcx, "songs-option-0");
+    click(vcx, "songs-filter-choir");
     click(vcx, "songs-search");
     vcx.simulate_input("zzzz");
     vcx.run_until_parked();
     assert!(present(vcx, "songs-no-match"));
     let query = songs.read_with(vcx, |ws, _| ws.query().clone());
+    assert_eq!(query.text, "zzzz");
+    assert_eq!(
+        query.choirs.len(),
+        1,
+        "the Choir filter is part of the query"
+    );
 
     // Choirs, its repertoire, an Arrangement, and Back to Choirs.
     click(vcx, "tab-3");
@@ -290,7 +316,7 @@ fn t2_4_e2e_no_match_keeps_its_query_across_a_repertoire_round_trip(cx: &mut Tes
 }
 
 #[gpui::test]
-fn t2_4_e2e_archived_only_keeps_include_archived_and_selection_across_a_round_trip(
+fn t2_4_e2e_archived_only_keeps_evidence_scroll_and_selection_across_a_round_trip(
     cx: &mut TestAppContext,
 ) {
     let store = cx.new(|cx| LibraryStore::with_library(archived_only(), cx));
@@ -299,14 +325,35 @@ fn t2_4_e2e_archived_only_keeps_include_archived_and_selection_across_a_round_tr
     assert!(present(vcx, "songs-archived-only"));
     click(vcx, "button-Include archived");
     click(vcx, "songs-row-0");
-    let (query, selected) = songs.read_with(vcx, |ws, _| (ws.query().clone(), ws.selected()));
-    assert!(query.include_archived && selected.is_some());
+    // Two rows never overflow the list, so the offset stays at the top; the
+    // overflowing scroll case is the main E2E above.
+    let summary = |cx: &mut VisualTestContext| {
+        songs.read_with(cx, |ws, _| {
+            let hits: Vec<_> = ws
+                .hits()
+                .iter()
+                .map(|hit| {
+                    (
+                        hit.song,
+                        hit.evidence.clone(),
+                        hit.matching_arrangements.len(),
+                        hit.total_arrangements,
+                    )
+                })
+                .collect();
+            (ws.query().clone(), ws.selected(), ws.list_offset(), hits)
+        })
+    };
+    let before = summary(vcx);
+    assert!(before.0.include_archived && before.1.is_some() && !before.3.is_empty());
     click(vcx, "arrangement-open-0");
     assert!(present(vcx, "arrangement-overview"));
     click(vcx, "button-Back to Songs");
-    songs.read_with(vcx, |ws, _| {
-        assert_eq!(ws.query(), &query);
-        assert_eq!(ws.selected(), selected);
-    });
+    vcx.run_until_parked();
+    assert_eq!(
+        summary(vcx),
+        before,
+        "query, selection, scroll offset, evidence and counts"
+    );
     assert!(present(vcx, "songs-detail"));
 }

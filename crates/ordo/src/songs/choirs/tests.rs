@@ -187,6 +187,7 @@ pub(crate) fn open_parish(
 /// The Choirs and Song a seeded temporary parish holds.
 pub(crate) struct Seeded {
     pub koro: ChoirId,
+    pub youth: ChoirId,
     pub old: ChoirId,
 }
 
@@ -244,7 +245,7 @@ pub(crate) async fn seed_choirs(storage: &Storage) -> Seeded {
         })
         .await
         .expect("arrangement");
-    Seeded { koro, old }
+    Seeded { koro, youth, old }
 }
 
 /// A seeded temporary parish, opened for a test.
@@ -609,4 +610,238 @@ fn ac8_a_storage_failure_leaves_memory_unchanged_and_says_couldnt_save(cx: &mut 
     });
     assert!(present(vcx, "choirs-save-state"));
     store.read_with(vcx, |store, _| assert_eq!(store.library(), &before));
+}
+
+/// Swaps the storage the slot holds: the old worker is stopped and a new one
+/// is spawned over `config`.
+fn swap_storage(cx: &mut VisualTestContext, slot: &StorageSlot, config: StorageConfig) {
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    slot.put(Storage::spawn(config));
+}
+
+/// A storage whose folder is a plain file, so it opens nothing and every
+/// request is answered with an error by the real storage worker.
+fn broken_storage(dir: &std::path::Path) -> StorageConfig {
+    let file = dir.join("not-a-folder");
+    std::fs::write(&file, b"x").expect("file");
+    StorageConfig::in_directory(&file)
+}
+
+/// Stops the slot's worker and reads the Choirs back through a second handle.
+fn on_disk(
+    cx: &mut VisualTestContext,
+    slot: &StorageSlot,
+    dir: &std::path::Path,
+) -> Vec<storage::ChoirRecord> {
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    let again = Storage::spawn(StorageConfig::in_directory(dir));
+    let stored = cx
+        .foreground_executor()
+        .block_test(again.choirs())
+        .expect("choirs");
+    cx.foreground_executor().block_test(again.shutdown());
+    let _ = std::fs::remove_dir_all(dir);
+    stored
+}
+
+/// Opens Koro's short label, types `KS`, submits that save and, while it is
+/// still unanswered, types `R`. Returns the workspace.
+fn type_during_a_save(
+    shell: &Entity<ShellView>,
+    vcx: &mut VisualTestContext,
+) -> Entity<ChoirsWorkspace> {
+    click(vcx, "tab-3");
+    let ws = workspace(shell, vcx);
+    click(vcx, "choirs-row-0");
+    click(vcx, "choir-short-label");
+    vcx.simulate_input("KS");
+    ws.update(vcx, |ws, cx| ws.flush(cx));
+    // Typed without letting the executor run, so the save stays unanswered.
+    let field = ws.read_with(vcx, |ws, _| ws.short_label_field().clone());
+    vcx.update(|window, cx| field.set_value("KSR", window, cx));
+    ws.update(vcx, |ws, cx| ws.edited(cx));
+    ws.read_with(vcx, |ws, _| {
+        assert_eq!(ws.outstanding, 1, "the first save is still unanswered");
+        assert!(ws.coalescer.is_pending(), "the newer text is waiting");
+    });
+    ws
+}
+
+#[gpui::test]
+fn ac8_text_typed_during_a_save_survives_a_selection_change(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-depart-select");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let ws = type_during_a_save(&shell, vcx);
+    ws.update(vcx, |ws, cx| ws.select(ids.youth, cx));
+    wait(vcx, |cx| {
+        ws.read_with(cx, |ws, _| ws.outstanding == 0)
+            && store.read_with(cx, |store, _| {
+                store
+                    .library()
+                    .choir(ids.koro)
+                    .expect("choir")
+                    .short_label()
+                    == Some("KSR")
+            })
+    });
+    ws.read_with(vcx, |ws, _| {
+        assert_eq!(ws.selected(), Some(ids.youth));
+        assert_eq!(ws.save_state(), SaveState::Saved);
+    });
+    let stored = on_disk(vcx, &slot, &dir);
+    let koro = stored
+        .iter()
+        .find(|choir| choir.id == ids.koro)
+        .expect("koro");
+    assert_eq!(koro.short_label.as_deref(), Some("KSR"));
+}
+
+#[gpui::test]
+fn ac8_text_typed_during_a_save_is_written_before_an_archive(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-depart-archive");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let ws = type_during_a_save(&shell, vcx);
+    ws.update(vcx, |ws, cx| ws.archive_selected(cx));
+    wait(vcx, |cx| {
+        ws.read_with(cx, |ws, _| ws.outstanding == 0)
+            && store.read_with(cx, |store, _| {
+                store
+                    .library()
+                    .choir(ids.koro)
+                    .expect("choir")
+                    .is_archived()
+            })
+    });
+    store.read_with(vcx, |store, _| {
+        let koro = store.library().choir(ids.koro).expect("choir");
+        assert_eq!(koro.short_label(), Some("KSR"));
+    });
+    ws.read_with(vcx, |ws, _| assert!(ws.message.is_none(), "no refusal"));
+    let stored = on_disk(vcx, &slot, &dir);
+    let koro = stored
+        .iter()
+        .find(|choir| choir.id == ids.koro)
+        .expect("koro");
+    assert_eq!(koro.short_label.as_deref(), Some("KSR"));
+    assert!(koro.archived_at.is_some());
+}
+
+#[gpui::test]
+fn ac8_a_failed_edit_is_retried_when_the_selection_changes(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-retry");
+    let (shell, vcx) = open_store(cx, store.clone());
+    swap_storage(vcx, &slot, broken_storage(&dir));
+    click(vcx, "tab-3");
+    let ws = workspace(&shell, vcx);
+    click(vcx, "choirs-row-0");
+    click(vcx, "choir-short-label");
+    vcx.simulate_input("KSR");
+    click(vcx, "choir-notes");
+    wait(vcx, |cx| {
+        ws.read_with(cx, |ws, _| ws.save_state() == SaveState::CouldntSave)
+    });
+
+    // The storage comes back; leaving the Choir retries the failed edit.
+    swap_storage(vcx, &slot, StorageConfig::in_directory(&dir));
+    ws.update(vcx, |ws, cx| ws.select(ids.youth, cx));
+    wait(vcx, |cx| {
+        store.read_with(cx, |store, _| {
+            store
+                .library()
+                .choir(ids.koro)
+                .expect("choir")
+                .short_label()
+                == Some("KSR")
+        })
+    });
+    ws.read_with(vcx, |ws, _| assert_eq!(ws.save_state(), SaveState::Saved));
+    let stored = on_disk(vcx, &slot, &dir);
+    let koro = stored
+        .iter()
+        .find(|choir| choir.id == ids.koro)
+        .expect("koro");
+    assert_eq!(koro.short_label.as_deref(), Some("KSR"));
+}
+
+#[gpui::test]
+fn ac8_a_failing_storage_write_leaves_memory_unchanged_and_says_couldnt_save(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-write-fails");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let before = store.read_with(vcx, |store, _| store.library().clone());
+    swap_storage(vcx, &slot, broken_storage(&dir));
+    click(vcx, "tab-3");
+    let ws = workspace(&shell, vcx);
+
+    // The storage worker itself answers with an error, not an empty slot.
+    let task = store.update(vcx, |store, cx| {
+        store.create_choir(ChoirDraft::named("Brand New"), cx)
+    });
+    let outcome = vcx.foreground_executor().block_test(task);
+    let message = outcome.expect_err("the write fails");
+    assert_ne!(message.as_ref(), "The parish store is not open.");
+    store.read_with(vcx, |store, _| assert_eq!(store.library(), &before));
+
+    // A typed edit fails the same way, and leaving the Choir retries it and
+    // says Couldn't save again.
+    click(vcx, "choirs-row-0");
+    click(vcx, "choir-short-label");
+    vcx.simulate_input("KSR");
+    click(vcx, "choir-notes");
+    wait(vcx, |cx| {
+        ws.read_with(cx, |ws, _| ws.save_state() == SaveState::CouldntSave)
+    });
+    ws.update(vcx, |ws, cx| ws.select(ids.youth, cx));
+    wait(vcx, |cx| ws.read_with(cx, |ws, _| ws.outstanding == 0));
+    ws.read_with(vcx, |ws, _| {
+        assert_eq!(ws.save_state(), SaveState::CouldntSave);
+        assert_eq!(ws.save_state().label(), "Couldn't save");
+    });
+    store.read_with(vcx, |store, _| assert_eq!(store.library(), &before));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac8_the_store_refuses_a_duplicate_name_even_for_an_archived_choir(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-duplicate");
+    let (_shell, vcx) = open_store(cx, store.clone());
+    for typed in ["koro  sto. niño", "OLD CHOIR"] {
+        let task = store.update(vcx, |store, cx| {
+            store.create_choir(ChoirDraft::named(typed), cx)
+        });
+        let outcome = vcx.foreground_executor().block_test(task);
+        let message = outcome.expect_err("a duplicate is refused");
+        assert!(message.contains("already exists"), "{message}");
+    }
+    store.read_with(vcx, |store, _| {
+        assert_eq!(store.library().choirs().count(), 3);
+        assert!(store.library().choir(ids.old).expect("old").is_archived());
+    });
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac8_selecting_an_archived_match_turns_show_archived_on(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = seeded_parish(cx, "choirs-archived-match");
+    let (shell, vcx) = open_store(cx, store);
+    click(vcx, "tab-3");
+    let ws = workspace(&shell, vcx);
+    ws.read_with(vcx, |ws, _| assert!(!ws.show_archived()));
+    click(vcx, "choirs-add");
+    vcx.simulate_input("old choir");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    ws.read_with(vcx, |ws, _| {
+        assert_eq!(ws.selected(), Some(ids.old));
+        assert!(
+            ws.show_archived(),
+            "the selected Choir is visible in the list"
+        );
+    });
+    assert!(present(vcx, "choirs-row-2"));
+    finish(vcx, &slot, &dir);
 }

@@ -64,7 +64,9 @@ pub struct ChoirsWorkspace {
     renaming: bool,
     coalescer: TextCoalescer,
     epoch: Instant,
-    in_flight: bool,
+    /// Saves submitted and not yet answered, across every Choir. The store
+    /// queue runs them in order; this only drives the header and the timer.
+    outstanding: usize,
     failed: bool,
     timer: Option<Task<()>>,
     /// Why the last archive or restore was refused, shown in the header.
@@ -113,7 +115,7 @@ impl ChoirsWorkspace {
             renaming: false,
             coalescer: TextCoalescer::new(),
             epoch: cx.background_executor().now(),
-            in_flight: false,
+            outstanding: 0,
             failed: false,
             timer: None,
             message: None,
@@ -173,7 +175,7 @@ impl ChoirsWorkspace {
     pub fn save_state(&self) -> SaveState {
         if self.failed {
             SaveState::CouldntSave
-        } else if self.in_flight || self.coalescer.is_pending() {
+        } else if self.outstanding > 0 || self.coalescer.is_pending() {
             SaveState::Saving
         } else {
             SaveState::Saved
@@ -182,8 +184,18 @@ impl ChoirsWorkspace {
 
     /// Selects a Choir. Details typed for the previous one are written first.
     pub fn select(&mut self, id: ChoirId, cx: &mut Context<Self>) {
-        self.flush(cx);
+        self.flush_for_departure(cx);
         self.selected = Some(id);
+        // An archived Choir is only listed while archived Choirs are shown.
+        if self
+            .store
+            .read(cx)
+            .library()
+            .choir(id)
+            .is_ok_and(|choir| choir.is_archived())
+        {
+            self.show_archived = true;
+        }
         self.renaming = false;
         self.message = None;
         cx.notify();
@@ -236,8 +248,9 @@ impl ChoirsWorkspace {
 
     fn change_archive(&mut self, archive: bool, cx: &mut Context<Self>) {
         let Some(id) = self.selected else { return };
-        // Typed details go first; the store runs writes in order.
-        self.flush(cx);
+        // Typed details go first; the store runs writes in order, so the edit
+        // is written before the Choir is archived and cannot be refused for it.
+        self.flush_for_departure(cx);
         self.message = None;
         let task = self.store.update(cx, |store, cx| {
             if archive {
@@ -363,10 +376,88 @@ impl ChoirsWorkspace {
         }
     }
 
+    /// Writes the pending edit of the loaded Choir before the form leaves it
+    /// (selection change or archive toggle). The draft and its target are
+    /// captured now and submitted whatever else is in flight or failed; the
+    /// store queue keeps the order. The pending edit is settled only when this
+    /// save succeeds, so a failure keeps `Couldn't save` showing.
+    fn flush_for_departure(&mut self, cx: &mut Context<Self>) {
+        let Some(generation) = self.coalescer.generation() else {
+            return;
+        };
+        let Some(target) = self.loaded else {
+            self.coalescer.settle(generation);
+            return;
+        };
+        let draft = self.draft(cx);
+        if self.outstanding == 0 && self.matches_stored(target, &draft, cx) {
+            self.coalescer.settle(generation);
+            return;
+        }
+        self.submit(target, draft, Some(generation), true, cx);
+    }
+
+    /// Whether the library already holds exactly `draft` for `target`.
+    fn matches_stored(&self, target: ChoirId, draft: &ChoirDraft, cx: &App) -> bool {
+        self.store
+            .read(cx)
+            .library()
+            .choir(target)
+            .is_ok_and(|choir| {
+                choir.name() == draft.name
+                    && choir.short_label() == draft.short_label.as_deref()
+                    && choir.languages() == draft.languages.as_slice()
+                    && choir.notes() == draft.notes.as_deref()
+            })
+    }
+
+    /// Sends one snapshot to the store and tracks it until it answers.
+    fn submit(
+        &mut self,
+        target: ChoirId,
+        draft: ChoirDraft,
+        generation: Option<domain::revisions::EditGeneration>,
+        departing: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.outstanding += 1;
+        let task = self
+            .store
+            .update(cx, |store, cx| store.edit_choir(target, draft, cx));
+        cx.spawn(async move |this, cx| {
+            let outcome = task.await;
+            let _ = this.update(cx, |workspace, cx| {
+                workspace.outstanding = workspace.outstanding.saturating_sub(1);
+                match outcome {
+                    Ok(_) => {
+                        workspace.failed = false;
+                        if let Some(generation) = generation {
+                            workspace.coalescer.settle(generation);
+                        }
+                        // The form may have come back to this Choir while the
+                        // departing save was in flight; reload what was saved
+                        // unless newer typing is waiting.
+                        if departing
+                            && workspace.loaded == Some(target)
+                            && !workspace.coalescer.is_pending()
+                        {
+                            workspace.loaded = None;
+                        }
+                    }
+                    Err(_) => workspace.failed = true,
+                }
+                // Typing during the write stays pending and goes next.
+                workspace.pump(cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Arms the idle timer when an edit waits and nothing blocks it.
     fn schedule(&mut self, cx: &mut Context<Self>) {
         self.timer = None;
-        if !self.failed && !self.in_flight {
+        if !self.failed && self.outstanding == 0 {
             let now = self.now_ms(cx);
             if let Some(due) = self.coalescer.due_in(now) {
                 let wait = Duration::from_millis(u64::try_from(due).unwrap_or(0));
@@ -397,7 +488,7 @@ impl ChoirsWorkspace {
     fn pump(&mut self, cx: &mut Context<Self>) {
         self.timer = None;
         let now = self.now_ms(cx);
-        if self.in_flight || self.failed || !self.coalescer.is_due(now) {
+        if self.outstanding > 0 || self.failed || !self.coalescer.is_due(now) {
             self.schedule(cx);
             return;
         }
@@ -413,45 +504,12 @@ impl ChoirsWorkspace {
             return;
         };
         let draft = self.draft(cx);
-        let unchanged = self
-            .store
-            .read(cx)
-            .library()
-            .choir(target)
-            .is_ok_and(|choir| {
-                choir.name() == draft.name
-                    && choir.short_label() == draft.short_label.as_deref()
-                    && choir.languages() == draft.languages.as_slice()
-                    && choir.notes() == draft.notes.as_deref()
-            });
-        if unchanged {
+        if self.matches_stored(target, &draft, cx) {
             settle(self);
             self.schedule(cx);
             return;
         }
-        self.in_flight = true;
-        let task = self
-            .store
-            .update(cx, |store, cx| store.edit_choir(target, draft, cx));
-        cx.spawn(async move |this, cx| {
-            let outcome = task.await;
-            let _ = this.update(cx, |workspace, cx| {
-                workspace.in_flight = false;
-                match outcome {
-                    Ok(_) => {
-                        workspace.failed = false;
-                        if let Some(generation) = generation {
-                            workspace.coalescer.settle(generation);
-                        }
-                    }
-                    Err(_) => workspace.failed = true,
-                }
-                // Typing during the write stays pending and goes next.
-                workspace.pump(cx);
-            });
-        })
-        .detach();
-        cx.notify();
+        self.submit(target, draft, generation, false, cx);
     }
 
     /// The pane the shell hosts in its list region.
