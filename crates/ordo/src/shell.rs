@@ -454,7 +454,7 @@ impl ShellView {
 
     /// Whether the list and viewer are Library → Songs.
     fn showing_songs(&self, cx: &App) -> bool {
-        self.destination == Destination::Library && self.local_view(cx) == Some("Songs")
+        self.destination == Destination::Library && self.local_view(cx) == Some(rail::SONGS_VIEW)
     }
 
     /// Opens an Arrangement's overview in the focused-editor frame.

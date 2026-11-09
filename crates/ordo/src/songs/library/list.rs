@@ -81,7 +81,7 @@ pub(super) fn count_line(hit: &SongHit, filtered: bool) -> Option<String> {
     let matching = hit.matching_arrangements.len();
     (filtered || matching < hit.total_arrangements).then(|| {
         format!(
-            "{matching} of {} arrangement{}",
+            "{matching} of {} Arrangement{}",
             hit.total_arrangements,
             if hit.total_arrangements == 1 { "" } else { "s" }
         )

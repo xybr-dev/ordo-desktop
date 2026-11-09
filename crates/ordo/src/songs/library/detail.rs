@@ -39,28 +39,46 @@ pub(super) fn render(
             .into_any_element()
     };
     let store = store.read(cx);
-    if *store.state() != LibraryState::Ready {
-        return pane(
-            list::notice(
-                "songs-detail-waiting",
-                "No song selected",
-                vec!["The selected song appears here once the library is open.".to_owned()],
-                Vec::new(),
-                environment,
-            )
-            .into_any_element(),
-        );
+    match store.state() {
+        LibraryState::Ready => {}
+        LibraryState::Loading => {
+            return pane(
+                list::notice(
+                    "songs-detail-waiting",
+                    "No song selected",
+                    vec!["The selected song appears here once the library is open.".to_owned()],
+                    Vec::new(),
+                    environment,
+                )
+                .into_any_element(),
+            );
+        }
+        LibraryState::Unavailable(message) => {
+            return pane(
+                list::notice(
+                    "songs-detail-unavailable",
+                    "No song to show",
+                    vec![message.to_string()],
+                    Vec::new(),
+                    environment,
+                )
+                .into_any_element(),
+            );
+        }
     }
     let library = store.library();
     if library.songs().next().is_none() {
         return pane(
             list::notice(
                 "songs-detail-steps",
-                "Start the parish library",
+                "Build your parish Song Library",
                 vec![
-                    "1. Create a song, or import a .ordo document.".to_owned(),
-                    "2. Add an Arrangement for each language and choir.".to_owned(),
-                    "3. Use it in any Mass plan.".to_owned(),
+                    "1. Create or import a Song. Its title, composer and aliases identify the composition."
+                        .to_owned(),
+                    "2. Add an Arrangement. Write its lyrics in sections, then set the Sequence they\u{2019}re sung in."
+                        .to_owned(),
+                    "3. Say who sings it. Choirs, languages and occasions help you find the right one when planning a Mass."
+                        .to_owned(),
                 ],
                 Vec::new(),
                 environment,
@@ -308,6 +326,12 @@ fn arrangement_row(
         choirs.join(", ")
     };
     let title = arrangement.title().to_owned();
+    // Archived Songs and Arrangements are inspect-only.
+    let open_label = if arrangement.is_archived() || song.is_archived() {
+        "Inspect"
+    } else {
+        "Open"
+    };
     let mut badges = Vec::new();
     if arrangement.is_archived() {
         badges.push(Badge::new("Archived", environment));
@@ -358,8 +382,8 @@ fn arrangement_row(
                 .flex_none()
                 .debug_selector(move || format!("arrangement-open-{at}"))
                 .child(
-                    Button::new(("arrangement-open-button", at), "Open", environment)
-                        .name(format!("Open {title}"))
+                    Button::new(("arrangement-open-button", at), open_label, environment)
+                        .name(format!("{open_label} {title}"))
                         .on_surface(palette.background)
                         .on_activate(open),
                 ),

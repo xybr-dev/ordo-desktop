@@ -527,6 +527,10 @@ fn open_runtime(
             }
         })
     };
+    // The parish database handle is owned here, at app level, so quitting stops
+    // its worker whatever state the Library window is in.
+    let parish_storage = songs::StorageSlot::new();
+    parish_storage.shutdown_on_quit(cx);
     let operator_bounds = gpui::Bounds::centered(None, size(px(1100.0), px(700.0)), cx);
     let operator = cx
         .open_window(preparation_window_options(operator_bounds), |window, cx| {
@@ -542,8 +546,9 @@ fn open_runtime(
                 // ready, and Unavailable if it cannot be. Presenter Mode never
                 // reads it.
                 if let Some(parish) = parish {
+                    let slot = parish_storage.clone();
                     let store = cx.new(|cx| match parish {
-                        Ok(directory) => songs::LibraryStore::open(directory, cx),
+                        Ok(directory) => songs::LibraryStore::open(directory, slot, cx),
                         Err(message) => songs::LibraryStore::unavailable(message, cx),
                     });
                     root.set_library_store(store, window, cx);

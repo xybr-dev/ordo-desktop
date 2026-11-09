@@ -24,7 +24,11 @@ use domain::{
     song_library::{LibraryQuery, SongHit, search},
 };
 use gpui::{AnyElement, App, Context, Entity, Pixels, Point, Subscription, Window};
-use ui::{environment::UiEnvironment, primitives::field::FieldState, scroll::Scroll};
+use ui::{
+    environment::UiEnvironment,
+    primitives::field::{FieldEvent, FieldState},
+    scroll::Scroll,
+};
 
 use super::store::{LibraryEvent, LibraryStore};
 pub use arrangement::ArrangementOverview;
@@ -57,8 +61,11 @@ impl SongsWorkspace {
     pub fn new(store: Entity<LibraryStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = FieldState::new(window, cx);
         let weak = cx.weak_entity();
-        let typed = search.subscribe(cx, move |_, cx| {
-            let _ = weak.update(cx, |workspace, cx| workspace.refresh(cx));
+        let typed = search.subscribe(cx, move |event, cx| {
+            // Only a change of the text searches; losing focus does not.
+            if event == FieldEvent::Changed {
+                let _ = weak.update(cx, |workspace, cx| workspace.refresh(cx));
+            }
         });
         let changed = cx.subscribe(&store, |workspace, _, _: &LibraryEvent, cx| {
             workspace.refresh(cx);

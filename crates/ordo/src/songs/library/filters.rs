@@ -86,6 +86,12 @@ impl Choice {
 }
 
 /// The values the library offers for one filter, labeled, then Unspecified.
+///
+/// Options follow the same archive rule as the results. Language and Occasion
+/// options come only from Songs and Arrangements the list can show, so archived
+/// ones contribute nothing unless Include archived is on (an Arrangement of an
+/// archived Song is hidden with it). Choir options leave out archived Choirs
+/// unless Include archived is on.
 fn options(
     library: &SongLibrary,
     kind: FilterKind,
@@ -104,8 +110,8 @@ fn options(
                 .map(|(name, id)| (name, Choice::Choir(FilterValue::Is(id))))
                 .collect()
         }
-        FilterKind::Language => library
-            .arrangements()
+        FilterKind::Language => visible_arrangements(library, include_archived)
+            .into_iter()
             .flat_map(|arrangement| arrangement.languages().iter().cloned())
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -118,10 +124,11 @@ fn options(
             .collect(),
         FilterKind::Occasion => library
             .songs()
+            .filter(|song| include_archived || !song.is_archived())
             .flat_map(|song| song.occasions().iter().cloned())
             .chain(
-                library
-                    .arrangements()
+                visible_arrangements(library, include_archived)
+                    .into_iter()
                     .flat_map(|arrangement| arrangement.occasions().iter().cloned()),
             )
             .collect::<BTreeSet<_>>()
@@ -143,6 +150,24 @@ fn options(
         },
     ));
     found
+}
+
+/// The Arrangements the list can show: not archived, and not under an archived
+/// Song, unless `include_archived`.
+fn visible_arrangements(
+    library: &SongLibrary,
+    include_archived: bool,
+) -> Vec<&domain::song_library::Arrangement> {
+    library
+        .arrangements()
+        .filter(|arrangement| {
+            include_archived
+                || (!arrangement.is_archived()
+                    && library
+                        .song(arrangement.song())
+                        .is_ok_and(|song| !song.is_archived()))
+        })
+        .collect()
 }
 
 /// The text a filter value shows.

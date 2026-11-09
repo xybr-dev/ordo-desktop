@@ -9,4 +9,4 @@ pub mod library;
 pub mod store;
 
 pub use library::{ArrangementOverview, SongsWorkspace};
-pub use store::{LibraryEvent, LibraryState, LibraryStore};
+pub use store::{LibraryEvent, LibraryState, LibraryStore, StorageSlot};

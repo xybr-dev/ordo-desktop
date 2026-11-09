@@ -19,7 +19,7 @@ use super::{SongsWorkspace, list};
 use crate::{
     BUILD_IDENTITY,
     shell::{ShellView, rail::Destination},
-    songs::{LibraryState, LibraryStore},
+    songs::{LibraryState, LibraryStore, StorageSlot},
 };
 
 fn entity(n: u16) -> EntityId {
@@ -299,6 +299,39 @@ fn ac2_ac3_unavailable_store_names_the_failure(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn ac2_ac3_loading_store_shows_loading_and_a_neutral_detail(cx: &mut TestAppContext) {
+    let store = cx.new(LibraryStore::loading);
+    let (_shell, cx) = open_store(cx, store);
+    assert!(present(cx, "songs-loading") && present(cx, "songs-detail-waiting"));
+    assert!(!present(cx, "songs-search") && !present(cx, "songs-unavailable"));
+}
+
+#[gpui::test]
+fn ac2_ac3_a_file_where_the_parish_folder_belongs_is_unavailable(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let file = std::env::temp_dir().join(format!("ordo-songs-blocked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&file);
+    std::fs::write(&file, b"not a folder").expect("blocking file");
+    let slot = StorageSlot::new();
+    let store = cx.new(|cx| LibraryStore::open(file.clone(), slot.clone(), cx));
+    for _ in 0..400 {
+        cx.run_until_parked();
+        if store.read_with(cx, |store, _| *store.state() != LibraryState::Loading) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    store.read_with(cx, |store, _| match store.state() {
+        LibraryState::Unavailable(message) => assert!(!message.is_empty()),
+        other => panic!("expected Unavailable, got {other:?}"),
+    });
+    assert!(!slot.is_open());
+    let (_shell, cx) = open_store(cx, store);
+    assert!(present(cx, "songs-unavailable") && present(cx, "songs-detail-unavailable"));
+    let _ = std::fs::remove_file(&file);
+}
+
+#[gpui::test]
 fn ac6_evidence_lines_counts_and_search_never_writes(cx: &mut TestAppContext) {
     let library = seeded();
     let before = library.clone();
@@ -325,8 +358,8 @@ fn ac6_evidence_lines_counts_and_search_never_writes(cx: &mut TestAppContext) {
             .map(|hit| (hit.song, list::count_line(hit, true)))
             .collect::<Vec<_>>()
     });
-    assert!(counts.contains(&(song_id(10), Some("1 of 2 arrangements".to_owned()))));
-    assert!(counts.contains(&(song_id(11), Some("1 of 1 arrangement".to_owned()))));
+    assert!(counts.contains(&(song_id(10), Some("1 of 2 Arrangements".to_owned()))));
+    assert!(counts.contains(&(song_id(11), Some("1 of 1 Arrangement".to_owned()))));
     assert!(present(cx, "songs-chip-0") && present(cx, "songs-chip-remove-0"));
     click(cx, "songs-chip-remove-0");
     assert!(!present(cx, "songs-chip-0"));
@@ -354,6 +387,7 @@ fn ac7_arrangement_round_trip_restores_query_filters_selection_and_scroll(cx: &m
             "Gloria in excelsis",
         );
     }
+    let same = library.clone();
     let (shell, cx) = open(cx, library);
     // Type into the real field, set a Choir filter, select, then scroll.
     click(cx, "songs-search");
@@ -373,6 +407,13 @@ fn ac7_arrangement_round_trip_restores_query_filters_selection_and_scroll(cx: &m
     assert_eq!(query.choirs.len(), 1);
     assert!(selected.is_some());
     assert_eq!(offset.y, px(-240.0));
+    // Where the selected row is on screen, which is what the operator sees;
+    // repaint first so the scrolled position is the one measured.
+    workspace.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    let row_before = cx
+        .debug_bounds("songs-row-0")
+        .expect("selected row painted");
 
     click(cx, "arrangement-open-0");
     assert!(present(cx, "focused-editor") && present(cx, "arrangement-overview"));
@@ -383,13 +424,23 @@ fn ac7_arrangement_round_trip_restores_query_filters_selection_and_scroll(cx: &m
         assert!(shell.editing_arrangement().is_some())
     });
 
+    // The store announcing a change mid-trip must not lose the state.
+    let store = workspace.read_with(cx, |ws, _| ws.store().clone());
+    store.update(cx, |store, cx| store.replace_library(same, cx));
+    cx.run_until_parked();
+
     click(cx, "button-Back to Songs");
     assert!(!present(cx, "focused-editor") && present(cx, "songs-search"));
+    cx.run_until_parked();
     workspace.read_with(cx, |ws, _| {
         assert_eq!(ws.query(), &query);
         assert_eq!(ws.selected(), selected);
         assert_eq!(ws.list_offset(), offset);
     });
+    let row_after = cx
+        .debug_bounds("songs-row-0")
+        .expect("selected row painted");
+    assert_eq!(row_after.origin.y, row_before.origin.y);
     shell.read_with(cx, |shell, _| {
         assert!(shell.editing_arrangement().is_none())
     });
@@ -436,7 +487,8 @@ fn storage_backed_store_lists_seeded_songs(cx: &mut TestAppContext) {
     }
     cx.foreground_executor().block_test(seed.shutdown());
 
-    let store = cx.new(|cx| LibraryStore::open(dir.clone(), cx));
+    let slot = StorageSlot::new();
+    let store = cx.new(|cx| LibraryStore::open(dir.clone(), slot.clone(), cx));
     for _ in 0..400 {
         cx.run_until_parked();
         if store.read_with(cx, |store, _| *store.state() != LibraryState::Loading) {
@@ -449,5 +501,10 @@ fn storage_backed_store_lists_seeded_songs(cx: &mut TestAppContext) {
     });
     let (_shell, cx) = open_store(cx, store);
     assert!(present(cx, "row-Seeded One") && present(cx, "row-Seeded Two"));
+    // The app-level slot owns the handle; stopping it is what quit does.
+    assert!(slot.is_open());
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    assert!(!slot.is_open());
     let _ = std::fs::remove_dir_all(&dir);
 }
