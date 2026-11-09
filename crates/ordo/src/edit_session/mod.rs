@@ -24,6 +24,18 @@
 //! - Time comes from the GPUI executor clock, so tests that advance it see
 //!   the same timing the operator does.
 //!
+//! - Typing during an in-flight Undo or Redo stays pending, and the working
+//!   copy keeps it on top of the pre-Undo content: when the Undo commit lands,
+//!   `committed` moves to the undone state but the fields are not reloaded, and
+//!   the next text commit re-applies the undone change together with the
+//!   typing. The log is the Undo revision, then the typed revision.
+//! - The session never flushes by itself when its window closes or the app
+//!   quits. The owning view must call [`EditSession::request_navigation`] from
+//!   its `Window::on_window_should_close` (gpui window.rs:6732) and
+//!   `App::on_app_quit` (gpui app.rs:2596) hooks, hold the close until the
+//!   task resolves, and offer Retry save, Keep editing or Leave without saving
+//!   on `Blocked`. The WP4 lab and the T2.4 editors do this.
+//!
 //! A focused text field consumes Ctrl+Z and Ctrl+Y itself (native Undo), so
 //! the session's Undo is reachable only when no text field has focus.
 
@@ -49,9 +61,10 @@ pub use port::{CommitPoint, RevisionPort, SaveFailure};
 /// Where the working copy stands relative to durable storage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SaveState {
-    /// Everything accepted so far is durable (typing may still be settling).
+    /// Everything accepted so far is durable and no edit is pending.
     Saved,
-    /// A commit is in flight or queued.
+    /// A text edit differing from the committed content is pending, or a
+    /// commit is in flight or queued.
     Saving,
     /// A commit failed; the content is retained and nothing retries by itself.
     CouldntSave,
@@ -165,7 +178,10 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
     pub fn save_state(&self) -> SaveState {
         if self.failed {
             SaveState::CouldntSave
-        } else if self.in_flight || !self.queue.is_empty() {
+        } else if self.in_flight
+            || !self.queue.is_empty()
+            || (self.coalescer.is_pending() && self.content != self.committed)
+        {
             SaveState::Saving
         } else {
             SaveState::Saved
@@ -234,13 +250,16 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
 
     /// Editor Undo: commits the previous committed state as an `Edit` in the
     /// current History session, and moves the stack only once that commit
-    /// succeeded. Pending text is committed first. Returns `false` when
-    /// refused (saving or failed) or there is nothing to undo.
+    /// succeeded. Pending text is committed first. Returns `true` when the
+    /// Undo was queued, not when it was applied: the content changes when the
+    /// commit lands ([`EditSessionEvent::ContentReplaced`]). Returns `false`
+    /// when refused (saving or failed) or there is nothing to undo.
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
         self.history_step(true, cx)
     }
 
-    /// Editor Redo; mirror of [`Self::undo`]. Refused while changed text is
+    /// Editor Redo; mirror of [`Self::undo`] (`true` means queued, not
+    /// applied). Refused while changed text is
     /// pending, because that text is a new point and ends the redo chain.
     pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
         self.history_step(false, cx)
@@ -279,10 +298,15 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
         cx.spawn(async move |_, _| rx.recv().await.unwrap_or(NavigationGuard::Blocked))
     }
 
-    /// Leave without saving (only after `Blocked`): drops pending content,
-    /// clears Undo and ends the History session. The content reverts to the
-    /// last committed state ([`EditSessionEvent::ContentReplaced`]).
+    /// Leave without saving (only after [`Self::request_navigation`] resolved
+    /// to `Blocked`): drops pending content, clears Undo and ends the History
+    /// session. The content reverts to the last committed state
+    /// ([`EditSessionEvent::ContentReplaced`]). Ignored while a commit is in
+    /// flight, because that commit would land on a cleared session.
     pub fn leave_without_saving(&mut self, cx: &mut Context<Self>) {
+        if self.in_flight {
+            return;
+        }
         self.queue.clear();
         self.failed = false;
         if let Some(generation) = self.coalescer.generation() {
@@ -295,9 +319,13 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
         cx.emit(EditSessionEvent::ContentReplaced);
     }
 
-    /// Departure after `Proceed`: clears the Undo stack and ends the History
-    /// session, so the next edit starts a new one.
+    /// Departure after [`Self::request_navigation`] resolved to `Proceed`:
+    /// clears the Undo stack and ends the History session, so the next edit
+    /// starts a new one. Ignored while a commit is in flight.
     pub fn leave(&mut self, cx: &mut Context<Self>) {
+        if self.in_flight {
+            return;
+        }
         self.undo.clear();
         self.clock.end();
         cx.notify();
@@ -421,12 +449,18 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
                     }
                 }
             };
+            // The session clock advances when the commit starts, by design: the
+            // History session is about when the operator edited, not when the
+            // write finished.
             let session = (kind == RevisionKind::Edit).then(|| {
                 let now = self.now_ms(cx);
                 self.clock.on_edit(self.entity, now, fresh_session())
             });
             let future = self.port.commit(content, CommitPoint { kind, session });
             self.in_flight = true;
+            // Detached on purpose: a durable write must finish even if the
+            // session entity is dropped meanwhile. `update` on the dropped
+            // entity then fails and `.ok()` makes the completion a no-op.
             cx.spawn(async move |this, cx| {
                 let result = future.await;
                 this.update(cx, |session, cx| session.commit_finished(result, cx))

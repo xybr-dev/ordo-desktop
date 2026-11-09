@@ -162,6 +162,10 @@ fn content(rig: &Rig, cx: &mut VisualTestContext) -> HarnessContent {
         .read_with(cx, |session, _| session.content().clone())
 }
 
+/// What the focused Field shows after one native Undo: the Input groups the
+/// typed runs of this test into a single history entry, so it reverts to empty.
+const NATIVE_UNDO_RESULT: &str = "";
+
 fn title_field(rig: &Rig, cx: &mut VisualTestContext) -> String {
     cx.update(|_, cx| rig.harness.read(cx).title().value(cx).to_string())
 }
@@ -172,6 +176,11 @@ fn typing_coalesces_into_one_edit_commit_after_a_second_of_idle(cx: &mut TestApp
 
     type_slowly(cx, "ab", 300);
     cx.simulate_input("c");
+    assert_eq!(
+        state(&rig, cx),
+        SaveState::Saving,
+        "pending text is not yet saved"
+    );
     advance(cx, Duration::from_millis(999));
     cx.run_until_parked();
     assert!(
@@ -224,33 +233,36 @@ fn a_structural_change_flushes_pending_text_first(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_buttons_reorder_and_native_undo_wins_while_a_field_is_focused(cx: &mut TestAppContext) {
+fn the_row_buttons_reorder_through_the_session(cx: &mut TestAppContext) {
     let (rig, cx) = open(cx);
 
-    // The per-row buttons reorder through the session.
     let down = cx
         .debug_bounds("edit-item-0-down")
         .expect("row 0 renders Move down");
     cx.simulate_click(down.center(), gpui::Modifiers::default());
     cx.run_until_parked();
+
     assert_eq!(content(&rig, cx).items, vec!["b", "a", "c"]);
-    assert_eq!(rig.port.log().len(), 1);
+    let log = rig.port.log();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].0.items, vec!["b", "a", "c"]);
+}
+
+#[gpui::test]
+fn native_undo_wins_while_a_field_is_focused(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx);
 
     // Title focused: type, commit, type more, commit.
-    cx.update(|window, cx| rig.harness.read(cx).title().clone().focus(window, cx));
-    cx.run_until_parked();
     cx.simulate_input("abc");
     advance(cx, Duration::from_millis(1_000));
-    cx.run_until_parked();
     cx.simulate_input("d");
     advance(cx, Duration::from_millis(1_000));
-    cx.run_until_parked();
     assert_eq!(content(&rig, cx).title, "abcd");
     let commits = rig.port.log().len();
 
     // Native Undo: the field reverts, the session does not undo anything.
     cx.simulate_keystrokes("ctrl-z");
-    assert_ne!(title_field(&rig, cx), "abcd", "the field reverted natively");
+    assert_eq!(title_field(&rig, cx), NATIVE_UNDO_RESULT);
     assert_eq!(
         rig.port.log().len(),
         commits,
@@ -260,7 +272,7 @@ fn the_buttons_reorder_and_native_undo_wins_while_a_field_is_focused(cx: &mut Te
     // Leaving the field commits the reverted text as an ordinary point.
     focus_container(&rig, cx);
     assert_eq!(rig.port.log().len(), commits + 1);
-    assert_eq!(content(&rig, cx).title, title_field(&rig, cx));
+    assert_eq!(content(&rig, cx).title, NATIVE_UNDO_RESULT);
 
     // Container focused: Ctrl+Z is the session Undo and the fields follow.
     cx.simulate_keystrokes("ctrl-z");
@@ -502,4 +514,93 @@ fn a_semantic_replacement_is_a_standalone_replacement(cx: &mut TestAppContext) {
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].1.kind, RevisionKind::Replacement);
     assert_eq!(log[0].1.session, None);
+}
+
+#[gpui::test]
+fn leaving_is_ignored_while_a_commit_is_in_flight(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx);
+    focus_container(&rig, cx);
+    assert!(structural(&rig, cx, EditPoint::Structural, (0, 1)));
+
+    rig.port.hold.set(true);
+    assert!(structural(&rig, cx, EditPoint::Structural, (1, 2)));
+    let pending = content(&rig, cx);
+    assert_eq!(state(&rig, cx), SaveState::Saving);
+
+    rig.session.update(cx, |s, cx| s.leave(cx));
+    rig.session.update(cx, |s, cx| s.leave_without_saving(cx));
+    cx.run_until_parked();
+    assert_eq!(content(&rig, cx), pending, "content is not reverted");
+
+    rig.port.hold.set(false);
+    rig.port.release();
+    cx.run_until_parked();
+    assert_eq!(state(&rig, cx), SaveState::Saved);
+    assert!(
+        rig.session.read_with(cx, |s, _| s.can_undo()),
+        "the Undo stack survived"
+    );
+    let sessions: std::collections::HashSet<_> = rig
+        .port
+        .log()
+        .iter()
+        .map(|(_, point)| point.session)
+        .collect();
+    assert_eq!(sessions.len(), 1, "the History session was not ended");
+}
+
+#[gpui::test]
+fn typing_during_an_in_flight_undo_is_kept_on_top_of_the_undone_state(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx);
+    focus_container(&rig, cx);
+    assert!(structural(&rig, cx, EditPoint::Structural, (0, 1)));
+    let reordered = content(&rig, cx);
+
+    rig.port.hold.set(true);
+    assert!(rig.session.update(cx, |s, cx| s.undo(cx)));
+    cx.run_until_parked();
+    rig.session.update(cx, |s, cx| {
+        s.text_edited(|content| content.title = "q".into(), cx);
+    });
+    rig.port.hold.set(false);
+    rig.port.release();
+    cx.run_until_parked();
+    advance(cx, Duration::from_millis(1_000));
+
+    let log = rig.port.log();
+    assert_eq!(log.len(), 3);
+    assert_eq!(log[1].0.items, initial().items, "the Undo revision");
+    assert_eq!(log[1].0.title, "");
+    assert_eq!(log[2].0.title, "q", "the typing is present");
+    assert_eq!(
+        log[2].0.items, reordered.items,
+        "the typed revision re-applies the undone change"
+    );
+    assert_eq!(state(&rig, cx), SaveState::Saved);
+}
+
+#[gpui::test]
+fn typing_during_a_failed_save_commits_after_retry(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx);
+    focus_container(&rig, cx);
+
+    rig.port.fail.set(true);
+    assert!(structural(&rig, cx, EditPoint::Structural, (0, 1)));
+    assert_eq!(state(&rig, cx), SaveState::CouldntSave);
+    rig.session.update(cx, |s, cx| {
+        s.text_edited(|content| content.title = "newer".into(), cx);
+    });
+    advance(cx, Duration::from_secs(5));
+    assert_eq!(state(&rig, cx), SaveState::CouldntSave);
+
+    rig.port.fail.set(false);
+    rig.session.update(cx, |s, cx| s.retry_save(cx));
+    cx.run_until_parked();
+    advance(cx, Duration::from_millis(1_000));
+
+    assert_eq!(state(&rig, cx), SaveState::Saved);
+    let committed = rig.session.read_with(cx, |s, _| s.committed().clone());
+    assert_eq!(committed.title, "newer", "the newer typing was committed");
+    assert_eq!(committed.items, vec!["b", "a", "c"]);
+    assert_eq!(content(&rig, cx), committed);
 }
