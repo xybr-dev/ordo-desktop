@@ -9,8 +9,8 @@ use domain::identity::{
 use domain::song_library::{
     ArchiveState, ArrangementDraft, ArrangementVisibility, ChoirDraft, DeletionBlocker,
     DeletionVerdict, DuplicateEvidence, DurableReference, Field, HydrateArrangement, HydrateChoir,
-    HydrateSong, HydrationError, MatchedOn, OccurrenceDraft, PaginationState, RecordRef,
-    SectionDraft, SongDraft, SongLibrary, SongLibraryError, StatusFilter, match_key,
+    HydrateReserved, HydrateSong, HydrationError, MatchedOn, OccurrenceDraft, PaginationState,
+    RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
 
 fn entity(n: u8) -> EntityId {
@@ -1254,7 +1254,7 @@ fn t24_hydrate_round_trips_a_library_built_through_the_interface() {
     let library = rich_library();
     let (songs, arrangements, choirs) = export(&library);
 
-    let rebuilt = SongLibrary::hydrate(songs, arrangements, choirs).unwrap();
+    let rebuilt = SongLibrary::hydrate(songs, arrangements, choirs, Vec::new()).unwrap();
 
     assert_eq!(rebuilt, library);
     assert_eq!(
@@ -1266,7 +1266,7 @@ fn t24_hydrate_round_trips_a_library_built_through_the_interface() {
     );
     assert!(rebuilt.choir(choir_id(21)).unwrap().is_archived());
     assert_eq!(
-        SongLibrary::hydrate(Vec::new(), Vec::new(), Vec::new()),
+        SongLibrary::hydrate(Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         Ok(SongLibrary::new())
     );
 }
@@ -1280,7 +1280,7 @@ fn breach(record: RecordRef, cause: SongLibraryError) -> HydrationError {
 fn hydrate_broken(break_it: impl FnOnce(&mut Exported)) -> Result<SongLibrary, HydrationError> {
     let mut stored = export(&rich_library());
     break_it(&mut stored);
-    SongLibrary::hydrate(stored.0, stored.1, stored.2)
+    SongLibrary::hydrate(stored.0, stored.1, stored.2, Vec::new())
 }
 
 #[test]
@@ -1451,4 +1451,98 @@ fn t24_choir_details_are_validated_on_create_and_edit() {
     assert_eq!(edited.languages(), ["ceb".to_owned(), "en".to_owned()]);
     assert_eq!(edited.notes(), Some("Thursdays"));
     assert_eq!(edited.created_at(), at(0));
+}
+
+#[test]
+fn t24_hydrate_restores_reserved_identities_per_owner() {
+    let (songs, arrangements, choirs) = export(&rich_library());
+    let reserve =
+        |arrangement, sections: Vec<SectionId>, occurrences: Vec<OccurrenceId>| HydrateReserved {
+            arrangement,
+            sections,
+            occurrences,
+        };
+    // Arrangement 10 once used section 150 and occurrence 150, since dropped.
+    let mut library = SongLibrary::hydrate(
+        songs.clone(),
+        arrangements.clone(),
+        choirs.clone(),
+        vec![reserve(
+            arrangement_id(10),
+            vec![section_id(150), section_id(100)],
+            vec![occurrence_id(150), occurrence_id(100)],
+        )],
+    )
+    .unwrap();
+
+    let mut other = draft("Other", "en", 160);
+    other.sections[0].id = section_id(150);
+    other.sequence[0].section = section_id(150);
+    assert_eq!(
+        library.create_arrangement(arrangement_id(12), song_id(1), at(20), other, Vec::new()),
+        Err(SongLibraryError::DuplicateSection(section_id(150)))
+    );
+    let mut other = draft("Other", "en", 160);
+    other.sequence[0].id = occurrence_id(150);
+    assert_eq!(
+        library.create_arrangement(arrangement_id(12), song_id(1), at(20), other, Vec::new()),
+        Err(SongLibraryError::DuplicateOccurrence(occurrence_id(150)))
+    );
+
+    // The owner may bring both back.
+    let mut back = draft("Cebuano", "ceb", 100);
+    back.sections[0].id = section_id(150);
+    back.sequence[0].section = section_id(150);
+    back.sequence[0].id = occurrence_id(150);
+    library.edit_arrangement(arrangement_id(10), back).unwrap();
+
+    // Two owners cannot both hold one identity, and an unstored owner is refused.
+    assert_eq!(
+        SongLibrary::hydrate(
+            songs.clone(),
+            arrangements.clone(),
+            choirs.clone(),
+            vec![
+                reserve(arrangement_id(10), vec![section_id(150)], Vec::new()),
+                reserve(arrangement_id(11), vec![section_id(150)], Vec::new()),
+            ],
+        ),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(11)),
+            SongLibraryError::DuplicateSection(section_id(150))
+        ))
+    );
+    assert_eq!(
+        SongLibrary::hydrate(
+            songs.clone(),
+            arrangements.clone(),
+            choirs.clone(),
+            vec![reserve(
+                arrangement_id(99),
+                Vec::new(),
+                vec![occurrence_id(150)]
+            )],
+        ),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(99)),
+            SongLibraryError::UnknownArrangement(arrangement_id(99))
+        ))
+    );
+    // A reservation held by one Arrangement refuses another's stored content.
+    assert_eq!(
+        SongLibrary::hydrate(
+            songs,
+            arrangements,
+            choirs,
+            vec![reserve(
+                arrangement_id(10),
+                vec![section_id(110)],
+                Vec::new()
+            )],
+        ),
+        Err(breach(
+            RecordRef::Arrangement(arrangement_id(11)),
+            SongLibraryError::DuplicateSection(section_id(110))
+        ))
+    );
 }

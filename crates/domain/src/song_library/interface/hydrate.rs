@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use crate::identity::{ArrangementId, ChoirId, SongId, Timestamp};
+use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
 
 use super::super::model::{
     ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, PaginationState, SongDraft,
@@ -62,6 +62,20 @@ pub struct HydrateChoir {
     pub archive_state: ArchiveState,
 }
 
+/// The section and occurrence identities one Arrangement has ever used.
+///
+/// Identities an edit dropped stay reserved to their Arrangement for good, so
+/// the list must include the dropped ones as well as the current ones.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HydrateReserved {
+    /// The Arrangement that owns the identities.
+    pub arrangement: ArrangementId,
+    /// Every section identity it has used.
+    pub sections: Vec<SectionId>,
+    /// Every occurrence identity it has used.
+    pub occurrences: Vec<OccurrenceId>,
+}
+
 /// A stored record that breaks a Song Library invariant.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HydrationError {
@@ -91,12 +105,16 @@ impl SongLibrary {
     /// of an archived Song stays as stored. The first breach is returned with
     /// the offending record.
     ///
-    /// Section and occurrence identities an Arrangement dropped in an earlier
-    /// edit are not stored with it and are therefore not reserved again.
+    /// `reserved` restores the section and occurrence identities each
+    /// Arrangement has ever used, with the in-memory rule: they belong to that
+    /// Arrangement, any other Arrangement is refused with `DuplicateSection` or
+    /// `DuplicateOccurrence`, and the owner may bring them back. A reservation
+    /// for an Arrangement that is not stored is `UnknownArrangement`.
     pub fn hydrate(
         songs: Vec<HydrateSong>,
         arrangements: Vec<HydrateArrangement>,
         choirs: Vec<HydrateChoir>,
+        reserved: Vec<HydrateReserved>,
     ) -> Result<Self, HydrationError> {
         let mut library = Self::new();
         for stored in choirs {
@@ -121,10 +139,42 @@ impl SongLibrary {
                 .with_archive_state(stored.archive_state);
             library.songs.insert(stored.id, song);
         }
+        for stored in &reserved {
+            library.reserve(stored)?;
+        }
         for stored in arrangements {
             library.hydrate_arrangement(stored)?;
         }
+        for stored in &reserved {
+            if !library.arrangements.contains_key(&stored.arrangement) {
+                return Err(HydrationError {
+                    record: RecordRef::Arrangement(stored.arrangement),
+                    cause: SongLibraryError::UnknownArrangement(stored.arrangement),
+                });
+            }
+        }
         Ok(library)
+    }
+
+    /// Reserves one Arrangement's used identities, refusing any another
+    /// Arrangement already holds.
+    fn reserve(&mut self, stored: &HydrateReserved) -> Result<(), HydrationError> {
+        let owner = stored.arrangement;
+        let breach = |cause| HydrationError {
+            record: RecordRef::Arrangement(owner),
+            cause,
+        };
+        for section in &stored.sections {
+            if *self.section_ids.entry(*section).or_insert(owner) != owner {
+                return Err(breach(SongLibraryError::DuplicateSection(*section)));
+            }
+        }
+        for occurrence in &stored.occurrences {
+            if *self.occurrence_ids.entry(*occurrence).or_insert(owner) != owner {
+                return Err(breach(SongLibraryError::DuplicateOccurrence(*occurrence)));
+            }
+        }
+        Ok(())
     }
 
     /// Rebuilds one stored Arrangement into the library.

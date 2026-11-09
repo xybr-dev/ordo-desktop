@@ -12,15 +12,21 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use domain::identity::{ArrangementId, ChoirId, EntityId, SongId, Timestamp};
-use domain::song_library::PaginationState;
+use domain::identity::{
+    ArrangementId, ChoirId, EntityId, HistorySessionId, SectionId, SongId, Timestamp,
+};
+use domain::revisions::{RevisionEntity, RevisionKind};
+use domain::song_library::{
+    ArchiveState, ArrangementDraft, OccurrenceDraft, PaginationState, SectionDraft, SongLibrary,
+    SongLibraryError,
+};
 use futures_lite::future::block_on;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use storage::{
-    ArrangementRecord, ChoirDetails, ChoirRecord, LibraryRecords, NewArrangement, NewChoir,
-    NewSection, NewSong, RecordKind, ShutdownOutcome, SongRecord, Storage, StorageConfig,
-    StorageError,
+    ArrangementContent, ArrangementRecord, ChoirDetails, ChoirRecord, LibraryRecords,
+    NewArrangement, NewChoir, NewSection, NewSong, RecordKind, ShutdownOutcome, SongRecord,
+    Storage, StorageConfig, StorageError,
 };
 
 const BOUND: Duration = Duration::from_secs(10);
@@ -305,6 +311,7 @@ fn an_empty_database_has_an_empty_library() {
             songs: Vec::new(),
             arrangements: Vec::new(),
             choirs: Vec::new(),
+            reserved: Vec::new(),
         })
     );
     shutdown(storage);
@@ -609,6 +616,412 @@ fn injected_write_failures_change_nothing() {
     assert_eq!(edited.name, "Changed");
     assert_eq!(edited.languages, vec!["fil".to_owned(), "en".to_owned()]);
     shutdown(f.storage);
+}
+
+fn archive_of(at: Option<Timestamp>) -> ArchiveState {
+    at.map_or(ArchiveState::Active, ArchiveState::Archived)
+}
+
+/// Every field the records hold, read back through the hydrated domain
+/// accessors.
+fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
+    assert_eq!(library.songs().count(), records.songs.len());
+    assert_eq!(library.arrangements().count(), records.arrangements.len());
+    assert_eq!(library.choirs().count(), records.choirs.len());
+    for record in &records.songs {
+        let song = library.song(record.id).expect("song hydrated");
+        assert_eq!(song.title(), record.title);
+        assert_eq!(song.aliases(), record.aliases);
+        assert_eq!(
+            song.original_attribution(),
+            record.original_attribution.as_deref()
+        );
+        assert_eq!(song.provenance(), record.provenance.as_deref());
+        assert_eq!(song.rights_notes(), record.rights_notes.as_deref());
+        assert_eq!(
+            song.liturgical_moments()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            record.liturgical_moments
+        );
+        assert_eq!(
+            song.occasions().iter().cloned().collect::<Vec<_>>(),
+            record.occasions
+        );
+        assert_eq!(song.created_at(), record.created_at);
+        assert_eq!(song.archive_state(), archive_of(record.archived_at));
+    }
+    for record in &records.choirs {
+        let choir = library.choir(record.id).expect("choir hydrated");
+        assert_eq!(choir.name(), record.name);
+        assert_eq!(choir.short_label(), record.short_label.as_deref());
+        assert_eq!(choir.languages(), record.languages);
+        assert_eq!(choir.notes(), record.notes.as_deref());
+        assert_eq!(choir.created_at(), record.created_at);
+        assert_eq!(choir.archive_state(), archive_of(record.archived_at));
+    }
+    for record in &records.arrangements {
+        let a = library
+            .arrangement(record.id)
+            .expect("arrangement hydrated");
+        assert_eq!(a.song(), record.song);
+        assert_eq!(a.title(), record.title);
+        assert_eq!(a.languages(), record.languages);
+        assert_eq!(
+            a.choirs().iter().copied().collect::<Vec<_>>(),
+            record.choirs
+        );
+        assert_eq!(
+            a.rendition_attribution(),
+            record.rendition_attribution.as_deref()
+        );
+        assert_eq!(
+            a.occasions().iter().cloned().collect::<Vec<_>>(),
+            record.occasions
+        );
+        assert_eq!(a.sections().len(), record.sections.len());
+        for (got, want) in a.sections().iter().zip(&record.sections) {
+            assert_eq!(got.id(), want.id);
+            assert_eq!(got.label(), want.label.as_deref());
+            assert_eq!(got.lyrics(), want.lyrics);
+        }
+        assert_eq!(a.sequence().len(), record.sequence.len());
+        for (got, want) in a.sequence().iter().zip(&record.sequence) {
+            assert_eq!(got.id(), want.id);
+            assert_eq!(got.section(), want.section);
+        }
+        assert_eq!(a.pagination_state(), record.pagination);
+        assert_eq!(a.created_at(), record.created_at);
+        assert_eq!(a.archive_state(), archive_of(record.archived_at));
+    }
+}
+
+#[test]
+fn a_mixed_library_hydrates_to_exactly_what_was_written() {
+    let dir = TempDir::new("hydrate");
+    let f = fixture(&dir);
+    bounded(f.storage.archive_choir(f.adult.id)).expect("archive choir");
+    bounded(f.storage.archive_song(f.other_song.id)).expect("archive song");
+    bounded(f.storage.archive_arrangement(f.second.id)).expect("archive arrangement");
+    bounded(
+        f.storage
+            .set_pagination_state(f.first.id, PaginationState::Approved),
+    )
+    .expect("approve");
+    shutdown(f.storage);
+
+    let storage = open(&dir);
+    let records = library(&storage);
+    // The first Arrangement is shared between two Choirs, one of them archived.
+    assert_eq!(records.arrangements.len(), 2);
+    let hydrated = records.clone().hydrate().expect("stored library hydrates");
+    assert_hydrated(&hydrated, &records);
+    shutdown(storage);
+}
+
+fn draft_of(record: &ArrangementRecord) -> ArrangementDraft {
+    ArrangementDraft {
+        title: record.title.clone(),
+        languages: record.languages.clone(),
+        rendition_attribution: record.rendition_attribution.clone(),
+        occasions: record.occasions.clone(),
+        sections: record
+            .sections
+            .iter()
+            .map(|s| SectionDraft {
+                id: s.id,
+                label: s.label.clone(),
+                lyrics: s.lyrics.clone(),
+            })
+            .collect(),
+        sequence: record
+            .sequence
+            .iter()
+            .map(|o| OccurrenceDraft::new(o.id, o.section))
+            .collect(),
+    }
+}
+
+#[test]
+fn identities_edited_away_stay_reserved_after_a_restart() {
+    let dir = TempDir::new("reserved");
+    let f = fixture(&dir);
+    let removed_section = f.first.sections[1].id;
+    let removed_occurrence = f.first.sequence[1].id;
+    let mut content = ArrangementContent::of(&f.first);
+    content.sections.truncate(1);
+    content.sequence.retain(|o| o.id != removed_occurrence);
+    let head = bounded(
+        f.storage
+            .latest_revision(RevisionEntity::Arrangement(f.first.id)),
+    )
+    .expect("head");
+    bounded(f.storage.commit_arrangement_edit(
+        f.first.id,
+        content,
+        PaginationState::NeedsReview,
+        RevisionKind::Edit,
+        Some(HistorySessionId::from_entity(entity_id(7))),
+        head,
+    ))
+    .expect("edit away");
+    shutdown(f.storage);
+
+    let storage = open(&dir);
+    let records = library(&storage);
+    let reserved = records
+        .reserved
+        .iter()
+        .find(|r| r.arrangement == f.first.id)
+        .expect("reservation");
+    assert!(reserved.sections.contains(&removed_section));
+    assert!(reserved.occurrences.contains(&removed_occurrence));
+    let mut domain = records.hydrate().expect("hydrates");
+
+    // Another Arrangement may not take the identities.
+    let fresh_section = SectionId::from_entity(entity_id(0xA1));
+    let steal_section = ArrangementDraft {
+        sections: vec![SectionDraft::new(removed_section, "x")],
+        ..ArrangementDraft::titled("Other")
+    };
+    assert_eq!(
+        domain
+            .create_arrangement(
+                ArrangementId::from_entity(entity_id(0xA3)),
+                f.song.id,
+                fixed_now(),
+                steal_section,
+                Vec::new(),
+            )
+            .map(|_| ()),
+        Err(SongLibraryError::DuplicateSection(removed_section))
+    );
+    let steal_occurrence = ArrangementDraft {
+        sections: vec![SectionDraft::new(fresh_section, "x")],
+        sequence: vec![OccurrenceDraft::new(removed_occurrence, fresh_section)],
+        ..ArrangementDraft::titled("Other")
+    };
+    assert_eq!(
+        domain
+            .create_arrangement(
+                ArrangementId::from_entity(entity_id(0xA4)),
+                f.song.id,
+                fixed_now(),
+                steal_occurrence,
+                Vec::new(),
+            )
+            .map(|_| ()),
+        Err(SongLibraryError::DuplicateOccurrence(removed_occurrence))
+    );
+
+    // The owner may bring them back.
+    let mut restored = draft_of(&f.first);
+    restored.title = "Back".to_owned();
+    domain
+        .edit_arrangement(f.first.id, restored)
+        .expect("owner reuses its identities");
+    shutdown(storage);
+}
+
+#[test]
+fn a_damaged_revision_fails_the_library_read() {
+    let dir = TempDir::new("damaged");
+    let f = fixture(&dir);
+    shutdown(f.storage);
+    let conn = Connection::open(dir.db()).expect("open raw");
+    let damaged = conn
+        .execute(
+            "UPDATE edit_revision SET content = content || ' ' WHERE arrangement_id = ?1",
+            params![f.first.id.to_string()],
+        )
+        .expect("damage");
+    assert!(damaged > 0);
+    drop(conn);
+    let storage = open(&dir);
+    assert!(matches!(
+        bounded(storage.library()),
+        Err(StorageError::RevisionIntegrity { .. })
+    ));
+    shutdown(storage);
+}
+
+#[test]
+fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
+    let dir = TempDir::new("pagination");
+    let f = fixture(&dir);
+    let entity = RevisionEntity::Arrangement(f.first.id);
+    let creation = bounded(f.storage.latest_revision(entity)).expect("head");
+    let mut content = ArrangementContent::of(&f.first);
+    content.title = "Edited".to_owned();
+    let injected = StorageError::Sqlite("injected write failure".to_owned());
+
+    // Commit: every injected failure leaves content, history and pagination alone.
+    let before = library(&f.storage);
+    let history = bounded(f.storage.revisions(entity)).expect("chain");
+    let mut step = 1;
+    let committed = loop {
+        bounded(f.storage.inject_write_failure(step)).expect("arm");
+        match bounded(f.storage.commit_arrangement_edit(
+            f.first.id,
+            content.clone(),
+            PaginationState::Approved,
+            RevisionKind::Edit,
+            Some(HistorySessionId::from_entity(entity_id(7))),
+            creation,
+        )) {
+            Err(error) => {
+                assert_eq!(error, injected);
+                assert_eq!(library(&f.storage), before, "after failure at {step}");
+                assert_eq!(
+                    bounded(f.storage.revisions(entity)).expect("chain"),
+                    history
+                );
+                step += 1;
+            }
+            Ok(done) => break done,
+        }
+    };
+    assert!(step > 2, "the commit has several write steps");
+    assert_eq!(committed.0.pagination, PaginationState::Approved);
+    assert_eq!(committed.0.title, "Edited");
+
+    // Restore the creation revision: same guarantee.
+    let before = library(&f.storage);
+    let history = bounded(f.storage.revisions(entity)).expect("chain");
+    let mut step = 1;
+    let restored = loop {
+        bounded(f.storage.inject_write_failure(step)).expect("arm");
+        match bounded(f.storage.restore_revision(
+            creation,
+            committed.1.id,
+            PaginationState::NeedsReview,
+        )) {
+            Err(error) => {
+                assert_eq!(error, injected);
+                assert_eq!(library(&f.storage), before, "after failure at {step}");
+                assert_eq!(
+                    bounded(f.storage.revisions(entity)).expect("chain"),
+                    history
+                );
+                step += 1;
+            }
+            Ok(done) => break done,
+        }
+    };
+    assert!(step > 2);
+    let after = bounded(f.storage.arrangement(f.first.id)).expect("read");
+    assert_eq!(after.pagination, PaginationState::NeedsReview);
+    assert_eq!(after.title, f.first.title);
+    assert_ne!(restored.1.id, committed.1.id);
+    shutdown(f.storage);
+}
+
+#[test]
+fn library_lists_follow_creation_order_and_archive_times_come_from_the_clock() {
+    let dir = TempDir::new("order");
+    // Scripted ids descend, so identity order opposes creation order.
+    let ids: Vec<[u8; 16]> = (0..120u8).map(|i| [250 - i; 16]).collect();
+    let start = Timestamp::from_millis(1_700_000_000_000);
+    let storage = Storage::spawn_with_stepping_clock(config(&dir.db()), ids, start, 1_000);
+    bounded(storage.ready()).expect("ready");
+
+    let mut choirs = Vec::new();
+    let mut songs = Vec::new();
+    let mut arrangements = Vec::new();
+    for name in ["C1", "C2", "C3"] {
+        choirs.push(
+            bounded(storage.create_choir(name_only(name)))
+                .expect("choir")
+                .id,
+        );
+    }
+    for title in ["S1", "S2", "S3"] {
+        songs.push(
+            bounded(storage.create_song(song_input(title)))
+                .expect("song")
+                .id,
+        );
+    }
+    for title in ["A1", "A2", "A3"] {
+        arrangements.push(
+            bounded(storage.create_arrangement(arrangement_input(songs[0], title, Vec::new())))
+                .expect("arrangement")
+                .id,
+        );
+    }
+    assert!(choirs.windows(2).all(|w| w[0] > w[1]), "ids descend");
+
+    let archived = bounded(storage.archive_choir(choirs[0])).expect("archive");
+    let archived_at = archived.archived_at.expect("archived");
+    assert!(
+        archived_at > archived.created_at,
+        "worker clock, not creation"
+    );
+
+    let records = library(&storage);
+    assert_eq!(
+        records.choirs.iter().map(|c| c.id).collect::<Vec<_>>(),
+        choirs
+    );
+    assert_eq!(
+        records.songs.iter().map(|s| s.id).collect::<Vec<_>>(),
+        songs
+    );
+    assert_eq!(
+        records
+            .arrangements
+            .iter()
+            .map(|a| a.id)
+            .collect::<Vec<_>>(),
+        arrangements
+    );
+    assert!(
+        records
+            .choirs
+            .windows(2)
+            .all(|w| w[0].created_at < w[1].created_at)
+    );
+    assert!(
+        records
+            .songs
+            .windows(2)
+            .all(|w| w[0].created_at < w[1].created_at)
+    );
+    assert!(
+        records
+            .arrangements
+            .windows(2)
+            .all(|w| w[0].created_at < w[1].created_at)
+    );
+    shutdown(storage);
+}
+
+#[test]
+fn create_choir_language_inserts_are_atomic_with_the_choir() {
+    let dir = TempDir::new("choir-steps");
+    let storage = open(&dir);
+    let input = || NewChoir {
+        name: "Two".to_owned(),
+        short_label: None,
+        languages: vec!["ceb".to_owned(), "en".to_owned()],
+        notes: None,
+    };
+    // Step 1 is the choir row, steps 2 and 3 the language rows.
+    for step in 1..=3 {
+        bounded(storage.inject_write_failure(step)).expect("arm");
+        assert_eq!(
+            bounded(storage.create_choir(input())).map(|_| ()),
+            Err(StorageError::Sqlite("injected write failure".to_owned())),
+            "step {step}"
+        );
+        assert_eq!(library(&storage).choirs, Vec::new(), "after step {step}");
+    }
+    bounded(storage.inject_write_failure(4)).expect("arm");
+    let created = bounded(storage.create_choir(input())).expect("past the last step");
+    assert_eq!(created.languages, vec!["ceb".to_owned(), "en".to_owned()]);
+    assert_eq!(library(&storage).choirs, vec![created]);
+    shutdown(storage);
 }
 
 fn entity_id(byte: u8) -> EntityId {

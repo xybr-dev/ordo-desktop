@@ -19,6 +19,7 @@ use std::{cell::Cell, cell::RefCell, collections::HashMap, future::Future, pin::
 use domain::{
     identity::{ArrangementId, EntityId, OccurrenceId, RevisionId, SectionId},
     revisions::RevisionEntity,
+    song_library::PaginationState,
 };
 use ordo::edit_session::{CommitPoint, RevisionPort, SaveFailure, harness::HarnessContent};
 use storage::{
@@ -187,6 +188,8 @@ impl RevisionPort<HarnessContent> for StoragePort {
             storage.commit_arrangement_edit(
                 self.arrangement,
                 content,
+                // The harness runs no pagination rule; keep the default state.
+                PaginationState::Draft,
                 point.kind,
                 point.session,
                 self.expected_parent.get(),

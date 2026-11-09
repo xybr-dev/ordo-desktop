@@ -90,7 +90,7 @@ pub use domain::presentation::ContentHash;
 pub use parish_store::{
     ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
     ManagedAssetRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme,
-    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
+    OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
     ArrangementContent, OccurrenceContent, RevisionContent, RevisionRecord, SectionContent,
@@ -523,17 +523,30 @@ impl Storage {
     /// `StaleRevision`. An Arrangement with no revisions is refused with
     /// `InvalidInput { field: "expected_parent" }`: call
     /// [`Storage::latest_revision`] first.
+    ///
+    /// `pagination` is the Arrangement's resulting pagination state, computed
+    /// by the caller with the domain rule. It is written in the same
+    /// transaction as the content and the revision, so a failure at any step
+    /// leaves content, history and pagination unchanged.
     pub fn commit_arrangement_edit(
         &self,
         arrangement: ArrangementId,
         content: ArrangementContent,
+        pagination: PaginationState,
         kind: RevisionKind,
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
     ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
     {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.commit_arrangement_edit(arrangement, content, kind, session, expected_parent)
+            core.commit_arrangement_edit(
+                arrangement,
+                content,
+                pagination,
+                kind,
+                session,
+                expected_parent,
+            )
         })
     }
 
@@ -542,13 +555,18 @@ impl Storage {
     /// `StaleRevision`; an entity with no revisions is refused with
     /// `InvalidInput { field: "expected_parent" }` (call
     /// [`Storage::latest_revision`] first).
+    ///
+    /// Restoring an Arrangement revision also writes `pagination`, the
+    /// resulting state the caller computed with the domain rule, in the same
+    /// transaction. It is ignored when the revision belongs to a Song.
     pub fn restore_revision(
         &self,
         revision: RevisionId,
         expected_parent: RevisionId,
+        pagination: PaginationState,
     ) -> impl Future<Output = Result<(RevisionContent, RevisionRecord), StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.restore_revision(revision, expected_parent)
+            core.restore_revision(revision, expected_parent, pagination)
         })
     }
 
@@ -761,6 +779,21 @@ impl Storage {
         now: domain::identity::Timestamp,
     ) -> Storage {
         spawn_with(config, migrations::bundled(), Sources::scripted(ids, now))
+    }
+
+    /// Like [`Storage::spawn_with_sources`], but the clock advances by
+    /// `step_millis` after every reading, so each operation gets its own time.
+    pub fn spawn_with_stepping_clock(
+        config: StorageConfig,
+        ids: Vec<[u8; 16]>,
+        start: domain::identity::Timestamp,
+        step_millis: i64,
+    ) -> Storage {
+        spawn_with(
+            config,
+            migrations::bundled(),
+            Sources::stepping(ids, start, step_millis),
+        )
     }
 
     /// The next write transaction fails at its `step`-th write statement

@@ -12,12 +12,13 @@ use domain::song_library::PaginationState;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::assets;
+use crate::revisions;
 use crate::worker::Core;
 use crate::{RecordKind, StorageError, map_error};
 
 use super::records::{
     ArrangementRecord, AssetReport, ChoirRecord, LibraryRecords, ManagedAssetRecord,
-    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
+    OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 
 /// A stable error for a stored value the store cannot parse.
@@ -163,14 +164,6 @@ fn read_choirs(conn: &mut Connection) -> Result<Vec<ChoirRecord>, StorageError> 
     choirs_in(&tx)
 }
 
-fn choir_by_id(conn: &mut Connection, id: ChoirId) -> Result<ChoirRecord, StorageError> {
-    let tx = conn.transaction().map_err(map_error)?;
-    read_choir(&tx, id)?.ok_or(StorageError::NotFound {
-        kind: RecordKind::Choir,
-        id: id.entity(),
-    })
-}
-
 pub(crate) fn read_song(
     tx: &Transaction<'_>,
     id: SongId,
@@ -292,10 +285,27 @@ fn arrangements_in(tx: &Transaction<'_>) -> Result<Vec<ArrangementRecord>, Stora
 
 fn read_library(conn: &mut Connection) -> Result<LibraryRecords, StorageError> {
     let tx = conn.transaction().map_err(map_error)?;
+    let songs = songs_in(&tx)?;
+    let arrangements = arrangements_in(&tx)?;
+    let choirs = choirs_in(&tx)?;
+    let mut reserved = Vec::with_capacity(arrangements.len());
+    for arrangement in &arrangements {
+        // Every identity the Arrangement ever used: its stored revisions plus
+        // its current rows (a T2.1-era row may have no revision yet).
+        let (mut sections, mut occurrences) = revisions::revision_ids(&tx, arrangement.id)?;
+        sections.extend(arrangement.sections.iter().map(|section| section.id));
+        occurrences.extend(arrangement.sequence.iter().map(|occurrence| occurrence.id));
+        reserved.push(ReservedIds {
+            arrangement: arrangement.id,
+            sections: sections.into_iter().collect(),
+            occurrences: occurrences.into_iter().collect(),
+        });
+    }
     Ok(LibraryRecords {
-        songs: songs_in(&tx)?,
-        arrangements: arrangements_in(&tx)?,
-        choirs: choirs_in(&tx)?,
+        songs,
+        arrangements,
+        choirs,
+        reserved,
     })
 }
 
@@ -661,12 +671,6 @@ impl Core {
     pub(crate) fn choirs(&mut self) -> Result<Vec<ChoirRecord>, StorageError> {
         let conn = self.connection_mut()?;
         read_choirs(conn)
-    }
-
-    /// Reads one Choir or reports `NotFound`.
-    pub(crate) fn choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
-        let conn = self.connection_mut()?;
-        choir_by_id(conn, id)
     }
 
     /// Reads every Song, Arrangement and Choir in one transaction.

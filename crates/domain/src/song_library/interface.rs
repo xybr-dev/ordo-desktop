@@ -21,7 +21,7 @@ use super::model::{Arrangement, ArrangementDraft, Choir, ChoirDraft, SongDraft, 
 
 mod hydrate;
 
-pub use hydrate::{HydrateArrangement, HydrateChoir, HydrateSong, HydrationError};
+pub use hydrate::{HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError};
 
 /// One authored field that failed a Song Library validation rule.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

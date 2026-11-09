@@ -21,6 +21,7 @@ use crate::revisions::{
 use crate::worker::{AssetWriteParts, Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
+use super::read::{read_arrangement, read_choir, read_song};
 use super::records::{
     ArrangementRecord, ChoirDetails, ChoirRecord, ManagedAssetRecord, NewArrangement, NewChoir,
     NewParish, NewSong, NewTheme, OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
@@ -374,7 +375,7 @@ fn replace_choir_details(
     fault: &mut Option<usize>,
     id: ChoirId,
     details: &ChoirDetails,
-) -> Result<(), StorageError> {
+) -> Result<ChoirRecord, StorageError> {
     validate_choir_fields(
         &details.name,
         details.short_label.as_deref(),
@@ -417,7 +418,13 @@ fn replace_choir_details(
             params![id_text, position as i64, language],
         )?;
     }
-    tx.commit().map_err(map_error)
+    // Read the stored record before the commit, in the same transaction.
+    let record = read_choir(&tx, id)?.ok_or(StorageError::NotFound {
+        kind: RecordKind::Choir,
+        id: id.entity(),
+    })?;
+    tx.commit().map_err(map_error)?;
+    Ok(record)
 }
 
 /// The statements that archive, restore and inspect one kind of record.
@@ -430,14 +437,16 @@ struct ArchiveSql {
 /// Archives (`at` is `Some`) or restores (`None`) one record.
 ///
 /// The record must exist, and must be in the opposite state. Nothing else is
-/// touched: archive never cascades and appends no revision.
-fn change_archive_state(
+/// touched: archive never cascades and appends no revision. `read` loads the
+/// changed record on the same transaction, before it commits.
+fn change_archive_state<T>(
     conn: &mut Connection,
     fault: &mut Option<usize>,
     kind: RecordKind,
     id: EntityId,
     at: Option<String>,
-) -> Result<(), StorageError> {
+    read: impl FnOnce(&Transaction<'_>) -> Result<Option<T>, StorageError>,
+) -> Result<T, StorageError> {
     let sql = match kind {
         RecordKind::Song => ArchiveSql {
             state: "SELECT archived_at FROM song WHERE id = ?1",
@@ -487,11 +496,13 @@ fn change_archive_state(
             write(&tx, &mut steps, sql.restore, params![id_text])?;
         }
     }
-    tx.commit().map_err(map_error)
+    let record = read(&tx)?.ok_or(StorageError::NotFound { kind, id })?;
+    tx.commit().map_err(map_error)?;
+    Ok(record)
 }
 
 /// The stored text of a pagination state.
-fn pagination_text(state: PaginationState) -> &'static str {
+pub(crate) fn pagination_text(state: PaginationState) -> &'static str {
     match state {
         PaginationState::Draft => "draft",
         PaginationState::Approved => "approved",
@@ -505,7 +516,7 @@ fn change_pagination(
     fault: &mut Option<usize>,
     id: ArrangementId,
     state: PaginationState,
-) -> Result<(), StorageError> {
+) -> Result<ArrangementRecord, StorageError> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
@@ -522,7 +533,12 @@ fn change_pagination(
             id: id.entity(),
         });
     }
-    tx.commit().map_err(map_error)
+    let record = read_arrangement(&tx, id)?.ok_or(StorageError::NotFound {
+        kind: RecordKind::Arrangement,
+        id: id.entity(),
+    })?;
+    tx.commit().map_err(map_error)?;
+    Ok(record)
 }
 
 fn insert_song(
@@ -1049,38 +1065,51 @@ impl Core {
         details: ChoirDetails,
     ) -> Result<ChoirRecord, StorageError> {
         let (conn, _ids, fault) = self.write_parts()?;
-        replace_choir_details(conn, fault, id, &details)?;
-        self.choir(id)
+        replace_choir_details(conn, fault, id, &details)
     }
 
     /// Archives one Choir at the worker clock.
     pub(crate) fn archive_choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
         let stamp = timestamp_text(self.timestamp())?;
         let (conn, _ids, fault) = self.write_parts()?;
-        change_archive_state(conn, fault, RecordKind::Choir, id.entity(), Some(stamp))?;
-        self.choir(id)
+        change_archive_state(
+            conn,
+            fault,
+            RecordKind::Choir,
+            id.entity(),
+            Some(stamp),
+            |tx| read_choir(tx, id),
+        )
     }
 
     /// Restores one archived Choir.
     pub(crate) fn restore_choir(&mut self, id: ChoirId) -> Result<ChoirRecord, StorageError> {
         let (conn, _ids, fault) = self.write_parts()?;
-        change_archive_state(conn, fault, RecordKind::Choir, id.entity(), None)?;
-        self.choir(id)
+        change_archive_state(conn, fault, RecordKind::Choir, id.entity(), None, |tx| {
+            read_choir(tx, id)
+        })
     }
 
     /// Archives one Song work at the worker clock; its Arrangements are untouched.
     pub(crate) fn archive_song(&mut self, id: SongId) -> Result<SongRecord, StorageError> {
         let stamp = timestamp_text(self.timestamp())?;
         let (conn, _ids, fault) = self.write_parts()?;
-        change_archive_state(conn, fault, RecordKind::Song, id.entity(), Some(stamp))?;
-        self.song(id)
+        change_archive_state(
+            conn,
+            fault,
+            RecordKind::Song,
+            id.entity(),
+            Some(stamp),
+            |tx| read_song(tx, id),
+        )
     }
 
     /// Restores one archived Song work.
     pub(crate) fn restore_song(&mut self, id: SongId) -> Result<SongRecord, StorageError> {
         let (conn, _ids, fault) = self.write_parts()?;
-        change_archive_state(conn, fault, RecordKind::Song, id.entity(), None)?;
-        self.song(id)
+        change_archive_state(conn, fault, RecordKind::Song, id.entity(), None, |tx| {
+            read_song(tx, id)
+        })
     }
 
     /// Archives one Arrangement at the worker clock.
@@ -1096,8 +1125,8 @@ impl Core {
             RecordKind::Arrangement,
             id.entity(),
             Some(stamp),
-        )?;
-        self.arrangement(id)
+            |tx| read_arrangement(tx, id),
+        )
     }
 
     /// Restores one archived Arrangement.
@@ -1106,8 +1135,14 @@ impl Core {
         id: ArrangementId,
     ) -> Result<ArrangementRecord, StorageError> {
         let (conn, _ids, fault) = self.write_parts()?;
-        change_archive_state(conn, fault, RecordKind::Arrangement, id.entity(), None)?;
-        self.arrangement(id)
+        change_archive_state(
+            conn,
+            fault,
+            RecordKind::Arrangement,
+            id.entity(),
+            None,
+            |tx| read_arrangement(tx, id),
+        )
     }
 
     /// Sets one Arrangement's pagination state.
@@ -1117,8 +1152,7 @@ impl Core {
         state: PaginationState,
     ) -> Result<ArrangementRecord, StorageError> {
         let (conn, _ids, fault) = self.write_parts()?;
-        change_pagination(conn, fault, id, state)?;
-        self.arrangement(id)
+        change_pagination(conn, fault, id, state)
     }
 
     /// Creates one Song with its aliases, moments, and occasions.
