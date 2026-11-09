@@ -38,6 +38,7 @@ pub mod recovery;
 pub mod settings;
 pub mod shell;
 pub mod shortcut_reference;
+pub mod songs;
 
 pub const BUILD_IDENTITY: &str = concat!("ordo/", env!("CARGO_PKG_VERSION"));
 
@@ -457,7 +458,10 @@ fn controlled_worker(kind: WorkerKind) -> Result<OwnedWorker<()>, WorkerStartErr
 pub fn open_native_runtime(cx: &mut App) -> Result<NativeRuntime, RuntimeError> {
     let preferences_path =
         installation_preferences_path().map_err(RuntimeError::PreferencesPath)?;
-    open_native_runtime_at(cx, preferences_path)
+    // Only the real entry point opens the parish store; the `_at` and `_with`
+    // variants (tests, labs) never touch real parish data.
+    let parish = platform::preferences::parish_data_dir().map_err(|error| error.to_string());
+    open_runtime(cx, preferences_path, Some(parish), GpuiDisplaySource)
 }
 
 /// Testable runtime entry point whose installation preferences never need a real user path.
@@ -467,6 +471,9 @@ pub fn open_native_runtime_at(
 ) -> Result<NativeRuntime, RuntimeError> {
     open_native_runtime_with(cx, preferences_path, GpuiDisplaySource)
 }
+
+/// Where the Songs screens get their library.
+type ParishSource = Option<Result<std::path::PathBuf, String>>;
 
 /// Start the UI layer and bind every registered command key, so the
 /// Presenter's keys (Space, Esc, B, F, ...) work in the app and not only in
@@ -482,6 +489,15 @@ pub fn init_ui(cx: &mut App) -> Result<(), String> {
 pub fn open_native_runtime_with(
     cx: &mut App,
     preferences_path: impl AsRef<Path>,
+    displays: impl DisplaySource + 'static,
+) -> Result<NativeRuntime, RuntimeError> {
+    open_runtime(cx, preferences_path, None, displays)
+}
+
+fn open_runtime(
+    cx: &mut App,
+    preferences_path: impl AsRef<Path>,
+    parish: ParishSource,
     displays: impl DisplaySource + 'static,
 ) -> Result<NativeRuntime, RuntimeError> {
     // Ordo owns exit on Windows/Linux; explicit mode also makes startup rollback recoverable.
@@ -522,6 +538,16 @@ pub fn open_native_runtime_with(
                     window,
                     cx,
                 );
+                // Opened off the UI thread; Library shows Loading until it is
+                // ready, and Unavailable if it cannot be. Presenter Mode never
+                // reads it.
+                if let Some(parish) = parish {
+                    let store = cx.new(|cx| match parish {
+                        Ok(directory) => songs::LibraryStore::open(directory, cx),
+                        Err(message) => songs::LibraryStore::unavailable(message, cx),
+                    });
+                    root.set_library_store(store, window, cx);
+                }
                 root.set_journal_writer(journal);
                 root.begin_startup_check(cx);
                 window.focus(&root.focus_handle(cx), cx);
