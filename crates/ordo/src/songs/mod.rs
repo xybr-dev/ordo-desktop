@@ -6,6 +6,8 @@
 //! [`library`] is the Songs master-detail workspace over it.
 
 pub mod choirs;
+#[cfg(test)]
+mod e2e;
 pub mod library;
 pub mod store;
 

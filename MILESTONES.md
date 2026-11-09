@@ -1112,26 +1112,26 @@ Arrangement editing.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Library exposes local Songs, Responses & Prayers, and General
+- [x] `[UI-AUTO]` Library exposes local Songs, Responses & Prayers, and General
       Presentations views; this task implements Songs and Choirs without
       placeholder repository/API layers for the later views.
-- [ ] `[UI-AUTO]` Songs uses the permanent master-detail shell for empty,
+- [x] `[UI-AUTO]` Songs uses the permanent master-detail shell for empty,
       populated, no-match, archived-only, and selected states.
-- [ ] `[UI-AUTO]` Empty state offers Create song and Import `.ordo` without an
+- [x] `[UI-AUTO]` Empty state offers Create song and Import `.ordo` without an
       onboarding dashboard or layout replacement.
-- [ ] `[AUTO]` Search is normalized and case-insensitive across Song titles,
+- [x] `[AUTO]` Search is normalized and case-insensitive across Song titles,
       aliases, attribution/source, Arrangement title/attribution, Choir,
       language, and full lyrics.
-- [ ] `[AUTO]` Choir/language/occasion filters retain a Song only when one
+- [x] `[AUTO]` Choir/language/occasion filters retain a Song only when one
       Arrangement satisfies every active filter; missing metadata is
       Unspecified.
-- [ ] `[UI-AUTO]` Match evidence explains alias or lyric hits and matching vs
+- [x] `[UI-AUTO]` Match evidence explains alias or lyric hits and matching vs
       total Arrangements without changing authored text.
-- [ ] `[UI-AUTO]` Selection, query, filters, and scroll survive entering and
+- [x] `[UI-AUTO]` Selection, query, filters, and scroll survive entering and
       returning from an Arrangement.
-- [ ] `[UI-AUTO]` Choir management supports name-only creation, optional details,
+- [x] `[UI-AUTO]` Choir management supports name-only creation, optional details,
       archive visibility, and duplicate-safe inline quick-create.
-- [ ] `[UI-AUTO]` Include archived is off by default and deliberately adds
+- [x] `[UI-AUTO]` Include archived is off by default and deliberately adds
       archived Songs/Arrangements to search without changing their state.
 
 **E2E** `[UI-AUTO]` — Seed mixed Songs/Arrangements, combine search with three
