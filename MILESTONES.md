@@ -1078,22 +1078,22 @@ revision; assert current content and immutable history at each step.
 
 **AC**
 
-- [ ] `[AUTO]` A Song work owns identity, title, aliases, original attribution,
+- [x] `[AUTO]` A Song work owns identity, title, aliases, original attribution,
       provenance, rights notes, liturgical moments, applicability, and archive
       state; primary title is the only creation requirement.
-- [ ] `[AUTO]` An Arrangement belongs to one Song and independently owns title,
+- [x] `[AUTO]` An Arrangement belongs to one Song and independently owns title,
       languages, Choir associations, rendition attribution, applicability,
       sections, Sequence, pagination state, and archive state.
-- [ ] `[AUTO]` Numbered settings such as Kyrie 8th and Kyrie 13th remain separate
+- [x] `[AUTO]` Numbered settings such as Kyrie 8th and Kyrie 13th remain separate
       Song works; translated renditions retaining one composition are separate
       Arrangements.
-- [ ] `[AUTO]` Multiple Choirs may share one exact Arrangement; Songs and
+- [x] `[AUTO]` Multiple Choirs may share one exact Arrangement; Songs and
       Arrangements remain valid without a Choir.
-- [ ] `[AUTO]` Normalized case-insensitive duplicate evidence never rewrites
+- [x] `[AUTO]` Normalized case-insensitive duplicate evidence never rewrites
       authored capitalization or automatically unites entities.
-- [ ] `[AUTO]` Archival is non-cascading and reversible; permanent deletion is
+- [x] `[AUTO]` Archival is non-cascading and reversible; permanent deletion is
       allowed only after reference_safety checks and never cascades.
-- [ ] `[AUTO]` Song merge and redirect behavior is absent from the MVP Interface.
+- [x] `[AUTO]` Song merge and redirect behavior is absent from the MVP Interface.
 
 **E2E** `[AUTO]` — Create two numbered Kyries, one Song with Cebuano and English
 Arrangements shared across different Choir sets, archive the parent and one
