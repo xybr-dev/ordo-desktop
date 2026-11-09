@@ -20,7 +20,7 @@ const BLOCKING: [&str; 6] = [
 ];
 
 /// Reviewed production sites: (file relative to `src/`, trimmed line, why).
-const REVIEWED: [(&str, &str, &str); 8] = [
+const REVIEWED: [(&str, &str, &str); 9] = [
     (
         "canonical.rs",
         "while let Ok(command) = requests.recv() {",
@@ -60,6 +60,11 @@ const REVIEWED: [(&str, &str, &str); 8] = [
         "performance/live.rs",
         "while let Ok(command) = requests.recv_blocking() {",
         "thumbnail worker thread loop",
+    ),
+    (
+        "songs/store.rs",
+        ".recv()",
+        "async reply channel awaited on the foreground executor, not a blocking wait",
     ),
 ];
 
