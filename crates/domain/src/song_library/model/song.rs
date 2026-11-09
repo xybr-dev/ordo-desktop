@@ -23,13 +23,16 @@ use super::text;
 pub struct SongDraft {
     /// The primary parish title, exactly as authored; the only required value.
     pub title: String,
-    /// Alternate titles in authored order, exactly as authored.
+    /// Alternate titles in authored order, exactly as authored; must not repeat
+    /// or equal the primary title.
     pub aliases: Vec<String>,
-    /// Who the work is originally attributed to, exactly as authored.
+    /// Who the work is originally attributed to, exactly as authored; when
+    /// present, must not be blank.
     pub original_attribution: Option<String>,
-    /// Where the work came from, exactly as authored.
+    /// Where the work came from, exactly as authored; when present, must not be
+    /// blank.
     pub provenance: Option<String>,
-    /// Rights notes, exactly as authored.
+    /// Rights notes, exactly as authored; when present, must not be blank.
     pub rights_notes: Option<String>,
     /// Liturgical moments the work belongs to, such as Entrance.
     pub liturgical_moments: Vec<String>,
@@ -154,10 +157,19 @@ impl SongContent {
     /// Checks every field rule before any value is stored.
     fn validate(draft: SongDraft) -> Result<Self, SongLibraryError> {
         text::require_present(Field::SongTitle, &draft.title)?;
+        text::require_present_when_given(
+            Field::OriginalAttribution,
+            draft.original_attribution.as_deref(),
+        )?;
+        text::require_present_when_given(Field::Provenance, draft.provenance.as_deref())?;
+        text::require_present_when_given(Field::RightsNotes, draft.rights_notes.as_deref())?;
         for alias in &draft.aliases {
-            text::require_present(Field::Alias, alias)?;
+            text::require_present(Field::Aliases, alias)?;
         }
-        text::require_distinct(Field::Alias, &draft.aliases)?;
+        text::require_distinct(Field::Aliases, &draft.aliases)?;
+        if draft.aliases.iter().any(|alias| alias == &draft.title) {
+            return Err(SongLibraryError::DuplicateField(Field::Aliases));
+        }
         for moment in &draft.liturgical_moments {
             text::require_present(Field::LiturgicalMoment, moment)?;
         }

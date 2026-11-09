@@ -148,6 +148,9 @@ fn validate_song(song: &NewSong) -> Result<(), StorageError> {
     validate_song_fields(
         &song.title,
         &song.aliases,
+        song.original_attribution.as_deref(),
+        song.provenance.as_deref(),
+        song.rights_notes.as_deref(),
         &song.liturgical_moments,
         &song.occasions,
     )
@@ -157,12 +160,31 @@ fn validate_song(song: &NewSong) -> Result<(), StorageError> {
 pub(crate) fn validate_song_fields(
     title: &str,
     aliases: &[String],
+    original_attribution: Option<&str>,
+    provenance: Option<&str>,
+    rights_notes: Option<&str>,
     liturgical_moments: &[String],
     occasions: &[String],
 ) -> Result<(), StorageError> {
     require_present("title", title)?;
     for alias in aliases {
         require_present("alias", alias)?;
+    }
+    require_distinct("alias", aliases)?;
+    if aliases.iter().any(|alias| alias == title) {
+        return Err(StorageError::InvalidInput {
+            field: "alias",
+            reason: "duplicate",
+        });
+    }
+    for (field, value) in [
+        ("original_attribution", original_attribution),
+        ("provenance", provenance),
+        ("rights_notes", rights_notes),
+    ] {
+        if let Some(value) = value {
+            require_present(field, value)?;
+        }
     }
     for moment in liturgical_moments {
         require_present("liturgical_moment", moment)?;
@@ -181,6 +203,7 @@ fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError
         &arrangement.title,
         &arrangement.languages,
         &arrangement.choirs,
+        arrangement.rendition_attribution.as_deref(),
         &arrangement.occasions,
         arrangement
             .sections
@@ -205,6 +228,7 @@ pub(crate) fn validate_arrangement_fields<'a>(
     title: &str,
     languages: &[String],
     choirs: &[ChoirId],
+    rendition_attribution: Option<&str>,
     occasions: &[String],
     labels: impl Iterator<Item = Option<&'a str>>,
 ) -> Result<(), StorageError> {
@@ -214,6 +238,9 @@ pub(crate) fn validate_arrangement_fields<'a>(
     }
     require_distinct("language", languages)?;
     require_distinct("choir", choirs)?;
+    if let Some(value) = rendition_attribution {
+        require_present("rendition_attribution", value)?;
+    }
     for occasion in occasions {
         require_present("occasion", occasion)?;
     }

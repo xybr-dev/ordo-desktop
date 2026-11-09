@@ -24,8 +24,14 @@ use super::model::{
 pub enum Field {
     /// A Song work's primary title.
     SongTitle,
-    /// One alternate title of a Song work.
-    Alias,
+    /// The alternate titles of a Song work.
+    Aliases,
+    /// A Song work's original attribution.
+    OriginalAttribution,
+    /// A Song work's provenance.
+    Provenance,
+    /// A Song work's rights notes.
+    RightsNotes,
     /// One liturgical moment of a Song work.
     LiturgicalMoment,
     /// One occasion applicability tag.
@@ -36,6 +42,8 @@ pub enum Field {
     ArrangementTitle,
     /// One language of an Arrangement.
     Language,
+    /// An Arrangement's rendition attribution.
+    RenditionAttribution,
     /// One section label.
     SectionLabel,
     /// One Choir association of an Arrangement.
@@ -46,12 +54,16 @@ impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::SongTitle => "Song title",
-            Self::Alias => "alias",
+            Self::Aliases => "alias",
+            Self::OriginalAttribution => "original attribution",
+            Self::Provenance => "provenance",
+            Self::RightsNotes => "rights notes",
             Self::LiturgicalMoment => "liturgical moment",
             Self::Occasion => "occasion",
             Self::ChoirName => "Choir name",
             Self::ArrangementTitle => "Arrangement title",
             Self::Language => "language",
+            Self::RenditionAttribution => "rendition attribution",
             Self::SectionLabel => "section label",
             Self::Choir => "Choir association",
         })
@@ -77,9 +89,10 @@ pub enum SongLibraryError {
     DuplicateSection(SectionId),
     /// An occurrence already has this identity.
     DuplicateOccurrence(OccurrenceId),
-    /// A required authored value is empty or only whitespace.
+    /// An authored value that is present but empty or only whitespace.
     BlankField(Field),
-    /// A field that holds a set of values repeats one value.
+    /// A field contains a value that duplicates another value it may not
+    /// repeat.
     DuplicateField(Field),
     /// An occurrence names a section that is not one of its Arrangement's own
     /// sections.
@@ -202,32 +215,63 @@ impl SongLibrary {
             .ok_or(SongLibraryError::UnknownArrangement(id))
     }
 
-    /// Every Arrangement of one Song work, in identity order.
+    /// Every Arrangement of one Song work, in creation-time then identity
+    /// order.
     pub fn arrangements_for_song(
         &self,
         song: SongId,
-    ) -> Result<impl Iterator<Item = &Arrangement> + '_, SongLibraryError> {
+    ) -> Result<Vec<&Arrangement>, SongLibraryError> {
         if !self.songs.contains_key(&song) {
             return Err(SongLibraryError::UnknownSong(song));
         }
         Ok(self
-            .arrangements
-            .values()
-            .filter(move |arrangement| arrangement.song() == song))
+            .arrangements_in_creation_order()
+            .into_iter()
+            .filter(|arrangement| arrangement.song() == song)
+            .collect())
+    }
+
+    /// Every exact Arrangement one Choir sings, in creation-time then identity
+    /// order.
+    pub fn choir_arrangements(
+        &self,
+        choir: ChoirId,
+    ) -> Result<Vec<&Arrangement>, SongLibraryError> {
+        if !self.choirs.contains_key(&choir) {
+            return Err(SongLibraryError::UnknownChoir(choir));
+        }
+        Ok(self
+            .arrangements_in_creation_order()
+            .into_iter()
+            .filter(|arrangement| arrangement.choirs().contains(&choir))
+            .collect())
+    }
+
+    /// Every Arrangement in creation-time then identity order.
+    fn arrangements_in_creation_order(&self) -> Vec<&Arrangement> {
+        let mut arrangements: Vec<&Arrangement> = self.arrangements.values().collect();
+        arrangements.sort_by_key(|arrangement| (arrangement.created_at(), arrangement.id()));
+        arrangements
     }
 
     /// Creates one Arrangement of `song` and returns it.
     ///
-    /// The identity must be unused, the Song must exist, every Choir must
-    /// exist, and every section and occurrence identity must be free. A new
-    /// Arrangement starts with [`super::PaginationState::Draft`] pagination and
-    /// an active archive state.
+    /// The identity must be unused, the Song must exist, every Choir in
+    /// `choirs` must exist and be distinct, and every section and occurrence
+    /// identity must be free. A new Arrangement starts with
+    /// [`super::PaginationState::Draft`] pagination and an active archive state.
+    ///
+    /// `draft` carries authored content only; Choir associations change only
+    /// through [`Self::set_arrangement_choirs`],
+    /// [`Self::add_arrangement_choir`], and
+    /// [`Self::remove_arrangement_choir`].
     pub fn create_arrangement(
         &mut self,
         id: ArrangementId,
         song: SongId,
         created_at: Timestamp,
         draft: ArrangementDraft,
+        choirs: Vec<ChoirId>,
     ) -> Result<&Arrangement, SongLibraryError> {
         if self.arrangements.contains_key(&id) {
             return Err(SongLibraryError::DuplicateArrangement(id));
@@ -235,9 +279,15 @@ impl SongLibrary {
         if !self.songs.contains_key(&song) {
             return Err(SongLibraryError::UnknownSong(song));
         }
-        self.require_choirs_exist(&draft.choirs)?;
-        self.require_free_section_and_occurrence_ids(&draft, None)?;
-        let arrangement = Arrangement::new(id, song, created_at, draft)?;
+        text::require_distinct(Field::Choir, &choirs)?;
+        self.require_choirs_exist(&choirs)?;
+        Self::require_free_section_and_occurrence_ids(
+            &self.section_ids,
+            &self.occurrence_ids,
+            &draft,
+            None,
+        )?;
+        let arrangement = Arrangement::new(id, song, created_at, draft, choirs)?;
         self.section_ids
             .extend(arrangement.sections().iter().map(Section::id));
         self.occurrence_ids
@@ -248,61 +298,51 @@ impl SongLibrary {
 
     /// Replaces the authored content of one Arrangement.
     ///
-    /// The owning Song, identity, creation time, and archive state are
-    /// preserved. Every Choir must exist. Section and occurrence identities
-    /// that already belong to this Arrangement may be reused; an identity owned
-    /// by another Arrangement is refused.
+    /// The owning Song, identity, creation time, Choir associations, and
+    /// archive state are preserved. Section and occurrence identities that
+    /// already belong to this Arrangement may be reused; an identity owned by
+    /// another Arrangement is refused.
     ///
-    /// A change to a section's lyrics or label, to the section list, or to the
-    /// Sequence moves an approved Arrangement to
-    /// [`super::PaginationState::NeedsReview`].
+    /// Adding or removing a section, changing a section's lyrics or label, or
+    /// changing the Sequence moves an approved Arrangement to
+    /// [`super::PaginationState::NeedsReview`]. Title, language, attribution,
+    /// occasion, and section-order changes do not.
     pub fn edit_arrangement(
         &mut self,
         id: ArrangementId,
         draft: ArrangementDraft,
     ) -> Result<&Arrangement, SongLibraryError> {
-        let (previous_sections, previous_occurrences) = {
-            let previous = self
-                .arrangements
-                .get(&id)
-                .ok_or(SongLibraryError::UnknownArrangement(id))?;
-            (
-                previous
-                    .sections()
-                    .iter()
-                    .map(Section::id)
-                    .collect::<BTreeSet<_>>(),
-                previous
-                    .sequence()
-                    .iter()
-                    .map(Occurrence::id)
-                    .collect::<BTreeSet<_>>(),
-            )
-        };
-        self.require_choirs_exist(&draft.choirs)?;
-        self.require_free_section_and_occurrence_ids(
+        let arrangement = self
+            .arrangements
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        let previous_sections = arrangement
+            .sections()
+            .iter()
+            .map(Section::id)
+            .collect::<BTreeSet<_>>();
+        let previous_occurrences = arrangement
+            .sequence()
+            .iter()
+            .map(Occurrence::id)
+            .collect::<BTreeSet<_>>();
+        Self::require_free_section_and_occurrence_ids(
+            &self.section_ids,
+            &self.occurrence_ids,
             &draft,
             Some((&previous_sections, &previous_occurrences)),
         )?;
-        let (next_sections, next_occurrences) = {
-            let arrangement = self
-                .arrangements
-                .get_mut(&id)
-                .ok_or(SongLibraryError::UnknownArrangement(id))?;
-            arrangement.replace_content(draft)?;
-            (
-                arrangement
-                    .sections()
-                    .iter()
-                    .map(Section::id)
-                    .collect::<Vec<_>>(),
-                arrangement
-                    .sequence()
-                    .iter()
-                    .map(Occurrence::id)
-                    .collect::<Vec<_>>(),
-            )
-        };
+        arrangement.replace_content(draft)?;
+        let next_sections = arrangement
+            .sections()
+            .iter()
+            .map(Section::id)
+            .collect::<Vec<_>>();
+        let next_occurrences = arrangement
+            .sequence()
+            .iter()
+            .map(Occurrence::id)
+            .collect::<Vec<_>>();
         for section in previous_sections {
             self.section_ids.remove(&section);
         }
@@ -311,7 +351,7 @@ impl SongLibrary {
             self.occurrence_ids.remove(&occurrence);
         }
         self.occurrence_ids.extend(next_occurrences);
-        self.arrangement(id)
+        Ok(arrangement)
     }
 
     /// Every Choir, in identity order.
@@ -363,15 +403,16 @@ impl SongLibrary {
         id: ArrangementId,
         choirs: Vec<ChoirId>,
     ) -> Result<(), SongLibraryError> {
-        if !self.arrangements.contains_key(&id) {
-            return Err(SongLibraryError::UnknownArrangement(id));
-        }
-        text::require_distinct(Field::Choir, &choirs)?;
-        self.require_choirs_exist(&choirs)?;
         let arrangement = self
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        text::require_distinct(Field::Choir, &choirs)?;
+        for choir in &choirs {
+            if !self.choirs.contains_key(choir) {
+                return Err(SongLibraryError::UnknownChoir(*choir));
+            }
+        }
         arrangement.replace_choirs(choirs);
         Ok(())
     }
@@ -385,17 +426,14 @@ impl SongLibrary {
         arrangement: ArrangementId,
         choir: ChoirId,
     ) -> Result<(), SongLibraryError> {
-        if !self.arrangements.contains_key(&arrangement) {
-            return Err(SongLibraryError::UnknownArrangement(arrangement));
-        }
-        if !self.choirs.contains_key(&choir) {
-            return Err(SongLibraryError::UnknownChoir(choir));
-        }
-        let arrangement = self
+        let stored = self
             .arrangements
             .get_mut(&arrangement)
             .ok_or(SongLibraryError::UnknownArrangement(arrangement))?;
-        arrangement.add_choir(choir);
+        if !self.choirs.contains_key(&choir) {
+            return Err(SongLibraryError::UnknownChoir(choir));
+        }
+        stored.add_choir(choir);
         Ok(())
     }
 
@@ -465,9 +503,13 @@ impl SongLibrary {
     /// already owns.
     ///
     /// `previous` names the identities the edited Arrangement is giving up, so
-    /// an ordinary edit that keeps its own identities succeeds.
+    /// an ordinary edit that keeps its own identities succeeds. This is an
+    /// associated function rather than a method so the caller can hold the
+    /// Arrangement's mutable borrow while validating against the library's
+    /// identity sets.
     fn require_free_section_and_occurrence_ids(
-        &self,
+        section_ids: &BTreeSet<SectionId>,
+        occurrence_ids: &BTreeSet<OccurrenceId>,
         draft: &ArrangementDraft,
         previous: Option<(&BTreeSet<SectionId>, &BTreeSet<OccurrenceId>)>,
     ) -> Result<(), SongLibraryError> {
@@ -478,12 +520,12 @@ impl SongLibrary {
             None => (&empty_sections, &empty_occurrences),
         };
         for section in &draft.sections {
-            if self.section_ids.contains(&section.id) && !previous_sections.contains(&section.id) {
+            if section_ids.contains(&section.id) && !previous_sections.contains(&section.id) {
                 return Err(SongLibraryError::DuplicateSection(section.id));
             }
         }
         for occurrence in &draft.sequence {
-            if self.occurrence_ids.contains(&occurrence.id)
+            if occurrence_ids.contains(&occurrence.id)
                 && !previous_occurrences.contains(&occurrence.id)
             {
                 return Err(SongLibraryError::DuplicateOccurrence(occurrence.id));
@@ -537,7 +579,6 @@ mod tests {
         ArrangementDraft {
             title: title.to_owned(),
             languages: vec!["Cebuano".to_owned()],
-            choirs: Vec::new(),
             rendition_attribution: None,
             occasions: Vec::new(),
             sections: vec![
@@ -550,6 +591,15 @@ mod tests {
                 OccurrenceDraft::new(occurrence(base + 2), first),
             ],
         }
+    }
+
+    /// Asserts a refused call reports `expected` and leaves `library` unchanged.
+    macro_rules! assert_refused {
+        ($library:ident, $expected:expr, $call:expr) => {{
+            let before = $library.clone();
+            assert_eq!($call.unwrap_err(), $expected);
+            assert_eq!($library, before, "a refused call changes nothing");
+        }};
     }
 
     #[test]
@@ -627,71 +677,99 @@ mod tests {
     }
 
     #[test]
-    fn song_validation_names_the_failing_field() {
+    fn song_validation_names_the_failing_field_and_changes_nothing() {
         let mut library = SongLibrary::new();
-        assert_eq!(
-            library
-                .create_song(song(1), at(), SongDraft::default())
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::SongTitle)
+
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::SongTitle),
+            library.create_song(song(1), at(), SongDraft::default())
+        );
+
+        let mut blank_original_attribution = SongDraft::titled("Kyrie");
+        blank_original_attribution.original_attribution = Some(" \t ".to_owned());
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::OriginalAttribution),
+            library.create_song(song(2), at(), blank_original_attribution)
+        );
+
+        let mut blank_provenance = SongDraft::titled("Kyrie");
+        blank_provenance.provenance = Some(" ".to_owned());
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::Provenance),
+            library.create_song(song(3), at(), blank_provenance)
+        );
+
+        let mut blank_rights_notes = SongDraft::titled("Kyrie");
+        blank_rights_notes.rights_notes = Some(String::new());
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::RightsNotes),
+            library.create_song(song(4), at(), blank_rights_notes)
         );
 
         let mut blank_alias = SongDraft::titled("Kyrie");
         blank_alias.aliases = vec![" \t ".to_owned()];
-        assert_eq!(
-            library.create_song(song(2), at(), blank_alias).unwrap_err(),
-            SongLibraryError::BlankField(Field::Alias)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::Aliases),
+            library.create_song(song(5), at(), blank_alias)
         );
 
         let mut duplicate_alias = SongDraft::titled("Kyrie");
         duplicate_alias.aliases = vec!["Kyrie 8".to_owned(), "Kyrie 8".to_owned()];
-        assert_eq!(
-            library
-                .create_song(song(3), at(), duplicate_alias)
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::Alias)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Aliases),
+            library.create_song(song(6), at(), duplicate_alias)
         );
 
-        let mut case_distinct = SongDraft::titled("Kyrie");
-        case_distinct.aliases = vec!["Kyrie".to_owned(), "kyrie".to_owned()];
+        let mut title_alias = SongDraft::titled("Kyrie");
+        title_alias.aliases = vec!["Kyrie".to_owned()];
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Aliases),
+            library.create_song(song(7), at(), title_alias)
+        );
+
+        let mut case_distinct = SongDraft::titled("Kyrie VIII");
+        case_distinct.aliases = vec!["kyrie 8".to_owned(), "Kyrie 8".to_owned()];
         library
-            .create_song(song(4), at(), case_distinct)
+            .create_song(song(8), at(), case_distinct)
             .expect("authored case is preserved and not normalized here");
 
         let mut blank_moment = SongDraft::titled("Kyrie");
         blank_moment.liturgical_moments = vec![" ".to_owned()];
-        assert_eq!(
-            library
-                .create_song(song(5), at(), blank_moment)
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::LiturgicalMoment)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::LiturgicalMoment),
+            library.create_song(song(9), at(), blank_moment)
         );
 
         let mut duplicate_moment = SongDraft::titled("Kyrie");
         duplicate_moment.liturgical_moments = vec!["Entrance".to_owned(), "Entrance".to_owned()];
-        assert_eq!(
-            library
-                .create_song(song(6), at(), duplicate_moment)
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::LiturgicalMoment)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::LiturgicalMoment),
+            library.create_song(song(10), at(), duplicate_moment)
         );
 
         let mut blank_occasion = SongDraft::titled("Kyrie");
         blank_occasion.occasions = vec!["".to_owned()];
-        assert_eq!(
-            library
-                .create_song(song(7), at(), blank_occasion)
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::Occasion)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::Occasion),
+            library.create_song(song(11), at(), blank_occasion)
         );
 
         let mut duplicate_occasion = SongDraft::titled("Kyrie");
         duplicate_occasion.occasions = vec!["Lent".to_owned(), "Lent".to_owned()];
-        assert_eq!(
-            library
-                .create_song(song(8), at(), duplicate_occasion)
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::Occasion)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Occasion),
+            library.create_song(song(12), at(), duplicate_occasion)
         );
     }
 
@@ -702,33 +780,42 @@ mod tests {
         library
             .create_song(song_id, at(), SongDraft::titled("Kyrie"))
             .expect("created");
-        assert_eq!(
-            library
-                .create_song(song_id, at(), SongDraft::titled("Another"))
-                .unwrap_err(),
-            SongLibraryError::DuplicateSong(song_id)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateSong(song_id),
+            library.create_song(song_id, at(), SongDraft::titled("Another"))
         );
 
         let choir_id = choir(1);
         library
             .create_choir(choir_id, at(), "Youth".to_owned())
             .expect("created");
-        assert_eq!(
-            library
-                .create_choir(choir_id, at(), "Adult".to_owned())
-                .unwrap_err(),
-            SongLibraryError::DuplicateChoir(choir_id)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateChoir(choir_id),
+            library.create_choir(choir_id, at(), "Adult".to_owned())
         );
 
         let arrangement_id = arrangement(1);
         library
-            .create_arrangement(arrangement_id, song_id, at(), arrangement_draft("One", 10))
+            .create_arrangement(
+                arrangement_id,
+                song_id,
+                at(),
+                arrangement_draft("One", 10),
+                Vec::new(),
+            )
             .expect("created");
-        assert_eq!(
-            library
-                .create_arrangement(arrangement_id, song_id, at(), arrangement_draft("Two", 20))
-                .unwrap_err(),
-            SongLibraryError::DuplicateArrangement(arrangement_id)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateArrangement(arrangement_id),
+            library.create_arrangement(
+                arrangement_id,
+                song_id,
+                at(),
+                arrangement_draft("Two", 20),
+                Vec::new(),
+            )
         );
     }
 
@@ -752,11 +839,10 @@ mod tests {
         let created_at = at();
         let mut draft = arrangement_draft("Cebuano", 10);
         draft.languages = vec!["Cebuano".to_owned(), "English".to_owned()];
-        draft.choirs = vec![youth, adult];
         draft.rendition_attribution = Some("Sr. Maria".to_owned());
         draft.occasions = vec!["Lent".to_owned()];
         let created = library
-            .create_arrangement(id, song_id, created_at, draft)
+            .create_arrangement(id, song_id, created_at, draft, vec![youth, adult])
             .expect("arrangement");
 
         assert_eq!(created.id(), id);
@@ -798,6 +884,13 @@ mod tests {
         assert_eq!(edited.created_at(), created_at);
         assert_eq!(edited.pagination_state(), PaginationState::Draft);
         assert_eq!(
+            edited.choirs().len(),
+            2,
+            "a content edit never changes Choir associations"
+        );
+        assert!(edited.choirs().contains(&youth));
+        assert!(edited.choirs().contains(&adult));
+        assert_eq!(
             library.song(song_id).expect("song").title(),
             "Kyrie",
             "editing an Arrangement never changes the Song work"
@@ -838,14 +931,14 @@ mod tests {
         let mut english_draft = arrangement_draft("English", 20);
         english_draft.languages = vec!["English".to_owned()];
         library
-            .create_arrangement(cebuano, eighth, at(), cebuano_draft)
+            .create_arrangement(cebuano, eighth, at(), cebuano_draft, Vec::new())
             .expect("Cebuano");
         library
-            .create_arrangement(english, eighth, at(), english_draft)
+            .create_arrangement(english, eighth, at(), english_draft, Vec::new())
             .expect("English");
 
         assert_eq!(
-            library.arrangements_for_song(eighth).expect("song").count(),
+            library.arrangements_for_song(eighth).expect("song").len(),
             2,
             "both translated renditions remain Arrangements of one work"
         );
@@ -869,7 +962,13 @@ mod tests {
 
         let no_choir = arrangement(1);
         library
-            .create_arrangement(no_choir, song_id, at(), arrangement_draft("A cappella", 10))
+            .create_arrangement(
+                no_choir,
+                song_id,
+                at(),
+                arrangement_draft("A cappella", 10),
+                Vec::new(),
+            )
             .expect("an Arrangement needs no Choir");
         assert!(
             library
@@ -890,7 +989,13 @@ mod tests {
 
         let shared = arrangement(2);
         library
-            .create_arrangement(shared, song_id, at(), arrangement_draft("Shared", 20))
+            .create_arrangement(
+                shared,
+                song_id,
+                at(),
+                arrangement_draft("Shared", 20),
+                Vec::new(),
+            )
             .expect("shared");
         library
             .add_arrangement_choir(shared, youth)
@@ -949,30 +1054,33 @@ mod tests {
                 .is_empty()
         );
 
-        assert_eq!(
-            library
-                .set_arrangement_choirs(shared, vec![youth, youth])
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::Choir)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Choir),
+            library.set_arrangement_choirs(shared, vec![youth, youth])
         );
-        assert_eq!(
-            library
-                .set_arrangement_choirs(shared, vec![choir(9)])
-                .unwrap_err(),
-            SongLibraryError::UnknownChoir(choir(9))
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(choir(9)),
+            library.set_arrangement_choirs(shared, vec![choir(9)])
         );
-        assert_eq!(
-            library.add_arrangement_choir(shared, choir(9)).unwrap_err(),
-            SongLibraryError::UnknownChoir(choir(9))
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(choir(9)),
+            library.add_arrangement_choir(shared, choir(9))
         );
 
-        let mut unknown_choir = arrangement_draft("Unknown Choir", 30);
-        unknown_choir.choirs = vec![choir(9)];
-        assert_eq!(
-            library
-                .create_arrangement(arrangement(3), song_id, at(), unknown_choir)
-                .unwrap_err(),
-            SongLibraryError::UnknownChoir(choir(9))
+        let unknown_choir = arrangement_draft("Unknown Choir", 30);
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(choir(9)),
+            library.create_arrangement(
+                arrangement(3),
+                song_id,
+                at(),
+                unknown_choir,
+                vec![choir(9)]
+            )
         );
     }
 
@@ -996,20 +1104,17 @@ mod tests {
         let first = arrangement(1);
         let second = arrangement(2);
         let unrelated = arrangement(3);
-        let mut first_draft = arrangement_draft("Kyrie Cebuano", 10);
-        first_draft.choirs = vec![youth];
-        let mut second_draft = arrangement_draft("Kyrie English", 20);
-        second_draft.choirs = vec![youth];
-        let mut unrelated_draft = arrangement_draft("Gloria", 30);
-        unrelated_draft.choirs = Vec::new();
+        let first_draft = arrangement_draft("Kyrie Cebuano", 10);
+        let second_draft = arrangement_draft("Kyrie English", 20);
+        let unrelated_draft = arrangement_draft("Gloria", 30);
         library
-            .create_arrangement(first, first_song, at(), first_draft)
+            .create_arrangement(first, first_song, at(), first_draft, vec![youth])
             .expect("first arrangement");
         library
-            .create_arrangement(second, first_song, at(), second_draft)
+            .create_arrangement(second, first_song, at(), second_draft, vec![youth])
             .expect("second arrangement");
         library
-            .create_arrangement(unrelated, second_song, at(), unrelated_draft)
+            .create_arrangement(unrelated, second_song, at(), unrelated_draft, Vec::new())
             .expect("unrelated");
 
         let repertoire = library.choir_repertoire(youth).expect("repertoire");
@@ -1019,10 +1124,59 @@ mod tests {
             "two qualifying Arrangements of one Song add it once"
         );
         assert_eq!(repertoire[0].id(), first_song);
+
+        assert_eq!(
+            library
+                .choir_arrangements(youth)
+                .expect("renditions")
+                .iter()
+                .map(|arrangement| arrangement.id())
+                .collect::<Vec<_>>(),
+            vec![first, second],
+            "choir_arrangements lists the exact renditions the Choir sings"
+        );
+    }
+
+    /// A library with one song, one Choir, and one unapproved Arrangement.
+    fn pagination_fixture() -> (
+        SongLibrary,
+        SongId,
+        ArrangementId,
+        ArrangementDraft,
+        ChoirId,
+    ) {
+        let mut library = SongLibrary::new();
+        let song_id = song(1);
+        library
+            .create_song(song_id, at(), SongDraft::titled("Kyrie"))
+            .expect("song");
+        let youth = choir(1);
+        library
+            .create_choir(youth, at(), "Youth".to_owned())
+            .expect("choir");
+        let id = arrangement(1);
+        let base = arrangement_draft("Cebuano", 10);
+        library
+            .create_arrangement(id, song_id, at(), base.clone(), vec![youth])
+            .expect("arrangement");
+        (library, song_id, id, base, youth)
+    }
+
+    /// Edits one Arrangement and returns its pagination state after the edit.
+    fn edit_pagination(
+        library: &mut SongLibrary,
+        id: ArrangementId,
+        draft: ArrangementDraft,
+    ) -> PaginationState {
+        library.edit_arrangement(id, draft).expect("edit");
+        library
+            .arrangement(id)
+            .expect("arrangement")
+            .pagination_state()
     }
 
     #[test]
-    fn approved_pagination_follows_the_review_rule() {
+    fn arrangements_for_song_and_choir_use_creation_time_then_identity() {
         let mut library = SongLibrary::new();
         let song_id = song(1);
         library
@@ -1033,34 +1187,71 @@ mod tests {
             .create_choir(youth, at(), "Youth".to_owned())
             .expect("choir");
 
-        let id = arrangement(1);
-        let mut base = arrangement_draft("Cebuano", 10);
         library
-            .create_arrangement(id, song_id, at(), base.clone())
-            .expect("arrangement");
+            .create_arrangement(
+                arrangement(2),
+                song_id,
+                Timestamp::from_millis(200),
+                arrangement_draft("Two", 20),
+                vec![youth],
+            )
+            .expect("second created");
+        library
+            .create_arrangement(
+                arrangement(3),
+                song_id,
+                Timestamp::from_millis(100),
+                arrangement_draft("Three", 30),
+                Vec::new(),
+            )
+            .expect("third created");
+        library
+            .create_arrangement(
+                arrangement(1),
+                song_id,
+                Timestamp::from_millis(100),
+                arrangement_draft("One", 10),
+                vec![youth],
+            )
+            .expect("first created");
+
         assert_eq!(
             library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+                .arrangements_for_song(song_id)
+                .expect("song")
+                .iter()
+                .map(|arrangement| arrangement.id())
+                .collect::<Vec<_>>(),
+            vec![arrangement(1), arrangement(3), arrangement(2)],
+            "arrangements_for_song sorts by creation time then identity"
+        );
+        assert_eq!(
+            library
+                .choir_arrangements(youth)
+                .expect("choir")
+                .iter()
+                .map(|arrangement| arrangement.id())
+                .collect::<Vec<_>>(),
+            vec![arrangement(1), arrangement(2)],
+            "choir_arrangements sorts by creation time then identity"
+        );
+    }
+
+    #[test]
+    fn approved_pagination_follows_the_review_rule() {
+        let (mut library, song_id, id, base, youth) = pagination_fixture();
+        assert_eq!(
+            edit_pagination(&mut library, id, base.clone()),
             PaginationState::Draft
         );
 
-        let mut draft_edit = base.clone();
-        draft_edit.sections[0].lyrics = "Unang bersikulo, giusab".to_owned();
-        let current_lyrics = draft_edit.sections[0].lyrics.clone();
-        library
-            .edit_arrangement(id, draft_edit)
-            .expect("draft edit");
+        let mut content = base;
+        content.sections[0].lyrics = "Unang bersikulo, giusab".to_owned();
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, content.clone()),
             PaginationState::Draft,
             "an unapproved Arrangement stays Draft when its content changes"
         );
-        base.sections[0].lyrics = current_lyrics;
 
         library.approve_pagination(id).expect("approved");
         assert_eq!(
@@ -1071,109 +1262,97 @@ mod tests {
             PaginationState::Approved
         );
 
-        let mut metadata = base.clone();
+        let mut metadata = content.clone();
         metadata.title = "Cebuano (Lent)".to_owned();
         metadata.languages = vec!["Cebuano".to_owned(), "English".to_owned()];
-        metadata.choirs = vec![youth];
         metadata.rendition_attribution = Some("Sr. Maria".to_owned());
         metadata.occasions = vec!["Lent".to_owned()];
-        library
-            .edit_arrangement(id, metadata)
-            .expect("metadata edit");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, metadata),
             PaginationState::Approved,
-            "title, language, Choir, attribution, and occasion changes do not affect pagination"
+            "title, language, attribution, and occasion changes do not affect pagination"
+        );
+        assert!(
+            library
+                .arrangement(id)
+                .expect("arrangement")
+                .choirs()
+                .contains(&youth),
+            "a content edit never changes Choir associations"
         );
 
-        let mut lyrics = base.clone();
+        let mut lyrics = content.clone();
         lyrics.sections[0].lyrics = "Bag-ong bersikulo".to_owned();
-        library.edit_arrangement(id, lyrics).expect("lyrics edit");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, lyrics),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut label = base.clone();
+        let mut label = content.clone();
         label.sections[1].label = Some("Refrain".to_owned());
-        library.edit_arrangement(id, label).expect("label edit");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, label),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut reordered = base.clone();
-        reordered.sequence.swap(0, 2);
-        library
-            .edit_arrangement(id, reordered)
-            .expect("sequence edit");
+        let mut reordered_sequence = content.clone();
+        reordered_sequence.sequence.swap(0, 2);
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, reordered_sequence.clone()),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut added = base.clone();
+        let mut reordered_sections = reordered_sequence;
+        reordered_sections.sections.swap(0, 1);
+        assert_eq!(
+            edit_pagination(&mut library, id, reordered_sections.clone()),
+            PaginationState::Approved,
+            "reordering the section list alone keeps approval"
+        );
+
+        library.approve_pagination(id).expect("approved again");
+        let mut added = reordered_sections.clone();
         added
             .sections
             .push(SectionDraft::new(section(19), "Bridge"));
-        library.edit_arrangement(id, added).expect("section added");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, added),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut removed = base.clone();
-        removed.sections.pop();
+        let mut removed = reordered_sections.clone();
+        removed
+            .sections
+            .retain(|candidate| candidate.id != section(11));
         removed
             .sequence
             .retain(|occurrence| occurrence.section != section(11));
         let unchanged = removed.clone();
-        library
-            .edit_arrangement(id, removed)
-            .expect("section removed");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, removed),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        library
-            .edit_arrangement(id, unchanged)
-            .expect("identical edit");
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
+            edit_pagination(&mut library, id, unchanged),
             PaginationState::Approved,
             "an edit that changes no pagination content keeps approval"
         );
 
         let second = arrangement(2);
         library
-            .create_arrangement(second, song_id, at(), arrangement_draft("English", 20))
+            .create_arrangement(
+                second,
+                song_id,
+                at(),
+                arrangement_draft("English", 20),
+                Vec::new(),
+            )
             .expect("second arrangement");
         assert_eq!(
             library
@@ -1186,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn arrangement_validation_names_the_failing_field() {
+    fn arrangement_validation_names_the_failing_field_and_changes_nothing() {
         let mut library = SongLibrary::new();
         let song_id = song(1);
         library
@@ -1200,78 +1379,77 @@ mod tests {
 
         let mut blank_title = arrangement_draft("Title", 10);
         blank_title.title = "  ".to_owned();
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), blank_title)
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::ArrangementTitle)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::ArrangementTitle),
+            library.create_arrangement(id, song_id, at(), blank_title, Vec::new())
         );
 
         let mut blank_language = arrangement_draft("Title", 10);
         blank_language.languages = vec![" ".to_owned()];
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), blank_language)
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::Language)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::Language),
+            library.create_arrangement(id, song_id, at(), blank_language, Vec::new())
         );
 
         let mut duplicate_language = arrangement_draft("Title", 10);
         duplicate_language.languages = vec!["Cebuano".to_owned(), "Cebuano".to_owned()];
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), duplicate_language)
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::Language)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Language),
+            library.create_arrangement(id, song_id, at(), duplicate_language, Vec::new())
         );
 
-        let mut duplicate_choir = arrangement_draft("Title", 10);
-        duplicate_choir.choirs = vec![youth, youth];
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), duplicate_choir)
-                .unwrap_err(),
-            SongLibraryError::DuplicateField(Field::Choir)
+        let mut blank_rendition_attribution = arrangement_draft("Title", 10);
+        blank_rendition_attribution.rendition_attribution = Some(" \t ".to_owned());
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::RenditionAttribution),
+            library.create_arrangement(id, song_id, at(), blank_rendition_attribution, Vec::new())
+        );
+
+        let duplicate_choir = arrangement_draft("Title", 10);
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateField(Field::Choir),
+            library.create_arrangement(id, song_id, at(), duplicate_choir, vec![youth, youth])
         );
 
         let mut blank_label = arrangement_draft("Title", 10);
         blank_label.sections[0].label = Some("  ".to_owned());
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), blank_label)
-                .unwrap_err(),
-            SongLibraryError::BlankField(Field::SectionLabel)
+        assert_refused!(
+            library,
+            SongLibraryError::BlankField(Field::SectionLabel),
+            library.create_arrangement(id, song_id, at(), blank_label, Vec::new())
         );
 
         let mut foreign_section = arrangement_draft("Title", 10);
         foreign_section.sequence[0].section = section(99);
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), foreign_section)
-                .unwrap_err(),
+        assert_refused!(
+            library,
             SongLibraryError::SectionNotInArrangement {
                 arrangement: id,
-                section: section(99)
-            }
+                section: section(99),
+            },
+            library.create_arrangement(id, song_id, at(), foreign_section, Vec::new())
         );
 
         let mut duplicate_section = arrangement_draft("Title", 10);
         duplicate_section.sections[1].id = duplicate_section.sections[0].id;
         duplicate_section.sequence[1].section = duplicate_section.sections[0].id;
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), duplicate_section)
-                .unwrap_err(),
-            SongLibraryError::DuplicateSection(section(10))
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateSection(section(10)),
+            library.create_arrangement(id, song_id, at(), duplicate_section, Vec::new())
         );
 
         let mut duplicate_occurrence = arrangement_draft("Title", 10);
         duplicate_occurrence.sequence[1].id = duplicate_occurrence.sequence[0].id;
-        assert_eq!(
-            library
-                .create_arrangement(id, song_id, at(), duplicate_occurrence)
-                .unwrap_err(),
-            SongLibraryError::DuplicateOccurrence(occurrence(10))
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateOccurrence(occurrence(10)),
+            library.create_arrangement(id, song_id, at(), duplicate_occurrence, Vec::new())
         );
     }
 
@@ -1283,7 +1461,13 @@ mod tests {
             .create_song(song_id, at(), SongDraft::titled("Kyrie"))
             .expect("song");
         library
-            .create_arrangement(arrangement(1), song_id, at(), arrangement_draft("One", 10))
+            .create_arrangement(
+                arrangement(1),
+                song_id,
+                at(),
+                arrangement_draft("One", 10),
+                Vec::new(),
+            )
             .expect("first arrangement");
 
         let stolen_section = section(10);
@@ -1291,35 +1475,46 @@ mod tests {
         stolen.sections[0].id = stolen_section;
         stolen.sequence[0].section = stolen_section;
         stolen.sequence[2].section = stolen_section;
-        assert_eq!(
-            library
-                .create_arrangement(arrangement(2), song_id, at(), stolen)
-                .unwrap_err(),
-            SongLibraryError::DuplicateSection(stolen_section)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateSection(stolen_section),
+            library.create_arrangement(arrangement(2), song_id, at(), stolen, Vec::new())
         );
 
         let stolen_occurrence = occurrence(10);
         let mut stolen = arrangement_draft("Two", 20);
         stolen.sequence[0].id = stolen_occurrence;
-        assert_eq!(
-            library
-                .create_arrangement(arrangement(2), song_id, at(), stolen)
-                .unwrap_err(),
-            SongLibraryError::DuplicateOccurrence(stolen_occurrence)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateOccurrence(stolen_occurrence),
+            library.create_arrangement(arrangement(2), song_id, at(), stolen, Vec::new())
         );
 
         library
-            .create_arrangement(arrangement(2), song_id, at(), arrangement_draft("Two", 20))
+            .create_arrangement(
+                arrangement(2),
+                song_id,
+                at(),
+                arrangement_draft("Two", 20),
+                Vec::new(),
+            )
             .expect("second arrangement");
         let mut stolen = arrangement_draft("Two edited", 20);
         stolen.sections[0].id = stolen_section;
         stolen.sequence[0].section = stolen_section;
         stolen.sequence[2].section = stolen_section;
-        assert_eq!(
-            library
-                .edit_arrangement(arrangement(2), stolen)
-                .unwrap_err(),
-            SongLibraryError::DuplicateSection(stolen_section)
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateSection(stolen_section),
+            library.edit_arrangement(arrangement(2), stolen)
+        );
+
+        let mut stolen = arrangement_draft("Two edited", 20);
+        stolen.sequence[0].id = stolen_occurrence;
+        assert_refused!(
+            library,
+            SongLibraryError::DuplicateOccurrence(stolen_occurrence),
+            library.edit_arrangement(arrangement(2), stolen)
         );
 
         library
@@ -1328,82 +1523,87 @@ mod tests {
     }
 
     #[test]
-    fn unknown_entities_are_named() {
+    fn unknown_entities_are_named_and_change_nothing() {
         let mut library = SongLibrary::new();
         let unknown_song = song(1);
         let unknown_arrangement = arrangement(1);
         let unknown_choir = choir(1);
 
-        assert_eq!(
-            library.song(unknown_song).unwrap_err(),
-            SongLibraryError::UnknownSong(unknown_song)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownSong(unknown_song),
+            library.song(unknown_song)
         );
-        assert_eq!(
-            library.arrangement(unknown_arrangement).unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.arrangement(unknown_arrangement)
         );
-        assert_eq!(
-            library.choir(unknown_choir).unwrap_err(),
-            SongLibraryError::UnknownChoir(unknown_choir)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(unknown_choir),
+            library.choir(unknown_choir)
         );
-        assert_eq!(
-            library.arrangements_for_song(unknown_song).err(),
-            Some(SongLibraryError::UnknownSong(unknown_song))
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownSong(unknown_song),
+            library.arrangements_for_song(unknown_song)
         );
-        assert_eq!(
-            library.choir_repertoire(unknown_choir).unwrap_err(),
-            SongLibraryError::UnknownChoir(unknown_choir)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(unknown_choir),
+            library.choir_arrangements(unknown_choir)
         );
-        assert_eq!(
-            library
-                .edit_song(unknown_song, SongDraft::titled("Kyrie"))
-                .unwrap_err(),
-            SongLibraryError::UnknownSong(unknown_song)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(unknown_choir),
+            library.choir_repertoire(unknown_choir)
         );
-        assert_eq!(
-            library
-                .edit_arrangement(unknown_arrangement, arrangement_draft("Kyrie", 10))
-                .unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownSong(unknown_song),
+            library.edit_song(unknown_song, SongDraft::titled("Kyrie"))
         );
-        assert_eq!(
-            library
-                .edit_choir(unknown_choir, "Youth".to_owned())
-                .unwrap_err(),
-            SongLibraryError::UnknownChoir(unknown_choir)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.edit_arrangement(unknown_arrangement, arrangement_draft("Kyrie", 10))
         );
-        assert_eq!(
-            library.approve_pagination(unknown_arrangement).unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownChoir(unknown_choir),
+            library.edit_choir(unknown_choir, "Youth".to_owned())
         );
-        assert_eq!(
-            library
-                .set_arrangement_choirs(unknown_arrangement, Vec::new())
-                .unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.approve_pagination(unknown_arrangement)
         );
-        assert_eq!(
-            library
-                .add_arrangement_choir(unknown_arrangement, unknown_choir)
-                .unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.set_arrangement_choirs(unknown_arrangement, Vec::new())
         );
-        assert_eq!(
-            library
-                .remove_arrangement_choir(unknown_arrangement, unknown_choir)
-                .unwrap_err(),
-            SongLibraryError::UnknownArrangement(unknown_arrangement)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.add_arrangement_choir(unknown_arrangement, unknown_choir)
         );
-        assert_eq!(
-            library
-                .create_arrangement(
-                    unknown_arrangement,
-                    unknown_song,
-                    at(),
-                    ArrangementDraft::titled("Kyrie")
-                )
-                .unwrap_err(),
-            SongLibraryError::UnknownSong(unknown_song)
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownArrangement(unknown_arrangement),
+            library.remove_arrangement_choir(unknown_arrangement, unknown_choir)
+        );
+        assert_refused!(
+            library,
+            SongLibraryError::UnknownSong(unknown_song),
+            library.create_arrangement(
+                unknown_arrangement,
+                unknown_song,
+                at(),
+                ArrangementDraft::titled("Kyrie"),
+                Vec::new(),
+            )
         );
     }
 
@@ -1437,10 +1637,22 @@ mod tests {
         );
 
         library
-            .create_arrangement(arrangement(2), song(1), at(), arrangement_draft("Two", 20))
+            .create_arrangement(
+                arrangement(2),
+                song(1),
+                at(),
+                arrangement_draft("Two", 20),
+                Vec::new(),
+            )
             .expect("second arrangement");
         library
-            .create_arrangement(arrangement(1), song(1), at(), arrangement_draft("One", 10))
+            .create_arrangement(
+                arrangement(1),
+                song(1),
+                at(),
+                arrangement_draft("One", 10),
+                Vec::new(),
+            )
             .expect("first arrangement");
         assert_eq!(
             library
@@ -1453,44 +1665,10 @@ mod tests {
             library
                 .arrangements_for_song(song(1))
                 .expect("song")
-                .map(Arrangement::id)
+                .iter()
+                .map(|arrangement| arrangement.id())
                 .collect::<Vec<_>>(),
             vec![arrangement(1), arrangement(2)]
         );
-    }
-
-    #[test]
-    fn every_field_and_error_displays_a_message() {
-        for field in [
-            Field::SongTitle,
-            Field::Alias,
-            Field::LiturgicalMoment,
-            Field::Occasion,
-            Field::ChoirName,
-            Field::ArrangementTitle,
-            Field::Language,
-            Field::SectionLabel,
-            Field::Choir,
-        ] {
-            assert!(!field.to_string().is_empty(), "{field:?}");
-        }
-        for error in [
-            SongLibraryError::UnknownSong(song(1)),
-            SongLibraryError::UnknownArrangement(arrangement(1)),
-            SongLibraryError::UnknownChoir(choir(1)),
-            SongLibraryError::DuplicateSong(song(1)),
-            SongLibraryError::DuplicateArrangement(arrangement(1)),
-            SongLibraryError::DuplicateChoir(choir(1)),
-            SongLibraryError::DuplicateSection(section(1)),
-            SongLibraryError::DuplicateOccurrence(occurrence(1)),
-            SongLibraryError::BlankField(Field::SongTitle),
-            SongLibraryError::DuplicateField(Field::Alias),
-            SongLibraryError::SectionNotInArrangement {
-                arrangement: arrangement(1),
-                section: section(1),
-            },
-        ] {
-            assert!(!error.to_string().is_empty(), "{error:?}");
-        }
     }
 }

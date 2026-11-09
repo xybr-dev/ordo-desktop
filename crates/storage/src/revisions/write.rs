@@ -185,6 +185,9 @@ fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
     validate_song_fields(
         &song.title,
         &song.aliases,
+        song.original_attribution.as_deref(),
+        song.provenance.as_deref(),
+        song.rights_notes.as_deref(),
         &song.liturgical_moments,
         &song.occasions,
     )
@@ -195,6 +198,7 @@ fn validate_arrangement_content(arrangement: &ArrangementContent) -> Result<(), 
         &arrangement.title,
         &arrangement.languages,
         &arrangement.choirs,
+        arrangement.rendition_attribution.as_deref(),
         &arrangement.occasions,
         arrangement
             .sections
