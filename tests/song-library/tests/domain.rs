@@ -70,6 +70,39 @@ fn song_ids(library: &SongLibrary, filter: StatusFilter) -> Vec<SongId> {
         .collect()
 }
 
+/// Names of every public function declared in the Song Library Interface and
+/// model sources (`pub fn`, `pub const fn`, `pub async fn`; not `pub(crate)`).
+fn public_fn_names() -> Vec<String> {
+    let sources = [
+        include_str!("../../../crates/domain/src/song_library/interface.rs"),
+        include_str!("../../../crates/domain/src/song_library/model/mod.rs"),
+        include_str!("../../../crates/domain/src/song_library/model/song.rs"),
+        include_str!("../../../crates/domain/src/song_library/model/arrangement.rs"),
+        include_str!("../../../crates/domain/src/song_library/model/choir.rs"),
+        include_str!("../../../crates/domain/src/song_library/model/text.rs"),
+    ];
+    let mut names = Vec::new();
+    for source in sources {
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        for line in production.lines() {
+            let Some(mut rest) = line.trim_start().strip_prefix("pub ") else {
+                continue;
+            };
+            while let Some(next) = rest
+                .strip_prefix("const ")
+                .or_else(|| rest.strip_prefix("async "))
+            {
+                rest = next;
+            }
+            if let Some(rest) = rest.strip_prefix("fn ") {
+                let name = rest.split(['(', '<']).next().unwrap_or(rest);
+                names.push(name.trim().to_lowercase());
+            }
+        }
+    }
+    names
+}
+
 /// Asserts a refused call reports `expected` and leaves `library` unchanged.
 macro_rules! assert_refused {
     ($library:ident, $expected:expr, $call:expr) => {{
@@ -324,8 +357,14 @@ fn ac5_duplicate_evidence_reports_without_rewriting_or_uniting() {
     );
     let for_first =
         library.duplicate_evidence(&SongDraft::titled("Amazing Grace"), Some(song_id(1)));
-    assert_eq!(for_first.len(), 1);
-    assert_eq!(for_first[0].song, song_id(2));
+    assert_eq!(
+        for_first,
+        [DuplicateEvidence {
+            song: song_id(2),
+            candidate_on: MatchedOn::Title,
+            existing_on: MatchedOn::Title,
+        }]
+    );
 
     // Editing a Song consults nothing and keeps authored capitalization.
     let edited = library
@@ -790,8 +829,12 @@ fn ac6_active_arrangement_deletion_is_blocked_and_choirs_cannot_be_deleted() {
             },
         ])])
     );
-    let source = include_str!("../../../crates/domain/src/song_library/interface.rs");
-    assert!(!source.contains("pub fn delete_choir"));
+    for name in public_fn_names() {
+        assert!(
+            !(name.contains("delete") && name.contains("choir")),
+            "{name}: Choirs have no permanent deletion in T2.3"
+        );
+    }
 }
 
 #[test]
@@ -829,23 +872,81 @@ fn ac6_deleted_arrangement_section_and_occurrence_ids_stay_reserved() {
 
 #[test]
 fn ac7_the_interface_has_no_merge_or_redirect_operation() {
-    let source = include_str!("../../../crates/domain/src/song_library/interface.rs");
-    let production = source.split("#[cfg(test)]").next().unwrap();
-    let mut checked = 0;
-    for line in production.lines() {
-        let line = line.trim_start();
-        if let Some(rest) = line.strip_prefix("pub fn ") {
-            checked += 1;
-            let name = rest.split(['(', '<']).next().unwrap().to_lowercase();
-            assert!(
-                !name.contains("merge") && !name.contains("redirect"),
-                "{name} must not exist in the MVP Interface"
-            );
-        }
-    }
+    let names = public_fn_names();
     assert!(
-        checked > 20,
-        "the scan must see the Interface, saw {checked}"
+        names.len() > 40,
+        "the scan must see the Interface, saw {}",
+        names.len()
+    );
+    for name in &names {
+        assert!(
+            !name.contains("merge") && !name.contains("redirect"),
+            "{name} must not exist in the MVP Interface"
+        );
+    }
+}
+
+#[test]
+fn ac6_dropped_section_and_occurrence_ids_stay_reserved_to_their_arrangement() {
+    let mut library = small_library();
+    // Arrangement 10 owns sections 100/101 and occurrences 100/101. Drop the
+    // second of each by editing.
+    let first = section_id(100);
+    let mut shrunk = draft("Cebuano", "ceb", 100);
+    shrunk.sections.truncate(1);
+    shrunk.sequence = vec![OccurrenceDraft::new(occurrence_id(100), first)];
+    library
+        .edit_arrangement(arrangement_id(10), shrunk)
+        .unwrap();
+
+    // Another Arrangement can neither be created nor edited onto them.
+    assert_refused!(
+        library,
+        SongLibraryError::DuplicateSection(section_id(101)),
+        library.create_arrangement(
+            arrangement_id(11),
+            song_id(1),
+            at(6),
+            draft("Other", "en", 100 + 1),
+            Vec::new(),
+        )
+    );
+    let mut stolen = draft("Other", "en", 110);
+    stolen.sequence[0].id = occurrence_id(101);
+    assert_refused!(
+        library,
+        SongLibraryError::DuplicateOccurrence(occurrence_id(101)),
+        library.create_arrangement(arrangement_id(11), song_id(1), at(6), stolen, Vec::new(),)
+    );
+    library
+        .create_arrangement(
+            arrangement_id(11),
+            song_id(1),
+            at(6),
+            draft("Other", "en", 110),
+            Vec::new(),
+        )
+        .unwrap();
+    let mut stolen = draft("Other", "en", 110);
+    stolen.sections[0].id = section_id(101);
+    stolen.sequence[0].section = section_id(101);
+    assert_refused!(
+        library,
+        SongLibraryError::DuplicateSection(section_id(101)),
+        library.edit_arrangement(arrangement_id(11), stolen)
+    );
+
+    // The same Arrangement may bring them back (restoration of a revision).
+    library
+        .edit_arrangement(arrangement_id(10), draft("Cebuano", "ceb", 100))
+        .unwrap();
+    assert_eq!(
+        library
+            .arrangement(arrangement_id(10))
+            .unwrap()
+            .sections()
+            .len(),
+        2
     );
 }
 
@@ -997,7 +1098,8 @@ fn t2_3_e2e_numbered_kyries_translated_arrangements_archive_and_restore() {
     assert!(!library.song(song_id(1)).unwrap().is_archived());
     assert!(!library.song(song_id(2)).unwrap().is_archived());
 
-    // 5. Deletion safety. Archive Pagdayeg again to see the Song verdict.
+    // 5. Deletion safety. The Song is active again, so its verdict is blocked
+    // on NotArchived and on both Arrangements.
     assert_eq!(
         library.song_deletion_verdict(song_id(3), &[]),
         Ok(DeletionVerdict::Blocked(vec![

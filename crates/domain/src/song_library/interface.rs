@@ -17,9 +17,7 @@ use crate::identity::{
 };
 
 use super::model::text;
-use super::model::{
-    Arrangement, ArrangementDraft, Choir, Occurrence, Section, SongDraft, SongWork,
-};
+use super::model::{Arrangement, ArrangementDraft, Choir, SongDraft, SongWork};
 
 /// One authored field that failed a Song Library validation rule.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -297,8 +295,13 @@ pub struct SongLibrary {
     songs: BTreeMap<SongId, SongWork>,
     arrangements: BTreeMap<ArrangementId, Arrangement>,
     choirs: BTreeMap<ChoirId, Choir>,
-    section_ids: BTreeSet<SectionId>,
-    occurrence_ids: BTreeSet<OccurrenceId>,
+    /// Reserved section identities and the Arrangement that first used each.
+    /// An entry is never removed, not by an edit that drops the section and
+    /// not by deleting the Arrangement, because earlier revisions and snapshots
+    /// may still name it.
+    section_ids: BTreeMap<SectionId, ArrangementId>,
+    /// Reserved occurrence identities, with the same rules as `section_ids`.
+    occurrence_ids: BTreeMap<OccurrenceId, ArrangementId>,
 }
 
 impl SongLibrary {
@@ -461,13 +464,13 @@ impl SongLibrary {
             &self.section_ids,
             &self.occurrence_ids,
             &draft,
-            None,
+            id,
         )?;
         let arrangement = Arrangement::new(id, song, created_at, draft, choirs)?;
         self.section_ids
-            .extend(arrangement.sections().iter().map(Section::id));
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
         self.occurrence_ids
-            .extend(arrangement.sequence().iter().map(Occurrence::id));
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
         self.arrangements.insert(id, arrangement);
         self.arrangement(id)
     }
@@ -478,9 +481,15 @@ impl SongLibrary {
     /// archived (naming it) or its Song is archived (naming the Song).
     ///
     /// The owning Song, identity, creation time, Choir associations, and
-    /// archive state are preserved. Section and occurrence identities that
-    /// already belong to this Arrangement may be reused; an identity owned by
-    /// another Arrangement is refused.
+    /// archive state are preserved.
+    ///
+    /// Section and occurrence identities are reserved for the Arrangement that
+    /// first used them, permanently: an identity this edit drops stays
+    /// reserved to this Arrangement (earlier revisions still name it, and
+    /// restoring such a revision must never collide with another
+    /// Arrangement). A later edit of this same Arrangement may bring a dropped
+    /// identity back; any other Arrangement is refused with
+    /// `DuplicateSection` or `DuplicateOccurrence`.
     ///
     /// Adding or removing a section, changing a section's lyrics or label, or
     /// changing the Sequence moves an approved Arrangement to
@@ -496,41 +505,17 @@ impl SongLibrary {
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
         Self::require_editable(&self.songs, arrangement)?;
-        let previous_sections = arrangement
-            .sections()
-            .iter()
-            .map(Section::id)
-            .collect::<BTreeSet<_>>();
-        let previous_occurrences = arrangement
-            .sequence()
-            .iter()
-            .map(Occurrence::id)
-            .collect::<BTreeSet<_>>();
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
             &draft,
-            Some((&previous_sections, &previous_occurrences)),
+            id,
         )?;
         arrangement.replace_content(draft)?;
-        let next_sections = arrangement
-            .sections()
-            .iter()
-            .map(Section::id)
-            .collect::<Vec<_>>();
-        let next_occurrences = arrangement
-            .sequence()
-            .iter()
-            .map(Occurrence::id)
-            .collect::<Vec<_>>();
-        for section in previous_sections {
-            self.section_ids.remove(&section);
-        }
-        self.section_ids.extend(next_sections);
-        for occurrence in previous_occurrences {
-            self.occurrence_ids.remove(&occurrence);
-        }
-        self.occurrence_ids.extend(next_occurrences);
+        self.section_ids
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
+        self.occurrence_ids
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
         Ok(arrangement)
     }
 
@@ -1022,34 +1007,32 @@ impl SongLibrary {
         Ok(())
     }
 
-    /// Refuses section or occurrence identities that another Arrangement
-    /// already owns.
+    /// Refuses section or occurrence identities reserved by an Arrangement
+    /// other than `owner`.
     ///
-    /// `previous` names the identities the edited Arrangement is giving up, so
-    /// an ordinary edit that keeps its own identities succeeds. This is an
+    /// Reservations are never released, so an identity `owner` dropped earlier
+    /// may return to `owner` but never moves to another Arrangement. This is an
     /// associated function rather than a method so the caller can hold the
     /// Arrangement's mutable borrow while validating against the library's
-    /// identity sets.
+    /// identity maps.
     fn require_free_section_and_occurrence_ids(
-        section_ids: &BTreeSet<SectionId>,
-        occurrence_ids: &BTreeSet<OccurrenceId>,
+        section_ids: &BTreeMap<SectionId, ArrangementId>,
+        occurrence_ids: &BTreeMap<OccurrenceId, ArrangementId>,
         draft: &ArrangementDraft,
-        previous: Option<(&BTreeSet<SectionId>, &BTreeSet<OccurrenceId>)>,
+        owner: ArrangementId,
     ) -> Result<(), SongLibraryError> {
-        let empty_sections = BTreeSet::new();
-        let empty_occurrences = BTreeSet::new();
-        let (previous_sections, previous_occurrences) = match previous {
-            Some((sections, occurrences)) => (sections, occurrences),
-            None => (&empty_sections, &empty_occurrences),
-        };
         for section in &draft.sections {
-            if section_ids.contains(&section.id) && !previous_sections.contains(&section.id) {
+            if section_ids
+                .get(&section.id)
+                .is_some_and(|held| *held != owner)
+            {
                 return Err(SongLibraryError::DuplicateSection(section.id));
             }
         }
         for occurrence in &draft.sequence {
-            if occurrence_ids.contains(&occurrence.id)
-                && !previous_occurrences.contains(&occurrence.id)
+            if occurrence_ids
+                .get(&occurrence.id)
+                .is_some_and(|held| *held != owner)
             {
                 return Err(SongLibraryError::DuplicateOccurrence(occurrence.id));
             }
