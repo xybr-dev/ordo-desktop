@@ -25,6 +25,8 @@ use std::path::Path;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+pub mod drill;
+
 /// Cues in the synthetic snapshot.
 pub const CUES: usize = 500;
 const SECTIONS: usize = 6;

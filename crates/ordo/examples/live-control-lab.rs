@@ -34,13 +34,18 @@
 //!   a seeded key stream with no output window; and keydown to paint on a real
 //!   congregation display. Each takes `--snapshot <dir>`; without it they try
 //!   `<exe dir>/fixtures/normal-mass`, then the compile-time fixture path.
+//! * `--run-drill <out.json> [--snapshot <dir>]` replays the committed Recovery
+//!   Drill (`commands.txt`) through the real `PresenterView` at 1920x1080, 100 %,
+//!   on a stepped clock, compares every state with `commands.expect`, and reports
+//!   keydown-to-paint latency and peak memory; `cargo xtask measure-presenter`
+//!   judges it (see `kit`).
 //! * Preferences (the Grid/List choice) are read from and written under
 //!   `target/live-control-lab/`, never `%APPDATA%`. Saves go to one worker
 //!   thread, owned by `main`, which drops the sender when the window closes
 //!   and joins the thread after the app loop ends.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -118,6 +123,8 @@ struct Args {
     measure_presenter: Option<PathBuf>,
     /// `--measure-output <out.json>`: the same on a real congregation display.
     measure_output: Option<PathBuf>,
+    /// `--run-drill <out.json>`: replay the Recovery Drill and quit.
+    run_drill: Option<PathBuf>,
     /// `--commands N` of `--measure-presenter`.
     commands: usize,
     /// Whether `--commands` was named.
@@ -157,6 +164,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         display_inventory: None,
         measure_presenter: None,
         measure_output: None,
+        run_drill: None,
         commands: kit::DEFAULT_COMMANDS,
         commands_given: false,
         size_given: false,
@@ -210,6 +218,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let value = args.next().ok_or("--measure-output needs an output file")?;
                 parsed.measure_output = Some(PathBuf::from(value));
             }
+            "--run-drill" => {
+                let value = args.next().ok_or("--run-drill needs an output file")?;
+                parsed.run_drill = Some(PathBuf::from(value));
+            }
             "--commands" => {
                 let value = args.next().ok_or("--commands needs a number")?;
                 parsed.commands = value
@@ -247,18 +259,21 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         parsed.display_inventory.is_some(),
         parsed.measure_presenter.is_some(),
         parsed.measure_output.is_some(),
+        parsed.run_drill.is_some(),
     ];
     if modes.into_iter().filter(|on| *on).count() > 1 {
-        return Err("the measurement modes (--measure-memory, --measure-animations, --display-inventory, --measure-presenter, --measure-output) are separate runs".into());
+        return Err("the measurement modes (--measure-memory, --measure-animations, --display-inventory, --measure-presenter, --measure-output, --run-drill) are separate runs".into());
     }
     if parsed.commands_given && parsed.measure_presenter.is_none() {
         return Err("--commands goes with --measure-presenter".into());
     }
-    if parsed.measure_memory.is_some() {
+    if parsed.measure_memory.is_some() || parsed.run_drill.is_some() {
         // The measurement is defined at one size and scale.
         parsed.width = measure::WIDTH;
         parsed.height = measure::HEIGHT;
         parsed.scale = InterfaceScale::Percent100;
+        // The drill opens a window of that size, not a maximized one.
+        parsed.size_given |= parsed.run_drill.is_some();
     }
     Ok(parsed)
 }
@@ -394,8 +409,11 @@ impl LabRoot {
                     self.check_images(snapshot.clone(), window, cx);
                 }
                 let started = self.started;
-                let clock: Rc<dyn Fn() -> Millis> =
-                    Rc::new(move || Millis(started.elapsed().as_millis() as u64));
+                // The drill steps its own clock, so a tick of minutes costs none.
+                let clock: Rc<dyn Fn() -> Millis> = match self.kit.as_ref().map(|run| run.clock()) {
+                    Some(Some(stepped)) => Rc::new(move || Millis(stepped.get())),
+                    _ => Rc::new(move || Millis(started.elapsed().as_millis() as u64)),
+                };
                 let environment = self.environment;
                 let save = self.save.clone();
                 let view = cx.new(|cx| {
@@ -543,7 +561,7 @@ fn main() {
         Err(message) => {
             eprintln!("live-control-lab: {message}");
             eprintln!(
-                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>] | --measure-animations <out.json> [--size WxH] [--scale N] [--cues 30|500] [--list|--grid] | --display-inventory <out.json> | --measure-presenter <out.json> [--commands N] [--snapshot <dir>] [--size WxH] [--scale N] | --measure-output <out.json> [--snapshot <dir>] [--size WxH] [--scale N]"
+                "usage: live-control-lab [--size 1366x768] [--scale 100|125|150|175|200] [snapshot-dir] | --measure-memory <out.json> [--snapshot <dir>] | --measure-animations <out.json> [--size WxH] [--scale N] [--cues 30|500] [--list|--grid] | --display-inventory <out.json> | --measure-presenter <out.json> [--commands N] [--snapshot <dir>] [--size WxH] [--scale N] | --measure-output <out.json> [--snapshot <dir>] [--size WxH] [--scale N] | --run-drill <out.json> [--snapshot <dir>]"
             );
             std::process::exit(2);
         }
@@ -567,10 +585,16 @@ fn main() {
             args.measure_output
                 .clone()
                 .map(|out| (out, "output-latency"))
-        });
+        })
+        .or_else(|| args.run_drill.clone().map(|out| (out, kit::MODE_DRILL)));
     let mut args = args;
     if let Some((out, mode)) = &kit_out {
-        match kit::resolve_snapshot(&args) {
+        let fixture = if args.run_drill.is_some() {
+            "recovery-drill"
+        } else {
+            "normal-mass"
+        };
+        match kit::resolve_snapshot(&args, fixture) {
             Ok(path) => args.snapshot = path,
             Err(message) => kit::fail_early(out, mode, &message),
         }
@@ -582,7 +606,8 @@ fn main() {
         || args.measure_animations.is_some()
         || args.display_inventory.is_some()
         || args.measure_presenter.is_some()
-        || args.measure_output.is_some();
+        || args.measure_output.is_some()
+        || args.run_drill.is_some();
     let preferences_file = PreferencesFile::new(lab_dir().join("preferences"));
     // Before the app loop: a few bytes, read once, restoring the Grid/List choice.
     let restored = if measuring {
@@ -659,16 +684,34 @@ fn main() {
                 kit::finish(cx, &out, &kit::skipped_doc("no congregation display"), true);
                 return;
             }
+            // Started before the window opens, so the peak covers the load.
+            let watch = if args.run_drill.is_some() {
+                match MemoryWatch::start(cx) {
+                    Ok(watch) => Some(watch),
+                    Err(message) => {
+                        let document = kit::error_doc(kit::MODE_DRILL, &message);
+                        kit::finish(cx, &out, &document, false);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
             let run = kit::Run {
                 out,
-                kind: match args.measure_presenter {
-                    Some(_) => kit::Kind::Presenter {
+                kind: if args.run_drill.is_some() {
+                    kit::Kind::Drill
+                } else if args.measure_presenter.is_some() {
+                    kit::Kind::Presenter {
                         commands: args.commands,
-                    },
-                    None => kit::Kind::Output,
+                    }
+                } else {
+                    kit::Kind::Output
                 },
                 snapshot: args.snapshot.clone(),
                 board: Default::default(),
+                clock: Default::default(),
+                watch,
                 width: args.width,
                 height: args.height,
                 scale_percent: scale_percent(args.scale),
@@ -2045,6 +2088,14 @@ mod kit {
     const MODE_INVENTORY: &str = "display-inventory";
     const MODE_PRESENTER: &str = "presenter-latency";
     const MODE_OUTPUT: &str = "output-latency";
+    pub const MODE_DRILL: &str = "recovery-drill";
+    /// The drill is about 70 lines, each waiting at most [`PAINT_DEADLINE`]
+    /// (normally two frames); this only stops a hang.
+    const DRILL_TIMEOUT: Duration = Duration::from_secs(150);
+    /// Time for the effects of a tick line (a timer, a redraw) to settle.
+    const DRILL_TICK_GAP: Duration = Duration::from_millis(50);
+    /// Mismatches the document quotes in full.
+    const DRILL_NOTES: usize = 5;
 
     // ---------------------------------------------------------------- report
 
@@ -2267,7 +2318,11 @@ mod kit {
 
     /// The snapshot a run opens: `--snapshot`, else the first existing of the
     /// candidates (`<exe dir>/fixtures/normal-mass`, then the compile-time path).
-    pub fn pick_snapshot(given: Option<&Path>, candidates: &[PathBuf]) -> Result<PathBuf, String> {
+    pub fn pick_snapshot(
+        given: Option<&Path>,
+        candidates: &[PathBuf],
+        fixture: &str,
+    ) -> Result<PathBuf, String> {
         if let Some(given) = given {
             return if given.is_dir() {
                 Ok(given.to_owned())
@@ -2286,21 +2341,30 @@ mod kit {
                 let tried: Vec<String> =
                     candidates.iter().map(|p| p.display().to_string()).collect();
                 format!(
-                    "no normal-mass fixture found (tried {}); pass --snapshot <dir>",
+                    "no {fixture} fixture found (tried {}); pass --snapshot <dir>",
                     tried.join(", ")
                 )
             })
     }
 
-    pub fn resolve_snapshot(args: &Args) -> Result<PathBuf, String> {
+    /// `fixture` is the committed fixture the mode opens: `normal-mass`, or
+    /// `recovery-drill` for `--run-drill`.
+    pub fn resolve_snapshot(args: &Args, fixture: &str) -> Result<PathBuf, String> {
         let mut candidates = Vec::new();
         if let Ok(exe) = std::env::current_exe() {
-            candidates.push(exe.with_file_name("fixtures").join("normal-mass"));
+            candidates.push(exe.with_file_name("fixtures").join(fixture));
         }
-        candidates.push(default_snapshot());
+        candidates.push(if fixture == "normal-mass" {
+            default_snapshot()
+        } else {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/presentations")
+                .join(fixture)
+        });
         pick_snapshot(
             args.snapshot_given.then_some(args.snapshot.as_path()),
             &candidates,
+            fixture,
         )
     }
 
@@ -2538,6 +2602,8 @@ mod kit {
         book: LatencyBook,
         /// Keydown to congregation paint, by kind.
         congregation: BTreeMap<CommandKind, LatencyHistogram>,
+        /// Keydown to the later of the Preview and Program paints, every kind.
+        operator: LatencyHistogram,
         by_key: BTreeMap<&'static str, [LatencyHistogram; 3]>,
         sent: BTreeMap<&'static str, u64>,
         unpainted: [u64; 3],
@@ -2641,18 +2707,42 @@ mod kit {
         stats: &mut Stats,
         cx: &mut AsyncWindowContext,
     ) -> Result<(), String> {
+        let keystroke = Keystroke::parse(key.name()).map_err(|e| format!("bad key: {e}"))?;
+        send_input(
+            (key.name(), key.kind()),
+            |window, app| window.dispatch_keystroke(keystroke, app),
+            wait,
+            record,
+            board,
+            stats,
+            cx,
+        )
+        .await
+    }
+
+    /// Sends one input and records its latency under `(name, kind)`: `dispatch`
+    /// delivers it (a keystroke, or a command straight to the Presenter) and
+    /// says whether it was handled. The caller applies any gap after it.
+    async fn send_input(
+        (name, kind): (&'static str, CommandKind),
+        dispatch: impl FnOnce(&mut Window, &mut App) -> bool,
+        wait: Wait,
+        record: bool,
+        board: &Rc<RefCell<Board>>,
+        stats: &mut Stats,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<(), String> {
         let background = cx.background_executor().clone();
         let seq = {
             let mut b = board.borrow_mut();
             b.seq += 1;
             b.seq
         };
-        let keystroke = Keystroke::parse(key.name()).map_err(|e| format!("bad key: {e}"))?;
         let handled = cx
             .update(|window, app| {
                 let scope = hot_path::enter();
                 // Immediately before the dispatch, as `live::drive` does.
-                let stamp = PendingKeydown::start(key.kind());
+                let stamp = PendingKeydown::start(kind);
                 board.borrow_mut().open = Some(Open {
                     seq,
                     stamp,
@@ -2661,7 +2751,7 @@ mod kit {
                     settled: false,
                     armed: false,
                 });
-                window.dispatch_keystroke(keystroke, app)
+                dispatch(window, app)
             })
             .map_err(gone)?;
         if !handled {
@@ -2725,8 +2815,13 @@ mod kit {
             return Ok(());
         }
         let kind = stamp.kind();
-        *stats.sent.entry(key.name()).or_default() += 1;
-        let per_key = stats.by_key.entry(key.name()).or_default();
+        if let (Some(preview), Some(program)) = (painted[0], painted[1]) {
+            stats
+                .operator
+                .record(preview.max(program).saturating_duration_since(stamp.at()));
+        }
+        *stats.sent.entry(name).or_default() += 1;
+        let per_key = stats.by_key.entry(name).or_default();
         for surface in SURFACES {
             let index = slot(surface);
             match painted[index] {
@@ -2805,8 +2900,12 @@ mod kit {
     // ------------------------------------------------------------------ run
 
     pub enum Kind {
-        Presenter { commands: usize },
+        Presenter {
+            commands: usize,
+        },
         Output,
+        /// The Recovery Drill replay (`--run-drill`).
+        Drill,
     }
 
     /// What the command line asked for, and the board the stamps write.
@@ -2815,6 +2914,10 @@ mod kit {
         pub kind: Kind,
         pub snapshot: PathBuf,
         pub board: Rc<RefCell<Board>>,
+        /// The Presenter's clock in the drill, stepped by the driver.
+        pub clock: Rc<Cell<u64>>,
+        /// The memory peak of the drill, started before the window opened.
+        pub watch: Option<MemoryWatch>,
         pub width: f32,
         pub height: f32,
         pub scale_percent: u32,
@@ -2825,7 +2928,13 @@ mod kit {
             match self.kind {
                 Kind::Presenter { .. } => MODE_PRESENTER,
                 Kind::Output => MODE_OUTPUT,
+                Kind::Drill => MODE_DRILL,
             }
+        }
+
+        /// The stepped clock the Presenter must read, for the drill only.
+        pub fn clock(&self) -> Option<Rc<Cell<u64>>> {
+            matches!(self.kind, Kind::Drill).then(|| self.clock.clone())
         }
 
         fn timeout(&self) -> Duration {
@@ -2835,6 +2944,7 @@ mod kit {
                         + Duration::from_millis(PRESENTER_PER_COMMAND_MS * commands as u64)
                 }
                 Kind::Output => OUTPUT_TIMEOUT,
+                Kind::Drill => DRILL_TIMEOUT,
             }
         }
 
@@ -2844,6 +2954,9 @@ mod kit {
         }
 
         pub fn fail(self, message: &str, cx: &mut App) {
+            if let Some(watch) = &self.watch {
+                watch.finish(None);
+            }
             finish(cx, &self.out, &error_doc(self.mode(), message), false);
         }
 
@@ -2882,7 +2995,11 @@ mod kit {
                         drive_presenter(&self, commands, &view, cx).await
                     }
                     Kind::Output => drive_output(&self, &view, cx).await,
+                    Kind::Drill => drive_drill(&self, &view, cx).await,
                 };
+                if let Some(watch) = &self.watch {
+                    watch.finish(None);
+                }
                 cx.update(|_, cx| match &result {
                     Ok(document) => finish(cx, &self.out, document, true),
                     Err(message) => {
@@ -3059,6 +3176,192 @@ mod kit {
             stats.by_key_json(),
             stats.unpainted_json(),
             stats.unhandled,
+            number(started.elapsed().as_secs_f64()),
+        ))
+    }
+
+    // ---------------------------------------------------------------- drill
+
+    /// A drill file read on the background executor, not the GPUI thread.
+    async fn read_drill_file(path: PathBuf, cx: &AsyncWindowContext) -> Result<String, String> {
+        let shown = path.display().to_string();
+        cx.background_executor()
+            .spawn(async move { std::fs::read_to_string(&path) })
+            .await
+            .map_err(|error| format!("cannot read {shown}: {error}"))
+    }
+
+    /// One process memory reading, taken on the background executor.
+    async fn drill_sample(
+        cx: &AsyncWindowContext,
+    ) -> Result<ordo::performance::process::ProcessSample, String> {
+        cx.background_executor()
+            .spawn(async { ordo::performance::memory::sample_process() })
+            .await
+    }
+
+    fn sample_json(at: &str, sample: &ordo::performance::process::ProcessSample) -> String {
+        format!(
+            "{{\"at\":{},\"rss_bytes\":{},\"private_bytes\":{}}}",
+            json_string(at),
+            sample.rss_bytes,
+            sample
+                .private_bytes
+                .map_or("null".to_owned(), |bytes| bytes.to_string()),
+        )
+    }
+
+    /// The latency class of a drill command; it only labels the report.
+    fn drill_kind(command: Command) -> CommandKind {
+        match command {
+            Command::Take => CommandKind::Space,
+            Command::ToggleFreeze => CommandKind::Freeze,
+            Command::ToggleBlackout => CommandKind::Blackout,
+            _ => CommandKind::Navigation,
+        }
+    }
+
+    /// Replays `commands.txt` through the Presenter's command path, one line at
+    /// a time, and compares the Engine state after each with `commands.expect`.
+    ///
+    /// Time is the stepped clock in `run`: 100 ms before each command, and a
+    /// `tick <ms>` line moves it by `<ms>` and ticks the view. The drill's own
+    /// `enable-output` line enables output; no congregation display is
+    /// installed, so no output window opens. Only command lines are timed
+    /// (keydown to Preview and Program paint); a tick line is not an input.
+    async fn drive_drill(
+        run: &Run,
+        view: &Entity<PresenterView>,
+        cx: &mut AsyncWindowContext,
+    ) -> Result<String, String> {
+        use presentation::{
+            engine::Outcome,
+            test_support::drill::{COMMAND_MS, Step, parse_step, script_lines, state_line},
+        };
+        let started = Instant::now();
+        let script = read_drill_file(run.snapshot.join("commands.txt"), cx).await?;
+        let expected = read_drill_file(run.snapshot.join("commands.expect"), cx).await?;
+        let lines: Vec<&str> = script_lines(&script).collect();
+        let wanted: Vec<&str> = expected.lines().collect();
+        if lines.len() != wanted.len() {
+            return Err(format!(
+                "commands.txt has {} lines and commands.expect has {}",
+                lines.len(),
+                wanted.len()
+            ));
+        }
+        let steps = lines
+            .iter()
+            .map(|line| parse_step(line).ok_or_else(|| format!("unknown drill line {line:?}")))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let setup = setup(view, cx)?;
+        let background = cx.background_executor().clone();
+        settle_frames(view, cx).await;
+        background.timer(Duration::from_millis(300)).await;
+        let board = run.board.clone();
+        let mut stats = Stats::default();
+        hot_path::take_violations();
+        let mut memory = vec![sample_json("start", &drill_sample(cx).await?)];
+        let middle = steps.len() / 2;
+        let mut clock = 0u64;
+        run.clock.set(clock);
+
+        for (index, (text, step)) in lines.iter().zip(&steps).enumerate() {
+            let outcome = match *step {
+                Step::Command(command) => {
+                    clock += COMMAND_MS;
+                    run.clock.set(clock);
+                    let result = Cell::new(None);
+                    let kind = drill_kind(command);
+                    send_input(
+                        (kind.as_str(), kind),
+                        |_, app| {
+                            result
+                                .set(Some(view.update(app, |view, cx| view.command(command, cx))));
+                            true
+                        },
+                        Wait::Never,
+                        true,
+                        &board,
+                        &mut stats,
+                        cx,
+                    )
+                    .await?;
+                    result.take().ok_or("the command was not sent")?
+                }
+                Step::Tick(ms) => {
+                    clock += ms;
+                    run.clock.set(clock);
+                    let before = view.read_with(cx, |view, _| view.engine().state().clone());
+                    cx.update(|_, app| view.update(app, |view, cx| view.tick(cx)))
+                        .map_err(gone)?;
+                    let after = view.read_with(cx, |view, _| view.engine().state().clone());
+                    background.timer(DRILL_TICK_GAP).await;
+                    Ok(if before == after {
+                        Outcome::Unchanged
+                    } else {
+                        Outcome::Changed
+                    })
+                }
+            };
+            let actual = view.read_with(cx, |view, _| {
+                state_line(index + 1, text, view.engine().state(), outcome)
+            });
+            if actual != wanted[index] {
+                stats.mismatches += 1;
+                if stats.mismatch_notes.len() < DRILL_NOTES {
+                    stats
+                        .mismatch_notes
+                        .push(format!("expected `{}`, got `{actual}`", wanted[index]));
+                }
+            }
+            if index == middle {
+                memory.push(sample_json("middle", &drill_sample(cx).await?));
+            }
+        }
+        settle_frames(view, cx).await;
+        let end = drill_sample(cx).await?;
+        memory.push(sample_json("end", &end));
+        let peak = run
+            .watch
+            .as_ref()
+            .ok_or("the memory watch was not started")?
+            .finish(Some(end));
+        let (peak_bytes, peak_source) = match peak.peak_private_bytes {
+            Some(bytes) => (bytes, "peak_private_bytes"),
+            None => (peak.peak_rss_bytes, "peak_rss_bytes"),
+        };
+        let violations = hot_path::take_violations();
+        let violation_total: u64 = violations.iter().map(|(_, count)| count).sum();
+        let by_kind: Vec<String> = violations
+            .iter()
+            .map(|(kind, count)| format!("\"{}\":{count}", kind.as_str()))
+            .collect();
+        let notes: Vec<String> = stats
+            .mismatch_notes
+            .iter()
+            .map(|note| json_string(note))
+            .collect();
+        let ticks = steps
+            .iter()
+            .filter(|step| matches!(step, Step::Tick(_)))
+            .count();
+        Ok(format!(
+            "{{{},\"schema\":\"ordo.lab.recovery-drill.v1\",\"latency_scope\":\"keydown_to_surface_paint\",\"method\":\"each non-comment line of commands.txt through PresenterView::command on a stepped clock (100 ms per command, tick lines advance it and tick the view), output enabled by the script with no congregation window; the Engine state after every line is compared with commands.expect; latency is stamped just before each command and ends at the later of the Preview and Program paints\",\"fixture\":{},\"commands\":{},\"timed_commands\":{},\"ticks\":{ticks},\"mismatches\":{},\"first_mismatches\":[{}],{},\"unpainted\":{},\"peak_bytes\":{peak_bytes},\"peak_source\":{},\"memory\":[{}],\"hot_path_violations\":{violation_total},\"hot_path_by_kind\":{{{}}},\"window\":{},\"renderer\":{},\"elapsed_s\":{}}}",
+            header(MODE_DRILL, true),
+            json_string(&run.snapshot.display().to_string()),
+            steps.len(),
+            stats.operator.count(),
+            stats.mismatches,
+            notes.join(","),
+            tail_fields(Some(&stats.operator)),
+            stats.unpainted_json(),
+            json_string(peak_source),
+            memory.join(","),
+            by_kind.join(","),
+            window_json(&setup, run),
+            setup.renderer,
             number(started.elapsed().as_secs_f64()),
         ))
     }
@@ -3336,13 +3639,16 @@ mod kit {
             let dir = std::env::temp_dir().join(format!("ordo-kit-test-{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
             let missing = dir.join("missing");
-            assert_eq!(pick_snapshot(Some(&dir), &[]).unwrap(), dir);
-            assert!(pick_snapshot(Some(&missing), std::slice::from_ref(&dir)).is_err());
+            assert_eq!(pick_snapshot(Some(&dir), &[], "normal-mass").unwrap(), dir);
+            assert!(
+                pick_snapshot(Some(&missing), std::slice::from_ref(&dir), "normal-mass").is_err()
+            );
             assert_eq!(
-                pick_snapshot(None, &[missing.clone(), dir.clone()]).unwrap(),
+                pick_snapshot(None, &[missing.clone(), dir.clone()], "normal-mass").unwrap(),
                 dir
             );
-            let error = pick_snapshot(None, std::slice::from_ref(&missing)).unwrap_err();
+            let error =
+                pick_snapshot(None, std::slice::from_ref(&missing), "normal-mass").unwrap_err();
             assert!(
                 error.contains("--snapshot") && error.contains("missing"),
                 "{error}"
