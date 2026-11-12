@@ -253,7 +253,9 @@ impl ShellView {
         // Shells built without the runtime read an empty, ready library; the
         // runtime swaps in the real store with `set_library_store`.
         let library_store = cx.new(|cx| LibraryStore::with_library(SongLibrary::new(), cx));
+        let overlays = OverlayHost::new(cx);
         let songs = cx.new(|cx| SongsWorkspace::new(library_store.clone(), window, cx));
+        songs.update(cx, |songs, _| songs.set_overlays(overlays.clone()));
         let songs_observer = cx.observe(&songs, |_, _, cx| cx.notify());
         let choirs = cx.new(|cx| ChoirsWorkspace::new(library_store.clone(), window, cx));
         let choirs_observer = cx.observe(&choirs, |_, _, cx| cx.notify());
@@ -278,7 +280,7 @@ impl ShellView {
             masses: masses::MassesIndex::new(window, cx),
             page: (0, PageChange::Destination),
             page_tab: Some(0),
-            overlays: OverlayHost::new(cx),
+            overlays,
             quit_focus: cx.focus_handle(),
             quit_confirmed: false,
             environment,
@@ -456,6 +458,9 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         self.songs = cx.new(|cx| SongsWorkspace::new(store.clone(), window, cx));
+        let overlays = self.overlays.clone();
+        self.songs
+            .update(cx, |songs, _| songs.set_overlays(overlays));
         self._songs_observer = cx.observe(&self.songs, |_, _, cx| cx.notify());
         self.choirs = cx.new(|cx| ChoirsWorkspace::new(store.clone(), window, cx));
         self._choirs_observer = cx.observe(&self.choirs, |_, _, cx| cx.notify());
