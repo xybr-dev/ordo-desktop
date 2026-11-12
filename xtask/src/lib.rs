@@ -387,6 +387,7 @@ fn verify_architecture_metadata(metadata: &Metadata) -> XtaskResult<()> {
         &workspace_names,
     )?;
     validate_sqlite_ownership(&direct_dependencies(false))?;
+    validate_presenter_runtime_without_sqlite(&direct_dependencies(false))?;
     validate_spike_reuse_policy(metadata)?;
     validate_fault_injection_policy(metadata)
 }
@@ -519,6 +520,53 @@ fn validate_sqlite_ownership(
         Ok(())
     } else {
         Err(format!("only storage may depend on a SQLite driver: {offending:?}").into())
+    }
+}
+
+/// Workspace crates that make up the Phase 1 Presenter runtime (`ordo.exe`).
+const PRESENTER_RUNTIME: &[&str] = &[
+    "ordo",
+    "presentation",
+    "rendering",
+    "domain",
+    "platform",
+    "ui",
+];
+
+/// Phase 1 gate: the Presenter runtime ships without SQLite. No crate in
+/// [`PRESENTER_RUNTIME`] may reach `storage` or a SQLite driver through
+/// normal dependencies, directly or through another workspace crate. Test
+/// and example code may still use `storage` as a dev-dependency.
+///
+/// Phase 2 (Preparation over persistent storage) relaxes this for `ordo`
+/// when the runtime first opens the Library database.
+fn validate_presenter_runtime_without_sqlite(
+    normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
+) -> XtaskResult<()> {
+    let mut offending = BTreeSet::new();
+    for root in PRESENTER_RUNTIME {
+        let mut stack = vec![*root];
+        let mut seen = BTreeSet::new();
+        while let Some(package) = stack.pop() {
+            if !seen.insert(package) {
+                continue;
+            }
+            for dependency in normal_dependencies.get(package).into_iter().flatten() {
+                if *dependency == "storage" || SQLITE_DRIVERS.contains(dependency) {
+                    offending.insert(format!("{root} -> ... -> {package} -> {dependency}"));
+                } else if normal_dependencies.contains_key(dependency) {
+                    stack.push(dependency);
+                }
+            }
+        }
+    }
+    if offending.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the Phase 1 Presenter runtime must not link SQLite (use a dev-dependency): {offending:?}"
+        )
+        .into())
     }
 }
 
@@ -1360,6 +1408,33 @@ mod tests {
             ("ordo", BTreeSet::from(["rusqlite"])),
         ]);
         assert!(validate_sqlite_ownership(&leaked).is_err());
+    }
+
+    #[test]
+    fn the_presenter_runtime_reaches_no_sqlite_through_normal_dependencies() {
+        let clean = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite", "domain"])),
+            ("ordo", BTreeSet::from(["presentation", "gpui"])),
+            ("presentation", BTreeSet::from(["domain"])),
+            ("domain", BTreeSet::new()),
+        ]);
+        assert!(validate_presenter_runtime_without_sqlite(&clean).is_ok());
+
+        let direct = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["storage"])),
+        ]);
+        assert!(validate_presenter_runtime_without_sqlite(&direct).is_err());
+
+        let transitive = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite"])),
+            ("ordo", BTreeSet::from(["platform"])),
+            ("platform", BTreeSet::from(["storage"])),
+        ]);
+        assert!(validate_presenter_runtime_without_sqlite(&transitive).is_err());
+
+        let driver = BTreeMap::from([("ui", BTreeSet::from(["libsqlite3-sys"]))]);
+        assert!(validate_presenter_runtime_without_sqlite(&driver).is_err());
     }
 
     #[test]

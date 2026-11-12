@@ -615,11 +615,10 @@ mod tests {
     /// no mocked pixels are claimed as compositor output; the gate is each
     /// surface's measured outer/inner bounds plus its `img` image source
     /// (id and decodable backing bytes) against the one rasterization.
-    /// Actual compositor captures plus outer-scale-normalized pixel
-    /// equivalence stay the pending manual gate
-    /// (`docs/qualification/T0.4-MANUAL-GATE.md` script C plus the gallery
-    /// candidate); this host only proves the sources and boxes those
-    /// captures would read. Only outer bounds may differ; everything inside
+    /// Captured-pixel equivalence is not automated: it is recorded as row 28
+    /// in `docs/qualification/milestone-0/EXCEPTIONS.md`, and packaged
+    /// canonical bytes are compared by `windows-canonical-invariance`. This
+    /// host proves the sources and boxes a capture would read. Only outer bounds may differ; everything inside
     /// must stay identical. Mounted congregation isolation stays
     /// pinned by `congregation_mounts_no_operator_viewport` and window
     /// topology by `native-runtime/tests/runtime.rs`; this E2E pins the

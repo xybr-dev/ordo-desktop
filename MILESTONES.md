@@ -317,9 +317,13 @@ operator sizes, operating systems, display scaling, and preview consumers.
 
 **E2E** `[UI-AUTO]` — Render one mixed-language fixture once, display it in the
 four operator viewports at their production sizes plus the congregation
-renderer, capture every surface, normalize only outer scaling, and assert
-identical canonical content and unchanged pagination. Preview and Program share
-one production size by design (Decision 266).
+renderer, and assert that every surface draws the same image source (id and
+backing bytes) from the one rasterization, that only outer bounds differ, and
+that pagination is unchanged. Preview and Program share one production size by
+design (Decision 266). Packaged canonical bytes are compared across scales and
+densities by `windows-canonical-invariance`. The test host has no compositor
+readback, so captured-pixel equivalence is not automated; that gap is row 28
+in `docs/qualification/milestone-0/EXCEPTIONS.md`.
 
 ### T0.4a — GPUI source migration and `gpui-base` re-qualification
 
@@ -458,7 +462,8 @@ resolved from the operator window's live bounds against a fresh display list,
 and an ambiguous mixed-DPI overlap keeps the last known display instead of
 guessing. Recorded as row 27 in
 `docs/qualification/milestone-0/EXCEPTIONS.md`; the attempt-2 hot-plug check in
-`WINDOWS-10-SIGNOFF.md` is its requalification.
+`WINDOWS-10-SIGNOFF.md` is its requalification, rechecked and passed on attempt 3
+(bundle `20261107T130138Z-0495934`) with the vendored GPUI (Decision 308).
 
 ### T0.6 — Presentation Engine and performance instrumentation spike
 
@@ -848,8 +853,8 @@ no Engine mutation, no missing high-stakes control, and identical frames.
 cannot accidentally change Program.
 
 **Changes:** `crates/ordo/src/commands/registry.rs`,
-`crates/ordo/src/focus_regions/`, `crates/ordo/src/shortcut_reference/`,
-`tests/e2e/presenter/keyboard.*`
+`crates/ordo/src/presenter/` (focus regions), `crates/ordo/src/shortcut_reference/`,
+`crates/ordo/src/presenter/e2e.rs` (keyboard E2E)
 
 **Depends on:** T0.3, T1.4.
 
@@ -891,7 +896,8 @@ keeping congregation exposure deliberate and fail-closed.
 
 **Changes:** `crates/platform/src/presenter_mode.rs`, `crates/platform/src/display/output_controller.rs`,
 `crates/platform/src/display/monitor_identity.rs`,
-`crates/ordo/src/presenter/session_header/`, `tests/e2e/output-lifecycle.*`
+`crates/ordo/src/presenter/session_header/`, `crates/ordo/src/presenter/output.rs`,
+`crates/ordo/src/shell/tests/output_lifecycle_e2e.rs`
 
 **Depends on:** T0.5, T1.4, T1.5.
 
@@ -942,8 +948,9 @@ selection and scroll state.
 **Goal:** Prove interrupted-session recovery before live edits or database-backed
 plans make the state larger.
 
-**Changes:** `crates/presentation/src/journal/`, `crates/ordo/src/recovery.rs`,
-`tests/presentation/recovery.*`, `tests/e2e/recovery.*`
+**Changes:** `crates/presentation/src/journal/`, `crates/presentation/src/engine.rs`
+(recovery), `crates/ordo/src/recovery.rs`, `crates/ordo/src/presenter/recovery_strip.rs`,
+`crates/ordo/src/shell/tests/recovery_e2e.rs`
 
 **Depends on:** T0.8, T1.2, T1.6.
 
@@ -968,8 +975,11 @@ context with black external Program until one explicit valid Space command.
 
 ### Phase 1 gate
 
-- [ ] `[AUTO]` State-model, golden-render, cache, accessibility, responsive, and
+- [x] `[AUTO]` State-model, golden-render, cache, accessibility, responsive, and
       recovery suites pass without SQLite or editable library UI.
+      (`cargo xtask verify`; `storage` is a dev-dependency of `ordo` only, and
+      `cargo xtask architecture` fails if the Presenter runtime crates reach
+      `storage` or a SQLite driver through normal dependencies.)
 - [ ] `[NATIVE-AUTO]` A full Recovery Drill fixture run passes in packaged
       Windows builds within latency and memory budgets.
 - [ ] `[MANUAL]` A human can run the sanitized Normal Mass fixture from keyboard
