@@ -237,7 +237,7 @@ fn ac3_archived_song_is_included_and_every_matching_pair_is_listed() {
 }
 
 #[test]
-fn ac3_blank_and_punctuation_only_names_match_nothing() {
+fn ac3_blank_names_match_nothing() {
     let mut library = SongLibrary::new();
     library
         .create_song(song_id(1), at(0), SongDraft::titled("Kyrie"))
@@ -256,18 +256,49 @@ fn ac3_blank_and_punctuation_only_names_match_nothing() {
             .possible_existing_songs(&SongDraft::titled("   "))
             .is_empty()
     );
+    let mut blank_alias = SongDraft::titled("   ");
+    blank_alias.aliases = vec![" ".to_owned()];
+    assert!(library.possible_existing_songs(&blank_alias).is_empty());
+}
+
+#[test]
+fn ac3_symbol_only_names_match_only_an_exact_duplicate() {
+    let mut library = SongLibrary::new();
+    library
+        .create_song(song_id(1), at(0), SongDraft::titled("Kyrie"))
+        .unwrap();
+    library
+        .create_song(song_id(2), at(1), SongDraft::titled("?! — ..."))
+        .unwrap();
+
+    // The same symbols, however cased or spaced, are an exact duplicate even
+    // though the identity key is empty.
+    let possible = library.possible_existing_songs(&SongDraft::titled("  ?!  —  ... "));
+    assert_eq!(ids(&possible), [song_id(2)]);
+    assert_eq!(strengths(&possible), [MatchStrength::ExactTitle]);
+    assert_eq!(
+        possible[0].evidence,
+        [IdentityEvidence::Name {
+            candidate_on: MatchedOn::Title,
+            existing_on: MatchedOn::Title,
+            exact: true,
+        }]
+    );
+    // Different symbols are not a near match: there is no identity to compare.
     assert!(
         library
-            .possible_existing_songs(&SongDraft::titled("?! — ..."))
+            .possible_existing_songs(&SongDraft::titled("!!!"))
             .is_empty()
     );
-    let mut punctuation_only = SongDraft::titled("   ");
-    punctuation_only.aliases = vec!["!!!".to_owned()];
-    assert!(
-        library
-            .possible_existing_songs(&punctuation_only)
-            .is_empty()
-    );
+    // A symbol-only alias matches an equal alias exactly.
+    let mut aliased = SongDraft::titled("Lord, have mercy");
+    aliased.aliases = vec!["♫".to_owned()];
+    library.create_song(song_id(3), at(2), aliased).unwrap();
+    let mut candidate = SongDraft::titled("Other");
+    candidate.aliases = vec!["♫".to_owned()];
+    let possible = library.possible_existing_songs(&candidate);
+    assert_eq!(ids(&possible), [song_id(3)]);
+    assert_eq!(strengths(&possible), [MatchStrength::ExactAlias]);
 }
 
 #[test]
@@ -315,6 +346,11 @@ fn ac3_identity_key_folds_case_spacing_diacritics_and_punctuation_only() {
         ("Kyrie 1", "kyrie1"),
         ("Kyrie — 8th Mass", "kyrie8thmass"),
         ("Kyrie — 13th Mass", "kyrie13thmass"),
+        ("Psalm 1-2", "psalm1 2"),
+        ("Psalm 1 2", "psalm1 2"),
+        ("Psalm 12", "psalm12"),
+        ("Hymn 1, 3", "hymn1 3"),
+        ("Hymn 13", "hymn13"),
         ("", ""),
         (" ?! — ... ", ""),
     ] {
@@ -330,4 +366,24 @@ fn ac3_identity_key_folds_case_spacing_diacritics_and_punctuation_only() {
         identity_key("Ginoo, Kaloy-i Kami"),
         identity_key("Ginoó Kaloyi Kami")
     );
+}
+
+#[test]
+fn ac3_numbered_settings_never_join_across_separators() {
+    assert_ne!(identity_key("Psalm 1-2"), identity_key("Psalm 12"));
+    assert_ne!(identity_key("Hymn 1, 3"), identity_key("Hymn 13"));
+    assert_eq!(identity_key("Psalm 1 2"), identity_key("Psalm 1-2"));
+    assert_eq!(identity_key("kaloy-i"), identity_key("kaloy i"));
+    assert_eq!(identity_key("kaloy i"), identity_key("kaloyi"));
+
+    let mut library = SongLibrary::new();
+    library
+        .create_song(song_id(1), at(0), SongDraft::titled("Psalm 12"))
+        .unwrap();
+    library
+        .create_song(song_id(2), at(1), SongDraft::titled("Psalm 1 2"))
+        .unwrap();
+    let possible = library.possible_existing_songs(&SongDraft::titled("Psalm 1-2"));
+    assert_eq!(ids(&possible), [song_id(2)]);
+    assert_eq!(strengths(&possible), [MatchStrength::NearTitle]);
 }

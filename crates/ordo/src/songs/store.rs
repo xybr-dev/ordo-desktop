@@ -132,7 +132,7 @@ enum Stored {
 /// The text shown when a write cannot reach the parish store.
 const NOT_OPEN: &str = "The parish store is not open.";
 
-/// A boxed storage future, so the four operations share one type.
+/// A boxed storage future, so every write shares one type.
 type StoredWrite = Pin<Box<dyn Future<Output = Result<Stored, StorageError>> + Send>>;
 
 fn boxed(
@@ -310,9 +310,8 @@ impl LibraryStore {
     }
 
     /// Creates a Song with no Arrangement, through the same queue as the
-    /// Choir writes. The domain checks the draft first (a blank title, a blank
-    /// or repeated alias, or an alias equal to the title refuses without I/O),
-    /// the write runs off the GPUI thread, and only then does the returned
+    /// Choir writes. The domain checks the draft first (a draft the domain
+    /// refuses is refused without I/O), the write runs off the GPUI thread, and only then does the returned
     /// record enter the in-memory library under the id and timestamp storage
     /// gave it. An exact duplicate title is allowed: the operator decides.
     pub fn create_song(
@@ -537,6 +536,12 @@ impl LibraryStore {
                 "The parish store returned a record of the wrong kind.",
             )),
         }
+    }
+
+    /// Whether a write is in flight, and how many more are queued behind it.
+    #[cfg(test)]
+    pub(crate) fn write_state(&self) -> (bool, usize) {
+        (self.writing, self.queue.len())
     }
 
     /// Replaces the library and tells observers. A test-only seam: production

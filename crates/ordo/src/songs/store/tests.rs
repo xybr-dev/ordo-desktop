@@ -212,6 +212,8 @@ fn ac6_store_a_failed_storage_write_leaves_memory_unchanged(cx: &mut TestAppCont
 
     let message = create(cx, &store, SongDraft::titled("Ave Maria")).expect_err("write fails");
     assert_ne!(message.as_ref(), "The parish store is not open.");
+    assert_ne!(message.as_ref(), "The change was abandoned.");
+    assert_eq!(message.as_ref(), "storage is not open");
     store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
     assert_eq!(*changes.borrow(), 0, "a failed write emits nothing");
 
@@ -223,11 +225,14 @@ fn ac6_store_a_failed_storage_write_leaves_memory_unchanged(cx: &mut TestAppCont
         Err(SharedString::from("The parish store is not open."))
     );
     store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    assert_eq!(*changes.borrow(), 0, "an unreachable store emits nothing");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[gpui::test]
-fn ac6_store_choir_and_song_writes_complete_in_submission_order(cx: &mut TestAppContext) {
+fn ac6_store_the_store_serializes_choir_and_song_writes_in_submission_order(
+    cx: &mut TestAppContext,
+) {
     cx.executor().allow_parking();
     let dir = temp_dir("store-song-order");
     let (slot, store) = open_parish(cx, &dir);
@@ -243,28 +248,56 @@ fn ac6_store_choir_and_song_writes_complete_in_submission_order(cx: &mut TestApp
         })
         .detach();
     });
+    assert_eq!(
+        store.read_with(cx, |store, _| store.write_state()),
+        (false, 0)
+    );
 
-    // Choir first, Song second, both submitted before either is answered.
-    let (choir, song) = store.update(cx, |store, cx| {
-        (
-            store.create_choir(ChoirDraft::named("Youth Choir"), cx),
-            store.create_song(SongDraft::titled("Ave Maria"), cx),
-        )
+    // A valid Choir, a refused Song and a valid Song, back to back, with the
+    // executor not yet run: the first is in flight and the others wait behind
+    // it in the store's own queue.
+    let (choir, refused, song) = store.update(cx, |store, cx| {
+        let choir = store.create_choir(ChoirDraft::named("Youth Choir"), cx);
+        let refused = store.create_song(SongDraft::titled("  "), cx);
+        let song = store.create_song(SongDraft::titled("Ave Maria"), cx);
+        (choir, refused, song)
     });
-    cx.foreground_executor().block_test(choir).expect("choir");
-    cx.foreground_executor().block_test(song).expect("song");
-    assert_eq!(*seen.borrow(), [(1, 0), (1, 1)]);
+    assert_eq!(
+        store.read_with(cx, |store, _| store.write_state()),
+        (true, 2),
+        "one write in flight, two queued behind it"
+    );
+    assert!(seen.borrow().is_empty(), "nothing has landed yet");
 
-    // Song first, Choir second.
-    seen.borrow_mut().clear();
-    let (song, choir) = store.update(cx, |store, cx| {
-        (
-            store.create_song(SongDraft::titled("Kyrie"), cx),
-            store.create_choir(ChoirDraft::named("Old Choir"), cx),
-        )
-    });
-    cx.foreground_executor().block_test(song).expect("song");
     cx.foreground_executor().block_test(choir).expect("choir");
-    assert_eq!(*seen.borrow(), [(1, 2), (2, 2)]);
+    assert_eq!(
+        cx.foreground_executor().block_test(refused),
+        Err(SharedString::from("Song title is blank")),
+        "the refused write fails without I/O"
+    );
+    let song = cx.foreground_executor().block_test(song).expect("song");
+    assert_eq!(
+        store.read_with(cx, |store, _| store.write_state()),
+        (false, 0)
+    );
+    assert_eq!(
+        *seen.borrow(),
+        [(1, 0), (1, 1)],
+        "only the valid writes land"
+    );
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    store.read_with(cx, |store, _| {
+        assert_eq!(
+            store.library().songs().count(),
+            1,
+            "nothing else was written"
+        );
+        assert_eq!(store.library().choirs().count(), 1);
+        assert_eq!(
+            store.library().song(song).expect("song").title(),
+            "Ave Maria"
+        );
+    });
     finish(cx, &slot, &dir);
 }

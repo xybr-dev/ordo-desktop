@@ -6,10 +6,12 @@
 //! - [`match_key`] folds case and spacing only. It guards exact duplicates and
 //!   stays strict about punctuation, digits and diacritics because each of
 //!   those can distinguish two works.
-//! - [`identity_key`] also folds diacritics and drops punctuation and spaces.
-//!   It is a looser key used only to rank likely duplicates as near matches. It
-//!   keeps digits and letters as written, so numbered settings such as
-//!   "Kyrie I", "Kyrie II" and "Kyrie 1" stay separate works (Decision 39).
+//! - [`identity_key`] also folds diacritics and drops punctuation and spaces,
+//!   except between two digits, where one space is kept. It is a looser key used
+//!   only to rank likely duplicates as near matches. It keeps digits and letters
+//!   as written, so numbered settings such as "Kyrie I", "Kyrie II" and
+//!   "Kyrie 1", or "Psalm 1-2" and "Psalm 12", stay separate works
+//!   (Decision 39).
 //!
 //! Both operations report only. They take `&SongLibrary`, change nothing and
 //! never unite two Song works: the operator decides (Decision 39).
@@ -44,18 +46,33 @@ pub struct DuplicateEvidence {
 /// near-duplicate evidence.
 ///
 /// Applies [`search_key`] (case, spacing and diacritic fold) and then keeps only
-/// alphanumeric characters, so punctuation and spaces are dropped. Digits and
-/// letters stay as written: "Kyrie I" and "Kyrie II" differ, and so do
-/// "Kyrie 1" and "Kyrie I".
+/// alphanumeric characters, so punctuation and spaces are dropped. A dropped run
+/// that sits between two digits leaves one space, so neighbouring numbers never
+/// join: "Psalm 1-2" and "Psalm 1 2" share a key, "Psalm 12" does not, and
+/// "Kaloy-i", "Kaloy i" and "Kaloyi" all share one. Digits and letters stay as
+/// written: "Kyrie I" and "Kyrie II" differ, and so do "Kyrie 1" and "Kyrie I".
 ///
 /// The key is never stored and never rewrites authored text. It is used only to
 /// rank possible existing Songs; an empty result means the text carries no
 /// identity at all (for example a blank or punctuation-only title).
 pub fn identity_key(text: &str) -> String {
-    search_key(text)
-        .chars()
-        .filter(|character| character.is_alphanumeric())
-        .collect()
+    let mut key = String::new();
+    let mut dropped = false;
+    for character in search_key(text).chars() {
+        if !character.is_alphanumeric() {
+            dropped = true;
+            continue;
+        }
+        if dropped
+            && character.is_numeric()
+            && key.chars().next_back().is_some_and(char::is_numeric)
+        {
+            key.push(' ');
+        }
+        dropped = false;
+        key.push(character);
+    }
+    key
 }
 
 /// How strongly one existing Song resembles a candidate draft.
@@ -160,8 +177,9 @@ impl SongLibrary {
     /// title and aliases, archived Songs included. A pair matches when their
     /// [`identity_key`]s are equal, and reports [`IdentityEvidence::Name`] with
     /// `exact` set when their [`match_key`]s are equal too. A name whose
-    /// identity key is empty matches nothing, so a blank or punctuation-only
-    /// draft returns an empty list.
+    /// identity key is empty (punctuation or symbols only, such as "?!") still
+    /// matches an equal [`match_key`], as an exact pair. A blank name matches
+    /// nothing, so a blank draft returns an empty list.
     ///
     /// [`IdentityEvidence::SameAttribution`] is appended when the draft and the
     /// Song name the same original attribution by [`identity_key`], but only
@@ -189,10 +207,21 @@ impl SongLibrary {
             let mut strength: Option<MatchStrength> = None;
             for candidate_name in &candidate_names {
                 for existing_name in &existing_names {
-                    if candidate_name.identity != existing_name.identity {
+                    // A name with no identity at all can only match exactly, so
+                    // the pair falls back to the exact key. The exact key is
+                    // computed only for pairs that already matched loosely.
+                    let loose = candidate_name.identity.is_empty()
+                        || existing_name.identity.is_empty()
+                        || candidate_name.identity == existing_name.identity;
+                    if !loose {
                         continue;
                     }
-                    let exact = candidate_name.exact == existing_name.exact;
+                    let exact = match_key(candidate_name.text) == match_key(existing_name.text);
+                    if !exact
+                        && (candidate_name.identity.is_empty() || existing_name.identity.is_empty())
+                    {
+                        continue;
+                    }
                     evidence.push(IdentityEvidence::Name {
                         candidate_on: candidate_name.on,
                         existing_on: existing_name.on,
@@ -233,18 +262,19 @@ impl SongLibrary {
     }
 }
 
-/// One title or alias together with the two keys it is compared by.
-struct NameKey {
+/// One title or alias together with the near-match key it is compared by.
+struct NameKey<'a> {
     /// Which title this is.
     on: MatchedOn,
-    /// The near-match key, never empty.
+    /// The name as authored; its [`match_key`] is computed only when a pair
+    /// needs it.
+    text: &'a str,
+    /// The near-match key; empty when the name has no letters or digits.
     identity: String,
-    /// The exact-match key.
-    exact: String,
 }
 
-/// The title then aliases of a Song or draft, skipping names with no identity.
-fn name_keys(title: &str, aliases: &[String]) -> Vec<NameKey> {
+/// The title then aliases of a Song or draft, skipping blank names.
+fn name_keys<'a>(title: &'a str, aliases: &'a [String]) -> Vec<NameKey<'a>> {
     std::iter::once((MatchedOn::Title, title))
         .chain(
             aliases
@@ -252,16 +282,11 @@ fn name_keys(title: &str, aliases: &[String]) -> Vec<NameKey> {
                 .enumerate()
                 .map(|(index, alias)| (MatchedOn::Alias(index), alias.as_str())),
         )
-        .filter_map(|(on, text)| {
-            let identity = identity_key(text);
-            if identity.is_empty() {
-                return None;
-            }
-            Some(NameKey {
-                on,
-                identity,
-                exact: match_key(text),
-            })
+        .filter(|(_, text)| text.split_whitespace().next().is_some())
+        .map(|(on, text)| NameKey {
+            on,
+            text,
+            identity: identity_key(text),
         })
         .collect()
 }
