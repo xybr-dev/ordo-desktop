@@ -1,6 +1,7 @@
 pub mod inspect_pptx;
 pub mod measure_presenter;
 pub mod qualify;
+pub mod recovery_drill;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, semver::VersionReq};
 use serde::Deserialize;
