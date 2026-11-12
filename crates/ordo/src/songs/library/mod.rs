@@ -127,15 +127,33 @@ impl SongsWorkspace {
         if self.new_song.is_some() || *self.store.read(cx).state() != LibraryState::Ready {
             return;
         }
-        // Whatever the panel stacks above this depth is the panel's.
-        let base = host.depth(cx);
         let weak = cx.weak_entity();
         let report = {
             let weak = weak.clone();
             let host = host.clone();
             Rc::new(move |outcome: Outcome, window: &mut Window, cx: &mut App| {
-                let _ = weak.update(cx, |workspace, cx| workspace.apply(outcome, cx));
-                while host.depth(cx) > base {
+                let preview = match outcome {
+                    Outcome::UseExisting(song) => weak
+                        .update(cx, |workspace, cx| {
+                            workspace
+                                .store
+                                .read(cx)
+                                .library()
+                                .song(song)
+                                .ok()
+                                .map(|work| gpui::SharedString::from(work.title().to_owned()))
+                        })
+                        .ok()
+                        .flatten(),
+                    Outcome::Created(_) => None,
+                };
+                let _ = weak.update(cx, |workspace, cx| workspace.apply(outcome, window, cx));
+                // Close only the panel's own surfaces: a dialog another part of
+                // the app stacked above them is not the panel's to dismiss.
+                while host
+                    .top(cx)
+                    .is_some_and(|top| top == "New song" || Some(&top) == preview.as_ref())
+                {
                     host.close_top(window, cx);
                 }
             })
@@ -153,7 +171,7 @@ impl SongsWorkspace {
 
     /// Carries out what the panel decided: both outcomes select a Song, and a
     /// Song that is archived is only visible with Include archived on.
-    fn apply(&mut self, outcome: Outcome, cx: &mut Context<Self>) {
+    fn apply(&mut self, outcome: Outcome, window: &mut Window, cx: &mut Context<Self>) {
         let song = match outcome {
             Outcome::Created(song) | Outcome::UseExisting(song) => song,
         };
@@ -165,6 +183,14 @@ impl SongsWorkspace {
             .is_ok_and(|work| work.is_archived());
         if archived {
             self.set_include_archived(true, cx);
+        } else {
+            self.refresh(cx);
+        }
+        // A Song the search or filters hide would be dropped by the next
+        // refresh, so the operator's search and filters give way to it. The
+        // archived toggle is left as it is.
+        if !self.hits.iter().any(|hit| hit.song == song) {
+            self.clear_search_and_filters(window, cx);
         }
         self.select(song, cx);
     }

@@ -242,6 +242,10 @@ impl NewSongPanel {
             .read(cx)
             .library()
             .possible_existing_songs(&draft);
+        if self.candidates.is_empty() {
+            // Collapsed, so it does not reappear already expanded.
+            self.disclosure.set_expanded(false, cx);
+        }
         cx.notify();
     }
 

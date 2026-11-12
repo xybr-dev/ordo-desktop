@@ -922,10 +922,11 @@ impl OverlayHost {
 
     /// [`Self::take`] without the close: the caller decides whether the
     /// decision stood. Still refused while the surface is only leaving.
-    fn guarded(&self, id: usize, activate: Activate) -> Activate {
+    /// The gate is asked again at activation, not trusted from the last paint.
+    fn guarded(&self, id: usize, gate: Gate, activate: Activate) -> Activate {
         let host = self.clone();
         Rc::new(move |window, cx| {
-            if host.holding(id, cx) {
+            if host.holding(id, cx) && gate(cx).is_available() {
                 activate(window, cx);
             }
         })
@@ -1018,8 +1019,8 @@ impl OverlayHost {
                 // taken leaves the surface to its caller.
                 let gate = (!quiet).then(|| overlay.gate.clone()).flatten();
                 let availability = gate.as_ref().map_or(Availability::Available, |g| g(cx));
-                let take = if gate.is_some() {
-                    self.guarded(id, activate)
+                let take = if let Some(gate) = gate.clone() {
+                    self.guarded(id, gate, activate)
                 } else {
                     self.take(id, activate)
                 };
@@ -1662,6 +1663,26 @@ mod tests {
             1,
             "an available gated primary does not close"
         );
+        // Escape and Cancel still leave a surface whose primary is unavailable.
+        open_gate.set(false);
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "Escape closes it");
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::dialog("Gated again")
+                    .primary_gated("Go", |_| Availability::unavailable("Not yet"), |_, _| {})
+                    .secondary("Cancel", |_, _| {}),
+                window,
+                cx,
+            )
+        });
+        settle(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let cancel = cx.debug_bounds("button-Cancel").expect("Cancel renders");
+        cx.simulate_click(cancel.center(), Modifiers::default());
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "Cancel closes it");
     }
 
     #[gpui::test]

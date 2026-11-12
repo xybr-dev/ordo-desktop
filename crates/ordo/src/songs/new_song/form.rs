@@ -21,6 +21,13 @@ use super::NewSongPanel;
 pub(super) const TITLE: &str = "New song";
 pub(super) const DESCRIPTION: &str =
     "The composition itself. Lyrics, language and choirs belong to its Arrangements.";
+/// The identity fields the form renders, in order. Nothing else is a field.
+pub(super) const FIELD_LABELS: [&str; 4] = [
+    "Primary title",
+    "Composer or original author",
+    "Aliases",
+    "Usual moment",
+];
 pub(super) const CREATE: &str = "Create song";
 pub(super) const CREATE_REASON: &str = "Type a primary title first";
 pub(super) const FAILED: &str = "Couldn't create song";
@@ -102,7 +109,7 @@ pub(super) fn render(
             "new-song-title",
             Field::new(
                 "new-song-title-field",
-                "Primary title",
+                FIELD_LABELS[0],
                 &panel.title,
                 environment,
             )
@@ -114,7 +121,7 @@ pub(super) fn render(
             "new-song-composer",
             Field::new(
                 "new-song-composer-field",
-                "Composer or original author",
+                FIELD_LABELS[1],
                 &panel.composer,
                 environment,
             )
@@ -130,7 +137,7 @@ pub(super) fn render(
                     "new-song-aliases",
                     Field::new(
                         "new-song-aliases-field",
-                        "Aliases",
+                        FIELD_LABELS[2],
                         &panel.aliases,
                         environment,
                     )
@@ -148,7 +155,7 @@ pub(super) fn render(
             "new-song-moment",
             Field::new(
                 "new-song-moment-field",
-                "Usual moment",
+                FIELD_LABELS[3],
                 &panel.moments,
                 environment,
             )

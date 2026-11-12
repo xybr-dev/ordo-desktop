@@ -29,6 +29,7 @@ pub(super) fn overlay(
     let body = cx.entity();
     let close = cx.entity();
     let report = panel.report.clone();
+    let gone = panel.store.clone();
     Some(
         Overlay::slideover(title)
             .description(DESCRIPTION)
@@ -36,7 +37,10 @@ pub(super) fn overlay(
                 body.update(cx, |panel, cx| render(panel, song, environment, cx))
             })
             .primary("Use this existing Song", move |window, cx| {
-                report(Outcome::UseExisting(song), window, cx);
+                let present = gone.read(cx).library().song(song).is_ok();
+                if present {
+                    report(Outcome::UseExisting(song), window, cx);
+                }
             })
             .secondary("Back", |_, _| {})
             .on_close(move |_, cx| {
@@ -56,8 +60,7 @@ fn render(
 ) -> AnyElement {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    let library = panel.store.read(cx).library();
-    let Ok(work) = library.song(song) else {
+    let Some(facts) = Facts::of(panel.store.read(cx).library(), song) else {
         return div().into_any_element();
     };
     let gap = px(scale.apply(tokens::spacing::RELATED_TIGHT));
@@ -82,35 +85,10 @@ fn render(
             text
         }
     };
-    let aliases = work.aliases().join(", ");
-    let moments = work
-        .liturgical_moments()
+    let arrangements = facts
+        .arrangements
         .iter()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let arrangements = library
-        .arrangements_for_song(song)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|arrangement| {
-            let choirs = arrangement
-                .choirs()
-                .iter()
-                .filter_map(|id| library.choir(*id).ok())
-                .map(|choir| choir.name().to_owned())
-                .collect::<Vec<_>>();
-            let choirs = if choirs.is_empty() {
-                "Choir unspecified".to_owned()
-            } else {
-                choirs.join(", ")
-            };
-            let languages = arrangement.languages().join(", ");
-            let summary = if languages.is_empty() {
-                choirs
-            } else {
-                format!("{languages} \u{b7} {choirs}")
-            };
+        .map(|(title, summary)| {
             div()
                 .flex()
                 .flex_col()
@@ -118,13 +96,13 @@ fn render(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(palette.text))
-                        .child(arrangement.title().to_owned()),
+                        .child(title.clone()),
                 )
                 .child(
                     div()
                         .text_size(px(scale.apply(tokens::typography::META.size)))
                         .text_color(rgb(palette.text_muted))
-                        .child(summary),
+                        .child(summary.clone()),
                 )
         })
         .collect::<Vec<_>>();
@@ -137,17 +115,17 @@ fn render(
         .child(fact(
             "new-song-preview-composer",
             "Composer / original author",
-            or_dash(work.original_attribution().unwrap_or_default().to_owned()),
+            or_dash(facts.composer.clone()),
         ))
         .child(fact(
             "new-song-preview-aliases",
             "Aliases",
-            or_dash(aliases),
+            or_dash(facts.aliases.clone()),
         ))
         .child(fact(
             "new-song-preview-moments",
             "Usual moments",
-            or_dash(moments),
+            or_dash(facts.moments.clone()),
         ))
         .child(
             div()
@@ -164,4 +142,70 @@ fn render(
                 .children(arrangements),
         )
         .into_any_element()
+}
+
+/// Every piece of Song text the preview shows: identity and an Arrangement
+/// summary (title, then languages and Choirs). Lyrics are not among them.
+pub(super) struct Facts {
+    pub composer: String,
+    pub aliases: String,
+    pub moments: String,
+    pub arrangements: Vec<(String, String)>,
+}
+
+impl Facts {
+    pub(super) fn of(library: &domain::song_library::SongLibrary, song: SongId) -> Option<Self> {
+        let work = library.song(song).ok()?;
+        let arrangements = library
+            .arrangements_for_song(song)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|arrangement| {
+                let choirs = arrangement
+                    .choirs()
+                    .iter()
+                    .filter_map(|id| library.choir(*id).ok())
+                    .map(|choir| choir.name().to_owned())
+                    .collect::<Vec<_>>();
+                let choirs = if choirs.is_empty() {
+                    "Choir unspecified".to_owned()
+                } else {
+                    choirs.join(", ")
+                };
+                let languages = arrangement.languages().join(", ");
+                let summary = if languages.is_empty() {
+                    choirs
+                } else {
+                    format!("{languages} \u{b7} {choirs}")
+                };
+                (arrangement.title().to_owned(), summary)
+            })
+            .collect();
+        Some(Self {
+            composer: work.original_attribution().unwrap_or_default().to_owned(),
+            aliases: work.aliases().join(", "),
+            moments: work
+                .liturgical_moments()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            arrangements,
+        })
+    }
+
+    /// All of the text above in one string, for a test to search.
+    #[cfg(test)]
+    pub(super) fn text(&self) -> String {
+        let mut text = vec![
+            self.composer.clone(),
+            self.aliases.clone(),
+            self.moments.clone(),
+        ];
+        for (title, summary) in &self.arrangements {
+            text.push(title.clone());
+            text.push(summary.clone());
+        }
+        text.join("\n")
+    }
 }

@@ -5,14 +5,13 @@
 
 use std::path::{Path, PathBuf};
 
-use domain::{
-    identity::SongId,
-    song_library::{SongLibrary, SongWork},
+use domain::{identity::SongId, song_library::SongWork};
+use gpui::{
+    AppContext as _, Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px,
 };
-use gpui::{AppContext as _, Entity, Modifiers, TestAppContext, VisualTestContext, point, px};
 use storage::{NewArrangement, NewChoir, NewSection, NewSong, Storage, StorageConfig};
 
-use super::{NewSongPanel, build_draft};
+use super::{NewSongPanel, build_draft, form::FIELD_LABELS, preview::Facts};
 use crate::{
     shell::ShellView,
     songs::{
@@ -122,12 +121,33 @@ fn parish(
     cx: &mut TestAppContext,
     tag: &str,
 ) -> (PathBuf, StorageSlot, Entity<LibraryStore>, Seeded) {
+    parish_with(cx, tag, 0, false)
+}
+
+/// The seeded parish plus `extra` Latin Songs (each with one Arrangement) and,
+/// when `hollow`, an archived Song "Hollow" that has no Arrangements.
+fn parish_with(
+    cx: &mut TestAppContext,
+    tag: &str,
+    extra: usize,
+    hollow: bool,
+) -> (PathBuf, StorageSlot, Entity<LibraryStore>, Seeded) {
     cx.executor().allow_parking();
     let dir = temp_dir(tag);
     let seed = Storage::spawn(StorageConfig::in_directory(&dir));
     let ids = cx
         .foreground_executor()
         .block_test(seed_near_matches(&seed));
+    cx.foreground_executor().block_test(async {
+        for at in 0..extra {
+            let id = song(&seed, &format!("Alleluia {at:02}"), None, &[]).await;
+            arrangement(&seed, id, "Plainchant", "Latin", Vec::new()).await;
+        }
+        if hollow {
+            let id = song(&seed, "Hollow", None, &[]).await;
+            seed.archive_song(id).await.expect("archive");
+        }
+    });
     cx.foreground_executor().block_test(seed.shutdown());
     let (slot, store) = open_parish(cx, &dir);
     (dir, slot, store, ids)
@@ -261,6 +281,12 @@ pub(crate) fn settle_depth(
     panic!("the layer never reached depth {expected}");
 }
 
+/// Waits for the write behind Create to be answered and the panel to close.
+pub(crate) fn wait_closed(songs: &Entity<SongsWorkspace>, cx: &mut VisualTestContext) {
+    crate::songs::choirs::tests::wait(cx, |cx| depth(songs, cx) == 0);
+    settle(cx);
+}
+
 #[test]
 fn the_draft_splits_trims_and_drops_empties() {
     let draft = build_draft(
@@ -306,6 +332,16 @@ fn ac1_the_form_has_exactly_four_identity_fields_and_none_of_the_arrangement_one
     ] {
         assert!(!present(vcx, absent), "{absent}");
     }
+    // The form's rendered fields are exactly the four identity ones.
+    assert_eq!(
+        FIELD_LABELS,
+        [
+            "Primary title",
+            "Composer or original author",
+            "Aliases",
+            "Usual moment"
+        ]
+    );
     // Primary and secondary actions, and nothing that creates an Arrangement.
     assert!(present(vcx, "button-Create song") && present(vcx, "button-Cancel"));
     assert!(!present(vcx, "button-Add first Arrangement"));
@@ -400,7 +436,7 @@ fn ac2_composer_aliases_and_moments_land_on_the_song_work_after_reopen(cx: &mut 
 fn ac4_the_count_is_singular_plural_or_hidden(cx: &mut TestAppContext) {
     let (dir, slot, store, _) = parish(cx, "t25-count");
     let (shell, vcx) = open_store(cx, store);
-    let panel = open_panel(&shell, vcx);
+    open_panel(&shell, vcx);
     // Nothing typed: no block at all.
     assert!(!present(vcx, "new-song-possible"));
     // One exact match.
@@ -409,14 +445,7 @@ fn ac4_the_count_is_singular_plural_or_hidden(cx: &mut TestAppContext) {
     assert!(present(vcx, "button-1 possible existing Song"));
     assert!(!present(vcx, "button-1 possible existing Songs"));
     // Three near matches.
-    panel.update(vcx, |panel, cx| {
-        let window_free = panel.title_field().clone();
-        let _ = window_free;
-        cx.notify();
-    });
     click(vcx, "new-song-title");
-    vcx.simulate_keystrokes("cmd-a");
-    vcx.simulate_keystrokes("ctrl-a");
     for _ in 0..9 {
         vcx.simulate_keystrokes("backspace");
     }
@@ -472,7 +501,7 @@ fn ac4_the_count_is_collapsed_then_lists_candidates_in_domain_order(cx: &mut Tes
 #[gpui::test]
 fn ac4_choosing_a_candidate_opens_the_preview_and_not_the_song_page(cx: &mut TestAppContext) {
     let (dir, slot, store, ids) = parish(cx, "t25-preview");
-    let (shell, vcx) = open_store(cx, store);
+    let (shell, vcx) = open_store(cx, store.clone());
     let panel = open_panel(&shell, vcx);
     let songs = songs_of(&shell, vcx);
     vcx.simulate_input("Tinapay sa Langit");
@@ -506,6 +535,16 @@ fn ac4_choosing_a_candidate_opens_the_preview_and_not_the_song_page(cx: &mut Tes
     }
     assert!(!present(vcx, "new-song-preview-lyrics"));
     assert!(!present(vcx, "button-Edit"));
+    // The text the preview renders carries the Arrangements' titles and no
+    // lyrics at all.
+    let shown = store.read_with(vcx, |store, _| {
+        Facts::of(store.library(), ids.exact)
+            .expect("the candidate exists")
+            .text()
+    });
+    assert!(shown.contains("Cebuano SATB") && shown.contains("English unison"));
+    assert!(!shown.contains("Sa tanang adlaw dayandayan ang gugma"));
+    assert!(!shown.contains("Verse 1"));
     finish(vcx, &slot, &dir);
 }
 
@@ -523,21 +562,27 @@ fn ac5_back_and_escape_restore_the_form_exactly(cx: &mut TestAppContext) {
     let before = form_state(&panel, vcx);
     let library_before = store.read_with(vcx, |store, _| store.library().clone());
 
-    // Back.
-    click(vcx, "new-song-candidate-1");
+    // Back. Pressing the row focuses it; that handle is the invoker.
+    let row_at = vcx
+        .debug_bounds("new-song-candidate-1")
+        .expect("the row is on screen")
+        .center();
+    vcx.simulate_mouse_down(row_at, MouseButton::Left, Modifiers::default());
+    let row = vcx
+        .update(|window, cx| window.focused(cx))
+        .expect("pressing the row focuses it");
+    vcx.simulate_mouse_up(row_at, MouseButton::Left, Modifiers::default());
+    settle(vcx);
     assert_eq!(depth(&songs, vcx), 2);
     click(vcx, "button-Back");
     settle_depth(&songs, vcx, 1);
     assert_eq!(form_state(&panel, vcx), before);
-    let title_focused = vcx.update(|window, cx| {
-        panel
-            .read(cx)
-            .title_field()
-            .focus_handle(cx)
-            .is_focused(window)
-    });
     // Focus goes back to the invoker, the candidate row, not to the title.
-    assert!(!title_focused);
+    vcx.update(|window, cx| {
+        assert_eq!(window.focused(cx).as_ref(), Some(&row));
+        let title = panel.read(cx).title_field().focus_handle(cx);
+        assert!(!title.is_focused(window));
+    });
     assert!(present(vcx, "new-song-candidates"));
 
     // Escape.
@@ -637,10 +682,107 @@ fn ac6_create_commits_once_and_lands_on_the_new_song(cx: &mut TestAppContext) {
         assert!(songs.new_song().is_none());
     });
     assert!(present(vcx, "songs-no-arrangements"));
+    // The action is shown and unavailable, and says so on screen.
     assert!(present(vcx, "button-Add first Arrangement"));
-    // The action is shown and unavailable: activating it opens nothing.
-    click(vcx, "button-Add first Arrangement");
-    assert_eq!(depth(&songs, vcx), 0);
+    assert!(present(vcx, "control-unavailable"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_an_archived_song_without_arrangements_offers_no_add_first_arrangement(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, _) = parish_with(cx, "t25-hollow", 0, true);
+    let (hollow, _) = find_title(&store, "Hollow", cx).expect("seeded");
+    let (shell, vcx) = open_store(cx, store);
+    let songs = songs_of(&shell, vcx);
+    songs.update(vcx, |songs, cx| {
+        songs.set_include_archived(true, cx);
+        songs.select(hollow, cx);
+    });
+    settle(vcx);
+    assert!(present(vcx, "songs-no-arrangements"));
+    assert!(!present(vcx, "button-Add first Arrangement"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_enter_then_an_immediate_click_creates_one_song(cx: &mut TestAppContext) {
+    let (dir, slot, store, _) = parish(cx, "t25-enter-click");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let songs = songs_of(&shell, vcx);
+    open_panel(&shell, vcx);
+    let before = song_count(&store, vcx);
+    vcx.simulate_input("Kordero sa Dios");
+    vcx.run_until_parked();
+    let bounds = vcx
+        .debug_bounds("button-Create song")
+        .expect("Create song is on screen");
+    vcx.simulate_keystrokes("enter");
+    vcx.simulate_click(bounds.center(), Modifiers::default());
+    wait_closed(&songs, vcx);
+    assert_eq!(song_count(&store, vcx), before + 1);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_creating_a_song_the_filters_hide_clears_them_and_keeps_it_selected(cx: &mut TestAppContext) {
+    let (dir, slot, store, _) = parish(cx, "t25-hidden-create");
+    let (shell, vcx) = open_store(cx, store);
+    let songs = songs_of(&shell, vcx);
+    // A Choir filter: a Song with no Arrangements can never pass it.
+    click(vcx, "songs-filter-choir");
+    click(vcx, "songs-option-0");
+    click(vcx, "songs-filter-choir");
+    songs.read_with(vcx, |songs, _| assert_eq!(songs.query().choirs.len(), 1));
+    open_panel(&shell, vcx);
+    vcx.simulate_input("Kordero sa Dios");
+    vcx.run_until_parked();
+    click(vcx, "button-Create song");
+    wait_closed(&songs, vcx);
+    let created = songs.read_with(vcx, |songs, _| {
+        assert!(songs.query().choirs.is_empty(), "the filter gave way");
+        let created = songs.selected().expect("the new Song is selected");
+        assert!(songs.hits().iter().any(|hit| hit.song == created));
+        created
+    });
+    // One more keystroke that still matches it keeps it selected.
+    click(vcx, "songs-search");
+    vcx.simulate_input("K");
+    vcx.run_until_parked();
+    songs.read_with(vcx, |songs, _| {
+        assert_eq!(songs.query().text, "K");
+        assert!(songs.hits().iter().any(|hit| hit.song == created));
+        assert_eq!(songs.selected(), Some(created));
+    });
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac5_using_an_existing_song_the_search_hides_clears_the_search(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids) = parish(cx, "t25-hidden-use");
+    let (shell, vcx) = open_store(cx, store);
+    let songs = songs_of(&shell, vcx);
+    // "Ave" hides every Tinapay Song.
+    click(vcx, "songs-search");
+    vcx.simulate_input("Ave");
+    vcx.run_until_parked();
+    songs.read_with(vcx, |songs, _| {
+        assert!(!songs.hits().iter().any(|hit| hit.song == ids.exact));
+    });
+    open_panel(&shell, vcx);
+    vcx.simulate_input("Tinapay sa Langit");
+    vcx.run_until_parked();
+    click(vcx, "button-3 possible existing Songs");
+    click(vcx, "new-song-candidate-0");
+    click(vcx, "button-Use this existing Song");
+    settle_depth(&songs, vcx, 0);
+    songs.read_with(vcx, |songs, cx| {
+        assert_eq!(songs.query().text, "");
+        assert_eq!(songs.search_field().value(cx).to_string(), "");
+        assert!(songs.hits().iter().any(|hit| hit.song == ids.exact));
+        assert_eq!(songs.selected(), Some(ids.exact));
+    });
     finish(vcx, &slot, &dir);
 }
 
@@ -659,7 +801,7 @@ fn ac6_enter_in_the_title_creates_the_song(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn ac6_a_storage_failure_keeps_the_panel_and_form_and_says_so(cx: &mut TestAppContext) {
+fn ac6_an_unopened_store_refuses_and_keeps_the_panel_and_form(cx: &mut TestAppContext) {
     let store = cx.new(|cx| LibraryStore::with_library(memory().library, cx));
     let (shell, vcx) = open_store(cx, store.clone());
     let songs = songs_of(&shell, vcx);
@@ -685,6 +827,41 @@ fn ac6_a_storage_failure_keeps_the_panel_and_form_and_says_so(cx: &mut TestAppCo
     type_into(vcx, "new-song-composer", "!");
     assert!(!present(vcx, "new-song-error"));
     panel.read_with(vcx, |panel, cx| assert!(panel.can_create(cx)));
+}
+
+#[gpui::test]
+fn ac6_a_storage_write_failure_keeps_the_panel_and_form_and_says_so(cx: &mut TestAppContext) {
+    let (dir, slot, store, _) = parish(cx, "t25-write-fails");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let songs = songs_of(&shell, vcx);
+    let panel = open_panel(&shell, vcx);
+    let before = store.read_with(vcx, |store, _| store.library().clone());
+    vcx.simulate_input("Kordero sa Dios");
+    type_into(vcx, "new-song-composer", "Fr. Carlo Magno");
+    let typed = form_state(&panel, vcx);
+    // Swap in a storage whose folder is a plain file: the real worker answers
+    // every request with an error.
+    stop(vcx, &slot);
+    let file = dir.join("not-a-folder");
+    std::fs::write(&file, b"x").expect("file");
+    slot.put(Storage::spawn(StorageConfig::in_directory(&file)));
+    click(vcx, "button-Create song");
+    crate::songs::choirs::tests::wait(vcx, |cx| present(cx, "new-song-error"));
+    assert_eq!(depth(&songs, vcx), 1);
+    assert_eq!(form_state(&panel, vcx), typed);
+    panel.read_with(vcx, |panel, _| {
+        assert!(!panel.busy());
+        assert_eq!(
+            panel.error().map(ToString::to_string).as_deref(),
+            Some("storage is not open")
+        );
+    });
+    store.read_with(vcx, |store, _| assert_eq!(store.library(), &before));
+    songs.read_with(vcx, |songs, _| assert_eq!(songs.selected(), None));
+    type_into(vcx, "new-song-composer", "!");
+    assert!(!present(vcx, "new-song-error"));
+    panel.read_with(vcx, |panel, cx| assert!(panel.can_create(cx)));
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
@@ -719,15 +896,19 @@ fn ac6_cancel_and_escape_leave_no_record(cx: &mut TestAppContext) {
 fn opening_and_cancelling_leaves_query_filters_selection_and_scroll_unchanged(
     cx: &mut TestAppContext,
 ) {
-    let (dir, slot, store, ids) = parish(cx, "t25-unchanged");
+    let (dir, slot, store, ids) = parish_with(cx, "t25-unchanged", 40, false);
     let (shell, vcx) = open_store(cx, store);
     let songs = songs_of(&shell, vcx);
-    songs.update(vcx, |songs, cx| {
-        songs.select(ids.unrelated, cx);
-    });
-    click(vcx, "songs-include-archived");
+    // A search that still matches the selected Song, and one Language filter.
+    click(vcx, "songs-search");
+    vcx.simulate_input("a");
+    vcx.run_until_parked();
+    click(vcx, "songs-filter-language");
+    click(vcx, "songs-option-2");
+    click(vcx, "songs-filter-language");
+    songs.update(vcx, |songs, cx| songs.select(ids.unrelated, cx));
     songs.update(vcx, |songs, _| {
-        songs.scroll_list_to(point(px(0.0), px(-4.0)))
+        songs.scroll_list_to(point(px(0.0), px(-200.0)))
     });
     vcx.run_until_parked();
     songs.update(vcx, |_, cx| cx.notify());
@@ -741,6 +922,11 @@ fn opening_and_cancelling_leaves_query_filters_selection_and_scroll_unchanged(
         )
     };
     let before = songs.read_with(vcx, |songs, _| snapshot(songs));
+    assert_eq!(before.0.text, "a");
+    assert_eq!(before.0.languages.len(), 1, "one filter is set");
+    assert!(before.1.len() > 30, "the list is long enough to scroll");
+    assert_eq!(before.2, Some(ids.unrelated));
+    assert!(before.3.y < px(0.0), "the list is scrolled before opening");
     open_panel(&shell, vcx);
     vcx.simulate_input("Tinapay sa Langit");
     vcx.run_until_parked();
@@ -749,6 +935,3 @@ fn opening_and_cancelling_leaves_query_filters_selection_and_scroll_unchanged(
     assert_eq!(songs.read_with(vcx, |songs, _| snapshot(songs)), before);
     finish(vcx, &slot, &dir);
 }
-
-#[allow(dead_code)]
-fn unused(_: SongLibrary) {}

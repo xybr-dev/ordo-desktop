@@ -383,7 +383,7 @@ fn t2_5_e2e_near_duplicate_inspect_two_candidates_then_create_and_reload(cx: &mu
     let before = store.read_with(vcx, |store, _| store.library().clone());
 
     let panel = open_panel(&shell, vcx);
-    vcx.simulate_input("Tinapay sa Langit");
+    vcx.simulate_input("Tinapay sa  Lang\u{ed}t");
     type_into(vcx, "new-song-composer", "Fr. Manoling Francisco");
     type_into(vcx, "new-song-aliases", "Bread from Heaven, Tinapay");
     type_into(vcx, "new-song-moment", "Communion");
@@ -413,6 +413,9 @@ fn t2_5_e2e_near_duplicate_inspect_two_candidates_then_create_and_reload(cx: &mu
     songs.read_with(vcx, |songs, _| assert_eq!(songs.selected(), None));
 
     press(vcx, "button-Create song");
+    crate::songs::choirs::tests::wait(vcx, |cx| {
+        songs.read_with(cx, |songs, cx| songs.overlay_depth(cx)) == 0
+    });
     settle_depth(&songs, vcx, 0);
     let created = songs.read_with(vcx, |songs, _| songs.selected().expect("selected"));
     assert!(![ids.exact, ids.near, ids.archived, ids.unrelated].contains(&created));
@@ -431,6 +434,7 @@ fn t2_5_e2e_near_duplicate_inspect_two_candidates_then_create_and_reload(cx: &mu
             .expect("the created Song persisted");
         (created, work.clone())
     });
+    assert_eq!(work.title(), "Tinapay sa  Lang\u{ed}t");
     assert_eq!(work.original_attribution(), Some("Fr. Manoling Francisco"));
     assert_eq!(work.aliases(), ["Bread from Heaven", "Tinapay"]);
     let moments: Vec<_> = work.liturgical_moments().iter().cloned().collect();
