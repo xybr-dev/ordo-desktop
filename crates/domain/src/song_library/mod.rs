@@ -23,14 +23,18 @@
 //! redirects are post-MVP (Decision 42, MVP-PLAN 6.18); duplicate evidence only
 //! reports likely duplicates.
 
+mod duplicate_evidence;
 mod interface;
 mod model;
 mod search;
 
+pub use duplicate_evidence::{
+    DuplicateEvidence, IdentityEvidence, MatchStrength, MatchedOn, PossibleSong, identity_key,
+};
 pub use interface::{
-    ArrangementVisibility, DeletionBlocker, DeletionVerdict, DuplicateEvidence, DurableReference,
-    Field, HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError,
-    MatchedOn, RecordRef, SongLibrary, SongLibraryError, StatusFilter, match_key,
+    ArrangementVisibility, DeletionBlocker, DeletionVerdict, DurableReference, Field,
+    HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError, RecordRef,
+    SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
 pub use model::{
     ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, Occurrence, OccurrenceDraft,

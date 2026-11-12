@@ -273,26 +273,6 @@ pub fn match_key(text: &str) -> String {
         .to_lowercase()
 }
 
-/// Which title of a Song matched.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum MatchedOn {
-    /// The primary title.
-    Title,
-    /// The alias at this index of the aliases list.
-    Alias(usize),
-}
-
-/// One shared match key between a candidate Song draft and a stored Song.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DuplicateEvidence {
-    /// The stored Song that shares a key.
-    pub song: SongId,
-    /// Which candidate title matched.
-    pub candidate_on: MatchedOn,
-    /// Which stored title matched.
-    pub existing_on: MatchedOn,
-}
-
 /// The Song works, Arrangements, and Choirs of one Parish.
 ///
 /// The library is an in-memory aggregate: a Parish holds hundreds of Songs,
@@ -922,52 +902,6 @@ impl SongLibrary {
         self.arrangements
             .remove(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))
-    }
-
-    /// Existing Songs whose title or alias shares a [`match_key`] with the
-    /// candidate's title or alias.
-    ///
-    /// Reports only: it never mutates, unites, or blocks anything, and creating
-    /// or editing a Song never consults it. Archived Songs are included (the
-    /// caller can flag them via [`Self::song`]); `except` omits the Song being
-    /// edited. Ordered by Song creation time then identity, then candidate
-    /// title, then stored title. Blank values never match.
-    pub fn duplicate_evidence(
-        &self,
-        candidate: &SongDraft,
-        except: Option<SongId>,
-    ) -> Vec<DuplicateEvidence> {
-        let keys = |title: &str, aliases: &[String]| -> Vec<(MatchedOn, String)> {
-            std::iter::once((MatchedOn::Title, match_key(title)))
-                .chain(
-                    aliases
-                        .iter()
-                        .enumerate()
-                        .map(|(index, alias)| (MatchedOn::Alias(index), match_key(alias))),
-                )
-                .filter(|(_, key)| !key.is_empty())
-                .collect()
-        };
-        let candidate_keys = keys(&candidate.title, &candidate.aliases);
-        let mut evidence = Vec::new();
-        for song in self.songs_with_status(StatusFilter::All) {
-            if Some(song.id()) == except {
-                continue;
-            }
-            let existing_keys = keys(song.title(), song.aliases());
-            for (candidate_on, candidate_key) in &candidate_keys {
-                for (existing_on, existing_key) in &existing_keys {
-                    if candidate_key == existing_key {
-                        evidence.push(DuplicateEvidence {
-                            song: song.id(),
-                            candidate_on: *candidate_on,
-                            existing_on: *existing_on,
-                        });
-                    }
-                }
-            }
-        }
-        evidence
     }
 
     /// Builds a verdict from the structural blockers plus the references.
