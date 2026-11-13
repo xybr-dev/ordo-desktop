@@ -7,8 +7,8 @@
 
 use domain::revisions::EditPoint;
 use gpui::{
-    App, Context, Entity, FocusHandle, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    Render, Styled, Subscription, Window, actions, div, px, rgb,
+    App, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
+    Styled, Subscription, Window, div, px, rgb,
 };
 use ui::{
     environment::UiEnvironment,
@@ -20,20 +20,17 @@ use ui::{
 };
 
 use super::{EditSession, EditSessionEvent};
+use crate::commands::registry::{self, Redo, Undo};
 
-actions!(edit_session, [Undo, Redo]);
+/// The key context of the editor container; the Editing keys bind here.
+pub const KEY_CONTEXT: &str = registry::EDIT_SESSION_CONTEXT;
 
-/// The key context of the editor container; the Undo and Redo keys bind here.
-pub const KEY_CONTEXT: &str = "EditSession";
-
-/// Binds Ctrl+Z and Ctrl+Y to the editor-level Undo and Redo. A focused
-/// text field handles both keys itself first (native Undo), so these fire only
-/// when no field has focus.
+/// Binds the registry's Editing keys (`Ctrl+Z`, `Ctrl+Y`, `Alt+Up`,
+/// `Alt+Down`) for a host with no Presenter. A focused text field handles
+/// Undo and Redo itself first (native Undo), so these fire only when no field
+/// has focus.
 pub fn init(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("ctrl-z", Undo, Some(KEY_CONTEXT)),
-        KeyBinding::new("ctrl-y", Redo, Some(KEY_CONTEXT)),
-    ]);
+    cx.bind_keys(registry::editing_key_bindings());
 }
 
 /// The editable content of the harness.

@@ -10,7 +10,6 @@
 //! library. It runs synchronously when the query, a filter, the archived
 //! toggle or the library changes, never per frame, and never writes.
 
-mod arrangement;
 mod detail;
 mod filters;
 mod list;
@@ -36,7 +35,6 @@ use super::{
     new_song::{NewSongPanel, Outcome},
     store::{LibraryEvent, LibraryState, LibraryStore},
 };
-pub use arrangement::ArrangementOverview;
 pub use filters::FilterKind;
 
 /// How the detail pane asks the shell to open an Arrangement's focused view.

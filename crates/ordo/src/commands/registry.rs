@@ -38,6 +38,36 @@ actions!(
     ]
 );
 
+actions!(
+    editing,
+    [
+        /// Editor-level Undo in an edit session (`Ctrl+Z`).
+        Undo,
+        /// Editor-level Redo in an edit session (`Ctrl+Y`).
+        Redo,
+        /// Moves the selected section one place up (`Alt+Up`).
+        MoveUp,
+        /// Moves the selected section one place down (`Alt+Down`).
+        MoveDown,
+    ]
+);
+
+/// The GPUI key context an edit session's container declares; the Editing
+/// keys bind here and never in [`PRESENTER_CONTEXT`].
+pub const EDIT_SESSION_CONTEXT: &str = "EditSession";
+
+/// The key context the sections list declares; `Alt+Up` and `Alt+Down` bind
+/// here so they move a section only while the list has focus.
+pub const LYRICS_SECTIONS_CONTEXT: &str = "LyricsSections";
+
+/// The key context an Editing entry binds under.
+pub fn editing_context(id: CommandId) -> &'static str {
+    match id {
+        CommandId::MoveUp | CommandId::MoveDown => LYRICS_SECTIONS_CONTEXT,
+        _ => EDIT_SESSION_CONTEXT,
+    }
+}
+
 /// The GPUI key context the Presenter root declares.
 pub const PRESENTER_CONTEXT: &str = "Presenter";
 
@@ -108,6 +138,14 @@ pub enum CommandId {
     ScaleDown,
     /// `Ctrl+0`: Interface scale back to 100% (bound by `ui`).
     ScaleReset,
+    /// `Ctrl+Z`: editor Undo in an edit session.
+    Undo,
+    /// `Ctrl+Y`: editor Redo in an edit session.
+    Redo,
+    /// `Alt+Up`: moves the selected section up (the editor handles it).
+    MoveUp,
+    /// `Alt+Down`: moves the selected section down (the editor handles it).
+    MoveDown,
 }
 
 /// The reference group an entry is listed under. Editing and the other
@@ -117,17 +155,20 @@ pub enum Group {
     /// Keys that work everywhere in Ordo.
     Global,
     Presenter,
+    /// Keys of an open editor's edit session.
+    Editing,
 }
 
 impl Group {
     /// Every group, in the reference's fixed order (the reference moves the
     /// current workspace to the front).
-    pub const ALL: [Group; 2] = [Group::Global, Group::Presenter];
+    pub const ALL: [Group; 3] = [Group::Global, Group::Presenter, Group::Editing];
 
     pub const fn title(self) -> &'static str {
         match self {
             Group::Global => "Global",
             Group::Presenter => "Presenter",
+            Group::Editing => "Editing",
         }
     }
 }
@@ -144,6 +185,10 @@ pub enum Scope {
     /// `Esc`, `F6`, `Ctrl+/`: owned by the surface or region system; listed in
     /// the reference, never an Engine command.
     Surface,
+    /// `Ctrl+Z`, `Ctrl+Y`, `Alt+Up`, `Alt+Down`: owned by an open editor's
+    /// edit session; bound under [`EDIT_SESSION_CONTEXT`], never an Engine
+    /// command and never reaching the Presenter.
+    Editing,
 }
 
 /// Where keyboard focus is, as far as key policy cares.
@@ -201,6 +246,18 @@ const fn global(
     Entry {
         group: Group::Global,
         ..entry(id, keys, keycaps, label, Scope::Surface)
+    }
+}
+
+const fn editing(
+    id: CommandId,
+    keys: &'static [&'static str],
+    keycaps: &'static str,
+    label: &'static str,
+) -> Entry {
+    Entry {
+        group: Group::Editing,
+        ..entry(id, keys, keycaps, label, Scope::Editing)
     }
 }
 
@@ -326,6 +383,15 @@ pub static ENTRIES: &[Entry] = &[
         "Ctrl+0",
         "Reset Interface scale",
     ),
+    editing(CommandId::Undo, &["ctrl-z"], "Ctrl+Z", "Undo"),
+    editing(CommandId::Redo, &["ctrl-y"], "Ctrl+Y", "Redo"),
+    editing(CommandId::MoveUp, &["alt-up"], "Alt+Up", "Move section up"),
+    editing(
+        CommandId::MoveDown,
+        &["alt-down"],
+        "Alt+Down",
+        "Move section down",
+    ),
 ];
 
 /// The table row for `id`.
@@ -345,7 +411,7 @@ pub fn allows(scope: Scope, context: FocusContext) -> bool {
             Timeline | Dock | Rail | ShortcutReference | Elsewhere
         ),
         Scope::Operating => matches!(context, Timeline | Dock),
-        Scope::Surface => false,
+        Scope::Surface | Scope::Editing => false,
     }
 }
 
@@ -370,7 +436,11 @@ pub fn command_for(id: CommandId) -> Option<Command> {
         | CommandId::FocusNext
         | CommandId::ScaleUp
         | CommandId::ScaleDown
-        | CommandId::ScaleReset => None,
+        | CommandId::ScaleReset
+        | CommandId::Undo
+        | CommandId::Redo
+        | CommandId::MoveUp
+        | CommandId::MoveDown => None,
     }
 }
 
@@ -405,6 +475,10 @@ fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
             match id {
                 $(CommandId::$name => Some(Box::new($name) as Box<dyn Action>),)*
                 CommandId::ToggleReference => Some(Box::new(ToggleReference) as Box<dyn Action>),
+                CommandId::Undo => Some(Box::new(Undo) as Box<dyn Action>),
+                CommandId::Redo => Some(Box::new(Redo) as Box<dyn Action>),
+                CommandId::MoveUp => Some(Box::new(MoveUp) as Box<dyn Action>),
+                CommandId::MoveDown => Some(Box::new(MoveDown) as Box<dyn Action>),
                 CommandId::CloseSurface
                 | CommandId::CycleRegion
                 | CommandId::FocusNext
@@ -415,6 +489,30 @@ fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
         };
     }
     for_each_bound_command!(arms)
+}
+
+/// Only the Editing bindings, for a host that has an edit session and no
+/// Presenter (the edit-session lab).
+pub fn editing_key_bindings() -> Vec<KeyBinding> {
+    let editing: std::collections::BTreeSet<String> = ENTRIES
+        .iter()
+        .filter(|entry| entry.scope == Scope::Editing)
+        .flat_map(|entry| entry.keys.iter().copied())
+        .map(|keys| {
+            gpui::Keystroke::parse(keys)
+                .expect("every registered keystroke parses")
+                .unparse()
+        })
+        .collect();
+    key_bindings()
+        .into_iter()
+        .filter(|binding| {
+            binding
+                .keystrokes()
+                .iter()
+                .all(|keystroke| editing.contains(&keystroke.inner().unparse()))
+        })
+        .collect()
 }
 
 /// The GPUI bindings for every entry this module binds: the Output and
@@ -434,10 +532,10 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         let Some(action) = action_for(entry.id) else {
             continue;
         };
-        let predicate = if entry.scope == Scope::Surface {
-            reference.clone()
-        } else {
-            single_key.clone()
+        let predicate = match entry.scope {
+            Scope::Surface => reference.clone(),
+            Scope::Editing => parse(editing_context(entry.id)),
+            Scope::Output | Scope::Operating => single_key.clone(),
         };
         for keys in entry.keys {
             bindings.push(
@@ -534,13 +632,21 @@ mod tests {
                 .predicate()
                 .expect("a context predicate")
                 .to_string();
-            let reference = binding
-                .keystrokes()
+            let keystroke = binding.keystrokes()[0].inner().unparse();
+            let editing = ENTRIES
                 .iter()
-                .any(|k| k.inner().unparse() == "ctrl-/");
+                .filter(|entry| entry.scope == Scope::Editing)
+                .find(|entry| {
+                    entry
+                        .keys
+                        .iter()
+                        .any(|keys| gpui::Keystroke::parse(keys).unwrap().unparse() == keystroke)
+                });
             assert_eq!(
                 predicate,
-                if reference {
+                if let Some(entry) = editing {
+                    editing_context(entry.id).to_owned()
+                } else if keystroke == "ctrl-/" {
                     reference_predicate()
                 } else {
                     binding_predicate()
@@ -681,9 +787,15 @@ mod tests {
             assert_eq!(allows(Scope::Output, context), output, "{context:?}");
             assert_eq!(allows(Scope::Operating, context), operating, "{context:?}");
             assert!(!allows(Scope::Surface, context), "{context:?}");
+            assert!(!allows(Scope::Editing, context), "{context:?}");
         }
         for context in [TextEntry, Modal] {
-            for scope in [Scope::Output, Scope::Operating, Scope::Surface] {
+            for scope in [
+                Scope::Output,
+                Scope::Operating,
+                Scope::Surface,
+                Scope::Editing,
+            ] {
                 assert!(!allows(scope, context), "{scope:?} in {context:?}");
             }
         }
@@ -694,11 +806,40 @@ mod tests {
         for entry in ENTRIES {
             let command = command_for(entry.id);
             match entry.scope {
-                Scope::Surface => assert!(command.is_none(), "{:?}", entry.id),
+                Scope::Surface | Scope::Editing => assert!(command.is_none(), "{:?}", entry.id),
                 _ if entry.id == CommandId::OpenOrdo => assert!(command.is_none()),
                 _ => assert!(command.is_some(), "{:?}", entry.id),
             }
         }
+    }
+
+    /// Decision 17: the Editing keys are registry rows bound only under the
+    /// edit-session context, so none can fire in the Presenter.
+    #[test]
+    fn undo_and_redo_keys_are_registry_rows() {
+        for (id, key, keycaps) in [
+            (CommandId::Undo, "ctrl-z", "Ctrl+Z"),
+            (CommandId::Redo, "ctrl-y", "Ctrl+Y"),
+            (CommandId::MoveUp, "alt-up", "Alt+Up"),
+            (CommandId::MoveDown, "alt-down", "Alt+Down"),
+        ] {
+            let row = entry_for(id);
+            assert_eq!(row.group, Group::Editing, "{id:?}");
+            assert_eq!(row.scope, Scope::Editing, "{id:?}");
+            assert_eq!(row.keys, &[key], "{id:?}");
+            assert_eq!(row.keycaps, keycaps, "{id:?}");
+            let binding = key_bindings()
+                .into_iter()
+                .find(|b| b.keystrokes()[0].inner().unparse() == key)
+                .unwrap_or_else(|| panic!("{key} is bound"));
+            assert_eq!(
+                binding.predicate().unwrap().to_string(),
+                editing_context(id),
+                "{key} must not reach the Presenter"
+            );
+        }
+        assert_eq!(Group::Editing.title(), "Editing");
+        assert_eq!(editing_key_bindings().len(), 4);
     }
 
     #[test]

@@ -35,14 +35,16 @@ use gpui::{
 use rail::Destination;
 
 use crate::{
+    commands::registry::{EDIT_SESSION_CONTEXT, Redo, Undo},
     diagnostics::{self, PerformanceState},
+    edit_session::{NavigationGuard, SaveState},
     output::{CongregationOutput, CursorLocator},
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     presenter::PresenterView,
     settings,
     songs::{
-        ArrangementDetailsPanel, ArrangementOverview, ChoirsWorkspace, LibraryStore,
-        SongsWorkspace, arrangement_details,
+        ArrangementDetailsPanel, ChoirsWorkspace, LibraryStore, SongsWorkspace,
+        arrangement_details, lyrics::ArrangementEditor,
     },
 };
 use ui::{
@@ -98,6 +100,16 @@ enum PageChange {
     Tab(usize),
 }
 const MAIN_EDITOR: &str = "Main editor";
+/// The save dialog's title and description. The store's own message is never
+/// shown, only this.
+const SAVE_GUARD_TITLE: &str = "Couldn't save.";
+const SAVE_GUARD_DESCRIPTION: &str = "Your latest changes are not saved yet.";
+/// The Arrangement editor's Inspector pane.
+const INSPECTOR: &str = "Inspector";
+
+/// What a guarded navigation does once the editor's content is durable (or the
+/// operator chose to leave without saving).
+type Continuation = Rc<dyn Fn(&mut ShellView, &mut Window, &mut Context<ShellView>)>;
 
 /// The list column's own logical width, `DESIGN.md`'s minimum for a primary
 /// list plus the inset its rows carry.
@@ -139,8 +151,16 @@ pub struct ShellView {
     /// the screen they left rather than to a pane beside it.
     editing: Option<SharedString>,
     /// Set beside `editing` when the focused editor is an Arrangement's
-    /// overview; `None` for the placeholder entities.
+    /// editor; `None` for the placeholder entities.
     editing_arrangement: Option<ArrangementId>,
+    /// One editor entity per visit: closing the editor drops it, and its edit
+    /// session with it.
+    arrangement_editor: Option<Entity<ArrangementEditor>>,
+    /// Redraws the shell with the editor (save state, tabs).
+    _editor_observer: Option<Subscription>,
+    /// The flush a guarded navigation is waiting on. Owned here; replacing or
+    /// dropping it cancels the wait, and it clears itself when it finishes.
+    navigation: Option<gpui::Task<()>>,
     /// The Arrangement details panel while it is open over the focused view.
     arrangement_details: Option<Entity<ArrangementDetailsPanel>>,
     /// The parish library the Songs screens read.
@@ -272,6 +292,9 @@ impl ShellView {
             selected_row: None,
             editing: None,
             editing_arrangement: None,
+            arrangement_editor: None,
+            _editor_observer: None,
+            navigation: None,
             arrangement_details: None,
             library_store,
             songs,
@@ -345,6 +368,13 @@ impl ShellView {
     /// Quit was chosen. The output is taken down safely first, then the
     /// window closes, which runs the existing shutdown path unchanged.
     fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // An open Arrangement editor must be durable first; a failed flush
+        // keeps the window open behind the save dialog.
+        self.guarded(Rc::new(Self::finish_quit), window, cx);
+    }
+
+    /// The quit itself, once nothing unsaved stands in the way.
+    fn finish_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(presenter) = self.presenter.clone() {
             presenter.update(cx, |view, cx| {
                 view.close_output_safely(cx);
@@ -446,6 +476,17 @@ impl ShellView {
         self.editing_arrangement
     }
 
+    /// Whether the operator confirmed Quit and the window is closing.
+    #[cfg(test)]
+    pub(crate) fn quit_confirmed(&self) -> bool {
+        self.quit_confirmed
+    }
+
+    /// The Arrangement editor, while one is open.
+    pub fn arrangement_editor(&self) -> Option<&Entity<ArrangementEditor>> {
+        self.arrangement_editor.as_ref()
+    }
+
     /// The overlay host the shell's surfaces and toasts live on.
     #[cfg(test)]
     pub(crate) fn overlays(&self) -> &OverlayHost {
@@ -497,10 +538,104 @@ impl ShellView {
 
     /// Opens an Arrangement's overview in the focused-editor frame.
     pub fn open_arrangement(&mut self, id: ArrangementId, cx: &mut Context<Self>) {
-        let title = ArrangementOverview::new(id).title(self.library_store.read(cx).library());
+        let title = self.arrangement_title(id, cx);
         self.editing = Some(title.into());
         self.editing_arrangement = Some(id);
+        let store = self.library_store.clone();
+        let editor = cx.new(|cx| ArrangementEditor::new(id, store, cx));
+        // Replacing the old editor drops its session.
+        self._editor_observer = Some(cx.observe(&editor, |_, _, cx| cx.notify()));
+        self.arrangement_editor = Some(editor);
         self.registry.focus_region(WORKSPACE_ACTIONS);
+        cx.notify();
+    }
+
+    /// An Arrangement's title for the frame: its label, or a plain fallback
+    /// when it is gone.
+    fn arrangement_title(&self, id: ArrangementId, cx: &App) -> String {
+        self.library_store
+            .read(cx)
+            .library()
+            .arrangement_label(id)
+            .unwrap_or_else(|_| "Arrangement".to_owned())
+    }
+
+    /// Drops the editor (and its session) and returns to the screen the
+    /// operator left.
+    fn close_editor(&mut self, cx: &mut Context<Self>) {
+        self.editing = None;
+        self.editing_arrangement = None;
+        self.arrangement_editor = None;
+        self._editor_observer = None;
+        // The invoker unmounts with this screen, so the region hands back its
+        // remembered target or its first tab stop, the Open control the
+        // operator left from.
+        self.registry.focus_region(MAIN_EDITOR);
+        cx.notify();
+    }
+
+    /// Runs `then` once leaving the open Arrangement editor is safe.
+    ///
+    /// Everything that leaves the editor (Back, window close, Quit) goes
+    /// through here: pending text is flushed through the edit session first.
+    /// A successful flush leaves the session and continues; a failed one opens
+    /// the save dialog and continues only if the operator chooses to leave
+    /// without saving. Presenter Mode has no editor mounted, so it never waits.
+    fn guarded(&mut self, then: Continuation, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = match self.arrangement_editor.clone() {
+            Some(editor) if !self.mode.is_presenter() && self.presenter.is_none() => editor,
+            _ => {
+                then(self, window, cx);
+                return;
+            }
+        };
+        let flush = editor.update(cx, |editor, cx| editor.request_navigation(cx));
+        self.navigation = Some(cx.spawn_in(window, async move |shell, cx| {
+            let guard = flush.await;
+            let _ = shell.update_in(cx, |shell, window, cx| {
+                shell.navigation = None;
+                match guard {
+                    NavigationGuard::Proceed => {
+                        editor.update(cx, |editor, cx| editor.leave(cx));
+                        then(shell, window, cx);
+                    }
+                    NavigationGuard::Blocked => shell.open_save_guard(then, window, cx),
+                }
+            });
+        }));
+    }
+
+    /// The dialog a failed flush opens: **Retry save**, **Keep editing** and
+    /// **Leave without saving**. The store's own message is never shown.
+    fn open_save_guard(&mut self, then: Continuation, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.arrangement_editor.clone() else {
+            then(self, window, cx);
+            return;
+        };
+        let shell = cx.weak_entity();
+        let retry = {
+            let (shell, editor, then) = (shell.clone(), editor.clone(), then.clone());
+            move |window: &mut Window, cx: &mut App| {
+                editor.update(cx, |editor, cx| editor.retry_save(cx));
+                let then = then.clone();
+                let _ = shell.update(cx, |shell, cx| shell.guarded(then, window, cx));
+            }
+        };
+        let leave = {
+            let overlays = self.overlays.clone();
+            move |window: &mut Window, cx: &mut App| {
+                overlays.close_top(window, cx);
+                editor.update(cx, |editor, cx| editor.leave_without_saving(cx));
+                let then = then.clone();
+                let _ = shell.update(cx, |shell, cx| then(shell, window, cx));
+            }
+        };
+        let dialog = Overlay::dialog(SAVE_GUARD_TITLE)
+            .description(SAVE_GUARD_DESCRIPTION)
+            .primary("Retry save", retry)
+            .secondary("Keep editing", |_, _| {})
+            .leading_gated("Leave without saving", |_| Availability::Available, leave);
+        self.overlays.open(dialog, window, cx);
         cx.notify();
     }
 
@@ -520,6 +655,37 @@ impl ShellView {
         if self.arrangement_details.is_some() || !self.arrangement_editable(id, cx) {
             return;
         }
+        // Pending lyric text is saved before the details open, so the
+        // details save never races it (Decision 16).
+        self.guarded_flush(Rc::new(Self::show_arrangement_details), window, cx);
+    }
+
+    /// Like [`Self::guarded`], but the editor stays open afterwards.
+    fn guarded_flush(&mut self, then: Continuation, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.arrangement_editor.clone() else {
+            return;
+        };
+        let flush = editor.update(cx, |editor, cx| editor.request_navigation(cx));
+        self.navigation = Some(cx.spawn_in(window, async move |shell, cx| {
+            let guard = flush.await;
+            let _ = shell.update_in(cx, |shell, window, cx| {
+                shell.navigation = None;
+                match guard {
+                    NavigationGuard::Proceed => then(shell, window, cx),
+                    NavigationGuard::Blocked => shell.open_save_guard(then, window, cx),
+                }
+            });
+        }));
+    }
+
+    /// Mounts the details panel over the focused editor.
+    fn show_arrangement_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.editing_arrangement else {
+            return;
+        };
+        if self.arrangement_details.is_some() || !self.arrangement_editable(id, cx) {
+            return;
+        }
         let shell = cx.weak_entity();
         let report = {
             let shell = shell.clone();
@@ -533,8 +699,7 @@ impl ShellView {
                         // focused view is titled with.
                         arrangement_details::Outcome::Saved(saved) => {
                             if shell.editing_arrangement == Some(saved) {
-                                let title = ArrangementOverview::new(saved)
-                                    .title(shell.library_store.read(cx).library());
+                                let title = shell.arrangement_title(saved, cx);
                                 shell.editing = Some(title.into());
                                 cx.notify();
                             }
@@ -599,6 +764,8 @@ impl ShellView {
         self.selected_row = None;
         self.editing = None;
         self.editing_arrangement = None;
+        self.arrangement_editor = None;
+        self._editor_observer = None;
         if destination == Destination::Diagnostics {
             self.sample_memory(cx);
         }
@@ -1356,13 +1523,18 @@ impl ShellView {
         let gutter = self.gutter(window);
         let view = cx.entity().downgrade();
         let back = self.context(cx);
+        let editor = self.arrangement_editor.clone();
         // An Arrangement's title is its label, which follows its details.
         let entity = match self.editing_arrangement {
-            Some(id) => ArrangementOverview::new(id)
-                .title(self.library_store.read(cx).library())
-                .into(),
+            Some(id) => self.arrangement_title(id, cx).into(),
             None => entity,
         };
+        let read_only = editor
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).is_read_only());
+        let save_state = editor
+            .as_ref()
+            .and_then(|editor| editor.read(cx).save_state(cx));
         let details = self
             .editing_arrangement
             .is_some_and(|id| self.arrangement_editable(id, cx))
@@ -1375,6 +1547,44 @@ impl ShellView {
                             .update(cx, |shell, cx| shell.open_arrangement_details(window, cx));
                     })
             });
+        let save_label = save_state.map(|state| {
+            div()
+                .debug_selector(|| "editor-save-state".into())
+                .flex_none()
+                .text_size(px(scale.apply(tokens::typography::META.size)))
+                .text_color(rgb(if state == SaveState::CouldntSave {
+                    palette.warning
+                } else {
+                    palette.text_muted
+                }))
+                .child(state.label())
+        });
+        let tabs = editor.as_ref().map(|editor| {
+            let shell = cx.entity().downgrade();
+            div()
+                .debug_selector(|| "editor-tabs-row".into())
+                .flex_none()
+                .px(px(gutter))
+                .child(editor.read(cx).tabs(palette.background, environment, {
+                    move |_, cx| {
+                        let _ = shell.update(cx, |_, cx| cx.notify());
+                    }
+                }))
+        });
+        let archived = (read_only && self.editing_arrangement.is_some()).then(|| {
+            div()
+                .debug_selector(|| "arrangement-archived-notice".into())
+                .flex_none()
+                .mx(px(gutter))
+                .mb(px(scale.apply(tokens::spacing::RELATED)))
+                .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                .rounded(px(scale.apply(tokens::radius::CONTROL)))
+                .border(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
+                .bg(rgb(palette.surface_secondary))
+                .text_color(rgb(palette.text))
+                .child("Archived \u{2014} inspect only until it is restored")
+        });
         let header = div()
             .flex_none()
             .flex()
@@ -1394,16 +1604,13 @@ impl ShellView {
                             // goes.
                             .icon(ui::assets::icon::CHEVRON_LEFT)
                             .on_surface(palette.background)
-                            .on_activate(move |_, cx| {
+                            .on_activate(move |window, cx| {
                                 let _ = view.update(cx, |view, cx| {
-                                    view.editing = None;
-                                    view.editing_arrangement = None;
-                                    // The invoker unmounts with this screen, so
-                                    // the region hands back its remembered
-                                    // target or its first tab stop — the Open
-                                    // control the operator left from.
-                                    view.registry.focus_region(MAIN_EDITOR);
-                                    cx.notify();
+                                    view.guarded(
+                                        Rc::new(|view, _, cx| view.close_editor(cx)),
+                                        window,
+                                        cx,
+                                    );
                                 });
                             }),
                     )
@@ -1418,8 +1625,19 @@ impl ShellView {
                         entity,
                         environment,
                     ))
-                    .children(details.map(|button| div().flex_none().ml_auto().child(button))),
+                    .child(
+                        div()
+                            .flex_none()
+                            .ml_auto()
+                            .flex()
+                            .items_center()
+                            .gap(px(scale.apply(tokens::spacing::GROUP)))
+                            .children(save_label)
+                            .children(details),
+                    ),
             )
+            .children(archived)
+            .children(tabs)
             .child(
                 div()
                     .w_full()
@@ -1432,8 +1650,46 @@ impl ShellView {
             .region(WORKSPACE_ACTIONS, window, cx)
             .flex_none()
             .child(header);
+        let compact = f32::from(window.viewport_size().width) < NARROW_WORKSPACE;
+        let panes = editor
+            .as_ref()
+            .map(|editor| editor.read(cx).panes(compact, environment, cx));
+        let (sections, main, inspector) = match panes {
+            Some(panes) => (panes.sections, panes.main, panes.inspector),
+            None => (
+                None,
+                div()
+                    .child("This entity has no editor yet.")
+                    .into_any_element(),
+                None,
+            ),
+        };
+        let side_width = px(scale.apply(LIST_WIDTH));
+        let sections = sections.map(|pane| {
+            self.registry
+                .region(PRIMARY_LIST, window, cx)
+                .flex_none()
+                .w(side_width)
+                .h_full()
+                .overflow_hidden()
+                .p(px(gutter))
+                .border_r(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
+                .child(pane)
+        });
+        let inspector = inspector.map(|pane| {
+            self.registry
+                .region(INSPECTOR, window, cx)
+                .flex_none()
+                .w(side_width)
+                .h_full()
+                .overflow_hidden()
+                .p(px(gutter))
+                .border_l(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
+                .child(pane)
+        });
         let scroll = self.editor_scroll.clone();
-        let arrangement = self.editing_arrangement.map(ArrangementOverview::new);
         let body = self
             .registry
             .region(MAIN_EDITOR, window, cx)
@@ -1447,28 +1703,41 @@ impl ShellView {
                     .bounded(div().id("editor-body"))
                     .size_full()
                     .p(px(gutter))
-                    .child(match arrangement {
-                        Some(overview) => {
-                            overview.render(self.library_store.read(cx).library(), environment)
-                        }
-                        None => div()
-                            .child("This entity has no editor yet.")
-                            .into_any_element(),
-                    }),
+                    .child(main),
             )
             .children(scroll.indicator("editor-body", 0.0, window, cx, environment));
+        let panes = div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .children(sections)
+            .child(body)
+            .children(inspector);
 
-        self.registry
+        let root = self
+            .registry
             .root(window, cx)
             .track_focus(&self.focus_handle)
             .debug_selector(|| "focused-editor".into())
             .flex_1()
             .min_h_0()
             .flex()
-            .flex_col()
-            .child(header)
-            .child(body)
-            .into_any_element()
+            .flex_col();
+        // The Editing keys bind under this context and never reach the
+        // Presenter; they act on the session of the open editor.
+        let root = match editor {
+            Some(editor) => root
+                .key_context(EDIT_SESSION_CONTEXT)
+                .on_action({
+                    let editor = editor.clone();
+                    move |_: &Undo, _, cx| editor.update(cx, |editor, cx| editor.undo(cx))
+                })
+                .on_action(move |_: &Redo, _, cx| {
+                    editor.update(cx, |editor, cx| editor.redo(cx));
+                }),
+            None => root,
+        };
+        root.child(header).child(panes).into_any_element()
     }
 }
 

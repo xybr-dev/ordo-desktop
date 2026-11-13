@@ -13,9 +13,8 @@
 //! # Order
 //!
 //! The current workspace's group comes first, then the others in the fixed
-//! [`Group::ALL`] order. Only the Presenter registers keys today, so it is the
-//! one workspace group; Editing joins when emergency editing registers its
-//! keys.
+//! [`Group::ALL`] order. The Presenter is the workspace group; Editing lists
+//! the keys of an open editor's edit session.
 //!
 //! # The panel
 //!
@@ -410,13 +409,13 @@ mod tests {
     fn the_current_workspace_comes_first_and_the_rest_keep_their_order() {
         let presenter = model(Group::Presenter);
         let titles: Vec<_> = presenter.groups.iter().map(|g| g.title).collect();
-        assert_eq!(titles, ["Presenter", "Global"]);
+        assert_eq!(titles, ["Presenter", "Global", "Editing"]);
         assert!(presenter.groups[0].current);
         assert!(!presenter.groups[1].current);
 
         let global = model(Group::Global);
         let titles: Vec<_> = global.groups.iter().map(|g| g.title).collect();
-        assert_eq!(titles, ["Global", "Presenter"]);
+        assert_eq!(titles, ["Global", "Presenter", "Editing"]);
     }
 
     #[test]
