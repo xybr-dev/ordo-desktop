@@ -77,7 +77,9 @@ fn entry(
         arrangement: arrangement.id(),
         song: arrangement.song(),
         song_title: song_title.to_owned(),
-        title: arrangement.title().to_owned(),
+        title: library
+            .arrangement_label(arrangement.id())
+            .unwrap_or_default(),
         languages: if arrangement.languages().is_empty() {
             "No language".to_owned()
         } else {

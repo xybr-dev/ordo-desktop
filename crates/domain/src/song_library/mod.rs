@@ -25,6 +25,7 @@
 
 mod duplicate_evidence;
 mod interface;
+mod languages;
 mod model;
 mod search;
 
@@ -36,9 +37,10 @@ pub use interface::{
     HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError, RecordRef,
     SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
+pub use languages::{Language, LanguageMatch, find_language, is_listed, languages};
 pub use model::{
-    ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, Occurrence, OccurrenceDraft,
-    PaginationState, Section, SectionDraft, SongDraft, SongWork,
+    ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, Choir, ChoirDraft, Occurrence,
+    OccurrenceDraft, PaginationState, Section, SectionDraft, SongDraft, SongWork,
 };
 pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,

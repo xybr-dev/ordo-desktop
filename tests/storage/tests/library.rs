@@ -150,7 +150,7 @@ fn arrangement_input(song: SongId, title: &str, choirs: Vec<ChoirId>) -> NewArra
     NewArrangement {
         song,
         title: title.to_owned(),
-        languages: vec!["en".to_owned()],
+        languages: vec!["English".to_owned()],
         choirs,
         rendition_attribution: None,
         occasions: Vec::new(),
@@ -666,7 +666,7 @@ fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
             .arrangement(record.id)
             .expect("arrangement hydrated");
         assert_eq!(a.song(), record.song);
-        assert_eq!(a.title(), record.title);
+        assert_eq!(a.title(), Some(record.title.as_str()));
         assert_eq!(a.languages(), record.languages);
         assert_eq!(
             a.choirs().iter().copied().collect::<Vec<_>>(),
@@ -722,9 +722,10 @@ fn a_mixed_library_hydrates_to_exactly_what_was_written() {
 
 fn draft_of(record: &ArrangementRecord) -> ArrangementDraft {
     ArrangementDraft {
-        title: record.title.clone(),
+        title: Some(record.title.clone()),
         languages: record.languages.clone(),
         rendition_attribution: record.rendition_attribution.clone(),
+        notes: None,
         occasions: record.occasions.clone(),
         sections: record
             .sections
@@ -783,7 +784,7 @@ fn identities_edited_away_stay_reserved_after_a_restart() {
     let fresh_section = SectionId::from_entity(entity_id(0xA1));
     let steal_section = ArrangementDraft {
         sections: vec![SectionDraft::new(removed_section, "x")],
-        ..ArrangementDraft::titled("Other")
+        ..ArrangementDraft::in_language("English")
     };
     assert_eq!(
         domain
@@ -800,7 +801,7 @@ fn identities_edited_away_stay_reserved_after_a_restart() {
     let steal_occurrence = ArrangementDraft {
         sections: vec![SectionDraft::new(fresh_section, "x")],
         sequence: vec![OccurrenceDraft::new(removed_occurrence, fresh_section)],
-        ..ArrangementDraft::titled("Other")
+        ..ArrangementDraft::in_language("English")
     };
     assert_eq!(
         domain
@@ -817,7 +818,7 @@ fn identities_edited_away_stay_reserved_after_a_restart() {
 
     // The owner may bring them back.
     let mut restored = draft_of(&f.first);
-    restored.title = "Back".to_owned();
+    restored.title = Some("Back".to_owned());
     domain
         .edit_arrangement(f.first.id, restored)
         .expect("owner reuses its identities");

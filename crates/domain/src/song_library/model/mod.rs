@@ -9,9 +9,10 @@ mod choir;
 mod song;
 pub(crate) mod text;
 
+pub(crate) use arrangement::require_listed_languages;
 pub use arrangement::{
-    Arrangement, ArrangementDraft, Occurrence, OccurrenceDraft, PaginationState, Section,
-    SectionDraft,
+    Arrangement, ArrangementDetails, ArrangementDraft, Occurrence, OccurrenceDraft,
+    PaginationState, Section, SectionDraft,
 };
 pub use choir::{Choir, ChoirDraft};
 pub use song::{SongDraft, SongWork};

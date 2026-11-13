@@ -272,10 +272,11 @@ impl From<ArrangementRecord> for HydrateArrangement {
             archive_state: archive_state(record.archived_at),
             choirs: record.choirs,
             draft: ArrangementDraft {
-                title: record.title,
+                title: Some(record.title),
                 languages: record.languages,
                 rendition_attribution: record.rendition_attribution,
                 occasions: record.occasions,
+                notes: None,
                 sections: record
                     .sections
                     .into_iter()

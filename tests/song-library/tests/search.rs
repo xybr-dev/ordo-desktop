@@ -54,7 +54,7 @@ fn songs(hits: &[SongHit]) -> Vec<SongId> {
 /// at `base`.
 fn draft(title: &str, language: Option<&str>, lyrics: &[&str], base: u32) -> ArrangementDraft {
     let mut draft = ArrangementDraft::titled(title);
-    draft.languages = language.map(str::to_owned).into_iter().collect();
+    draft.languages = vec![language.unwrap_or("Latin").to_owned()];
     draft.sections = lyrics
         .iter()
         .zip(base..)
@@ -258,17 +258,17 @@ fn filter_library() -> SongLibrary {
         &mut library,
         10,
         1,
-        draft("Cebuano", Some("ceb"), &["x"], 100),
+        draft("Cebuano", Some("Cebuano"), &["x"], 100),
         vec![choir_id(900)],
     );
-    let mut english = draft("English", Some("en"), &["y"], 110);
+    let mut english = draft("English", Some("English"), &["y"], 110);
     english.occasions = vec!["Advent".to_owned()];
     add_arrangement(&mut library, 11, 1, english, vec![choir_id(901)]);
     add_arrangement(
         &mut library,
         20,
         2,
-        draft("Cebuano", Some("ceb"), &["z"], 120),
+        draft("Cebuano", Some("Cebuano"), &["z"], 120),
         vec![choir_id(901)],
     );
     add_arrangement(
@@ -312,7 +312,7 @@ fn ac5_attributes_of_separate_arrangements_are_never_combined() {
         &library,
         &filtered(
             &[FilterValue::Is(choir_id(901))],
-            &[FilterValue::Is("ceb")],
+            &[FilterValue::Is("Cebuano")],
             &[],
         ),
     );
@@ -324,7 +324,7 @@ fn ac5_attributes_of_separate_arrangements_are_never_combined() {
         &library,
         &filtered(
             &[FilterValue::Is(choir_id(900))],
-            &[FilterValue::Is("CEB")],
+            &[FilterValue::Is("CEBUANO")],
             &[],
         ),
     );
@@ -361,9 +361,10 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
     let hits = search(&library, &filtered(&[FilterValue::Unspecified], &[], &[]));
     assert_eq!(songs(&hits), vec![song_id(4)]);
 
-    // No language: Song 4 again; Unspecified is not a wildcard.
+    // No language: new Arrangements always have one, so only stored legacy
+    // records could match; none exist here and Unspecified is not a wildcard.
     let hits = search(&library, &filtered(&[], &[FilterValue::Unspecified], &[]));
-    assert_eq!(songs(&hits), vec![song_id(4)]);
+    assert!(songs(&hits).is_empty());
 
     // No occasion: Song 1's Cebuano Arrangement, Song 2 and Song 4, but not
     // Song 1's English Advent Arrangement.
@@ -375,9 +376,13 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
     // Unspecified OR a value inside one kind.
     let hits = search(
         &library,
-        &filtered(&[], &[FilterValue::Unspecified, FilterValue::Is("en")], &[]),
+        &filtered(
+            &[],
+            &[FilterValue::Unspecified, FilterValue::Is("English")],
+            &[],
+        ),
     );
-    assert_eq!(songs(&hits), vec![song_id(4), song_id(1)]);
+    assert_eq!(songs(&hits), vec![song_id(1)]);
 
     // The occasion filter reads the Arrangement's own tags (and the Song's).
     let hits = search(&library, &filtered(&[], &[], &[FilterValue::Is("advent")]));
@@ -448,7 +453,7 @@ fn ac6_alias_and_lyric_evidence_with_matching_and_total_counts() {
         &mut library,
         10,
         1,
-        draft("Latin", Some("la"), &["Kyrie eleison"], 100),
+        draft("Latin", Some("Latin"), &["Kyrie eleison"], 100),
         Vec::new(),
     );
     add_arrangement(
@@ -457,7 +462,7 @@ fn ac6_alias_and_lyric_evidence_with_matching_and_total_counts() {
         1,
         draft(
             "English",
-            Some("en"),
+            Some("English"),
             &["Lord, have mercy\nChrist, have mercy"],
             110,
         ),
@@ -551,7 +556,7 @@ fn ac9_archived_songs_and_arrangements_are_excluded_unless_included() {
 
     // An Arrangement-level filter cannot reach the archived Arrangement.
     let mut only_archived = query("");
-    only_archived.languages.insert(FilterValue::Unspecified);
+    only_archived.occasions.insert(FilterValue::Unspecified);
     assert_eq!(search(&library, &only_archived).len(), 2);
 
     // Included: everything is counted and matched.
@@ -626,7 +631,7 @@ fn performance_smoke_two_thousand_songs_lyric_query_under_50ms() {
                     arrangement_id(base),
                     song_id(song),
                     at(i64::from(a)),
-                    draft(&format!("Arr {a}"), Some("en"), &refs, base * 10),
+                    draft(&format!("Arr {a}"), Some("English"), &refs, base * 10),
                     Vec::new(),
                 )
                 .unwrap();
