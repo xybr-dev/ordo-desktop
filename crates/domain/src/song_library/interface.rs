@@ -21,6 +21,7 @@ use super::model::{
     Arrangement, ArrangementDetails, ArrangementDraft, Choir, ChoirDraft, OccurrenceDraft, Section,
     SectionDraft, SongDraft, SongWork, require_listed_languages,
 };
+use super::sections::{ArrangementLyrics, require_present_labels};
 
 mod hydrate;
 
@@ -96,6 +97,8 @@ pub enum SongLibraryError {
     UnknownSong(SongId),
     /// No Arrangement has this identity.
     UnknownArrangement(ArrangementId),
+    /// No section has this identity.
+    UnknownSection(SectionId),
     /// No Choir has this identity.
     UnknownChoir(ChoirId),
     /// A Song work already has this identity.
@@ -148,6 +151,7 @@ impl fmt::Display for SongLibraryError {
         match self {
             Self::UnknownSong(id) => write!(f, "no Song work has identity {id}"),
             Self::UnknownArrangement(id) => write!(f, "no Arrangement has identity {id}"),
+            Self::UnknownSection(id) => write!(f, "no section has identity {id}"),
             Self::UnknownChoir(id) => write!(f, "no Choir has identity {id}"),
             Self::DuplicateSong(id) => write!(f, "a Song work with identity {id} already exists"),
             Self::DuplicateArrangement(id) => {
@@ -490,7 +494,8 @@ impl SongLibrary {
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
-            &draft,
+            &draft.sections,
+            &draft.sequence,
             id,
         )?;
         let arrangement = Arrangement::new(id, song, created_at, draft, choirs)?;
@@ -519,10 +524,10 @@ impl SongLibrary {
     /// identity back; any other Arrangement is refused with
     /// `DuplicateSection` or `DuplicateOccurrence`.
     ///
-    /// Adding or removing a section, changing a section's lyrics or label, or
-    /// changing the Sequence moves an approved Arrangement to
+    /// Adding or removing a section, changing a section's lyrics, or changing
+    /// the Sequence moves an approved Arrangement to
     /// [`super::PaginationState::NeedsReview`]. Title, language, attribution,
-    /// occasion, and section-order changes do not.
+    /// occasion, section-label, and section-order changes do not.
     pub fn edit_arrangement(
         &mut self,
         id: ArrangementId,
@@ -538,7 +543,8 @@ impl SongLibrary {
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
-            &draft,
+            &draft.sections,
+            &draft.sequence,
             id,
         )?;
         arrangement.replace_content(draft)?;
@@ -547,6 +553,71 @@ impl SongLibrary {
         self.occurrence_ids
             .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
         Ok(arrangement)
+    }
+
+    /// Replaces the sections, Sequence, and pagination review state of one
+    /// Arrangement as one unit.
+    ///
+    /// This is the Lyrics editor's commit: it keeps the metadata, Choir
+    /// associations, owning Song, creation time, and archive state exactly as
+    /// stored. The pagination state is taken as given rather than recomputed,
+    /// because the editor applies the review rule to forward edits and commits
+    /// an earlier snapshot, state included, when it undoes. Callers must pass
+    /// only a state computed by [`ArrangementLyrics::reviewed_against`] or
+    /// taken from a snapshot that was committed before; never construct
+    /// [`super::PaginationState::Approved`] to skip review.
+    ///
+    /// The checks are those of [`Self::check_arrangement_lyrics`]. The edit is
+    /// all or nothing: any refusal changes nothing.
+    pub fn edit_arrangement_lyrics(
+        &mut self,
+        id: ArrangementId,
+        lyrics: ArrangementLyrics,
+    ) -> Result<&Arrangement, SongLibraryError> {
+        self.check_arrangement_lyrics(id, &lyrics)?;
+        let arrangement = self
+            .arrangements
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        arrangement.replace_lyrics(lyrics.sections, lyrics.sequence, lyrics.pagination)?;
+        self.section_ids
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
+        self.occurrence_ids
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
+        Ok(arrangement)
+    }
+
+    /// Checks a Lyrics edit against the whole library without changing it.
+    ///
+    /// Refused with [`SongLibraryError::Archived`] when the Arrangement or its
+    /// Song is archived. A present section name must not be blank. Name
+    /// uniqueness is not checked here: it is enforced where a name is
+    /// introduced ([`ArrangementLyrics::add_section`] and
+    /// [`ArrangementLyrics::rename_section`]), so every snapshot that was
+    /// committed once can be committed again, and duplicate names already
+    /// stored keep editing and undoing. Section and occurrence identities
+    /// follow the same permanent reservation as [`Self::edit_arrangement`]:
+    /// one that another Arrangement holds or once held is refused with
+    /// `DuplicateSection` or `DuplicateOccurrence`.
+    pub fn check_arrangement_lyrics(
+        &self,
+        id: ArrangementId,
+        lyrics: &ArrangementLyrics,
+    ) -> Result<(), SongLibraryError> {
+        let arrangement = self
+            .arrangements
+            .get(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        Self::require_editable(&self.songs, arrangement)?;
+        require_present_labels(&lyrics.sections)?;
+        Self::require_free_section_and_occurrence_ids(
+            &self.section_ids,
+            &self.occurrence_ids,
+            &lyrics.sections,
+            &lyrics.sequence,
+            id,
+        )?;
+        arrangement.check_lyrics(&lyrics.sections, &lyrics.sequence)
     }
 
     /// Takes an Arrangement as storage returned it after a commit: content,
@@ -571,7 +642,8 @@ impl SongLibrary {
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
-            &draft,
+            &draft.sections,
+            &draft.sequence,
             id,
         )?;
         arrangement.refresh(draft, choirs, pagination_state)?;
@@ -766,7 +838,8 @@ impl SongLibrary {
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
-            &draft,
+            &draft.sections,
+            &draft.sequence,
             new_id,
         )?;
         let arrangement = Arrangement::new(new_id, song, created_at, draft, choirs)?;
@@ -1238,10 +1311,11 @@ impl SongLibrary {
     fn require_free_section_and_occurrence_ids(
         section_ids: &BTreeMap<SectionId, ArrangementId>,
         occurrence_ids: &BTreeMap<OccurrenceId, ArrangementId>,
-        draft: &ArrangementDraft,
+        sections: &[SectionDraft],
+        sequence: &[OccurrenceDraft],
         owner: ArrangementId,
     ) -> Result<(), SongLibraryError> {
-        for section in &draft.sections {
+        for section in sections {
             if section_ids
                 .get(&section.id)
                 .is_some_and(|held| *held != owner)
@@ -1249,7 +1323,7 @@ impl SongLibrary {
                 return Err(SongLibraryError::DuplicateSection(section.id));
             }
         }
-        for occurrence in &draft.sequence {
+        for occurrence in sequence {
             if occurrence_ids
                 .get(&occurrence.id)
                 .is_some_and(|held| *held != owner)
@@ -2011,20 +2085,21 @@ mod tests {
         let mut lyrics = content.clone();
         lyrics.sections[0].lyrics = "Bag-ong bersikulo".to_owned();
         assert_eq!(
-            edit_pagination(&mut library, id, lyrics),
+            edit_pagination(&mut library, id, lyrics.clone()),
             PaginationState::NeedsReview
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut label = content.clone();
+        let mut label = lyrics;
         label.sections[1].label = Some("Refrain".to_owned());
         assert_eq!(
-            edit_pagination(&mut library, id, label),
-            PaginationState::NeedsReview
+            edit_pagination(&mut library, id, label.clone()),
+            PaginationState::Approved,
+            "renaming a section does not affect pagination (Decision 5)"
         );
 
         library.approve_pagination(id).expect("approved again");
-        let mut reordered_sequence = content.clone();
+        let mut reordered_sequence = label;
         reordered_sequence.sequence.swap(0, 2);
         assert_eq!(
             edit_pagination(&mut library, id, reordered_sequence.clone()),
