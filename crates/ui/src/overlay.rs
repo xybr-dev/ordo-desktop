@@ -18,8 +18,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, FocusHandle, IntoElement, ParentElement, Role,
-    SharedString, Styled, Window, deferred, div, prelude::*, px, rgb,
+    Anchor, AnyElement, App, Bounds, Context, ElementId, Entity, FocusHandle, IntoElement,
+    ParentElement, Pixels, Role, SharedString, Styled, Window, deferred, div, prelude::*, px, rgb,
 };
 use gpui_base::{
     ToastManager, ToastOptions, ToastTransitionStatus,
@@ -46,6 +46,12 @@ const TOAST_PRIORITY: usize = 50;
 /// These are the first ones; give the caller a builder when one needs another.
 const DIALOG_WIDTH: f32 = 480.0;
 const SLIDEOVER_WIDTH: f32 = 360.0;
+/// A popover's width, before the Interface scale.
+const POPOVER_WIDTH: f32 = 320.0;
+/// The tallest a popover grows before its body scrolls, before the scale.
+const POPOVER_MAX_HEIGHT: f32 = 360.0;
+/// The gap kept between a popover and its anchor, and the window edge.
+const POPOVER_GAP: f32 = tokens::spacing::RELATED;
 
 /// How far a dialog sits below its resting place before it settles into the
 /// fade, and falls back through on the way out.
@@ -85,6 +91,10 @@ const CONTAINMENT_LIMIT: usize = 100;
 pub enum Surface {
     Dialog,
     Slideover,
+    /// Anchored to the bounds of the control that opened it, modal like the
+    /// others (focus trapped, Escape and an outside press close it), but it
+    /// does not dim the window.
+    Popover,
 }
 
 type Body = Rc<dyn Fn(UiEnvironment, &mut Window, &mut App) -> AnyElement>;
@@ -96,6 +106,8 @@ type Gate = Rc<dyn Fn(&App) -> Availability>;
 #[derive(Clone)]
 pub struct Overlay {
     kind: Surface,
+    /// Where a [`Surface::Popover`] attaches, in window coordinates.
+    anchor: Option<Bounds<Pixels>>,
     title: SharedString,
     description: Option<SharedString>,
     body: Body,
@@ -122,9 +134,19 @@ impl Overlay {
         Self::new(Surface::Slideover, title)
     }
 
+    /// A popover anchored to `anchor`, the invoker's bounds in window
+    /// coordinates. It sits under the anchor, or above it when there is more
+    /// room there.
+    pub fn popover(title: impl Into<SharedString>, anchor: Bounds<Pixels>) -> Self {
+        let mut overlay = Self::new(Surface::Popover, title);
+        overlay.anchor = Some(anchor);
+        overlay
+    }
+
     fn new(kind: Surface, title: impl Into<SharedString>) -> Self {
         Self {
             kind,
+            anchor: None,
             title: title.into(),
             description: None,
             body: Rc::new(|_, _, _| div().into_any_element()),
@@ -727,10 +749,27 @@ impl OverlayHost {
         let width = match overlay.kind {
             Surface::Dialog => scale.apply(DIALOG_WIDTH),
             Surface::Slideover => scale.apply(SLIDEOVER_WIDTH),
+            Surface::Popover => scale.apply(POPOVER_WIDTH),
         }
         .min(f32::from(viewport.width) - 2.0 * gutter)
         .max(0.0);
-        let height = (f32::from(viewport.height) - 2.0 * gutter).max(0.0);
+        let mut height = (f32::from(viewport.height) - 2.0 * gutter).max(0.0);
+        // A popover flips by hand: `anchored`'s own switch mirrors about the
+        // same point and would land on top of the invoker, so the side is
+        // chosen here from the room each side has, and `anchored` places and
+        // snaps the card to the window.
+        let gap = scale.apply(POPOVER_GAP);
+        let placement = overlay
+            .anchor
+            .filter(|_| overlay.kind == Surface::Popover)
+            .map(|bounds| {
+                let below = f32::from(viewport.height) - f32::from(bounds.bottom()) - 2.0 * gap;
+                let above = f32::from(bounds.top()) - 2.0 * gap;
+                let wanted = scale.apply(POPOVER_MAX_HEIGHT);
+                let flip = below < wanted && above > below;
+                height = (if flip { above } else { below }).clamp(0.0, wanted);
+                (bounds, flip)
+            });
 
         // The body measures from its own content and shrinks from there, so a
         // dialog is as tall as what it holds up to the viewport. `flex_1` and a
@@ -792,7 +831,9 @@ impl OverlayHost {
             .when(overlay.kind == Surface::Dialog, |d| {
                 d.top(px((1.0 - progress) * scale.apply(DIALOG_RISE)))
             })
-            .child(self.header(&overlay, id, environment))
+            .children(
+                (overlay.kind != Surface::Popover).then(|| self.header(&overlay, id, environment)),
+            )
             .child(body)
             .children(self.footer(&overlay, id, &actions, environment, cx));
         let surface = div()
@@ -818,8 +859,27 @@ impl OverlayHost {
                     // and receding is a positive one that slides it back under its
                     // child.
                     .right(px(gutter + recession - (1.0 - progress) * (width + gutter))),
+                // Positioned by `anchored` below; the box itself has no extent.
+                Surface::Popover => d.top_0().left_0(),
             })
-            .child(card);
+            .map(|d| match placement {
+                Some((bounds, flip)) => d.child(
+                    gpui::anchored()
+                        .anchor(if flip {
+                            Anchor::BottomLeft
+                        } else {
+                            Anchor::TopLeft
+                        })
+                        .position(if flip {
+                            gpui::point(bounds.left(), bounds.top() - px(gap))
+                        } else {
+                            gpui::point(bounds.left(), bounds.bottom() + px(gap))
+                        })
+                        .snap_to_window_with_margin(px(gap))
+                        .child(card),
+                ),
+                None => d.child(card),
+            });
 
         // Only the surface that owns the operator is a modal: it is the one that
         // takes the press landing outside it and the one that holds the pointer
@@ -885,7 +945,11 @@ impl OverlayHost {
         cx: &mut App,
     ) -> Option<AnyElement> {
         let host = self.0.read(cx);
-        if host.entries.is_empty() {
+        if host
+            .entries
+            .iter()
+            .all(|entry| entry.overlay.kind == Surface::Popover)
+        {
             host.dimmed.set(false);
             return None;
         }
@@ -1551,6 +1615,13 @@ mod tests {
             let overlay = match kind {
                 Surface::Dialog => Overlay::dialog("Delete this Mass?"),
                 Surface::Slideover => Overlay::slideover("Inspector"),
+                Surface::Popover => Overlay::popover(
+                    "Pick one",
+                    Bounds::new(
+                        gpui::point(px(40.0), px(40.0)),
+                        gpui::size(px(80.0), px(24.0)),
+                    ),
+                ),
             };
             overlay
                 .description("This cannot be undone.")
@@ -2630,5 +2701,147 @@ mod tests {
             0,
             "declined, so it closes"
         );
+    }
+
+    fn open_popover(
+        view: &Entity<Harness>,
+        anchor: Bounds<Pixels>,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::popover("Pick one", anchor).body(|environment, _, _| {
+                    div()
+                        .child(Button::new("pop-first", "First", environment))
+                        .child(Button::new("pop-second", "Second", environment))
+                        .into_any_element()
+                }),
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    fn anchor_at(x: f32, y: f32) -> Bounds<Pixels> {
+        Bounds::new(gpui::point(px(x), px(y)), gpui::size(px(80.0), px(24.0)))
+    }
+
+    fn card(cx: &mut gpui::VisualTestContext) -> Bounds<Pixels> {
+        cx.debug_bounds("overlay-Pick one")
+            .expect("the popover renders")
+    }
+
+    #[gpui::test]
+    fn a_popover_opens_against_its_anchor_without_dimming_the_window(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let anchor = anchor_at(120.0, 60.0);
+        open_popover(&view, anchor, cx);
+
+        let card = card(cx);
+        assert!(
+            (f32::from(card.left()) - 120.0).abs() < 1.0,
+            "left edges line up: {card:?}"
+        );
+        assert!(
+            card.top() >= anchor.bottom() && f32::from(card.top() - anchor.bottom()) < 24.0,
+            "it sits just under the anchor: {card:?}"
+        );
+        assert!(
+            cx.debug_bounds("overlay-scrim").is_none(),
+            "a popover does not dim the window"
+        );
+    }
+
+    #[gpui::test]
+    fn a_popover_flips_above_when_there_is_no_room_below(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let viewport = cx.update(|window, _| window.viewport_size());
+        let anchor = anchor_at(120.0, f32::from(viewport.height) - 40.0);
+        open_popover(&view, anchor, cx);
+
+        let card = card(cx);
+        assert!(
+            card.bottom() <= anchor.top(),
+            "it sits above the anchor, not over it: {card:?} vs {anchor:?}"
+        );
+        assert!(card.top() >= px(0.0), "and stays on screen: {card:?}");
+    }
+
+    #[gpui::test]
+    fn a_popover_stays_inside_the_viewport_at_the_right_edge(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let viewport = cx.update(|window, _| window.viewport_size());
+        open_popover(&view, anchor_at(f32::from(viewport.width) - 40.0, 60.0), cx);
+
+        let card = card(cx);
+        assert!(card.right() <= viewport.width, "{card:?} in {viewport:?}");
+        assert!(card.left() >= px(0.0));
+    }
+
+    #[gpui::test]
+    fn escape_closes_a_popover_and_gives_focus_back_to_its_invoker(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        open_popover(&view, anchor_at(120.0, 60.0), cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 1);
+
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0);
+        let focus = view.read_with(cx, |view, _| view.focus.clone());
+        assert!(
+            cx.update(|window, _| focus.is_focused(window)),
+            "focus is back where it was when the popover opened"
+        );
+    }
+
+    #[gpui::test]
+    fn a_press_outside_a_popover_closes_it_and_reaches_nothing_beneath(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        open_popover(&view, anchor_at(120.0, 60.0), cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let beneath = cx
+            .debug_bounds("button-Beneath")
+            .expect("the control beneath renders")
+            .center();
+
+        cx.simulate_click(beneath, Modifiers::default());
+        settle(cx);
+
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0);
+        assert_eq!(view.read_with(cx, |view, _| view.beneath.get()), 0);
+    }
+
+    #[gpui::test]
+    fn tab_stays_inside_a_popover(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        open_popover(&view, anchor_at(120.0, 60.0), cx);
+        let trap = view.read_with(cx, |view, cx| {
+            view.host
+                .0
+                .read(cx)
+                .entries
+                .last()
+                .expect("open")
+                .focus
+                .clone()
+        });
+
+        for step in 0..6 {
+            cx.simulate_keystrokes("tab");
+            cx.run_until_parked();
+            cx.update(|window, cx| {
+                assert!(
+                    trap.contains_focused(window, cx),
+                    "Tab {step} left the popover"
+                );
+            });
+        }
     }
 }
