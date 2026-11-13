@@ -844,11 +844,23 @@ fn ac6_store_arrangement_writes_of_every_kind_complete_in_submission_order(
 
 /// Swaps the store's memory for a library holding one legacy Arrangement of
 /// `song` with no language, as a parish stored before T2.6 may hold.
-fn hold_a_legacy_arrangement(
+pub(crate) fn hold_a_legacy_arrangement(
     cx: &mut TestAppContext,
     store: &Entity<LibraryStore>,
     song: SongId,
     id: ArrangementId,
+) {
+    hold_a_legacy_arrangement_in(cx, store, song, id, Vec::new());
+}
+
+/// [`hold_a_legacy_arrangement`] with the given languages, which need not be
+/// in the built-in list.
+pub(crate) fn hold_a_legacy_arrangement_in(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    song: SongId,
+    id: ArrangementId,
+    languages: Vec<String>,
 ) {
     let at = domain::identity::Timestamp::from_millis(0);
     let library = SongLibrary::hydrate(
@@ -862,7 +874,10 @@ fn hold_a_legacy_arrangement(
             id,
             song,
             created_at: at,
-            draft: ArrangementDraft::default(),
+            draft: ArrangementDraft {
+                languages,
+                ..ArrangementDraft::default()
+            },
             choirs: Vec::new(),
             pagination_state: PaginationState::Draft,
             archive_state: ArchiveState::Active,

@@ -197,6 +197,21 @@ pub struct ArrangementDetails {
     pub notes: Option<String>,
 }
 
+impl ArrangementDetails {
+    /// Whether `other` holds the same details, ignoring the order of Choirs
+    /// and occasions (an Arrangement keeps both as sets). Languages are an
+    /// ordered list, so their order counts.
+    pub fn same_as(&self, other: &Self) -> bool {
+        let sorted = |details: &Self| {
+            let mut details = details.clone();
+            details.choirs.sort_unstable();
+            details.occasions.sort_unstable();
+            details
+        };
+        sorted(self) == sorted(other)
+    }
+}
+
 /// One Arrangement and the content it owns.
 ///
 /// Every value is private: an Arrangement is created or changed only through

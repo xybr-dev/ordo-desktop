@@ -12,7 +12,7 @@ use gpui::{
 };
 use ui::{
     environment::UiEnvironment,
-    primitives::{Availability, button::Button, list::Badge},
+    primitives::{button::Button, list::Badge},
     tokens,
 };
 
@@ -166,6 +166,7 @@ pub(super) fn render(
             .text_color(rgb(palette.text))
             .child("Archived \u{2014} restore it to edit")
     });
+    let has_some = total > 0;
     let scroll = workspace.detail_scroll.clone();
     let body = div()
         .debug_selector(|| "songs-detail".into())
@@ -208,10 +209,31 @@ pub(super) fn render(
                 )
                 .child(
                     div()
-                        .debug_selector(|| "songs-arrangement-count".into())
-                        .text_size(px(scale.apply(tokens::typography::META.size)))
-                        .text_color(rgb(palette.text_muted))
-                        .child(count),
+                        .flex()
+                        .items_center()
+                        .gap(px(scale.apply(tokens::spacing::RELATED)))
+                        .child(
+                            div()
+                                .debug_selector(|| "songs-arrangement-count".into())
+                                .text_size(px(scale.apply(tokens::typography::META.size)))
+                                .text_color(rgb(palette.text_muted))
+                                .child(count),
+                        )
+                        .when(has_some && !song.is_archived(), |row| {
+                            row.child(
+                                div()
+                                    .debug_selector(|| "songs-add-arrangement".into())
+                                    .child(
+                                        Button::new(
+                                            "songs-add-arrangement-button",
+                                            "Add Arrangement",
+                                            environment,
+                                        )
+                                        .on_surface(palette.background)
+                                        .on_activate(add_arrangement(&weak, id, open.clone())),
+                                    ),
+                            )
+                        }),
                 ),
         )
         .child(
@@ -221,7 +243,11 @@ pub(super) fn render(
                 .flex_col()
                 .w_full()
                 .when(rows.is_empty(), |list| {
-                    list.child(no_arrangements(song.is_archived(), environment))
+                    list.child(no_arrangements(
+                        song.is_archived(),
+                        add_arrangement(&weak, id, open.clone()),
+                        environment,
+                    ))
                 })
                 .children(rows),
         );
@@ -240,12 +266,28 @@ pub(super) fn render(
     )
 }
 
-/// Why Arrangement creation is unavailable in this build.
-const ADD_ARRANGEMENT_REASON: &str = "Arrangements arrive in a later build";
+/// The handler that opens the New Arrangement panel for `song`.
+fn add_arrangement(
+    weak: &gpui::WeakEntity<SongsWorkspace>,
+    song: domain::identity::SongId,
+    open: OpenArrangement,
+) -> impl Fn(&mut Window, &mut gpui::App) + 'static {
+    let weak = weak.clone();
+    move |window, cx| {
+        let open = open.clone();
+        let _ = weak.update(cx, |workspace, cx| {
+            workspace.open_new_arrangement(song, open, window, cx);
+        });
+    }
+}
 
 /// A Song with no Arrangements: what one is, and the action that makes the
 /// first. An archived Song is inspect-only, so it offers no action.
-fn no_arrangements(archived: bool, environment: UiEnvironment) -> Div {
+fn no_arrangements(
+    archived: bool,
+    add: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    environment: UiEnvironment,
+) -> Div {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     div()
@@ -277,7 +319,8 @@ fn no_arrangements(archived: bool, environment: UiEnvironment) -> Div {
                             "Add first Arrangement",
                             environment,
                         )
-                        .availability(Availability::unavailable(ADD_ARRANGEMENT_REASON)),
+                        .on_surface(palette.background)
+                        .on_activate(add),
                     ),
             )
         })

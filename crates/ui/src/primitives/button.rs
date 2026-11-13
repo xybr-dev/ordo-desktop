@@ -434,6 +434,9 @@ impl RenderOnce for Button {
         div()
             .flex()
             .flex_col()
+            // Never wider than the container: a long Unavailable reason wraps
+            // under the control instead of widening it past a narrow slot.
+            .max_w_full()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .child(focus_visible(self.control(), environment, surface))
             // The Unavailable Cue: the word, an icon, and the reason, in the
