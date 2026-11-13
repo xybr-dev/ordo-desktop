@@ -23,7 +23,10 @@ use crate::worker::{Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
 use super::RevisionRecord;
-use super::content::{self, ArrangementContent, ArrangementMetadata, RevisionContent, SongContent};
+use super::content::{
+    self, ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent,
+    SectionContent, SongContent,
+};
 use super::read::{latest_in, load_content};
 
 /// How a new revision links to the chain.
@@ -711,6 +714,74 @@ impl Core {
             at,
             arrangement,
             (&content, stored.pagination),
+            &link,
+        )?;
+        tx.commit().map_err(map_error)?;
+        Ok(done)
+    }
+
+    /// Replaces only an Arrangement's sections, Sequence and pagination state
+    /// and appends one Edit revision, reading the head revision and the stored
+    /// metadata in the same immediate transaction. A row with no history first
+    /// gets its `creation` revision in that transaction.
+    pub(crate) fn commit_arrangement_lyrics(
+        &mut self,
+        arrangement: ArrangementId,
+        sections: Vec<SectionContent>,
+        sequence: Vec<OccurrenceContent>,
+        pagination: PaginationState,
+        session: HistorySessionId,
+    ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
+        // Refuse the shapes that need no stored data before opening the
+        // transaction; the whole content is checked again once the stored
+        // metadata is read.
+        let section_ids: Vec<SectionId> = sections.iter().map(|section| section.id).collect();
+        require_distinct("section", &section_ids)?;
+        let occurrence_ids: Vec<OccurrenceId> =
+            sequence.iter().map(|occurrence| occurrence.id).collect();
+        require_distinct("occurrence", &occurrence_ids)?;
+        for occurrence in &sequence {
+            if !section_ids.contains(&occurrence.section) {
+                return Err(StorageError::InvalidInput {
+                    field: "sequence",
+                    reason: "unknown section",
+                });
+            }
+        }
+        let at = self.timestamp();
+        timestamp_text(at)?;
+        let (conn, ids, fault) = self.write_parts()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_error)?;
+        let mut steps = WriteSteps::new(fault);
+        let entity = RevisionEntity::Arrangement(arrangement);
+        require_entity(&tx, entity)?;
+        let head = match latest_in(&tx, entity)? {
+            Some(head) => head,
+            None => backfill_creation(&tx, ids, &mut steps, at, entity)?.id,
+        };
+        let stored = read_arrangement(&tx, arrangement)?.ok_or(StorageError::NotFound {
+            kind: RecordKind::Arrangement,
+            id: arrangement.entity(),
+        })?;
+        let mut content = ArrangementContent::of(&stored);
+        content.sections = sections;
+        content.sequence = sequence;
+        validate_arrangement_content(&content, true)?;
+        let link = Link {
+            parent: Some(head),
+            kind: RevisionKind::Edit,
+            session: Some(session),
+            restored_from: None,
+        };
+        let done = commit_arrangement_in(
+            &tx,
+            ids,
+            &mut steps,
+            at,
+            arrangement,
+            (&content, pagination),
             &link,
         )?;
         tx.commit().map_err(map_error)?;
