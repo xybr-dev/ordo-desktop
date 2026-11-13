@@ -1175,6 +1175,9 @@ boundary.
 
 **Changes:** `crates/ordo/src/songs/arrangement_details/`,
 `crates/domain/src/song_library/model/arrangement.rs`, `crates/domain/src/song_library/interface.rs`,
+`crates/domain/src/song_library/languages.rs`, `migrations/0006_arrangement_details.sql`,
+`crates/storage/`, `crates/ordo/src/songs/store.rs`, `crates/ordo/src/songs/library/`,
+`crates/ordo/src/shell.rs`, `crates/ui/src/overlay.rs`,
 `crates/ordo/src/songs/e2e.rs`
 
 **Depends on:** T2.3, T2.5.

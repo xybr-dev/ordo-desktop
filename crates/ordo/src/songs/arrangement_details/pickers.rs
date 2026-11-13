@@ -19,6 +19,8 @@ use ui::{
     tokens,
 };
 
+use crate::songs::choirs::{Offer, offer};
+
 use super::{
     ArrangementDetailsPanel, Picker,
     form::{OCCASIONS, chip, chip_row, same_language},
@@ -80,11 +82,10 @@ impl ArrangementDetailsPanel {
                     .into_iter()
                     .map(|(_, id, name)| Row::Choir { id, name })
                     .collect();
-                // Every Choir counts here, archived ones included: a name that
-                // exists is never created a second time.
-                let exists = library.choirs().any(|choir| match_key(choir.name()) == key);
-                if !key.is_empty() && !exists {
-                    rows.push(Row::CreateChoir(typed.to_string()));
+                // The Choirs screen's rule decides whether the typed name is new:
+                // every Choir counts, archived ones included.
+                if let Some(Offer::Add { name }) = offer(library, &typed) {
+                    rows.push(Row::CreateChoir(name.trim().to_owned()));
                 }
                 rows
             }
@@ -164,17 +165,19 @@ impl ArrangementDetailsPanel {
         if event.keystroke.modifiers.modified() {
             return;
         }
+        // The keys belong to the open search only while it has focus.
+        let field = match kind {
+            Picker::Language => &self.language_search,
+            Picker::Choir => &self.choir_search,
+        };
+        if !field.focus_handle(cx).is_focused(window) {
+            return;
+        }
         let rows = self.picker_rows(cx).len();
         match event.keystroke.key.as_str() {
             "enter" => {
-                let field = match kind {
-                    Picker::Language => &self.language_search,
-                    Picker::Choir => &self.choir_search,
-                };
-                if field.focus_handle(cx).is_focused(window) {
-                    self.choose(self.active, window, cx);
-                    cx.stop_propagation();
-                }
+                self.choose(self.active, window, cx);
+                cx.stop_propagation();
             }
             "down" if rows > 0 => {
                 self.active = (self.active + 1) % rows;
@@ -260,7 +263,11 @@ pub(super) fn choir_chips(
     let library = panel.store.read(cx).library();
     let mut listed: Vec<(String, ChoirId, String)> = library
         .choirs()
-        .filter(|choir| !choir.is_archived() || panel.choirs.contains(&choir.id()))
+        .filter(|choir| {
+            !choir.is_archived()
+                || panel.choirs.contains(&choir.id())
+                || panel.held_choirs.contains(&choir.id())
+        })
         .map(|choir| (match_key(choir.name()), choir.id(), choir.name().to_owned()))
         .collect();
     listed.sort();
@@ -373,14 +380,14 @@ pub(super) fn picker(
                 .child(row)
         })
         .collect::<Vec<_>>();
+    // A blank search with no rows left has nothing to explain: the list is
+    // simply empty.
     let none = match kind {
-        Picker::Choir => "Every choir is already chosen.".to_owned(),
-        Picker::Language if typed.trim().is_empty() => {
-            "Every language in Ordo\u{2019}s list is already chosen.".to_owned()
-        }
-        Picker::Language => {
-            format!("No language in Ordo\u{2019}s list matches \u{201c}{typed}\u{201d}.")
-        }
+        Picker::Choir => Some("Every choir is already chosen.".to_owned()),
+        Picker::Language if typed.trim().is_empty() => None,
+        Picker::Language => Some(format!(
+            "No language in Ordo\u{2019}s list matches \u{201c}{typed}\u{201d}."
+        )),
     };
     let (selector, id, name, placeholder, foot, state) = match kind {
         Picker::Language => (
@@ -435,7 +442,7 @@ pub(super) fn picker(
                     .flex_col()
                     .w_full()
                     .children(items)
-                    .when(rows.is_empty(), |list| {
+                    .when_some(none.filter(|_| rows.is_empty()), |list, none| {
                         list.child(
                             div()
                                 .debug_selector(|| "ad-pick-none".into())

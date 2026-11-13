@@ -16,12 +16,22 @@ use ui::{
 
 use super::{ArrangementDetailsPanel, Picker, pickers};
 
+/// The labels of the six fields, in the order the form shows them.
+pub(super) const FIELD_LABELS: [&str; 6] = [
+    "Display title",
+    "Languages",
+    "Choirs",
+    "Translator or adapter",
+    "Occasions",
+    "Source and rights notes",
+];
 pub(super) const NEW_TITLE: &str = "New Arrangement";
 pub(super) const EDIT_TITLE: &str = "Arrangement details";
 pub(super) const CREATE: &str = "Create Arrangement";
 pub(super) const SAVE: &str = "Save details";
 pub(super) const DUPLICATE: &str = "Duplicate Arrangement";
 pub(super) const BUSY_REASON: &str = "Saving the Arrangement";
+pub(super) const CHOIR_BUSY_REASON: &str = "Creating the choir";
 /// Why Duplicate is blocked for an Arrangement stored with no language (a
 /// parish stored before T2.6): a copy is a creation and needs one.
 pub(super) const DUPLICATE_NO_LANGUAGE_REASON: &str = "Save a language before duplicating";
@@ -41,29 +51,27 @@ pub(super) const FAILED_CHOIR: &str = "Couldn't create choir";
 /// "Special"). Occasions an Arrangement already holds are offered too.
 pub(super) const OCCASIONS: [&str; 5] = ["Ordinary Time", "Advent", "Christmas", "Lent", "Easter"];
 
-/// The label the placeholder previews: the languages joined with " + ", then
-/// " \u{b7} " and the first Choir and " +n" for the other n, the rule
-/// `SongLibrary::arrangement_label` applies to a stored Arrangement. With no
-/// language staged it names the field, as the mockup does. `choirs` must
-/// already be in label order.
-pub fn derived_label(languages: &[String], choirs: &[String]) -> String {
-    let mut label = if languages.is_empty() {
-        "Language".to_owned()
+/// What the Display title placeholder previews: the label the staged
+/// languages and Choirs would derive. The rule is the domain's
+/// (`SongLibrary::derived_label`); with no language staged the view names the
+/// field instead, as the mockup does.
+pub(super) fn label_preview(
+    library: &SongLibrary,
+    languages: &[String],
+    choirs: &[ChoirId],
+) -> String {
+    let stand_in = ["Language".to_owned()];
+    let shown: &[String] = if languages.is_empty() {
+        &stand_in
     } else {
-        languages.join(" + ")
+        languages
     };
-    if let Some(first) = choirs.first() {
-        label.push_str(" \u{b7} ");
-        label.push_str(first);
-        if choirs.len() > 1 {
-            label.push_str(&format!(" +{}", choirs.len() - 1));
-        }
-    }
-    label
+    library.derived_label(shown, choirs)
 }
 
 /// The names of `choirs` in the order a label lists them: by match key of the
-/// name, then identity.
+/// name, then identity. This is the ordering `SongLibrary::derived_label`
+/// applies; the domain exposes no list of names, so the notice repeats it.
 pub(super) fn choir_names_in_label_order(library: &SongLibrary, choirs: &[ChoirId]) -> Vec<String> {
     let mut named: Vec<(String, ChoirId, String)> = choirs
         .iter()
@@ -102,21 +110,6 @@ pub fn build_details(
         occasions: occasions.to_vec(),
         notes: some(notes),
     }
-}
-
-/// Whether two details are the same, ignoring the order of Choirs and
-/// occasions (the Arrangement keeps both as sets).
-pub(super) fn same_details(a: &ArrangementDetails, b: &ArrangementDetails) -> bool {
-    fn sorted<T: Ord>(mut values: Vec<T>) -> Vec<T> {
-        values.sort();
-        values
-    }
-    a.title == b.title
-        && a.languages == b.languages
-        && a.rendition_attribution == b.rendition_attribution
-        && a.notes == b.notes
-        && sorted(a.choirs.clone()) == sorted(b.choirs.clone())
-        && sorted(a.occasions.clone()) == sorted(b.occasions.clone())
 }
 
 /// Whether two language names are the same language, ignoring case and
@@ -170,10 +163,9 @@ pub(super) fn render(
 
     let placeholder = {
         let library = panel.store.read(cx).library();
-        let names = choir_names_in_label_order(library, &panel.choirs);
         format!(
             "Leave blank to show {}",
-            derived_label(&panel.languages, &names)
+            label_preview(library, &panel.languages, &panel.choirs)
         )
     };
     let notice = panel.shared_notice(cx).map(|names| {
@@ -223,7 +215,7 @@ pub(super) fn render(
         let picker = pickers::picker(panel, Picker::Language, environment, window, cx);
         div().debug_selector(|| "ad-languages".into()).child(
             stack()
-                .child(label("Languages", Some("at least one")))
+                .child(label(FIELD_LABELS[1], Some("at least one")))
                 .child(chips)
                 .children(picker)
                 .child(tail),
@@ -249,7 +241,7 @@ pub(super) fn render(
         let picker = pickers::picker(panel, Picker::Choir, environment, window, cx);
         div().debug_selector(|| "ad-choirs".into()).child(
             stack()
-                .child(label("Choirs", None))
+                .child(label(FIELD_LABELS[2], None))
                 .child(chips)
                 .children(picker)
                 .child(tail),
@@ -260,7 +252,7 @@ pub(super) fn render(
         let chips = pickers::occasion_chips(panel, environment, cx);
         div().debug_selector(|| "ad-occasions".into()).child(
             stack()
-                .child(label("Occasions", None))
+                .child(label(FIELD_LABELS[4], None))
                 .child(chips)
                 .child(meta(OCCASION_HINT)),
         )
@@ -303,7 +295,7 @@ pub(super) fn render(
     .children(notice)
     .child(wrap(
         "ad-title",
-        Field::new("ad-title-field", "Display title", &panel.title, environment)
+        Field::new("ad-title-field", FIELD_LABELS[0], &panel.title, environment)
             .placeholder(placeholder)
             .on_surface(surface),
     ))
@@ -315,7 +307,7 @@ pub(super) fn render(
                 "ad-translator",
                 Field::new(
                     "ad-translator-field",
-                    "Translator or adapter",
+                    FIELD_LABELS[3],
                     &panel.translator,
                     environment,
                 )
@@ -327,14 +319,9 @@ pub(super) fn render(
     .child(occasions)
     .child(wrap(
         "ad-notes",
-        Field::new(
-            "ad-notes-field",
-            "Source and rights notes",
-            &panel.notes,
-            environment,
-        )
-        .placeholder("Optional")
-        .on_surface(surface),
+        Field::new("ad-notes-field", FIELD_LABELS[5], &panel.notes, environment)
+            .placeholder("Optional")
+            .on_surface(surface),
     ))
     .children(failure)
 }

@@ -446,6 +446,12 @@ impl ShellView {
         self.editing_arrangement
     }
 
+    /// The overlay host the shell's surfaces and toasts live on.
+    #[cfg(test)]
+    pub(crate) fn overlays(&self) -> &OverlayHost {
+        &self.overlays
+    }
+
     /// The Songs workspace entity.
     pub fn songs(&self) -> &Entity<SongsWorkspace> {
         &self.songs
@@ -519,9 +525,22 @@ impl ShellView {
             let shell = shell.clone();
             Rc::new(
                 move |outcome: arrangement_details::Outcome, _: &mut Window, cx: &mut App| {
-                    if let arrangement_details::Outcome::Duplicated(copy) = outcome {
-                        let _ = shell.update(cx, |shell, cx| shell.open_arrangement(copy, cx));
-                    }
+                    let _ = shell.update(cx, |shell, cx| match outcome {
+                        arrangement_details::Outcome::Duplicated(copy) => {
+                            shell.open_arrangement(copy, cx);
+                        }
+                        // The saved details may have changed the label the
+                        // focused view is titled with.
+                        arrangement_details::Outcome::Saved(saved) => {
+                            if shell.editing_arrangement == Some(saved) {
+                                let title = ArrangementOverview::new(saved)
+                                    .title(shell.library_store.read(cx).library());
+                                shell.editing = Some(title.into());
+                                cx.notify();
+                            }
+                        }
+                        arrangement_details::Outcome::Created(_) => {}
+                    });
                 },
             )
         };

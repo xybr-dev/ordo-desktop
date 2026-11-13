@@ -38,7 +38,7 @@ use ui::{
 
 use crate::songs::store::LibraryStore;
 
-pub use form::{build_details, derived_label};
+pub use form::build_details;
 
 /// What the panel is for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,10 +86,14 @@ pub struct ArrangementDetailsPanel {
     language_search: FieldState,
     choir_search: FieldState,
     languages: Vec<String>,
-    /// Languages picked from the search during this edit, kept as chips even
-    /// after they are switched off.
+    /// Languages picked from the search during this edit, or held by the
+    /// Arrangement when it opened, kept as chips even after they are switched
+    /// off.
     offered: Vec<String>,
     choirs: Vec<ChoirId>,
+    /// The Choirs the Arrangement held when the panel opened (Edit), kept as
+    /// chips even when archived or switched off.
+    held_choirs: Vec<ChoirId>,
     occasions: Vec<String>,
     picker: Option<Picker>,
     active: usize,
@@ -165,19 +169,15 @@ impl ArrangementDetailsPanel {
         } else {
             (form::NEW_TITLE, form::CREATE)
         };
+        let header = Self::header_line(panel.read(cx).store.read(cx).library(), mode);
         let mut overlay = Overlay::slideover(title)
+            .description(header)
             .body(move |environment, window, cx| {
                 body.update(cx, |panel, cx| panel.render_form(environment, window, cx))
             })
             .primary_gated(
                 primary,
-                move |cx| {
-                    if gate.read(cx).busy {
-                        Availability::unavailable(form::BUSY_REASON)
-                    } else {
-                        Availability::Available
-                    }
-                },
+                move |cx| gate.read(cx).primary_availability(),
                 move |window, cx| {
                     submit.update(cx, |panel, cx| panel.submit(window, cx));
                 },
@@ -202,6 +202,30 @@ impl ArrangementDetailsPanel {
         let first = panel.read(cx).title.clone();
         first.focus(window, cx);
         panel
+    }
+
+    /// The line under the title: the Song's title, then (Edit) the
+    /// Arrangement's label.
+    fn header_line(library: &domain::song_library::SongLibrary, mode: Mode) -> String {
+        let title_of = |song| {
+            library
+                .song(song)
+                .map(|song| song.title().to_owned())
+                .unwrap_or_default()
+        };
+        match mode {
+            Mode::New(song) => title_of(song),
+            Mode::Edit(id) => {
+                let song = library
+                    .arrangement(id)
+                    .map(|arrangement| title_of(arrangement.song()))
+                    .unwrap_or_default();
+                match library.arrangement_label(id) {
+                    Ok(label) => format!("{song} \u{b7} {label}"),
+                    Err(_) => song,
+                }
+            }
+        }
     }
 
     fn new(
@@ -246,6 +270,7 @@ impl ArrangementDetailsPanel {
             languages: Vec::new(),
             offered: Vec::new(),
             choirs: Vec::new(),
+            held_choirs: Vec::new(),
             occasions: Vec::new(),
             picker: None,
             active: 0,
@@ -282,7 +307,11 @@ impl ArrangementDetailsPanel {
                 panel
                     .notes
                     .set_value(details.notes.unwrap_or_default(), window, cx);
+                // What the Arrangement holds stays a chip while it is edited,
+                // so switching one off can be undone.
+                panel.offered.clone_from(&details.languages);
                 panel.languages = details.languages;
+                panel.held_choirs.clone_from(&details.choirs);
                 panel.choirs = details.choirs;
                 panel.occasions = details.occasions;
             }
@@ -417,7 +446,7 @@ impl ArrangementDetailsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.creating_choir {
+        if self.creating_choir || self.busy {
             return;
         }
         self.creating_choir = true;
@@ -455,7 +484,7 @@ impl ArrangementDetailsPanel {
     /// language it only shows the error. On failure the panel stays open with
     /// its form and says why. Does nothing while a write is in flight.
     pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
+        if !self.primary_availability().is_available() {
             return;
         }
         if self.languages.is_empty() {
@@ -484,7 +513,7 @@ impl ArrangementDetailsPanel {
                     .read(cx)
                     .library()
                     .arrangement(id)
-                    .is_ok_and(|stored| form::same_details(&stored.details(), &details));
+                    .is_ok_and(|stored| stored.details().same_as(&details));
                 if unchanged {
                     // Nothing to store: just let go, with no toast.
                     self.run(
@@ -505,13 +534,27 @@ impl ArrangementDetailsPanel {
         }
     }
 
+    /// Whether the primary action can run: not while the Arrangement is being
+    /// written, nor while a Choir the operator just made is still being saved
+    /// (the Arrangement would be stored without it).
+    fn primary_availability(&self) -> Availability {
+        if self.busy {
+            Availability::unavailable(form::BUSY_REASON)
+        } else if self.creating_choir {
+            Availability::unavailable(form::CHOIR_BUSY_REASON)
+        } else {
+            Availability::Available
+        }
+    }
+
     /// Whether Duplicate can run: not while a write is in flight, and not for
     /// an Arrangement STORED with no language, since a copy is a creation and
     /// the domain refuses one without a language (T2.6 plan decision 7).
     /// Staging a language does not unblock it: Duplicate copies what is stored.
     pub fn duplicate_availability(&self, cx: &App) -> Availability {
-        if self.busy {
-            return Availability::unavailable(form::BUSY_REASON);
+        let working = self.primary_availability();
+        if !working.is_available() {
+            return working;
         }
         let Mode::Edit(id) = self.mode else {
             return Availability::Disabled;

@@ -5,18 +5,21 @@ use domain::{
     identity::{ArrangementId, ChoirId, SongId},
     song_library::{ArrangementDetails, ChoirDraft},
 };
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{Entity, TestAppContext, VisualTestContext, px};
+use storage::{Storage, StorageConfig};
 
 use ui::primitives::Availability;
 
-use super::{ArrangementDetailsPanel, Mode, Picker, build_details, derived_label, form};
+use super::{ArrangementDetailsPanel, Mode, Picker, build_details, form};
 use crate::{
     shell::ShellView,
     songs::{
         LibraryStore,
-        choirs::tests::{open_store, present, wait},
-        new_song::tests::{click, finish, parish, settle, settle_depth, songs_of, type_into},
-        store::tests::hold_a_legacy_arrangement,
+        choirs::tests::{open_store, present, temp_dir, wait},
+        new_song::tests::{
+            click, finish, parish, parish_with, settle, settle_depth, songs_of, type_into,
+        },
+        store::tests::{hold_a_legacy_arrangement, hold_a_legacy_arrangement_in},
     },
 };
 
@@ -123,21 +126,38 @@ fn details_of(
     panel.read_with(vcx, |panel, cx| panel.details(cx))
 }
 
-#[test]
-fn the_label_preview_follows_the_languages_then_the_first_choir() {
-    let none: [String; 0] = [];
-    assert_eq!(derived_label(&none, &none), "Language");
+#[gpui::test]
+fn the_label_preview_follows_the_languages_then_the_first_choir_by_the_domains_rule(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, _) = parish(cx, "t26-preview");
+    let (_shell, vcx) = open_store(cx, store.clone());
+    let koro = choir_named(&store, "Koro Sto. Ni\u{f1}o", vcx).expect("koro");
+    let youth = write(&store, vcx, |store, cx| {
+        store.create_choir(ChoirDraft::named("Youth Choir"), cx)
+    });
     let languages = ["Cebuano".to_owned(), "English".to_owned()];
-    let choirs = ["Koro".to_owned(), "Youth".to_owned(), "Zeal".to_owned()];
-    assert_eq!(derived_label(&languages[..1], &none), "Cebuano");
-    assert_eq!(
-        derived_label(&languages, &choirs[..1]),
-        "Cebuano + English \u{b7} Koro"
-    );
-    assert_eq!(
-        derived_label(&languages, &choirs),
-        "Cebuano + English \u{b7} Koro +2"
-    );
+    store.read_with(vcx, |store, _| {
+        let library = store.library();
+        // Nothing staged names the field, as the mockup does.
+        assert_eq!(form::label_preview(library, &[], &[]), "Language");
+        assert_eq!(
+            form::label_preview(library, &[], &[koro]),
+            "Language \u{b7} Koro Sto. Ni\u{f1}o"
+        );
+        assert_eq!(
+            form::label_preview(library, &languages[..1], &[]),
+            "Cebuano"
+        );
+        // The order the Choirs are staged in does not matter: Koro sorts first.
+        for staged in [[koro, youth], [youth, koro]] {
+            assert_eq!(
+                form::label_preview(library, &languages, &staged),
+                "Cebuano + English \u{b7} Koro Sto. Ni\u{f1}o +1"
+            );
+        }
+    });
+    finish(vcx, &slot, &dir);
 }
 
 #[test]
@@ -177,7 +197,9 @@ fn ac1_new_and_edit_open_the_same_surface_with_create_and_save_actions(cx: &mut 
     for field in fields {
         assert!(present(vcx, field), "{field} in New");
     }
+    assert!(present(vcx, "overlay-New Arrangement"), "the New title");
     assert!(present(vcx, "button-Create Arrangement") && present(vcx, "button-Cancel"));
+    assert!(!present(vcx, "button-Save details"));
     assert!(!present(vcx, "button-Duplicate Arrangement"));
     click(vcx, "button-Cancel");
     settle_depth(&songs_of(&shell, vcx), vcx, 0);
@@ -188,7 +210,12 @@ fn ac1_new_and_edit_open_the_same_surface_with_create_and_save_actions(cx: &mut 
     for field in fields {
         assert!(present(vcx, field), "{field} in Edit");
     }
+    assert!(
+        present(vcx, "overlay-Arrangement details"),
+        "the Edit title"
+    );
     assert!(present(vcx, "button-Save details") && present(vcx, "button-Duplicate Arrangement"));
+    assert!(!present(vcx, "button-Create Arrangement"));
     finish(vcx, &slot, &dir);
 }
 
@@ -198,8 +225,31 @@ fn ac3_there_is_no_composer_field_and_the_other_details_are_saved(cx: &mut TestA
     let (shell, vcx) = open_store(cx, store.clone());
     let before = arrangement_count(&store, vcx);
     open_new(&shell, seeded.near, vcx);
-    for absent in ["ad-composer", "ad-author", "ad-original-author"] {
-        assert!(!present(vcx, absent), "{absent}");
+    // The form is exactly the six fields it renders by these labels, and no
+    // label names a composer: the composer stays on the Song.
+    assert_eq!(
+        form::FIELD_LABELS,
+        [
+            "Display title",
+            "Languages",
+            "Choirs",
+            "Translator or adapter",
+            "Occasions",
+            "Source and rights notes",
+        ]
+    );
+    for label in form::FIELD_LABELS {
+        assert!(!label.to_lowercase().contains("composer"), "{label}");
+    }
+    for wrapper in [
+        "ad-title",
+        "ad-languages",
+        "ad-choirs",
+        "ad-translator",
+        "ad-occasions",
+        "ad-notes",
+    ] {
+        assert!(present(vcx, wrapper), "{wrapper}");
     }
     click(vcx, "button-Latin");
     click(vcx, "button-Advent");
@@ -253,11 +303,28 @@ fn ac4_the_shared_notice_shows_only_for_more_than_one_stored_choir_and_duplicate
     click(vcx, "button-Cancel");
     settle_depth(&songs_of(&shell, vcx), vcx, 0);
 
-    open_edit(&shell, shared, vcx);
+    let panel = open_edit(&shell, shared, vcx);
     assert!(present(vcx, "ad-shared-notice"));
+    panel.read_with(vcx, |panel, cx| {
+        assert_eq!(
+            panel.shared_notice(cx),
+            Some(vec![
+                "Koro Sto. Ni\u{f1}o".to_owned(),
+                "Youth Choir".to_owned()
+            ]),
+            "the notice names both stored Choirs, in label order"
+        );
+    });
     // The notice follows what is stored, not what is staged.
     click(vcx, "button-Youth Choir");
+    panel.read_with(vcx, |panel, _| assert_eq!(panel.choirs(), [koro]));
     assert!(present(vcx, "ad-shared-notice"));
+    store.read_with(vcx, |store, _| {
+        assert_eq!(
+            store.library().arrangement(shared).unwrap().choirs().len(),
+            2
+        );
+    });
     let before = arrangement_count(&store, vcx);
     click(vcx, "button-Duplicate Arrangement");
     wait(vcx, |vcx| arrangement_count(&store, vcx) == before + 1);
@@ -272,8 +339,12 @@ fn ac4_the_shared_notice_shows_only_for_more_than_one_stored_choir_and_duplicate
         let duplicate = library.arrangement(copy).expect("copy");
         assert_eq!(duplicate.song(), source.song());
         assert_eq!(duplicate.languages(), source.languages());
-        // The stored Arrangement was copied, not the staged edit.
+        // The stored Arrangement was copied, not the staged edit (which
+        // switched Youth Choir off), and the stage never reached the source.
+        assert_eq!(source.choirs().len(), 2);
+        assert!(source.choirs().contains(&koro) && source.choirs().contains(&youth));
         assert_eq!(duplicate.choirs(), source.choirs());
+        assert_eq!(source.title(), Some("Shared"));
     });
     // Editing the copy leaves the source alone.
     shell.read_with(vcx, |shell, _| {
@@ -287,34 +358,83 @@ fn ac4_the_shared_notice_shows_only_for_more_than_one_stored_choir_and_duplicate
     click(vcx, "button-Save details");
     wait(vcx, |vcx| label_of(&store, copy, vcx) == "Copy title");
     assert_eq!(label_of(&store, shared, vcx), "Shared");
+    store.read_with(vcx, |store, _| {
+        assert_eq!(
+            store.library().arrangement(shared).unwrap().choirs().len(),
+            2
+        );
+    });
     finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
-fn ac5_cancel_and_escape_store_nothing_and_leave_the_workspace_alone(cx: &mut TestAppContext) {
-    let (dir, slot, store, seeded) = parish(cx, "t26-ac5");
+fn ac5_every_way_out_stores_nothing_and_leaves_the_workspace_alone(cx: &mut TestAppContext) {
+    // Long enough to scroll, so the scroll offset is something to keep.
+    let (dir, slot, store, seeded) = parish_with(cx, "t26-ac5", 40, false);
     let (shell, vcx) = open_store(cx, store.clone());
     let songs = songs_of(&shell, vcx);
+    click(vcx, "songs-search");
+    vcx.simulate_input("a");
+    vcx.run_until_parked();
     songs.update(vcx, |songs, cx| songs.select(seeded.near, cx));
+    songs.update(vcx, |songs, _| {
+        songs.scroll_list_to(gpui::point(px(0.0), px(-200.0)))
+    });
+    vcx.run_until_parked();
+    songs.update(vcx, |_, cx| cx.notify());
     settle(vcx);
-    let before = arrangement_count(&store, vcx);
-    let query = songs.read_with(vcx, |songs, _| songs.query().clone());
-    for dismiss in ["cancel", "escape"] {
-        open_new(&shell, seeded.near, vcx);
-        click(vcx, "button-Latin");
-        type_into(vcx, "ad-notes", "staged");
-        if dismiss == "cancel" {
-            click(vcx, "button-Cancel");
-        } else {
-            vcx.simulate_keystrokes("escape");
+    let snapshot = |songs: &crate::songs::SongsWorkspace| {
+        (
+            songs.query().clone(),
+            songs.hits().to_vec(),
+            songs.selected(),
+            songs.list_offset(),
+        )
+    };
+    let before = songs.read_with(vcx, |songs, _| snapshot(songs));
+    assert_eq!(before.2, Some(seeded.near));
+    assert!(before.3.y < px(0.0), "the list is scrolled before opening");
+    let arrangements = arrangement_count(&store, vcx);
+    let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    let details_before = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).unwrap().details()
+    });
+
+    for edit in [false, true] {
+        for way in ["Cancel", "close tab", "Escape"] {
+            let panel = if edit {
+                open_edit(&shell, id, vcx)
+            } else {
+                click(vcx, "button-Add Arrangement");
+                songs.read_with(vcx, |songs, _| {
+                    songs.new_arrangement().expect("open").clone()
+                })
+            };
+            click(vcx, "button-Latin");
+            panel.update(vcx, |panel, cx| panel.toggle_occasion("Lent", cx));
+            match way {
+                "Cancel" => click(vcx, "button-Cancel"),
+                "close tab" => click(vcx, "button-Close"),
+                _ => vcx.simulate_keystrokes("escape"),
+            }
+            settle_depth(&songs, vcx, 0);
+            let which = format!("{} via {way}", if edit { "Edit" } else { "New" });
+            assert_eq!(arrangement_count(&store, vcx), arrangements, "{which}");
+            store.read_with(vcx, |store, _| {
+                assert_eq!(
+                    store.library().arrangement(id).unwrap().details(),
+                    details_before,
+                    "{which}"
+                );
+            });
+            songs.read_with(vcx, |songs, _| {
+                assert!(songs.new_arrangement().is_none(), "{which}");
+                assert_eq!(snapshot(songs), before, "{which}: query, selection, scroll");
+            });
+            shell.read_with(vcx, |shell, _| {
+                assert!(shell.arrangement_details().is_none(), "{which}");
+            });
         }
-        settle_depth(&songs, vcx, 0);
-        assert_eq!(arrangement_count(&store, vcx), before, "{dismiss}");
-        songs.read_with(vcx, |songs, _| {
-            assert!(songs.new_arrangement().is_none());
-            assert_eq!(songs.selected(), Some(seeded.near));
-            assert_eq!(songs.query(), &query);
-        });
     }
     finish(vcx, &slot, &dir);
 }
@@ -324,11 +444,22 @@ fn ac5_a_created_arrangement_opens_in_its_focused_view(cx: &mut TestAppContext) 
     let (dir, slot, store, seeded) = parish(cx, "t26-create");
     let (shell, vcx) = open_store(cx, store.clone());
     let before = arrangement_count(&store, vcx);
+    let known: Vec<ArrangementId> = store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangements()
+            .map(domain::song_library::Arrangement::id)
+            .collect()
+    });
     open_new(&shell, seeded.near, vcx);
     click(vcx, "button-Latin");
     click(vcx, "button-Create Arrangement");
     wait(vcx, |vcx| arrangement_count(&store, vcx) == before + 1);
     settle(vcx);
+    let focused = shell.read_with(vcx, |shell, _| shell.editing_arrangement());
+    let focused = focused.expect("the new Arrangement is open");
+    assert!(!known.contains(&focused), "the focused view is the new one");
+    assert_eq!(label_of(&store, focused, vcx), "Latin");
     assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-overview"));
     assert!(present(vcx, "arrangement-no-sections"));
     assert!(present(vcx, "button-Add first section") && present(vcx, "control-unavailable"));
@@ -354,20 +485,66 @@ fn create_with_no_language_shows_the_error_and_stores_nothing(cx: &mut TestAppCo
 }
 
 #[gpui::test]
-fn a_double_click_on_the_primary_action_writes_once(cx: &mut TestAppContext) {
+fn a_double_activation_of_the_primary_action_writes_once(cx: &mut TestAppContext) {
     let (dir, slot, store, seeded) = parish(cx, "t26-double");
     let (shell, vcx) = open_store(cx, store.clone());
-    open_new(&shell, seeded.near, vcx);
+    let panel = open_new(&shell, seeded.near, vcx);
     click(vcx, "button-Latin");
     let before = arrangement_count(&store, vcx);
-    let bounds = vcx
-        .debug_bounds("button-Create Arrangement")
-        .expect("button");
-    vcx.simulate_click(bounds.center(), gpui::Modifiers::default());
-    vcx.simulate_click(bounds.center(), gpui::Modifiers::default());
+    // Both inside one update: the write cannot be answered between them, and a
+    // second click cannot land on the workspace underneath.
+    vcx.update(|window, cx| {
+        panel.update(cx, |panel, cx| {
+            panel.submit(window, cx);
+            panel.submit(window, cx);
+        });
+    });
     wait(vcx, |vcx| arrangement_count(&store, vcx) > before);
     settle(vcx);
     assert_eq!(arrangement_count(&store, vcx), before + 1);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn the_primary_action_waits_for_a_choir_that_is_still_being_created(cx: &mut TestAppContext) {
+    let (dir, slot, store, seeded) = parish(cx, "t26-choir-busy");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let panel = open_new(&shell, seeded.near, vcx);
+    click(vcx, "button-Latin");
+    let before = arrangement_count(&store, vcx);
+    // Create the Choir and press the primary action before the Choir write is
+    // answered: nothing is stored without the Choir.
+    vcx.update(|window, cx| {
+        panel.update(cx, |panel, cx| {
+            panel.create_choir("Late Choir".to_owned(), window, cx);
+            assert_eq!(
+                panel.primary_availability(),
+                Availability::unavailable(form::CHOIR_BUSY_REASON)
+            );
+            panel.submit(window, cx);
+            assert!(!panel.busy(), "submit did nothing");
+        });
+    });
+    wait(vcx, |vcx| choir_named(&store, "Late Choir", vcx).is_some());
+    settle(vcx);
+    let made = choir_named(&store, "Late Choir", vcx).expect("saved");
+    assert_eq!(arrangement_count(&store, vcx), before);
+    panel.read_with(vcx, |panel, _| {
+        assert_eq!(panel.choirs(), [made]);
+        assert_eq!(panel.primary_availability(), Availability::Available);
+    });
+    click(vcx, "button-Create Arrangement");
+    wait(vcx, |vcx| arrangement_count(&store, vcx) == before + 1);
+    settle(vcx);
+    let created = shell
+        .read_with(vcx, |shell, _| shell.editing_arrangement())
+        .expect("open");
+    store.read_with(vcx, |store, _| {
+        assert_eq!(
+            store.library().arrangement(created).unwrap().choirs().len(),
+            1
+        );
+    });
     finish(vcx, &slot, &dir);
 }
 
@@ -443,21 +620,163 @@ fn the_choir_picker_never_offers_an_archived_choir_and_a_created_choir_persists_
     finish(vcx, &slot, &dir);
 }
 
+/// The revisions an Arrangement has, oldest first.
+fn revisions_of(
+    slot: &crate::songs::StorageSlot,
+    id: ArrangementId,
+    vcx: &mut VisualTestContext,
+) -> Vec<storage::RevisionRecord> {
+    let future = slot
+        .with(|storage| storage.revisions(domain::revisions::RevisionEntity::Arrangement(id)))
+        .expect("storage is open");
+    vcx.foreground_executor()
+        .block_test(future)
+        .expect("revisions")
+}
+
 #[gpui::test]
-fn a_save_with_no_change_writes_nothing_and_closes(cx: &mut TestAppContext) {
+fn a_save_with_no_change_writes_nothing_shows_no_toast_and_closes(cx: &mut TestAppContext) {
     let (dir, slot, store, seeded) = parish(cx, "t26-nochange");
     let (shell, vcx) = open_store(cx, store.clone());
     let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    let revisions = revisions_of(&slot, id, vcx).len();
     let panel = open_edit(&shell, id, vcx);
-    let staged = details_of(&panel, vcx);
-    store.read_with(vcx, |store, _| {
-        assert_eq!(
-            store.library().arrangement(id).expect("stored").details(),
-            staged
-        );
+    let stored = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("stored").details()
     });
+    assert!(details_of(&panel, vcx).same_as(&stored));
     click(vcx, "button-Save details");
     settle_depth(&songs_of(&shell, vcx), vcx, 0);
+    shell.read_with(vcx, |shell, cx| {
+        assert!(
+            shell.overlays().toasts(cx).is_empty(),
+            "no toast for no change"
+        );
+    });
+    assert_eq!(
+        revisions_of(&slot, id, vcx).len(),
+        revisions,
+        "no new revision"
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_failed_save_shows_the_stores_reason_and_keeps_the_form(cx: &mut TestAppContext) {
+    let (dir, slot, store, seeded) = parish(cx, "t26-save-fails");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    let panel = open_edit(&shell, id, vcx);
+    panel.update(vcx, |panel, cx| panel.toggle_occasion("Lent", cx));
+    let staged = details_of(&panel, vcx);
+    let library = store.read_with(vcx, |store, _| store.library().clone());
+
+    // Swap in an open store of another, empty parish: memory still holds the
+    // Arrangement, the domain accepts the edit, and storage cannot find it.
+    let outcome = vcx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    let other = temp_dir("t26-other-parish");
+    slot.put(Storage::spawn(StorageConfig::in_directory(&other)));
+
+    click(vcx, "button-Save details");
+    wait(vcx, |vcx| {
+        panel.read_with(vcx, |panel, _| panel.error().is_some())
+    });
+    settle(vcx);
+    panel.read_with(vcx, |panel, _| {
+        let reason = panel.error().expect("the reason is shown");
+        assert!(reason.contains("was not found"), "{reason}");
+        assert!(!panel.busy());
+    });
+    assert!(present(vcx, "ad-error"), "the failure is drawn");
+    shell.read_with(vcx, |shell, cx| {
+        assert!(
+            shell.arrangement_details().is_some(),
+            "the surface stays open"
+        );
+        assert!(shell.overlays().toasts(cx).is_empty(), "no success toast");
+    });
+    assert_eq!(details_of(&panel, vcx), staged, "the staged form is kept");
+    store.read_with(vcx, |store, _| assert_eq!(store.library(), &library));
+    click(vcx, "button-Cancel");
+    settle_depth(&songs_of(&shell, vcx), vcx, 0);
+    finish(vcx, &slot, &other);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// T2.6a rule 1: a language the Arrangement holds that is not in the built-in
+/// list is a selected chip in Edit, can be switched back on, and survives Save.
+#[gpui::test]
+fn a_stored_language_that_is_not_listed_is_a_chip_in_edit_and_survives_save(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, seeded) = parish(cx, "t26-unlisted");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    hold_a_legacy_arrangement_in(
+        vcx,
+        &store,
+        seeded.near,
+        id,
+        vec!["Latin".to_owned(), "ceb".to_owned()],
+    );
+    settle(vcx);
+    let panel = open_edit(&shell, id, vcx);
+    assert!(present(vcx, "button-ceb"), "the held language is a chip");
+    panel.read_with(vcx, |panel, _| {
+        assert_eq!(panel.languages(), ["Latin", "ceb"])
+    });
+    // Switching it off keeps the chip, so it can be switched back on.
+    click(vcx, "button-ceb");
+    panel.read_with(vcx, |panel, _| assert_eq!(panel.languages(), ["Latin"]));
+    assert!(
+        present(vcx, "button-ceb"),
+        "still offered after switching off"
+    );
+    click(vcx, "button-ceb");
+    panel.read_with(vcx, |panel, _| {
+        assert_eq!(panel.languages(), ["Latin", "ceb"])
+    });
+    panel.update(vcx, |panel, cx| panel.toggle_occasion("Advent", cx));
+    click(vcx, "button-Save details");
+    wait(vcx, |vcx| {
+        store.read_with(vcx, |store, _| {
+            store
+                .library()
+                .arrangement(id)
+                .unwrap()
+                .occasions()
+                .contains("Advent")
+        })
+    });
+    settle(vcx);
+    store.read_with(vcx, |store, _| {
+        assert_eq!(
+            store.library().arrangement(id).unwrap().languages(),
+            ["Latin", "ceb"]
+        );
+    });
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn the_header_line_names_the_song_and_in_edit_the_label(cx: &mut TestAppContext) {
+    let (dir, slot, store, seeded) = parish(cx, "t26-header");
+    let (_shell, vcx) = open_store(cx, store.clone());
+    let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    store.read_with(vcx, |store, _| {
+        let library = store.library();
+        let song = library.song(seeded.near).unwrap().title().to_owned();
+        let label = library.arrangement_label(id).unwrap();
+        assert_eq!(
+            ArrangementDetailsPanel::header_line(library, Mode::New(seeded.near)),
+            song
+        );
+        assert_eq!(
+            ArrangementDetailsPanel::header_line(library, Mode::Edit(id)),
+            format!("{song} \u{b7} {label}")
+        );
+    });
     finish(vcx, &slot, &dir);
 }
 
