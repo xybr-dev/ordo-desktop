@@ -653,21 +653,29 @@ fn ac5_an_archived_candidate_turns_include_archived_on(cx: &mut TestAppContext) 
     finish(vcx, &slot, &dir);
 }
 
+/// Activates the primary action twice before anything can be answered.
+fn submit_twice(panel: &Entity<NewSongPanel>, vcx: &mut VisualTestContext) {
+    vcx.update(|window, cx| {
+        panel.update(cx, |panel, cx| {
+            panel.submit(window, cx);
+            panel.submit(window, cx);
+        });
+    });
+}
+
 #[gpui::test]
 fn ac6_create_commits_once_and_lands_on_the_new_song(cx: &mut TestAppContext) {
     let (dir, slot, store, _) = parish(cx, "t25-once");
     let (shell, vcx) = open_store(cx, store.clone());
     let songs = songs_of(&shell, vcx);
-    open_panel(&shell, vcx);
+    let panel = open_panel(&shell, vcx);
     let before = song_count(&store, vcx);
     vcx.simulate_input("Kordero sa Dios");
     vcx.run_until_parked();
-    // Double activation: the second click arrives before the write is answered.
-    let bounds = vcx
-        .debug_bounds("button-Create song")
-        .expect("Create song is on screen");
-    vcx.simulate_click(bounds.center(), Modifiers::default());
-    vcx.simulate_click(bounds.center(), Modifiers::default());
+    // Double activation: the second arrives before the write is answered. Both
+    // happen inside one update, so the write cannot finish between them and a
+    // second click cannot land on the workspace underneath.
+    submit_twice(&panel, vcx);
     crate::songs::choirs::tests::wait(vcx, |cx| depth(&songs, cx) == 0);
     assert_eq!(song_count(&store, vcx), before + 1);
     let created = store.read_with(vcx, |store, _| {
@@ -712,15 +720,13 @@ fn ac6_enter_then_an_immediate_click_creates_one_song(cx: &mut TestAppContext) {
     let (dir, slot, store, _) = parish(cx, "t25-enter-click");
     let (shell, vcx) = open_store(cx, store.clone());
     let songs = songs_of(&shell, vcx);
-    open_panel(&shell, vcx);
+    let panel = open_panel(&shell, vcx);
     let before = song_count(&store, vcx);
     vcx.simulate_input("Kordero sa Dios");
     vcx.run_until_parked();
-    let bounds = vcx
-        .debug_bounds("button-Create song")
-        .expect("Create song is on screen");
-    vcx.simulate_keystrokes("enter");
-    vcx.simulate_click(bounds.center(), Modifiers::default());
+    // Enter and the Create button both end in `submit`; two in one update
+    // cannot be separated by the write finishing.
+    submit_twice(&panel, vcx);
     wait_closed(&songs, vcx);
     assert_eq!(song_count(&store, vcx), before + 1);
     finish(vcx, &slot, &dir);
