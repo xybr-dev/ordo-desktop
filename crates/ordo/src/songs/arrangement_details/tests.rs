@@ -462,7 +462,11 @@ fn ac5_a_created_arrangement_opens_in_its_focused_view(cx: &mut TestAppContext) 
     assert_eq!(label_of(&store, focused, vcx), "Latin");
     assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-overview"));
     assert!(present(vcx, "arrangement-no-sections"));
-    assert!(present(vcx, "button-Add first section") && present(vcx, "control-unavailable"));
+    assert!(present(vcx, "button-Add first section"));
+    assert!(
+        !present(vcx, "control-unavailable"),
+        "adding is available now"
+    );
     finish(vcx, &slot, &dir);
 }
 

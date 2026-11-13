@@ -931,10 +931,7 @@ Vida",
     // Another section drops what the first still waited for.
     click(vcx, "arrangement-section-1");
     settle(vcx);
-    assert_eq!(
-        editor.read_with(vcx, |editor, _| editor.selected_section().is_some()),
-        true
-    );
+    assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
 }
 
 #[gpui::test]

@@ -65,10 +65,13 @@ pub fn build(
             request_frames(editor, &content, cx);
             ensure_rename(editor, &content, window, cx);
             let sections = sections_pane(editor, &weak, &content, read_only, environment, cx);
-            if let Some(id) = editor.lyrics.focus_row.take() {
-                if let Some(handle) = editor.lyrics.rows.get(&id).cloned() {
-                    window.defer(cx, move |window, cx| window.focus(&handle, cx));
-                }
+            if let Some(handle) = editor
+                .lyrics
+                .focus_row
+                .take()
+                .and_then(|id| editor.lyrics.rows.get(&id).cloned())
+            {
+                window.defer(cx, move |window, cx| window.focus(&handle, cx));
             }
             Panes {
                 sections: Some(sections),
