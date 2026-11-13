@@ -11,11 +11,12 @@ use domain::identity::{
     ArrangementId, HistorySessionId, OccurrenceId, RevisionId, SectionId, SongId, Timestamp,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
+use domain::song_library::PaginationState;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::parish_store::write::{
-    WriteSteps, insert_entity, require_distinct, timestamp_text, validate_arrangement_fields,
-    validate_song_fields, write,
+    WriteSteps, insert_entity, pagination_text, require_distinct, timestamp_text,
+    validate_arrangement_fields, validate_song_fields, write,
 };
 use crate::parish_store::{ArrangementRecord, SongRecord, read_arrangement, read_song};
 use crate::worker::{Core, Sources};
@@ -350,7 +351,7 @@ fn commit_arrangement_in(
     steps: &mut WriteSteps,
     at: Timestamp,
     arrangement: ArrangementId,
-    revision: &ArrangementContent,
+    (revision, pagination): (&ArrangementContent, PaginationState),
     link: &Link,
 ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
     let entity = RevisionEntity::Arrangement(arrangement);
@@ -514,6 +515,14 @@ fn commit_arrangement_in(
         link,
         &RevisionContent::Arrangement(revision.clone()),
     )?;
+    // The caller's pagination rule result lands in the same transaction as the
+    // content and the revision, so the three can never disagree.
+    write(
+        tx,
+        steps,
+        "UPDATE arrangement SET pagination_state = ?2 WHERE id = ?1",
+        params![key, pagination_text(pagination)],
+    )?;
     let stored = read_arrangement(tx, arrangement)?.ok_or(StorageError::NotFound {
         kind: RecordKind::Arrangement,
         id: arrangement.entity(),
@@ -559,6 +568,7 @@ impl Core {
         &mut self,
         arrangement: ArrangementId,
         revision: ArrangementContent,
+        pagination: PaginationState,
         kind: RevisionKind,
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
@@ -581,7 +591,15 @@ impl Core {
             session,
             restored_from: None,
         };
-        let done = commit_arrangement_in(&tx, ids, &mut steps, at, arrangement, &revision, &link)?;
+        let done = commit_arrangement_in(
+            &tx,
+            ids,
+            &mut steps,
+            at,
+            arrangement,
+            (&revision, pagination),
+            &link,
+        )?;
         tx.commit().map_err(map_error)?;
         Ok(done)
     }
@@ -591,6 +609,7 @@ impl Core {
         &mut self,
         revision: RevisionId,
         expected_parent: RevisionId,
+        pagination: PaginationState,
     ) -> Result<(RevisionContent, RevisionRecord), StorageError> {
         let (entity, restored) = {
             let conn = self.connection_mut()?;
@@ -627,7 +646,8 @@ impl Core {
                 commit_song_in(&tx, ids, &mut steps, at, id, song, &link)?.1
             }
             (RevisionContent::Arrangement(arrangement), RevisionEntity::Arrangement(id)) => {
-                commit_arrangement_in(&tx, ids, &mut steps, at, id, arrangement, &link)?.1
+                let edit = (arrangement, pagination);
+                commit_arrangement_in(&tx, ids, &mut steps, at, id, edit, &link)?.1
             }
             _ => return Err(StorageError::RevisionIntegrity { id: revision }),
         };

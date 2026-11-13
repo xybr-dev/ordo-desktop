@@ -4,7 +4,7 @@
      Do not edit by hand: run `ORDO_BLESS_ERD=1 cargo test -p storage erd`
      and commit the result. Domain meaning lives in CONTEXT.md. -->
 
-Schema version: 4 (`0004_edit_revisions`).
+Schema version: 5 (`0005_library_details`).
 
 ## Overview
 
@@ -17,6 +17,7 @@ erDiagram
         text rendition_attribution
         text created_at
         text archived_at
+        text pagination_state
     }
     arrangement_choir {
         text arrangement_id PK, FK
@@ -49,6 +50,13 @@ erDiagram
         text name
         text created_at
         text archived_at
+        text short_label
+        text notes
+    }
+    choir_language {
+        text choir_id PK, FK
+        integer position PK
+        text language
     }
     edit_revision {
         text id PK
@@ -151,6 +159,7 @@ erDiagram
     arrangement ||--o{ arrangement_language : "arrangement_id"
     arrangement ||--o{ arrangement_occasion : "arrangement_id"
     arrangement ||--o{ arrangement_section : "arrangement_id"
+    choir ||--o{ choir_language : "choir_id"
     edit_revision |o--o{ edit_revision : "restored_from_id"
     edit_revision |o--o{ edit_revision : "parent_id"
     arrangement |o--o{ edit_revision : "arrangement_id"
@@ -176,6 +185,7 @@ erDiagram
 | rendition_attribution | text | yes | — | — | — |
 | created_at | text | no | — | — | `canonical UTC time` |
 | archived_at | text | yes | — | — | `NULL or canonical UTC time` |
+| pagination_state | text | no | 'draft' | — | `pagination_state IN ('draft', 'approved', 'needs_review')` |
 
 Indexes:
 - `arrangement_by_song` on (song_id)
@@ -280,7 +290,7 @@ Foreign keys: none.
 
 ## choir
 
-**Owner:** Song Library. **Lifecycle:** Created by the operator; archived by setting archived_at; never cascades.
+**Owner:** Song Library. **Lifecycle:** Created by the operator; details (short_label, notes, choir_language) edited in place; archived by setting archived_at; never cascades.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
@@ -288,11 +298,33 @@ Foreign keys: none.
 | name | text | no | — | — | `length(trim(name)) > 0` |
 | created_at | text | no | — | — | `canonical UTC time` |
 | archived_at | text | yes | — | — | `NULL or canonical UTC time` |
+| short_label | text | yes | — | — | `short_label IS NULL OR length(trim(short_label)) > 0` |
+| notes | text | yes | — | — | `notes IS NULL OR length(trim(notes)) > 0` |
 
 Indexes:
 - `sqlite_autoindex_choir_1` on (id), unique (constraint)
 
 Foreign keys: none.
+
+## choir_language
+
+**Owner:** Song Library. **Lifecycle:** Owned by its choir; preferred languages ordered by position; replaced with the choir's details.
+
+| Column | Type | Null | Default | Key | Check |
+|---|---|---|---|---|---|
+| choir_id | text | no | — | PK | — |
+| position | integer | no | — | PK(2) | `position >= 0` |
+| language | text | no | — | — | `length(trim(language)) > 0` |
+
+Primary key: (choir_id, position).
+WITHOUT ROWID.
+
+Indexes:
+- `sqlite_autoindex_choir_language_1` on (choir_id, position), unique (constraint)
+- `sqlite_autoindex_choir_language_2` on (choir_id, language), unique (constraint)
+
+Foreign keys:
+- (choir_id) → `choir`(id), on delete NO ACTION, on update NO ACTION
 
 ## edit_revision
 

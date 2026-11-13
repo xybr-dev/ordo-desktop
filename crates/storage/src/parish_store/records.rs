@@ -9,6 +9,11 @@ use domain::identity::{
     Timestamp,
 };
 use domain::presentation::ContentHash;
+use domain::song_library::{
+    ArchiveState, ArrangementDraft, ChoirDraft, HydrateArrangement, HydrateChoir, HydrateReserved,
+    HydrateSong, HydrationError, OccurrenceDraft, PaginationState, SectionDraft, SongDraft,
+    SongLibrary,
+};
 
 /// Description of the Parish to create.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,6 +38,28 @@ pub struct ParishRecord {
 pub struct NewChoir {
     /// The Choir name exactly as authored.
     pub name: String,
+    /// A short label for tight layouts; when present, not blank.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order; no blanks, no duplicates.
+    pub languages: Vec<String>,
+    /// Private notes exactly as authored; when present, not blank.
+    pub notes: Option<String>,
+}
+
+/// The replacement details of an existing Choir.
+///
+/// The same rules as [`NewChoir`] apply. Identity, creation time and archive
+/// state are never changed by an edit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChoirDetails {
+    /// The Choir name exactly as authored.
+    pub name: String,
+    /// A short label for tight layouts; when present, not blank.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order; no blanks, no duplicates.
+    pub languages: Vec<String>,
+    /// Private notes exactly as authored; when present, not blank.
+    pub notes: Option<String>,
 }
 
 /// The stored Choir.
@@ -42,6 +69,12 @@ pub struct ChoirRecord {
     pub id: ChoirId,
     /// The name exactly as authored.
     pub name: String,
+    /// The short label, if any.
+    pub short_label: Option<String>,
+    /// Preferred languages in authored order.
+    pub languages: Vec<String>,
+    /// Private notes, if any.
+    pub notes: Option<String>,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Choir was archived, if it has been.
@@ -167,10 +200,139 @@ pub struct ArrangementRecord {
     pub sections: Vec<SectionRecord>,
     /// Sequence occurrences by performance position.
     pub sequence: Vec<OccurrenceRecord>,
+    /// Whether the pagination is a draft, approved, or needs review.
+    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Arrangement was archived, if it has been.
     pub archived_at: Option<Timestamp>,
+}
+
+/// Every Song Library record in one consistent read.
+///
+/// Each list is ordered by creation time, then identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LibraryRecords {
+    /// Every Song work, archived or not.
+    pub songs: Vec<SongRecord>,
+    /// Every Arrangement, archived or not, with its sections and Sequence.
+    pub arrangements: Vec<ArrangementRecord>,
+    /// Every Choir, archived or not.
+    pub choirs: Vec<ChoirRecord>,
+    /// The section and occurrence identities each Arrangement has ever used,
+    /// one entry per Arrangement, in the same order as `arrangements`.
+    pub reserved: Vec<ReservedIds>,
+}
+
+/// Every section and occurrence identity one Arrangement has ever used.
+///
+/// The union of its current rows and every stored revision, so identities an
+/// edit dropped stay reserved to it across restarts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReservedIds {
+    /// The Arrangement that owns the identities.
+    pub arrangement: ArrangementId,
+    /// Section identities, ascending.
+    pub sections: Vec<SectionId>,
+    /// Occurrence identities, ascending.
+    pub occurrences: Vec<OccurrenceId>,
+}
+
+/// The archive state a stored `archived_at` stands for.
+fn archive_state(archived_at: Option<Timestamp>) -> ArchiveState {
+    archived_at.map_or(ArchiveState::Active, ArchiveState::Archived)
+}
+
+impl From<SongRecord> for HydrateSong {
+    fn from(record: SongRecord) -> Self {
+        Self {
+            id: record.id,
+            created_at: record.created_at,
+            archive_state: archive_state(record.archived_at),
+            draft: SongDraft {
+                title: record.title,
+                aliases: record.aliases,
+                original_attribution: record.original_attribution,
+                provenance: record.provenance,
+                rights_notes: record.rights_notes,
+                liturgical_moments: record.liturgical_moments,
+                occasions: record.occasions,
+            },
+        }
+    }
+}
+
+impl From<ArrangementRecord> for HydrateArrangement {
+    fn from(record: ArrangementRecord) -> Self {
+        Self {
+            id: record.id,
+            song: record.song,
+            created_at: record.created_at,
+            pagination_state: record.pagination,
+            archive_state: archive_state(record.archived_at),
+            choirs: record.choirs,
+            draft: ArrangementDraft {
+                title: record.title,
+                languages: record.languages,
+                rendition_attribution: record.rendition_attribution,
+                occasions: record.occasions,
+                sections: record
+                    .sections
+                    .into_iter()
+                    .map(|section| SectionDraft {
+                        id: section.id,
+                        label: section.label,
+                        lyrics: section.lyrics,
+                    })
+                    .collect(),
+                sequence: record
+                    .sequence
+                    .into_iter()
+                    .map(|occurrence| OccurrenceDraft::new(occurrence.id, occurrence.section))
+                    .collect(),
+            },
+        }
+    }
+}
+
+impl From<ChoirRecord> for HydrateChoir {
+    fn from(record: ChoirRecord) -> Self {
+        Self {
+            id: record.id,
+            created_at: record.created_at,
+            archive_state: archive_state(record.archived_at),
+            draft: ChoirDraft {
+                name: record.name,
+                short_label: record.short_label,
+                languages: record.languages,
+                notes: record.notes,
+            },
+        }
+    }
+}
+
+impl From<ReservedIds> for HydrateReserved {
+    fn from(reserved: ReservedIds) -> Self {
+        Self {
+            arrangement: reserved.arrangement,
+            sections: reserved.sections,
+            occurrences: reserved.occurrences,
+        }
+    }
+}
+
+impl LibraryRecords {
+    /// Rebuilds the domain [`SongLibrary`] from these records, re-checking
+    /// every library rule. A stored record that breaks one is a
+    /// [`HydrationError`] naming it.
+    pub fn hydrate(self) -> Result<SongLibrary, HydrationError> {
+        SongLibrary::hydrate(
+            self.songs.into_iter().map(Into::into).collect(),
+            self.arrangements.into_iter().map(Into::into).collect(),
+            self.choirs.into_iter().map(Into::into).collect(),
+            self.reserved.into_iter().map(Into::into).collect(),
+        )
+    }
 }
 
 /// Image bytes to store as a managed asset.

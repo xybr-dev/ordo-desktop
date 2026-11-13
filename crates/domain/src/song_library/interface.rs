@@ -17,7 +17,11 @@ use crate::identity::{
 };
 
 use super::model::text;
-use super::model::{Arrangement, ArrangementDraft, Choir, SongDraft, SongWork};
+use super::model::{Arrangement, ArrangementDraft, Choir, ChoirDraft, SongDraft, SongWork};
+
+mod hydrate;
+
+pub use hydrate::{HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError};
 
 /// One authored field that failed a Song Library validation rule.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -38,6 +42,12 @@ pub enum Field {
     Occasion,
     /// A Choir's name.
     ChoirName,
+    /// A Choir's short label.
+    ChoirShortLabel,
+    /// One preferred language of a Choir.
+    ChoirLanguage,
+    /// A Choir's private notes.
+    ChoirNotes,
     /// An Arrangement's title.
     ArrangementTitle,
     /// One language of an Arrangement.
@@ -61,6 +71,9 @@ impl fmt::Display for Field {
             Self::LiturgicalMoment => "liturgical moment",
             Self::Occasion => "occasion",
             Self::ChoirName => "Choir name",
+            Self::ChoirShortLabel => "Choir short label",
+            Self::ChoirLanguage => "Choir language",
+            Self::ChoirNotes => "Choir notes",
             Self::ArrangementTitle => "Arrangement title",
             Self::Language => "language",
             Self::RenditionAttribution => "rendition attribution",
@@ -533,24 +546,31 @@ impl SongLibrary {
 
     /// Creates one Choir and returns it.
     ///
-    /// A Choir needs only a nonblank name. The identity must be unused.
+    /// A Choir needs only a nonblank name; the short label, preferred
+    /// languages and notes are optional details (blank text and repeated
+    /// languages are refused). The identity must be unused.
     pub fn create_choir(
         &mut self,
         id: ChoirId,
         created_at: Timestamp,
-        name: String,
+        draft: ChoirDraft,
     ) -> Result<&Choir, SongLibraryError> {
         if self.choirs.contains_key(&id) {
             return Err(SongLibraryError::DuplicateChoir(id));
         }
-        self.choirs.insert(id, Choir::new(id, created_at, name)?);
+        self.choirs.insert(id, Choir::new(id, created_at, draft)?);
         self.choir(id)
     }
 
-    /// Replaces one Choir's name.
+    /// Replaces one Choir's details.
     ///
-    /// Identity, creation time, and archive state are preserved.
-    pub fn edit_choir(&mut self, id: ChoirId, name: String) -> Result<&Choir, SongLibraryError> {
+    /// Identity, creation time, and archive state are preserved. An archived
+    /// Choir is inspect-only ([`SongLibraryError::Archived`]).
+    pub fn edit_choir(
+        &mut self,
+        id: ChoirId,
+        draft: ChoirDraft,
+    ) -> Result<&Choir, SongLibraryError> {
         let choir = self
             .choirs
             .get_mut(&id)
@@ -558,7 +578,7 @@ impl SongLibrary {
         if choir.is_archived() {
             return Err(SongLibraryError::Archived(RecordRef::Choir(id)));
         }
-        choir.rename(name)?;
+        choir.replace_details(draft)?;
         Ok(choir)
     }
 
@@ -1294,12 +1314,12 @@ mod tests {
 
         let choir_id = choir(1);
         library
-            .create_choir(choir_id, at(), "Youth".to_owned())
+            .create_choir(choir_id, at(), ChoirDraft::named("Youth"))
             .expect("created");
         assert_refused!(
             library,
             SongLibraryError::DuplicateChoir(choir_id),
-            library.create_choir(choir_id, at(), "Adult".to_owned())
+            library.create_choir(choir_id, at(), ChoirDraft::named("Adult"))
         );
 
         let arrangement_id = arrangement(1);
@@ -1335,10 +1355,10 @@ mod tests {
         let youth = choir(1);
         let adult = choir(2);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("youth");
         library
-            .create_choir(adult, at(), "Adult".to_owned())
+            .create_choir(adult, at(), ChoirDraft::named("Adult"))
             .expect("adult");
 
         let id = arrangement(1);
@@ -1487,10 +1507,10 @@ mod tests {
         let youth = choir(1);
         let adult = choir(2);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("youth");
         library
-            .create_choir(adult, at(), "Adult".to_owned())
+            .create_choir(adult, at(), ChoirDraft::named("Adult"))
             .expect("adult");
 
         let shared = arrangement(2);
@@ -1595,7 +1615,7 @@ mod tests {
         let mut library = SongLibrary::new();
         let youth = choir(1);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("choir");
 
         let first_song = song(1);
@@ -1658,7 +1678,7 @@ mod tests {
             .expect("song");
         let youth = choir(1);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("choir");
         let id = arrangement(1);
         let base = arrangement_draft("Cebuano", 10);
@@ -1690,7 +1710,7 @@ mod tests {
             .expect("song");
         let youth = choir(1);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("choir");
 
         library
@@ -1879,7 +1899,7 @@ mod tests {
             .expect("song");
         let youth = choir(1);
         library
-            .create_choir(youth, at(), "Youth".to_owned())
+            .create_choir(youth, at(), ChoirDraft::named("Youth"))
             .expect("choir");
         let id = arrangement(1);
 
@@ -2078,7 +2098,7 @@ mod tests {
         assert_refused!(
             library,
             SongLibraryError::UnknownChoir(unknown_choir),
-            library.edit_choir(unknown_choir, "Youth".to_owned())
+            library.edit_choir(unknown_choir, ChoirDraft::named("Youth"))
         );
         assert_refused!(
             library,
@@ -2132,10 +2152,10 @@ mod tests {
         );
 
         library
-            .create_choir(choir(2), at(), "Second".to_owned())
+            .create_choir(choir(2), at(), ChoirDraft::named("Second"))
             .expect("second choir");
         library
-            .create_choir(choir(1), at(), "First".to_owned())
+            .create_choir(choir(1), at(), ChoirDraft::named("First"))
             .expect("first choir");
         assert_eq!(
             library.choirs().map(Choir::id).collect::<Vec<_>>(),

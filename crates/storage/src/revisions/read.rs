@@ -4,10 +4,10 @@
 //! Content is re-hashed on every read; a mismatch or an unreadable document is
 //! reported as `RevisionIntegrity`, never repaired.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 
-use domain::identity::{ArrangementId, RevisionId, SongId, Timestamp};
+use domain::identity::{ArrangementId, OccurrenceId, RevisionId, SectionId, SongId, Timestamp};
 use domain::presentation::ContentHash;
 use domain::revisions::{RevisionEntity, RevisionKind};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -174,6 +174,47 @@ pub(crate) fn load_content(
         return Err(damaged());
     }
     Ok((entity, decoded))
+}
+
+/// Every section and occurrence identity any stored revision of the
+/// Arrangement contains.
+///
+/// Each revision is decoded through the same strict, hash-checked path as a
+/// restore, so a damaged document is `RevisionIntegrity`, never skipped. The
+/// Arrangement's current rows are the caller's to add.
+pub(crate) fn revision_ids(
+    tx: &Transaction<'_>,
+    arrangement: ArrangementId,
+) -> Result<(BTreeSet<SectionId>, BTreeSet<OccurrenceId>), StorageError> {
+    let revisions: Vec<RevisionId> = {
+        let mut statement = tx
+            .prepare("SELECT id FROM edit_revision WHERE arrangement_id = ?1 ORDER BY id")
+            .map_err(map_error)?;
+        let rows = statement
+            .query_map(params![arrangement.to_string()], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(map_error)?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(parse(&row.map_err(map_error)?, "corrupt revision id")?);
+        }
+        ids
+    };
+    let mut sections = BTreeSet::new();
+    let mut occurrences = BTreeSet::new();
+    for revision in revisions {
+        match load_content(tx, revision)?.1 {
+            RevisionContent::Arrangement(content) => {
+                sections.extend(content.sections.iter().map(|section| section.id));
+                occurrences.extend(content.sequence.iter().map(|occurrence| occurrence.id));
+            }
+            RevisionContent::Song(_) => {
+                return Err(StorageError::RevisionIntegrity { id: revision });
+            }
+        }
+    }
+    Ok((sections, occurrences))
 }
 
 /// Reads one entity's chain, oldest first, following child links.
