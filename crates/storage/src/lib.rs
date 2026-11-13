@@ -47,6 +47,9 @@
 //! let storage = storage::Storage::spawn(storage::StorageConfig::new("parish.db"));
 //! let _transaction = storage.transaction();
 //! ```
+//!
+//! The committed `ERD.md` is rendered from the bundled migrations and checked
+//! for drift by the test suite.
 
 use std::fmt;
 use std::future::Future;
@@ -54,7 +57,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(test)]
+mod erd;
 mod migrations;
+#[cfg(test)]
+mod parish_schema_tests;
 mod worker;
 
 use migrations::Migration;
@@ -441,7 +448,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(2));
+        assert_eq!(status.map(|s| s.version), Ok(3));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

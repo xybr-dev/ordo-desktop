@@ -21,123 +21,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
-/// One durable Ordo identity in its canonical text form.
-///
-/// Ordo identities are UUID version 4 values stored canonically in lowercase
-/// (Decision 38). Parsing accepts exactly that form, so one identity has one
-/// text form and one byte form: every `Display` output parses back to the same
-/// value, and two snapshots cannot disagree about an identity's spelling.
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct EntityId([u8; 16]);
-
-impl EntityId {
-    /// Parse the canonical lowercase UUID v4 form.
-    ///
-    /// Uppercase, braces, shortened groups, a different version, and any other
-    /// RFC 4122 variant are rejected rather than normalized, because
-    /// normalizing would let two spellings name one identity in different
-    /// places.
-    pub fn parse(text: &str) -> Result<Self, IdError> {
-        let bytes = text.as_bytes();
-        if bytes.len() != 36 {
-            return Err(IdError::Length(bytes.len()));
-        }
-        let mut digits = [0u8; 32];
-        let mut next = 0;
-        for (index, byte) in bytes.iter().copied().enumerate() {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                if byte != b'-' {
-                    return Err(IdError::Malformed);
-                }
-            } else {
-                digits[next] = hex_digit(byte).ok_or(IdError::Malformed)?;
-                next += 1;
-            }
-        }
-        let mut raw = [0u8; 16];
-        for (byte, pair) in raw.iter_mut().zip(digits.chunks_exact(2)) {
-            *byte = (pair[0] << 4) | pair[1];
-        }
-        let version = raw[6] >> 4;
-        if version != 4 {
-            return Err(IdError::Version(version));
-        }
-        let variant = raw[8] >> 4;
-        if !(0x8..=0xb).contains(&variant) {
-            return Err(IdError::Variant(variant));
-        }
-        Ok(Self(raw))
-    }
-
-    /// Write the one canonical text form: lowercase hex groups separated by
-    /// hyphens after four, six, eight, and ten bytes.
-    fn write_canonical(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (index, byte) in self.0.iter().enumerate() {
-            if matches!(index, 4 | 6 | 8 | 10) {
-                f.write_str("-")?;
-            }
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
-    }
-}
-
-impl FromStr for EntityId {
-    type Err = IdError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        Self::parse(text)
-    }
-}
-
-impl fmt::Display for EntityId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write_canonical(f)
-    }
-}
-
-impl fmt::Debug for EntityId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write_canonical(f)
-    }
-}
-
-/// Why a text value is not a canonical Ordo identity.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum IdError {
-    /// The text has this many bytes; a canonical UUID has exactly 36.
-    Length(usize),
-    /// A character is not a lowercase hexadecimal digit or a hyphen in its
-    /// canonical position.
-    Malformed,
-    /// The version nibble is this value; Ordo identities are version 4.
-    Version(u8),
-    /// The variant nibble is this value; RFC 4122 allows 8, 9, a, or b.
-    Variant(u8),
-}
-
-impl fmt::Display for IdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Length(len) => {
-                write!(f, "identity text has {len} bytes; a canonical UUID has 36")
-            }
-            Self::Malformed => f.write_str("identity text is not a canonical lowercase UUID v4"),
-            Self::Version(version) => {
-                write!(
-                    f,
-                    "identity version is {version}; Ordo identities are version 4"
-                )
-            }
-            Self::Variant(variant) => write!(
-                f,
-                "identity variant nibble is {variant:x}; RFC 4122 allows 8, 9, a, or b"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for IdError {}
+pub use crate::identity::{EntityId, IdError, ThemeId};
+use crate::identity::{hex_digit, typed_entity_ids};
 
 /// The SHA-256 digest of one declared frame or asset file.
 ///
@@ -220,62 +105,11 @@ impl fmt::Display for ContentHashError {
 
 impl std::error::Error for ContentHashError {}
 
-/// The lowercase hexadecimal value of one nibble, or `None` when `byte` cannot
-/// appear in canonical text.
-fn hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        _ => None,
-    }
-}
-
 fn write_hex(bytes: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     for byte in bytes {
         write!(f, "{byte:02x}")?;
     }
     Ok(())
-}
-
-/// Declare the typed identities that wrap [`EntityId`].
-///
-/// Each identity is a distinct type, so a Mass item ID can never be passed
-/// where a Cue ID belongs and two different kinds of identity can never be
-/// compared as if they were the same namespace.
-macro_rules! typed_entity_ids {
-    ($($(#[$doc:meta])* $name:ident),+ $(,)?) => {
-        $(
-            $(#[$doc])*
-            #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-            pub struct $name(EntityId);
-
-            impl $name {
-                /// Parse the canonical lowercase UUID v4 text form.
-                pub fn parse(text: &str) -> Result<Self, IdError> {
-                    EntityId::parse(text).map(Self)
-                }
-
-                /// The untyped identity behind this typed handle.
-                pub fn entity(self) -> EntityId {
-                    self.0
-                }
-            }
-
-            impl FromStr for $name {
-                type Err = IdError;
-
-                fn from_str(text: &str) -> Result<Self, Self::Err> {
-                    Self::parse(text)
-                }
-            }
-
-            impl fmt::Display for $name {
-                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    fmt::Display::fmt(&self.0, f)
-                }
-            }
-        )+
-    };
 }
 
 typed_entity_ids! {
@@ -287,8 +121,6 @@ typed_entity_ids! {
     MassItemId,
     /// Identifies one Cue; Cue IDs are unique across the whole snapshot.
     CueId,
-    /// Identifies one Theme a snapshot lists or references.
-    ThemeId,
     /// Identifies one canonical frame file a Project Cue shows.
     FrameId,
     /// Identifies one binary asset a snapshot declares by hash.
