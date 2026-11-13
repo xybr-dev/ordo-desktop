@@ -104,7 +104,10 @@ fn read_choirs(conn: &mut Connection) -> Result<Vec<ChoirRecord>, StorageError> 
     Ok(choirs)
 }
 
-fn read_song(tx: &Transaction<'_>, id: SongId) -> Result<Option<SongRecord>, StorageError> {
+pub(crate) fn read_song(
+    tx: &Transaction<'_>,
+    id: SongId,
+) -> Result<Option<SongRecord>, StorageError> {
     let row = tx
         .query_row(
             "SELECT title, original_attribution, provenance, rights_notes, created_at, \
@@ -188,7 +191,7 @@ fn read_songs(conn: &mut Connection) -> Result<Vec<SongRecord>, StorageError> {
     Ok(songs)
 }
 
-fn read_arrangement(
+pub(crate) fn read_arrangement(
     tx: &Transaction<'_>,
     id: ArrangementId,
 ) -> Result<Option<ArrangementRecord>, StorageError> {

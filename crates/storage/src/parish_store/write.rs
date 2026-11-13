@@ -10,9 +10,13 @@ use domain::identity::{
     ArrangementId, ChoirId, EntityId, ManagedAssetId, OccurrenceId, ParishId, SectionId, SongId,
     ThemeId, Timestamp,
 };
+use domain::revisions::RevisionEntity;
 use rusqlite::{Connection, OptionalExtension, Params, Transaction, TransactionBehavior, params};
 
 use crate::assets::{self, AssetLayout};
+use crate::revisions::{
+    self, ArrangementContent, OccurrenceContent, RevisionContent, SectionContent, SongContent,
+};
 use crate::worker::{AssetWriteParts, Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
@@ -82,7 +86,7 @@ pub(crate) fn write(
 ///
 /// A failed statement does not end a SQLite transaction, so a retry stays
 /// inside the same transaction. Child rows with identities use this too.
-fn insert_entity(
+pub(crate) fn insert_entity(
     ids: &mut Sources,
     steps: &mut WriteSteps,
     kind: RecordKind,
@@ -104,7 +108,7 @@ fn insert_entity(
 }
 
 /// The one canonical text form of the operation's creation time.
-fn timestamp_text(at: Timestamp) -> Result<String, StorageError> {
+pub(crate) fn timestamp_text(at: Timestamp) -> Result<String, StorageError> {
     at.canonical_text().ok_or(StorageError::InvalidInput {
         field: "clock",
         reason: "out of range",
@@ -112,7 +116,7 @@ fn timestamp_text(at: Timestamp) -> Result<String, StorageError> {
 }
 
 /// Rejects text that is blank after trimming.
-fn require_present(field: &'static str, value: &str) -> Result<(), StorageError> {
+pub(crate) fn require_present(field: &'static str, value: &str) -> Result<(), StorageError> {
     if value.trim().is_empty() {
         Err(StorageError::InvalidInput {
             field,
@@ -124,7 +128,10 @@ fn require_present(field: &'static str, value: &str) -> Result<(), StorageError>
 }
 
 /// Rejects a repeated value in a set-shaped input.
-fn require_distinct<T: PartialEq>(field: &'static str, values: &[T]) -> Result<(), StorageError> {
+pub(crate) fn require_distinct<T: PartialEq>(
+    field: &'static str,
+    values: &[T],
+) -> Result<(), StorageError> {
     for (index, value) in values.iter().enumerate() {
         if values[..index].contains(value) {
             return Err(StorageError::InvalidInput {
@@ -138,38 +145,48 @@ fn require_distinct<T: PartialEq>(field: &'static str, values: &[T]) -> Result<(
 
 /// Validates the Song before any statement runs.
 fn validate_song(song: &NewSong) -> Result<(), StorageError> {
-    require_present("title", &song.title)?;
-    for alias in &song.aliases {
+    validate_song_fields(
+        &song.title,
+        &song.aliases,
+        &song.liturgical_moments,
+        &song.occasions,
+    )
+}
+
+/// The Song field rules shared by create and by revision commits.
+pub(crate) fn validate_song_fields(
+    title: &str,
+    aliases: &[String],
+    liturgical_moments: &[String],
+    occasions: &[String],
+) -> Result<(), StorageError> {
+    require_present("title", title)?;
+    for alias in aliases {
         require_present("alias", alias)?;
     }
-    for moment in &song.liturgical_moments {
+    for moment in liturgical_moments {
         require_present("liturgical_moment", moment)?;
     }
-    require_distinct("liturgical_moment", &song.liturgical_moments)?;
-    for occasion in &song.occasions {
+    require_distinct("liturgical_moment", liturgical_moments)?;
+    for occasion in occasions {
         require_present("occasion", occasion)?;
     }
-    require_distinct("occasion", &song.occasions)?;
+    require_distinct("occasion", occasions)?;
     Ok(())
 }
 
 /// Validates the Arrangement before any statement runs.
 fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError> {
-    require_present("title", &arrangement.title)?;
-    for language in &arrangement.languages {
-        require_present("language", language)?;
-    }
-    require_distinct("language", &arrangement.languages)?;
-    require_distinct("choir", &arrangement.choirs)?;
-    for occasion in &arrangement.occasions {
-        require_present("occasion", occasion)?;
-    }
-    require_distinct("occasion", &arrangement.occasions)?;
-    for section in &arrangement.sections {
-        if let Some(label) = &section.label {
-            require_present("label", label)?;
-        }
-    }
+    validate_arrangement_fields(
+        &arrangement.title,
+        &arrangement.languages,
+        &arrangement.choirs,
+        &arrangement.occasions,
+        arrangement
+            .sections
+            .iter()
+            .map(|section| section.label.as_deref()),
+    )?;
     if arrangement
         .sequence
         .iter()
@@ -179,6 +196,30 @@ fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError
             field: "sequence",
             reason: "unknown section",
         });
+    }
+    Ok(())
+}
+
+/// The Arrangement field rules shared by create and by revision commits.
+pub(crate) fn validate_arrangement_fields<'a>(
+    title: &str,
+    languages: &[String],
+    choirs: &[ChoirId],
+    occasions: &[String],
+    labels: impl Iterator<Item = Option<&'a str>>,
+) -> Result<(), StorageError> {
+    require_present("title", title)?;
+    for language in languages {
+        require_present("language", language)?;
+    }
+    require_distinct("language", languages)?;
+    require_distinct("choir", choirs)?;
+    for occasion in occasions {
+        require_present("occasion", occasion)?;
+    }
+    require_distinct("occasion", occasions)?;
+    for label in labels.flatten() {
+        require_present("label", label)?;
     }
     Ok(())
 }
@@ -309,6 +350,22 @@ fn insert_song(
             params![song_text, occasion],
         )?;
     }
+    revisions::append_creation(
+        &tx,
+        ids,
+        &mut steps,
+        at,
+        RevisionEntity::Song(SongId::from_entity(id)),
+        &RevisionContent::Song(SongContent {
+            title: song.title.clone(),
+            aliases: song.aliases.clone(),
+            original_attribution: song.original_attribution.clone(),
+            provenance: song.provenance.clone(),
+            rights_notes: song.rights_notes.clone(),
+            liturgical_moments: song.liturgical_moments.clone(),
+            occasions: song.occasions.clone(),
+        }),
+    )?;
     tx.commit().map_err(map_error)?;
 
     let mut liturgical_moments = song.liturgical_moments;
@@ -460,6 +517,39 @@ fn insert_arrangement(
         })?;
         occurrence_ids.push(occurrence_id);
     }
+    revisions::append_creation(
+        &tx,
+        ids,
+        &mut steps,
+        at,
+        RevisionEntity::Arrangement(ArrangementId::from_entity(id)),
+        &RevisionContent::Arrangement(ArrangementContent {
+            title: arrangement.title.clone(),
+            languages: arrangement.languages.clone(),
+            choirs: arrangement.choirs.clone(),
+            rendition_attribution: arrangement.rendition_attribution.clone(),
+            occasions: arrangement.occasions.clone(),
+            sections: arrangement
+                .sections
+                .iter()
+                .zip(&section_ids)
+                .map(|(section, id)| SectionContent {
+                    id: *id,
+                    label: section.label.clone(),
+                    lyrics: section.lyrics.clone(),
+                })
+                .collect(),
+            sequence: arrangement
+                .sequence
+                .iter()
+                .zip(&occurrence_ids)
+                .map(|(&section_index, id)| OccurrenceContent {
+                    id: OccurrenceId::from_entity(*id),
+                    section: section_ids[section_index],
+                })
+                .collect(),
+        }),
+    )?;
     tx.commit().map_err(map_error)?;
 
     let sequence: Vec<OccurrenceRecord> = arrangement

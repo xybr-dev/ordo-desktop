@@ -319,27 +319,152 @@ fn revision_names_exactly_one_entity() {
     let content_sha256 = "a".repeat(64);
     let both = conn
         .execute(
-            "INSERT INTO edit_revision \
-             (id, song_id, arrangement_id, content_sha256, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO edit_revision              (id, song_id, arrangement_id, kind, content, content_sha256, created_at)              VALUES (?1, ?2, ?3, 'creation', '{}', ?4, ?5)",
             params![id(62), song, arrangement, content_sha256, CREATED_AT],
         )
         .expect_err("naming both a song and an arrangement must be refused");
     assert!(
-        both.to_string().contains("CHECK"),
-        "expected a CHECK constraint error, got: {both}"
+        both.to_string()
+            .contains("CHECK constraint failed: (song_id IS NULL) <> (arrangement_id IS NULL)"),
+        "expected the one-entity CHECK, got: {both}"
     );
 
     let neither = conn
         .execute(
-            "INSERT INTO edit_revision (id, content_sha256, created_at) \
-             VALUES (?1, ?2, ?3)",
+            "INSERT INTO edit_revision (id, kind, content, content_sha256, created_at)              VALUES (?1, 'creation', '{}', ?2, ?3)",
             params![id(63), content_sha256, CREATED_AT],
         )
         .expect_err("naming neither a song nor an arrangement must be refused");
     assert!(
-        neither.to_string().contains("CHECK"),
-        "expected a CHECK constraint error, got: {neither}"
+        neither
+            .to_string()
+            .contains("CHECK constraint failed: (song_id IS NULL) <> (arrangement_id IS NULL)"),
+        "expected the one-entity CHECK, got: {neither}"
+    );
+}
+
+/// Inserts one revision row for `song`; `kind`, `parent`, `session` and
+/// `restored_from` are caller-supplied so tests can break one rule at a time.
+fn insert_song_revision(
+    conn: &Connection,
+    seed: u8,
+    song: &str,
+    kind: &str,
+    parent: Option<String>,
+    session: Option<String>,
+    restored_from: Option<String>,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "INSERT INTO edit_revision          (id, song_id, parent_id, kind, session_id, restored_from_id, content,           content_sha256, created_at)          VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, ?8)",
+        params![
+            id(seed),
+            song,
+            parent,
+            kind,
+            session,
+            restored_from,
+            "a".repeat(64),
+            CREATED_AT
+        ],
+    )
+}
+
+#[test]
+fn revision_kind_parent_session_and_restoration_rules() {
+    let conn = migrated();
+    let song = id(70);
+    conn.execute(
+        "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
+        params![song, "Kyrie 8th", CREATED_AT],
+    )
+    .expect("insert song");
+    insert_song_revision(&conn, 71, &song, "creation", None, None, None).expect("root");
+
+    let refused = |result: rusqlite::Result<usize>, fragment: &str| {
+        let error = result.expect_err("must be refused");
+        assert!(
+            error.to_string().contains(fragment),
+            "expected {fragment}, got: {error}"
+        );
+    };
+    refused(
+        insert_song_revision(&conn, 72, &song, "bogus", Some(id(71)), None, None),
+        "CHECK constraint failed: kind IN",
+    );
+    refused(
+        insert_song_revision(&conn, 73, &song, "edit", Some(id(71)), None, None),
+        "CHECK constraint failed: (kind = 'edit') = (session_id IS NOT NULL)",
+    );
+    refused(
+        insert_song_revision(&conn, 74, &song, "import", Some(id(71)), Some(id(9)), None),
+        "CHECK constraint failed: (kind = 'edit') = (session_id IS NOT NULL)",
+    );
+    refused(
+        insert_song_revision(&conn, 75, &song, "edit", None, Some(id(9)), None),
+        "CHECK constraint failed: (kind = 'creation') = (parent_id IS NULL)",
+    );
+    refused(
+        insert_song_revision(&conn, 76, &song, "restoration", Some(id(71)), None, None),
+        "CHECK constraint failed: (kind = 'restoration') = (restored_from_id IS NOT NULL)",
+    );
+    refused(
+        insert_song_revision(
+            &conn,
+            77,
+            &song,
+            "edit",
+            Some(id(71)),
+            Some("NOT-A-UUID".to_owned()),
+            None,
+        ),
+        "CHECK constraint failed: session_id IS NULL OR",
+    );
+    insert_song_revision(&conn, 78, &song, "edit", Some(id(71)), Some(id(9)), None)
+        .expect("first child");
+    refused(
+        insert_song_revision(&conn, 79, &song, "import", Some(id(71)), None, None),
+        "UNIQUE constraint failed: edit_revision.parent_id",
+    );
+}
+
+#[test]
+fn one_creation_revision_per_entity() {
+    let conn = migrated();
+    let song = id(80);
+    conn.execute(
+        "INSERT INTO song (id, title, created_at) VALUES (?1, ?2, ?3)",
+        params![song, "Kyrie 8th", CREATED_AT],
+    )
+    .expect("insert song");
+    insert_song_revision(&conn, 81, &song, "creation", None, None, None).expect("root");
+    let error = insert_song_revision(&conn, 82, &song, "creation", None, None, None)
+        .expect_err("a second root for the same song must be refused");
+    assert!(
+        error
+            .to_string()
+            .contains("UNIQUE constraint failed: edit_revision.song_id"),
+        "expected the root index, got: {error}"
+    );
+
+    let arrangement = id(83);
+    conn.execute(
+        "INSERT INTO arrangement (id, song_id, title, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![arrangement, song, "English", CREATED_AT],
+    )
+    .expect("insert arrangement");
+    let insert_root = |seed: u8| {
+        conn.execute(
+            "INSERT INTO edit_revision              (id, arrangement_id, kind, content, content_sha256, created_at)              VALUES (?1, ?2, 'creation', '{}', ?3, ?4)",
+            params![id(seed), arrangement, "a".repeat(64), CREATED_AT],
+        )
+    };
+    insert_root(84).expect("arrangement root");
+    let error = insert_root(85).expect_err("a second arrangement root must be refused");
+    assert!(
+        error
+            .to_string()
+            .contains("UNIQUE constraint failed: edit_revision.arrangement_id"),
+        "expected the root index, got: {error}"
     );
 }
 
@@ -381,7 +506,7 @@ fn migration_is_checksummed_and_versioned() {
     let conn = migrated();
     let status = migrations::status(&conn).expect("read status");
 
-    assert_eq!(status.version, 3);
+    assert_eq!(status.version, 4);
     let names: Vec<String> = status
         .applied
         .into_iter()
@@ -393,6 +518,7 @@ fn migration_is_checksummed_and_versioned() {
             "0001_parish_profile".to_owned(),
             "0002_parish_note".to_owned(),
             "0003_parish_foundation".to_owned(),
+            "0004_edit_revisions".to_owned(),
         ]
     );
 }

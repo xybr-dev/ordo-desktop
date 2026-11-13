@@ -4,7 +4,7 @@
      Do not edit by hand: run `ORDO_BLESS_ERD=1 cargo test -p storage erd`
      and commit the result. Domain meaning lives in CONTEXT.md. -->
 
-Schema version: 3 (`0003_parish_foundation`).
+Schema version: 4 (`0004_edit_revisions`).
 
 ## Overview
 
@@ -55,6 +55,10 @@ erDiagram
         text song_id FK
         text arrangement_id FK
         text parent_id FK
+        text kind
+        text session_id
+        text restored_from_id FK
+        text content
         text content_sha256
         text created_at
     }
@@ -147,6 +151,7 @@ erDiagram
     arrangement ||--o{ arrangement_language : "arrangement_id"
     arrangement ||--o{ arrangement_occasion : "arrangement_id"
     arrangement ||--o{ arrangement_section : "arrangement_id"
+    edit_revision |o--o{ edit_revision : "restored_from_id"
     edit_revision |o--o{ edit_revision : "parent_id"
     arrangement |o--o{ edit_revision : "arrangement_id"
     song |o--o{ edit_revision : "song_id"
@@ -291,7 +296,7 @@ Foreign keys: none.
 
 ## edit_revision
 
-**Owner:** Edit revisions (placeholder, T2.2). **Lifecycle:** Append-only; restoration adds a later revision; names exactly one song or arrangement.
+**Owner:** Edit revisions (T2.2). **Lifecycle:** Append-only, one linear chain per entity; every committed edit point and every restoration appends one; content is canonical JSON hashed by content_sha256.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
@@ -299,22 +304,33 @@ Foreign keys: none.
 | song_id | text | yes | — | — | — |
 | arrangement_id | text | yes | — | — | — |
 | parent_id | text | yes | — | — | — |
+| kind | text | no | — | — | `kind IN ('creation', 'edit', 'import', 'replacement', 'restoration')` |
+| session_id | text | yes | — | — | `NULL or canonical UUIDv4` |
+| restored_from_id | text | yes | — | — | — |
+| content | text | no | — | — | — |
 | content_sha256 | text | no | — | — | `length(content_sha256) = 64 AND content_sha256 NOT GLOB '*[^0-9a-f]*'` |
 | created_at | text | no | — | — | `canonical UTC time` |
 
 Indexes:
-- `edit_revision_by_arrangement` on (arrangement_id)
-- `edit_revision_by_parent` on (parent_id)
-- `edit_revision_by_song` on (song_id)
+- `edit_revision_by_arrangement` on (arrangement_id, created_at)
+- `edit_revision_by_restored_from` on (restored_from_id)
+- `edit_revision_by_song` on (song_id, created_at)
+- `edit_revision_one_arrangement_root` on (arrangement_id), unique (partial)
+- `edit_revision_one_song_root` on (song_id), unique (partial)
 - `sqlite_autoindex_edit_revision_1` on (id), unique (constraint)
+- `sqlite_autoindex_edit_revision_2` on (parent_id), unique (constraint)
 
 Foreign keys:
+- (restored_from_id) → `edit_revision`(id), on delete NO ACTION, on update NO ACTION
 - (parent_id) → `edit_revision`(id), on delete NO ACTION, on update NO ACTION
 - (arrangement_id) → `arrangement`(id), on delete NO ACTION, on update NO ACTION
 - (song_id) → `song`(id), on delete NO ACTION, on update NO ACTION
 
 Table checks:
 - `(song_id IS NULL) <> (arrangement_id IS NULL)`
+- `(kind = 'creation') = (parent_id IS NULL)`
+- `(kind = 'edit') = (session_id IS NOT NULL)`
+- `(kind = 'restoration') = (restored_from_id IS NOT NULL)`
 
 ## managed_asset
 

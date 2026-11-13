@@ -1049,7 +1049,7 @@ multiply.
 
 **AC**
 
-- [ ] `[AUTO]` Every committed edit point creates a durable content-hashed Edit
+- [x] `[AUTO]` Every committed edit point creates a durable content-hashed Edit
       revision linked to its parent; restoration creates a later revision.
 - [ ] `[AUTO]` Continuous text edits coalesce after one second of inactivity or
       focus departure; structural add/remove/reorder and semantic replacement
