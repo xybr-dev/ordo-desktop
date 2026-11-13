@@ -549,6 +549,39 @@ impl SongLibrary {
         Ok(arrangement)
     }
 
+    /// Takes an Arrangement as storage returned it after a commit: content,
+    /// Choir associations and pagination state, exactly as stored.
+    ///
+    /// This is hydration for one existing Arrangement, not an edit: no
+    /// built-in-language rule applies, no review rule moves the pagination
+    /// state, and the Song and Arrangement may be archived. Choirs are taken
+    /// as given. It is all or nothing: a refused value, or a section or
+    /// occurrence identity another Arrangement holds, changes nothing.
+    pub fn refresh_arrangement(
+        &mut self,
+        id: ArrangementId,
+        draft: ArrangementDraft,
+        choirs: Vec<ChoirId>,
+        pagination_state: super::PaginationState,
+    ) -> Result<&Arrangement, SongLibraryError> {
+        let arrangement = self
+            .arrangements
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        Self::require_free_section_and_occurrence_ids(
+            &self.section_ids,
+            &self.occurrence_ids,
+            &draft,
+            id,
+        )?;
+        arrangement.refresh(draft, choirs, pagination_state)?;
+        self.section_ids
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
+        self.occurrence_ids
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
+        Ok(arrangement)
+    }
+
     /// Replaces the metadata and Choir associations of one Arrangement as one
     /// unit, keeping its sections, Sequence, and pagination review state.
     ///

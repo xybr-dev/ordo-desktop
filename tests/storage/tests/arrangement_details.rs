@@ -1328,12 +1328,25 @@ fn t2_6_a_metadata_commit_keeps_sections_committed_behind_its_back() {
     ))
     .expect("newer sections");
 
+    // Sets are given in descending order: the revision hash and the tables
+    // must agree whatever order they arrive in.
+    let second_choir = bounded(storage.create_choir(NewChoir {
+        name: "Second".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
+    }))
+    .expect("second choir")
+    .id;
+    let mut unsorted_choirs = vec![choir, second_choir];
+    unsorted_choirs.sort();
+    unsorted_choirs.reverse();
     let metadata = storage::ArrangementMetadata {
         title: None,
         languages: vec!["Latin".to_owned()],
-        choirs: Vec::new(),
+        choirs: unsorted_choirs.clone(),
         rendition_attribution: None,
-        occasions: Vec::new(),
+        occasions: vec!["Zeta".to_owned(), "Alpha".to_owned()],
         notes: Some("Only the metadata".to_owned()),
     };
     let (record, revision) =
@@ -1346,7 +1359,10 @@ fn t2_6_a_metadata_commit_keeps_sections_committed_behind_its_back() {
     assert_eq!(record.title, None);
     assert_eq!(record.languages, vec!["Latin"]);
     assert_eq!(record.notes.as_deref(), Some("Only the metadata"));
-    assert_eq!(record.choirs, Vec::new());
+    let mut sorted_choirs = unsorted_choirs.clone();
+    sorted_choirs.sort();
+    assert_eq!(record.choirs, sorted_choirs);
+    assert_eq!(record.occasions, vec!["Alpha", "Zeta"]);
     assert_eq!(record.pagination, PaginationState::NeedsReview);
     let stored = ArrangementContent::of(&record);
     assert_eq!(stored.sections, newer.sections, "the newer sections stay");
@@ -1437,9 +1453,9 @@ fn t2_6_non_canonical_arrangement_payloads_are_reported() {
         r#""rendition_attribution":null,"occasions":[],"sections":[],"sequence":[]}"#,
     );
     let null_keys_v2 = concat!(
-        r#"{"format":2,"entity":"arrangement","title":null,"notes":null,"#,
-        r#""languages":["Cebuano"],"choirs":[],"rendition_attribution":null,"#,
-        r#""occasions":[],"sections":[],"sequence":[]}"#,
+        r#"{"format":2,"entity":"arrangement","title":null,"languages":["Cebuano"],"#,
+        r#""choirs":[],"rendition_attribution":null,"occasions":[],"notes":null,"#,
+        r#""sections":[],"sequence":[]}"#,
     );
     let canonical_v1 = concat!(
         r#"{"format":1,"entity":"arrangement","title":"Old","languages":["Cebuano"],"#,

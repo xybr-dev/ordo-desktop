@@ -265,6 +265,22 @@ impl Arrangement {
         Ok(())
     }
 
+    /// Replaces the authored content, the Choir associations and the pagination
+    /// state with values that storage already holds, applying no review rule.
+    /// Nothing changes on refusal.
+    pub(crate) fn refresh(
+        &mut self,
+        draft: ArrangementDraft,
+        choirs: Vec<ChoirId>,
+        pagination_state: PaginationState,
+    ) -> Result<(), SongLibraryError> {
+        let next = ArrangementContent::validate(self.id, draft)?;
+        self.content = next;
+        self.choirs = choirs.into_iter().collect();
+        self.pagination_state = pagination_state;
+        Ok(())
+    }
+
     /// Replaces the metadata and keeps sections, Sequence, pagination state,
     /// Choir associations, and archive state; Choirs are the caller's concern.
     ///

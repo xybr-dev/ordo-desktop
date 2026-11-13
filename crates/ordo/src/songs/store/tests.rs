@@ -891,6 +891,11 @@ fn ac2_store_duplicating_an_arrangement_without_a_language_is_refused(cx: &mut T
     store.read_with(cx, |store, _| {
         assert_eq!(store.library().arrangements().count(), 1);
     });
+    let future = slot
+        .with(|storage| storage.arrangements_for_song(song))
+        .expect("storage is open");
+    let stored = cx.foreground_executor().block_test(future).expect("list");
+    assert_eq!(stored.len(), 1, "no copy was written");
     finish(cx, &slot, &dir);
 }
 
@@ -931,6 +936,10 @@ fn ac2_store_details_may_keep_a_stored_language_that_is_not_listed(cx: &mut Test
         ..arrangement_of(cx, &store, id).details()
     };
     assert_eq!(save_arr(cx, &store, id, kept), Ok(id));
+    let (slot, store) = reopen(cx, &slot, &dir);
+    let stored = arrangement_of(cx, &store, id);
+    assert_eq!(stored.languages(), ["Latin", "ceb"]);
+    assert_eq!(stored.notes(), Some("Kept"));
     let added = ArrangementDetails {
         languages: vec!["Latin".into(), "ceb".into(), "Klingon".into()],
         ..arrangement_of(cx, &store, id).details()
@@ -965,7 +974,7 @@ fn ac6_store_a_save_never_overwrites_newer_sections(cx: &mut TestAppContext) {
             storage.commit_arrangement_edit(
                 id,
                 newer.clone(),
-                PaginationState::NeedsReview,
+                PaginationState::Draft,
                 RevisionKind::Edit,
                 Some(session),
                 head,
@@ -986,7 +995,10 @@ fn ac6_store_a_save_never_overwrites_newer_sections(cx: &mut TestAppContext) {
         let after = arrangement_of(cx, store, id);
         assert_eq!(after.details(), edited);
         assert_eq!(after.sections()[0].lyrics(), "Newer lyrics");
-        assert_eq!(after.pagination_state(), PaginationState::NeedsReview);
+        // Memory takes the pagination state as stored. The domain rule would
+        // have moved an Approved Arrangement to NeedsReview here, so Draft can
+        // only come from storage.
+        assert_eq!(after.pagination_state(), PaginationState::Draft);
     };
     check(cx, &store);
     let (slot, store) = reopen(cx, &slot, &dir);
@@ -1028,7 +1040,12 @@ fn ac6_store_a_storage_refusal_after_validation_leaves_memory_unchanged(cx: &mut
         ..arrangement_of(cx, &store, id).details()
     };
     let outcome = save_arr(cx, &store, id, edited);
-    assert!(outcome.is_err(), "storage refuses: {outcome:?}");
+    assert_eq!(
+        outcome,
+        Err(SharedString::from(format!(
+            "arrangement {id} was not found"
+        )))
+    );
     store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
     assert_eq!(*changes.borrow(), 0);
 

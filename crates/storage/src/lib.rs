@@ -557,8 +557,9 @@ impl Storage {
     /// the same immediate transaction and kept as they are there, so a commit
     /// that landed since the caller last looked is never overwritten. An
     /// Arrangement with no revisions first gets its `creation` revision in
-    /// that transaction. At least one language is required. Returns the whole
-    /// stored Arrangement and the new revision.
+    /// that transaction. At least one language is required. The archive state
+    /// is not checked: the caller gates that. Returns the whole stored
+    /// Arrangement and the new revision.
     pub fn commit_arrangement_metadata(
         &self,
         arrangement: ArrangementId,

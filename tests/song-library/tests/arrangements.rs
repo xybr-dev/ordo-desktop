@@ -763,3 +763,32 @@ fn ac2_an_unlisted_legacy_language_may_be_kept_but_not_added() {
         Err(SongLibraryError::UnlistedLanguage("xx".to_owned()))
     );
 }
+
+#[test]
+fn ac6_refresh_takes_stored_content_and_pagination_exactly() {
+    let mut library = legacy_library();
+    let mut draft = ArrangementDraft::titled("Stored");
+    draft.languages = vec!["xx".to_owned()];
+    // Stored data keeps an unlisted language, and the pagination state is
+    // exactly the stored one, whatever the review rule would derive.
+    let refreshed = library
+        .refresh_arrangement(
+            arrangement_id(8),
+            draft.clone(),
+            Vec::new(),
+            PaginationState::Approved,
+        )
+        .expect("refresh");
+    assert_eq!(refreshed.languages(), ["xx"]);
+    assert_eq!(refreshed.pagination_state(), PaginationState::Approved);
+
+    // Refused wholesale: a blank title changes nothing.
+    let before = library.arrangement(arrangement_id(8)).expect("a").clone();
+    draft.title = Some("  ".to_owned());
+    assert!(
+        library
+            .refresh_arrangement(arrangement_id(8), draft, Vec::new(), PaginationState::Draft)
+            .is_err()
+    );
+    assert_eq!(library.arrangement(arrangement_id(8)).expect("a"), &before);
+}

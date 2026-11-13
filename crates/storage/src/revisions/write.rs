@@ -661,6 +661,8 @@ impl Core {
         metadata: ArrangementMetadata,
         session: HistorySessionId,
     ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
+        // Fail before opening the transaction; the whole content is checked
+        // again once the stored sections are read.
         require_language(&metadata.languages)?;
         validate_arrangement_fields(
             metadata.title.as_deref(),

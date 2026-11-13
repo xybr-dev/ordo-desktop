@@ -272,17 +272,6 @@ fn check_arrangement_details(
         .map(Arrangement::details)
 }
 
-fn details_of(record: &ArrangementRecord) -> ArrangementDetails {
-    ArrangementDetails {
-        title: record.title.clone(),
-        languages: record.languages.clone(),
-        choirs: record.choirs.clone(),
-        rendition_attribution: record.rendition_attribution.clone(),
-        occasions: record.occasions.clone(),
-        notes: record.notes.clone(),
-    }
-}
-
 fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
     ArrangementDraft {
         title: record.title.clone(),
@@ -730,30 +719,17 @@ impl LibraryStore {
                 }
                 Prepared::Copy(Box::new(copy_of(&self.library, arrangement)))
             }
-            write => self.validate_choir_or_song(write)?,
-        };
-        Ok(Verdict::Write(prepared))
-    }
-
-    /// Validates the Choir and Song writes.
-    fn validate_choir_or_song(&self, write: &LibraryWrite) -> Result<Prepared, SharedString> {
-        match write {
-            LibraryWrite::CreateArrangement(..)
-            | LibraryWrite::SaveArrangementDetails(..)
-            | LibraryWrite::DuplicateArrangement(_) => {
-                Err(SharedString::from("Not a Choir or Song write."))
-            }
             LibraryWrite::Create(draft) => {
                 check_draft(draft)?;
                 // One Choir per name, however it is cased or spaced, archived
                 // Choirs included: the Module refuses a duplicate itself.
                 let key = match_key(&draft.name);
-                match self
+                if let Some(existing) = self
                     .library
                     .choirs()
                     .find(|choir| match_key(choir.name()) == key)
                 {
-                    Some(existing) => Err(SharedString::from(format!(
+                    return Err(SharedString::from(format!(
                         "A Choir named '{}' already exists{}.",
                         existing.name(),
                         if existing.is_archived() {
@@ -761,18 +737,18 @@ impl LibraryStore {
                         } else {
                             ""
                         }
-                    ))),
-                    None => Ok(Prepared::CreateChoir(NewChoir {
-                        name: draft.name.clone(),
-                        short_label: draft.short_label.clone(),
-                        languages: draft.languages.clone(),
-                        notes: draft.notes.clone(),
-                    })),
+                    )));
                 }
+                Prepared::CreateChoir(NewChoir {
+                    name: draft.name.clone(),
+                    short_label: draft.short_label.clone(),
+                    languages: draft.languages.clone(),
+                    notes: draft.notes.clone(),
+                })
             }
             LibraryWrite::CreateSong(draft) => {
                 check_song_draft(draft)?;
-                Ok(Prepared::CreateSong(Box::new(NewSong {
+                Prepared::CreateSong(Box::new(NewSong {
                     title: draft.title.clone(),
                     aliases: draft.aliases.clone(),
                     original_attribution: draft.original_attribution.clone(),
@@ -780,14 +756,14 @@ impl LibraryStore {
                     rights_notes: draft.rights_notes.clone(),
                     liturgical_moments: draft.liturgical_moments.clone(),
                     occasions: draft.occasions.clone(),
-                })))
+                }))
             }
             LibraryWrite::Edit(id, draft) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     return Err(refusal(SongLibraryError::Archived(RecordRef::Choir(*id))));
                 }
                 check_draft(draft)?;
-                Ok(Prepared::EditChoir(
+                Prepared::EditChoir(
                     *id,
                     ChoirDetails {
                         name: draft.name.clone(),
@@ -795,7 +771,7 @@ impl LibraryStore {
                         languages: draft.languages.clone(),
                         notes: draft.notes.clone(),
                     },
-                ))
+                )
             }
             LibraryWrite::Archive(id) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
@@ -803,18 +779,18 @@ impl LibraryStore {
                         RecordRef::Choir(*id),
                     )));
                 }
-                Ok(Prepared::ArchiveChoir(*id))
+                Prepared::ArchiveChoir(*id)
             }
             LibraryWrite::Restore(id) => {
-                if self.library.choir(*id).map_err(refusal)?.is_archived() {
-                    Ok(Prepared::RestoreChoir(*id))
-                } else {
-                    Err(refusal(SongLibraryError::NotArchived(RecordRef::Choir(
+                if !self.library.choir(*id).map_err(refusal)?.is_archived() {
+                    return Err(refusal(SongLibraryError::NotArchived(RecordRef::Choir(
                         *id,
-                    ))))
+                    ))));
                 }
+                Prepared::RestoreChoir(*id)
             }
-        }
+        };
+        Ok(Verdict::Write(prepared))
     }
 
     /// The Song must exist and be active.
@@ -911,14 +887,16 @@ impl LibraryStore {
                 Ok(record.id.entity())
             }
             (LibraryWrite::SaveArrangementDetails(id, _), Stored::Arrangement(record)) => {
-                // The record is the whole stored Arrangement, sections and
-                // Sequence included, so memory follows storage even when
+                // The record is the whole stored Arrangement, so memory takes it
+                // as stored (content, Choirs and pagination state), even when
                 // another writer changed them since this library was loaded.
                 self.library
-                    .edit_arrangement(*id, arrangement_draft_of(record))
-                    .map_err(refusal)?;
-                self.library
-                    .edit_arrangement_details(*id, details_of(record))
+                    .refresh_arrangement(
+                        *id,
+                        arrangement_draft_of(record),
+                        record.choirs.clone(),
+                        record.pagination,
+                    )
                     .map_err(refusal)?;
                 Ok(record.id.entity())
             }
