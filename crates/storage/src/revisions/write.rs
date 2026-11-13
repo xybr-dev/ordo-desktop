@@ -196,11 +196,12 @@ fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
 
 fn validate_arrangement_content(arrangement: &ArrangementContent) -> Result<(), StorageError> {
     validate_arrangement_fields(
-        &arrangement.title,
+        arrangement.title.as_deref(),
         &arrangement.languages,
         &arrangement.choirs,
         arrangement.rendition_attribution.as_deref(),
         &arrangement.occasions,
+        arrangement.notes.as_deref(),
         arrangement
             .sections
             .iter()
@@ -407,10 +408,12 @@ fn commit_arrangement_in(
     write(
         tx,
         steps,
-        "UPDATE arrangement SET title = ?2, rendition_attribution = ?3 WHERE id = ?1",
+        "UPDATE arrangement SET title = ?2, notes = ?3, rendition_attribution = ?4 \
+         WHERE id = ?1",
         params![
             key,
-            revision.title,
+            revision.title.as_deref(),
+            revision.notes.as_deref(),
             revision.rendition_attribution.as_deref()
         ],
     )?;

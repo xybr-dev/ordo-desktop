@@ -14,8 +14,15 @@ use crate::StorageError;
 use crate::assets;
 use crate::parish_store::{ArrangementRecord, SongRecord};
 
-/// The only canonical form this build writes and reads.
-const FORMAT: u32 = 1;
+/// The canonical form this build writes and reads for Song revisions.
+const SONG_FORMAT: u32 = 1;
+
+/// The legacy Arrangement form, read but never written again: title required,
+/// no notes.
+const ARRANGEMENT_FORMAT_V1: u32 = 1;
+
+/// The canonical form this build writes for Arrangement revisions.
+const ARRANGEMENT_FORMAT: u32 = 2;
 
 /// The editable content of a Song work.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,8 +66,8 @@ pub struct OccurrenceContent {
 /// The editable content of an Arrangement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArrangementContent {
-    /// The title exactly as authored.
-    pub title: String,
+    /// The display title exactly as authored; `None` derives the label.
+    pub title: Option<String>,
     /// Languages in authored order.
     pub languages: Vec<String>,
     /// Choirs that perform this Arrangement; stored sorted ascending.
@@ -69,6 +76,8 @@ pub struct ArrangementContent {
     pub rendition_attribution: Option<String>,
     /// Occasions; stored sorted ascending by byte order.
     pub occasions: Vec<String>,
+    /// Source and rights notes exactly as authored.
+    pub notes: Option<String>,
     /// Sections by position.
     pub sections: Vec<SectionContent>,
     /// Sequence occurrences by performance position.
@@ -108,6 +117,7 @@ impl ArrangementContent {
             choirs: record.choirs.clone(),
             rendition_attribution: record.rendition_attribution.clone(),
             occasions: record.occasions.clone(),
+            notes: record.notes.clone(),
             sections: record
                 .sections
                 .iter()
@@ -161,10 +171,31 @@ struct OccurrenceDoc {
     section: String,
 }
 
-/// Canonical JSON mirror of [`ArrangementContent`].
+/// Canonical JSON mirror of [`ArrangementContent`]; field order is the key
+/// order. Optional title and notes are omitted when absent so equal content
+/// always hashes to equal bytes.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ArrangementDoc {
+    format: u32,
+    entity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    languages: Vec<String>,
+    choirs: Vec<String>,
+    rendition_attribution: Option<String>,
+    occasions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    sections: Vec<SectionDoc>,
+    sequence: Vec<OccurrenceDoc>,
+}
+
+/// The format-1 Arrangement payload: a required title and no notes. It is read
+/// only; this build never writes it again.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArrangementDocV1 {
     format: u32,
     entity: String,
     title: String,
@@ -174,6 +205,24 @@ struct ArrangementDoc {
     occasions: Vec<String>,
     sections: Vec<SectionDoc>,
     sequence: Vec<OccurrenceDoc>,
+}
+
+/// The format and entity of a stored Arrangement document, read before the
+/// full payload so each format gets its own strict mirror.
+#[derive(Deserialize)]
+struct ArrangementProbe {
+    format: u32,
+    entity: String,
+}
+
+/// Decoded Arrangement content and whether it is in this build's current
+/// format. Older formats verify against their stored bytes and are never
+/// re-serialized.
+pub(crate) struct DecodedArrangement {
+    /// The decoded content.
+    pub(crate) content: ArrangementContent,
+    /// True for the format this build writes.
+    pub(crate) current: bool,
 }
 
 /// Canonical text of one revision's content and its hash.
@@ -198,7 +247,7 @@ fn encoding_failed() -> StorageError {
 pub(crate) fn encode(content: &RevisionContent) -> Result<Encoded, StorageError> {
     let bytes = match content {
         RevisionContent::Song(song) => serde_json::to_vec(&SongDoc {
-            format: FORMAT,
+            format: SONG_FORMAT,
             entity: "song".to_owned(),
             title: song.title.clone(),
             aliases: song.aliases.clone(),
@@ -212,13 +261,14 @@ pub(crate) fn encode(content: &RevisionContent) -> Result<Encoded, StorageError>
             let mut choirs = arrangement.choirs.clone();
             choirs.sort_unstable();
             serde_json::to_vec(&ArrangementDoc {
-                format: FORMAT,
+                format: ARRANGEMENT_FORMAT,
                 entity: "arrangement".to_owned(),
                 title: arrangement.title.clone(),
                 languages: arrangement.languages.clone(),
                 choirs: choirs.iter().map(ToString::to_string).collect(),
                 rendition_attribution: arrangement.rendition_attribution.clone(),
                 occasions: sorted(&arrangement.occasions),
+                notes: arrangement.notes.clone(),
                 sections: arrangement
                     .sections
                     .iter()
@@ -254,7 +304,7 @@ pub(crate) fn hash_of(text: &str) -> ContentHash {
 pub(crate) fn decode_song(text: &str, id: RevisionId) -> Result<SongContent, StorageError> {
     let damaged = || StorageError::RevisionIntegrity { id };
     let doc: SongDoc = serde_json::from_str(text).map_err(|_| damaged())?;
-    if doc.format != FORMAT || doc.entity != "song" {
+    if doc.format != SONG_FORMAT || doc.entity != "song" {
         return Err(damaged());
     }
     Ok(SongContent {
@@ -268,43 +318,103 @@ pub(crate) fn decode_song(text: &str, id: RevisionId) -> Result<SongContent, Sto
     })
 }
 
-/// Decodes the stored text of an Arrangement revision; any defect is
-/// `RevisionIntegrity`.
-pub(crate) fn decode_arrangement(
-    text: &str,
-    id: RevisionId,
-) -> Result<ArrangementContent, StorageError> {
-    let damaged = || StorageError::RevisionIntegrity { id };
-    let doc: ArrangementDoc = serde_json::from_str(text).map_err(|_| damaged())?;
-    if doc.format != FORMAT || doc.entity != "arrangement" {
-        return Err(damaged());
+/// The parsed fields shared by every Arrangement payload format.
+struct ArrangementParts {
+    title: Option<String>,
+    languages: Vec<String>,
+    choirs: Vec<String>,
+    rendition_attribution: Option<String>,
+    occasions: Vec<String>,
+    notes: Option<String>,
+    sections: Vec<SectionDoc>,
+    sequence: Vec<OccurrenceDoc>,
+}
+
+/// Converts the parsed mirror fields into content, rejecting a bad identity.
+fn content_from_docs(parts: ArrangementParts) -> Result<ArrangementContent, ()> {
+    let mut parsed_choirs = Vec::with_capacity(parts.choirs.len());
+    for choir in &parts.choirs {
+        parsed_choirs.push(choir.parse::<ChoirId>().map_err(|_| ())?);
     }
-    let mut choirs = Vec::with_capacity(doc.choirs.len());
-    for choir in &doc.choirs {
-        choirs.push(choir.parse::<ChoirId>().map_err(|_| damaged())?);
-    }
-    let mut sections = Vec::with_capacity(doc.sections.len());
-    for section in doc.sections {
-        sections.push(SectionContent {
-            id: section.id.parse().map_err(|_| damaged())?,
+    let mut parsed_sections = Vec::with_capacity(parts.sections.len());
+    for section in parts.sections {
+        parsed_sections.push(SectionContent {
+            id: section.id.parse().map_err(|_| ())?,
             label: section.label,
             lyrics: section.lyrics,
         });
     }
-    let mut sequence = Vec::with_capacity(doc.sequence.len());
-    for occurrence in &doc.sequence {
-        sequence.push(OccurrenceContent {
-            id: occurrence.id.parse().map_err(|_| damaged())?,
-            section: occurrence.section.parse().map_err(|_| damaged())?,
+    let mut parsed_sequence = Vec::with_capacity(parts.sequence.len());
+    for occurrence in parts.sequence {
+        parsed_sequence.push(OccurrenceContent {
+            id: occurrence.id.parse().map_err(|_| ())?,
+            section: occurrence.section.parse().map_err(|_| ())?,
         });
     }
     Ok(ArrangementContent {
-        title: doc.title,
-        languages: doc.languages,
-        choirs,
-        rendition_attribution: doc.rendition_attribution,
-        occasions: doc.occasions,
-        sections,
-        sequence,
+        title: parts.title,
+        languages: parts.languages,
+        choirs: parsed_choirs,
+        rendition_attribution: parts.rendition_attribution,
+        occasions: parts.occasions,
+        notes: parts.notes,
+        sections: parsed_sections,
+        sequence: parsed_sequence,
     })
+}
+
+/// Decodes the stored text of an Arrangement revision; any defect is
+/// `RevisionIntegrity`. Format 1 has a required title and no notes; format 2
+/// carries both as optional fields.
+pub(crate) fn decode_arrangement(
+    text: &str,
+    id: RevisionId,
+) -> Result<DecodedArrangement, StorageError> {
+    let damaged = || StorageError::RevisionIntegrity { id };
+    let probe: ArrangementProbe = serde_json::from_str(text).map_err(|_| damaged())?;
+    if probe.entity != "arrangement" {
+        return Err(damaged());
+    }
+    match probe.format {
+        ARRANGEMENT_FORMAT => {
+            let doc: ArrangementDoc = serde_json::from_str(text).map_err(|_| damaged())?;
+            let content = content_from_docs(ArrangementParts {
+                title: doc.title,
+                languages: doc.languages,
+                choirs: doc.choirs,
+                rendition_attribution: doc.rendition_attribution,
+                occasions: doc.occasions,
+                notes: doc.notes,
+                sections: doc.sections,
+                sequence: doc.sequence,
+            })
+            .map_err(|()| damaged())?;
+            Ok(DecodedArrangement {
+                content,
+                current: true,
+            })
+        }
+        ARRANGEMENT_FORMAT_V1 => {
+            let doc: ArrangementDocV1 = serde_json::from_str(text).map_err(|_| damaged())?;
+            if doc.format != ARRANGEMENT_FORMAT_V1 || doc.entity != "arrangement" {
+                return Err(damaged());
+            }
+            let content = content_from_docs(ArrangementParts {
+                title: Some(doc.title),
+                languages: doc.languages,
+                choirs: doc.choirs,
+                rendition_attribution: doc.rendition_attribution,
+                occasions: doc.occasions,
+                notes: None,
+                sections: doc.sections,
+                sequence: doc.sequence,
+            })
+            .map_err(|()| damaged())?;
+            Ok(DecodedArrangement {
+                content,
+                current: false,
+            })
+        }
+        _ => Err(damaged()),
+    }
 }

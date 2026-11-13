@@ -205,11 +205,12 @@ fn creation_appends_the_first_revision() {
     .expect("choir");
     let arrangement = bounded(storage.create_arrangement(NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
+        title: Some("SATB".to_owned()),
         languages: vec!["en".to_owned()],
         choirs: vec![choir.id],
         rendition_attribution: None,
         occasions: vec!["Lent".to_owned()],
+        notes: Some("Public domain".to_owned()),
         sections: vec![new_section(Some("A"), "a\nb"), new_section(None, "c")],
         sequence: vec![0, 1, 0],
     }))
@@ -264,9 +265,10 @@ fn creation_appends_the_first_revision() {
         .expect("arrangement revision row");
     assert_eq!(stored_hash, hex_sha256(&content));
     let expected_start = format!(
-        "{{\"format\":1,\"entity\":\"arrangement\",\"title\":\"SATB\",\"languages\":[\"en\"],\
+        "{{\"format\":2,\"entity\":\"arrangement\",\"title\":\"SATB\",\"languages\":[\"en\"],\
          \"choirs\":[\"{}\"],\"rendition_attribution\":null,\"occasions\":[\"Lent\"],\
-         \"sections\":[{{\"id\":\"{}\",\"label\":\"A\",\"lyrics\":\"a\\nb\"}},",
+         \"notes\":\"Public domain\",\"sections\":[{{\"id\":\"{}\",\"label\":\"A\",\
+         \"lyrics\":\"a\\nb\"}},",
         choir.id, arrangement.sections[0].id
     );
     assert!(content.starts_with(&expected_start), "{content}");
@@ -341,11 +343,12 @@ fn arrangement_edit_reorders_sections_and_sequence_keeping_ids() {
     let song = bounded(storage.create_song(song_input("Gloria"))).expect("song");
     let created = bounded(storage.create_arrangement(NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
-        languages: Vec::new(),
+        title: Some("SATB".to_owned()),
+        languages: vec!["en".to_owned()],
         choirs: Vec::new(),
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: vec![
             new_section(Some("A"), "a"),
             new_section(Some("B"), "b"),
@@ -485,11 +488,12 @@ fn failed_commit_changes_nothing() {
     .expect("choir");
     let created = bounded(storage.create_arrangement(NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
+        title: Some("SATB".to_owned()),
         languages: vec!["en".to_owned()],
         choirs: vec![choir.id],
         rendition_attribution: None,
         occasions: vec!["Lent".to_owned()],
+        notes: None,
         sections: vec![new_section(Some("A"), "a"), new_section(None, "b")],
         sequence: vec![0, 1, 0],
     }))
@@ -502,7 +506,7 @@ fn failed_commit_changes_nothing() {
     let steps = 1 + 5 + 1 + 1 + 1 + 2 + 3 + 1 + 1;
     let edited = |title: &str| {
         let mut content = ArrangementContent::of(&created);
-        content.title = title.to_owned();
+        content.title = Some(title.to_owned());
         content.sections.swap(0, 1);
         content
     };
@@ -633,22 +637,24 @@ fn invalid_commits_are_refused() {
     let song = fixture.song;
     let other = bounded(storage.create_arrangement(NewArrangement {
         song,
-        title: "Other".to_owned(),
-        languages: Vec::new(),
+        title: Some("Other".to_owned()),
+        languages: vec!["en".to_owned()],
         choirs: Vec::new(),
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: vec![new_section(None, "o")],
         sequence: vec![0],
     }))
     .expect("other");
     let created = bounded(storage.create_arrangement(NewArrangement {
         song,
-        title: "Mine".to_owned(),
-        languages: Vec::new(),
+        title: Some("Mine".to_owned()),
+        languages: vec!["en".to_owned()],
         choirs: Vec::new(),
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: vec![new_section(None, "m")],
         sequence: vec![0],
     }))
@@ -933,11 +939,12 @@ fn stale_parent_is_refused() {
     let song = fixture.song;
     let arrangement = bounded(fixture.storage.create_arrangement(NewArrangement {
         song,
-        title: "SATB".to_owned(),
-        languages: Vec::new(),
+        title: Some("SATB".to_owned()),
+        languages: vec!["en".to_owned()],
         choirs: Vec::new(),
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: Vec::new(),
         sequence: Vec::new(),
     }))
@@ -1199,15 +1206,15 @@ fn v3_database_with_t2_1_data_upgrades_to_v4() {
         }
     }
 
-    // Opening migrates 3 -> head (5) and the T2.1 records read back unchanged.
+    // Opening migrates 3 -> head (6) and the T2.1 records read back unchanged.
     let storage = open(&dir);
     let status = bounded(storage.schema_status()).expect("status");
-    assert_eq!(status.version, 5);
+    assert_eq!(status.version, 6);
     let read_song = bounded(storage.song(song)).expect("song");
     assert_eq!(read_song.title, "Legacy");
     assert_eq!(read_song.aliases, vec!["Old".to_owned()]);
     let read = bounded(storage.arrangement(arrangement)).expect("arrangement");
-    assert_eq!(read.title, "SATB");
+    assert_eq!(read.title.as_deref(), Some("SATB"));
     assert_eq!(
         read.sections.iter().map(|s| s.id).collect::<Vec<_>>(),
         vec![first, second]

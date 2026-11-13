@@ -193,11 +193,12 @@ fn t2_1_e2e_parish_rehydrates_and_asset_failure_rolls_back() {
     .expect("song");
     let arrangement = bounded(storage.create_arrangement(NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
+        title: Some("SATB".to_owned()),
         languages: vec!["en".to_owned()],
         choirs: vec![choir.id],
         rendition_attribution: Some("Arr. Smith".to_owned()),
         occasions: vec!["Lent".to_owned()],
+        notes: Some("Public domain".to_owned()),
         sections: vec![
             section("Verse", "Line one\nLine two"),
             section("Refrain", "Refrain text"),

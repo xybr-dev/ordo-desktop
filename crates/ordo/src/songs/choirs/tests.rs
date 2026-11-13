@@ -233,7 +233,8 @@ pub(crate) async fn seed_choirs(storage: &Storage) -> Seeded {
     storage
         .create_arrangement(NewArrangement {
             song,
-            title: "Cebuano".to_owned(),
+            title: Some("Cebuano".to_owned()),
+            notes: None,
             languages: vec!["Cebuano".to_owned()],
             choirs: vec![koro, youth],
             rendition_attribution: None,

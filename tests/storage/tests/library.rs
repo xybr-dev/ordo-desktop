@@ -1,6 +1,6 @@
 //! T2.4 WP1 Song Library store acceptance tests: choir details, archive and
 //! restore, pagination state, the one-transaction `library()` read, and the
-//! version 4 to 5 upgrade. Every await runs under a 10 s bound so a hang fails
+//! version 4 to head upgrade. Every await runs under a 10 s bound so a hang fails
 //! the test instead of blocking the run. Databases live in unique temporary
 //! directories.
 
@@ -149,11 +149,12 @@ fn song_input(title: &str) -> NewSong {
 fn arrangement_input(song: SongId, title: &str, choirs: Vec<ChoirId>) -> NewArrangement {
     NewArrangement {
         song,
-        title: title.to_owned(),
+        title: Some(title.to_owned()),
         languages: vec!["English".to_owned()],
         choirs,
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: vec![
             NewSection {
                 label: Some("Verse".to_owned()),
@@ -666,7 +667,7 @@ fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
             .arrangement(record.id)
             .expect("arrangement hydrated");
         assert_eq!(a.song(), record.song);
-        assert_eq!(a.title(), Some(record.title.as_str()));
+        assert_eq!(a.title(), record.title.as_deref());
         assert_eq!(a.languages(), record.languages);
         assert_eq!(
             a.choirs().iter().copied().collect::<Vec<_>>(),
@@ -680,6 +681,7 @@ fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
             a.occasions().iter().cloned().collect::<Vec<_>>(),
             record.occasions
         );
+        assert_eq!(a.notes(), record.notes.as_deref());
         assert_eq!(a.sections().len(), record.sections.len());
         for (got, want) in a.sections().iter().zip(&record.sections) {
             assert_eq!(got.id(), want.id);
@@ -722,10 +724,10 @@ fn a_mixed_library_hydrates_to_exactly_what_was_written() {
 
 fn draft_of(record: &ArrangementRecord) -> ArrangementDraft {
     ArrangementDraft {
-        title: Some(record.title.clone()),
+        title: record.title.clone(),
         languages: record.languages.clone(),
         rendition_attribution: record.rendition_attribution.clone(),
-        notes: None,
+        notes: record.notes.clone(),
         occasions: record.occasions.clone(),
         sections: record
             .sections
@@ -854,7 +856,7 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
     let entity = RevisionEntity::Arrangement(f.first.id);
     let creation = bounded(f.storage.latest_revision(entity)).expect("head");
     let mut content = ArrangementContent::of(&f.first);
-    content.title = "Edited".to_owned();
+    content.title = Some("Edited".to_owned());
     let injected = StorageError::Sqlite("injected write failure".to_owned());
 
     // Commit: every injected failure leaves content, history and pagination alone.
@@ -885,7 +887,7 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
     };
     assert!(step > 2, "the commit has several write steps");
     assert_eq!(committed.0.pagination, PaginationState::Approved);
-    assert_eq!(committed.0.title, "Edited");
+    assert_eq!(committed.0.title.as_deref(), Some("Edited"));
 
     // Restore the creation revision: same guarantee.
     let before = library(&f.storage);
@@ -1116,10 +1118,10 @@ fn v4_database_with_t2_1_data_upgrades_to_v5() {
         }
     }
 
-    // Opening migrates 4 -> 5 and the legacy rows read back with defaults.
+    // Opening migrates 4 -> 6 and the legacy rows read back with defaults.
     let storage = Storage::spawn(config(&dir.db()));
     let status = bounded(storage.ready()).expect("ready");
-    assert_eq!(status.version, 5);
+    assert_eq!(status.version, 6);
     let all = library(&storage);
     assert_eq!(all.choirs.len(), 1);
     assert_eq!(all.choirs[0].name, "Legacy Choir");
