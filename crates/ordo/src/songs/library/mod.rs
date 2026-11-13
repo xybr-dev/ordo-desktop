@@ -26,11 +26,15 @@ use domain::{
 use gpui::{AnyElement, App, Context, Entity, Pixels, Point, Subscription, Window};
 use ui::{
     environment::UiEnvironment,
+    overlay::OverlayHost,
     primitives::field::{FieldEvent, FieldState},
     scroll::Scroll,
 };
 
-use super::store::{LibraryEvent, LibraryStore};
+use super::{
+    new_song::{NewSongPanel, Outcome},
+    store::{LibraryEvent, LibraryState, LibraryStore},
+};
 pub use arrangement::ArrangementOverview;
 pub use filters::FilterKind;
 
@@ -53,6 +57,10 @@ pub struct SongsWorkspace {
     /// list is unmounted, but the list re-measures on return, so the offset is
     /// restored explicitly rather than trusted to survive.
     restore_scroll: Option<Point<Pixels>>,
+    /// The shell's overlay layer, which hosts the New song panel.
+    overlays: Option<OverlayHost>,
+    /// The New song panel while it is open.
+    new_song: Option<Entity<NewSongPanel>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -80,10 +88,111 @@ impl SongsWorkspace {
             detail_scroll: Scroll::new(),
             open_filter: None,
             restore_scroll: None,
+            overlays: None,
+            new_song: None,
             _subscriptions: vec![typed, changed],
         };
         workspace.refresh(cx);
         workspace
+    }
+
+    /// Hands the workspace the shell's overlay layer, which hosts the New song
+    /// panel. Without it the panel cannot open.
+    pub fn set_overlays(&mut self, overlays: OverlayHost) {
+        self.overlays = Some(overlays);
+    }
+
+    /// The New song panel, while it is open.
+    pub fn new_song(&self) -> Option<&Entity<NewSongPanel>> {
+        self.new_song.as_ref()
+    }
+
+    /// How many temporary surfaces the shell's overlay layer holds open.
+    pub fn overlay_depth(&self, cx: &App) -> usize {
+        self.overlays.as_ref().map_or(0, |host| host.depth(cx))
+    }
+
+    /// The title of the topmost open surface, if any.
+    pub fn overlay_top(&self, cx: &App) -> Option<gpui::SharedString> {
+        self.overlays.as_ref().and_then(|host| host.top(cx))
+    }
+
+    /// Opens the New song panel over the workspace. The query, filters,
+    /// selection and scroll stay exactly as they are underneath it. Does
+    /// nothing while the library is not readable or a panel is already open.
+    pub fn open_new_song(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = self.overlays.clone() else {
+            return;
+        };
+        if self.new_song.is_some() || *self.store.read(cx).state() != LibraryState::Ready {
+            return;
+        }
+        let weak = cx.weak_entity();
+        let report = {
+            let weak = weak.clone();
+            let host = host.clone();
+            Rc::new(move |outcome: Outcome, window: &mut Window, cx: &mut App| {
+                let preview = match outcome {
+                    Outcome::UseExisting(song) => weak
+                        .update(cx, |workspace, cx| {
+                            workspace
+                                .store
+                                .read(cx)
+                                .library()
+                                .song(song)
+                                .ok()
+                                .map(|work| gpui::SharedString::from(work.title().to_owned()))
+                        })
+                        .ok()
+                        .flatten(),
+                    Outcome::Created(_) => None,
+                };
+                let _ = weak.update(cx, |workspace, cx| workspace.apply(outcome, window, cx));
+                // Close only the panel's own surfaces: a dialog another part of
+                // the app stacked above them is not the panel's to dismiss.
+                while host
+                    .top(cx)
+                    .is_some_and(|top| top == "New song" || Some(&top) == preview.as_ref())
+                {
+                    host.close_top(window, cx);
+                }
+            })
+        };
+        let closed = Rc::new(move |cx: &mut App| {
+            let _ = weak.update(cx, |workspace, cx| {
+                workspace.new_song = None;
+                cx.notify();
+            });
+        });
+        let panel = NewSongPanel::open(self.store.clone(), host, report, closed, window, cx);
+        self.new_song = Some(panel);
+        cx.notify();
+    }
+
+    /// Carries out what the panel decided: both outcomes select a Song, and a
+    /// Song that is archived is only visible with Include archived on.
+    fn apply(&mut self, outcome: Outcome, window: &mut Window, cx: &mut Context<Self>) {
+        let song = match outcome {
+            Outcome::Created(song) | Outcome::UseExisting(song) => song,
+        };
+        let archived = self
+            .store
+            .read(cx)
+            .library()
+            .song(song)
+            .is_ok_and(|work| work.is_archived());
+        if archived {
+            self.set_include_archived(true, cx);
+        } else {
+            self.refresh(cx);
+        }
+        // A Song the search or filters hide would be dropped by the next
+        // refresh, so the operator's search and filters give way to it. The
+        // archived toggle is left as it is.
+        if !self.hits.iter().any(|hit| hit.song == song) {
+            self.clear_search_and_filters(window, cx);
+        }
+        self.select(song, cx);
     }
 
     /// The store this workspace reads.

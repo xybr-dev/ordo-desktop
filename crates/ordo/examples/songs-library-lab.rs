@@ -57,6 +57,9 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
 
 type Failure = Box<dyn std::error::Error>;
 
+/// A title with two possible existing Songs in the seeded library.
+const NEAR_TITLE: &str = "Tinapay sa Langit";
+
 /// One Arrangement to seed: title, language, Choir indexes, occasions, lyrics.
 struct Setting {
     title: &'static str,
@@ -100,6 +103,22 @@ const WORKS: &[Work] = &[
                 chorus: "Forever the love of the Lord",
             },
         ],
+    },
+    // A near match of "Tinapay sa Langit" (different punctuation and spacing),
+    // so that title has two possible existing Songs in the New song panel.
+    Work {
+        title: "Tinapay, sa Langit",
+        aliases: &[],
+        attribution: Some("fr manoling francisco"),
+        archived: false,
+        settings: &[Setting {
+            title: "Cebuano unison",
+            language: "Cebuano",
+            choirs: &[],
+            occasions: &[],
+            verse: "Tinapay, sa langit",
+            chorus: "Dayandayan",
+        }],
     },
     Work {
         title: "Ave Maria",
@@ -255,6 +274,13 @@ fn main() -> Result<(), Failure> {
     seed(&dir)?;
     println!("Lab parish folder: {}", dir.display());
     println!("Library > Songs and Library > Choirs read it; nothing else is touched.");
+    println!("New song path: Library > Songs > New song. Type the title {NEAR_TITLE:?}:");
+    println!("  - \"2 possible existing Songs\" appears under the title, collapsed.");
+    println!("  - Expand it, choose a candidate: a preview opens over the form (identity only).");
+    println!(
+        "  - Back returns to the form exactly as typed; Use this existing Song selects it instead."
+    );
+    println!("  - Create song adds the Song; its detail shows No Arrangements yet.");
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {

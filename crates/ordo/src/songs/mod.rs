@@ -9,8 +9,10 @@ pub mod choirs;
 #[cfg(test)]
 mod e2e;
 pub mod library;
+pub mod new_song;
 pub mod store;
 
 pub use choirs::ChoirsWorkspace;
 pub use library::{ArrangementOverview, SongsWorkspace};
+pub use new_song::NewSongPanel;
 pub use store::{LibraryEvent, LibraryState, LibraryStore, StorageSlot};
