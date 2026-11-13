@@ -280,6 +280,17 @@ impl Arrangement {
         Ok(())
     }
 
+    /// Validates replacement sections and Sequence against this Arrangement's
+    /// metadata without changing anything.
+    pub(crate) fn check_lyrics(
+        &self,
+        sections: &[SectionDraft],
+        sequence: &[OccurrenceDraft],
+    ) -> Result<(), SongLibraryError> {
+        self.lyrics_content(sections.to_vec(), sequence.to_vec())
+            .map(|_| ())
+    }
+
     /// Replaces sections, Sequence, and pagination state as given, keeping the
     /// metadata, Choir associations, identity, creation time, and archive
     /// state. Applies no review rule.
@@ -291,6 +302,18 @@ impl Arrangement {
         sequence: Vec<OccurrenceDraft>,
         pagination_state: PaginationState,
     ) -> Result<(), SongLibraryError> {
+        self.content = self.lyrics_content(sections, sequence)?;
+        self.pagination_state = pagination_state;
+        Ok(())
+    }
+
+    /// The validated content with the given sections and Sequence and this
+    /// Arrangement's metadata.
+    fn lyrics_content(
+        &self,
+        sections: Vec<SectionDraft>,
+        sequence: Vec<OccurrenceDraft>,
+    ) -> Result<ArrangementContent, SongLibraryError> {
         let draft = ArrangementDraft {
             title: self.content.title.clone(),
             languages: self.content.languages.clone(),
@@ -300,10 +323,7 @@ impl Arrangement {
             sections,
             sequence,
         };
-        let next = ArrangementContent::validate(self.id, draft)?;
-        self.content = next;
-        self.pagination_state = pagination_state;
-        Ok(())
+        ArrangementContent::validate(self.id, draft)
     }
 
     /// Replaces the authored content, the Choir associations and the pagination

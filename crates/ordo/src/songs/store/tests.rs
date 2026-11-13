@@ -4,11 +4,14 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
 use domain::{
-    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId},
+    identity::{
+        ArrangementId, ChoirId, EntityId, HistorySessionId, OccurrenceId, SectionId, SongId,
+    },
     revisions::{EditPoint, RevisionEntity, RevisionKind},
     song_library::{
         ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
-        ChoirDraft, HydrateArrangement, HydrateSong, PaginationState, SongDraft, SongLibrary, Step,
+        ChoirDraft, HydrateArrangement, HydrateSong, OccurrenceDraft, PaginationState,
+        SectionDraft, SongDraft, SongLibrary, SongLibraryError, Step,
     },
 };
 use gpui::{AppContext, Entity, SharedString, Task, TestAppContext};
@@ -1509,5 +1512,371 @@ fn the_port_refuses_other_commit_points_and_a_released_store(cx: &mut TestAppCon
             message: "The parish store is not open.".into()
         })
     );
+    finish(cx, &slot, &dir);
+}
+
+// ---- Review fixes: B1 no language, B2 whole-library ids, B3 stored duplicates ----
+
+fn section_ident(byte: u8) -> SectionId {
+    SectionId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+fn occurrence_ident(byte: u8) -> OccurrenceId {
+    OccurrenceId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+/// Commits a `Replacement` revision that removes the stored languages, as a
+/// pre-T2.6 Arrangement may hold (only an Edit requires a language).
+fn strip_language(cx: &mut TestAppContext, slot: &StorageSlot, id: ArrangementId) {
+    let future = slot
+        .with(|storage| storage.arrangement(id))
+        .expect("storage is open");
+    let stored = cx.foreground_executor().block_test(future).expect("record");
+    let mut content = ArrangementContent::of(&stored);
+    content.languages.clear();
+    let head = history(cx, slot, id).last().expect("head").id;
+    let future = slot
+        .with(|storage| {
+            storage.commit_arrangement_edit(
+                id,
+                content,
+                stored.pagination,
+                RevisionKind::Replacement,
+                None,
+                head,
+            )
+        })
+        .expect("storage is open");
+    cx.foreground_executor()
+        .block_test(future)
+        .expect("languages removed");
+}
+
+#[gpui::test]
+fn b1_a_lyrics_save_succeeds_on_an_arrangement_stored_with_no_language(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, _store, _song, id) = seeded(cx, "store-lyrics-no-language");
+    strip_language(cx, &slot, id);
+    let (slot, store) = reopen(cx, &slot, &dir);
+    let before = arrangement_of(cx, &store, id);
+    assert!(
+        before.languages().is_empty(),
+        "the stored row has no language"
+    );
+    let start = history(cx, &slot, id).len();
+
+    let mut edited = before.lyrics();
+    edited
+        .set_section_lyrics(edited.sections[0].id, "Typed with no language".to_owned())
+        .expect("section");
+    assert_eq!(
+        save_lyrics(cx, &store, id, edited.clone(), session(0x81)),
+        Ok(id)
+    );
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let after = arrangement_of(cx, store, id);
+        assert_eq!(after.sections()[0].lyrics(), "Typed with no language");
+        assert_eq!(after.details(), before.details(), "metadata is untouched");
+        assert!(after.languages().is_empty());
+    };
+    check(cx, &store);
+    assert_eq!(history(cx, &slot, id).len(), start + 1);
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn b2_ids_held_or_once_held_by_another_arrangement_are_refused_before_any_io(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, id) = seeded(cx, "store-lyrics-foreign-ids");
+    let other = create_arr(cx, &store, song, details("Latin")).expect("other");
+    let held_section = section_ident(0x91);
+    let held_occurrence = occurrence_ident(0x92);
+    let kept_section = section_ident(0x93);
+    let kept_occurrence = occurrence_ident(0x94);
+    let lyrics_of_other = |section: SectionId, occurrence: OccurrenceId| ArrangementLyrics {
+        sections: vec![SectionDraft::labeled(section, "Other", "words")],
+        sequence: vec![OccurrenceDraft::new(occurrence, section)],
+        pagination: PaginationState::Draft,
+    };
+    assert_eq!(
+        save_lyrics(
+            cx,
+            &store,
+            other,
+            lyrics_of_other(held_section, held_occurrence),
+            session(0x95)
+        ),
+        Ok(other)
+    );
+    // The other Arrangement then swaps both identities for new ones, so the
+    // first pair is reserved to it by history alone.
+    assert_eq!(
+        save_lyrics(
+            cx,
+            &store,
+            other,
+            lyrics_of_other(kept_section, kept_occurrence),
+            session(0x96)
+        ),
+        Ok(other)
+    );
+    let (slot, store) = reopen(cx, &slot, &dir);
+
+    let before_library: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let before = arrangement_of(cx, &store, id).lyrics();
+    let start = history(cx, &slot, id).len();
+    let other_start = history(cx, &slot, other).len();
+    let changes = count_changes(cx, &store);
+
+    let some_section = before.sections[0].id;
+    let cases: Vec<(ArrangementLyrics, SongLibraryError)> = vec![
+        {
+            let mut next = before.clone();
+            next.sections
+                .push(SectionDraft::labeled(kept_section, "Current", ""));
+            (next, SongLibraryError::DuplicateSection(kept_section))
+        },
+        {
+            let mut next = before.clone();
+            next.sections
+                .push(SectionDraft::labeled(held_section, "History", ""));
+            (next, SongLibraryError::DuplicateSection(held_section))
+        },
+        {
+            let mut next = before.clone();
+            next.sequence
+                .push(OccurrenceDraft::new(kept_occurrence, some_section));
+            (next, SongLibraryError::DuplicateOccurrence(kept_occurrence))
+        },
+        {
+            let mut next = before.clone();
+            next.sequence
+                .push(OccurrenceDraft::new(held_occurrence, some_section));
+            (next, SongLibraryError::DuplicateOccurrence(held_occurrence))
+        },
+    ];
+    for (n, (next, expected)) in cases.into_iter().enumerate() {
+        assert_eq!(
+            save_lyrics(cx, &store, id, next, session(0xa0 + n as u8)),
+            Err(SharedString::from(expected.to_string())),
+            "case {n}"
+        );
+        assert_eq!(history(cx, &slot, id).len(), start, "case {n}: no revision");
+        assert_eq!(
+            history(cx, &slot, other).len(),
+            other_start,
+            "case {n}: the owner is untouched"
+        );
+        store.read_with(cx, |store, _| {
+            assert_eq!(
+                store.library(),
+                &before_library,
+                "case {n}: memory unchanged"
+            );
+        });
+    }
+    assert_eq!(*changes.borrow(), 0, "a refusal emits nothing");
+    finish(cx, &slot, &dir);
+}
+
+/// A Song with one Arrangement whose two sections are both named "Chorus"
+/// (stored duplicates, which Decision 7 keeps valid), approved, then reopened.
+fn seeded_duplicates(
+    cx: &mut TestAppContext,
+    tag: &str,
+) -> (
+    std::path::PathBuf,
+    StorageSlot,
+    Entity<LibraryStore>,
+    ArrangementId,
+) {
+    let dir = temp_dir(tag);
+    let (slot, store) = open_parish(cx, &dir);
+    let song = create(cx, &store, SongDraft::titled("Kyrie")).expect("song");
+    let future = slot
+        .with(|storage| {
+            storage.create_arrangement(NewArrangement {
+                song,
+                title: None,
+                languages: vec!["English".into()],
+                choirs: Vec::new(),
+                rendition_attribution: None,
+                occasions: Vec::new(),
+                notes: None,
+                sections: vec![
+                    NewSection {
+                        label: Some("Chorus".into()),
+                        lyrics: "first".into(),
+                    },
+                    NewSection {
+                        label: Some("Chorus".into()),
+                        lyrics: "second".into(),
+                    },
+                ],
+                sequence: vec![0, 1],
+            })
+        })
+        .expect("open");
+    let record = cx.foreground_executor().block_test(future).expect("seeded");
+    let future = slot
+        .with(|storage| storage.set_pagination_state(record.id, PaginationState::Approved))
+        .expect("open");
+    cx.foreground_executor().block_test(future).expect("state");
+    let (slot, store) = reopen(cx, &slot, &dir);
+    (dir, slot, store, record.id)
+}
+
+#[gpui::test]
+fn b3_undo_restores_a_stored_duplicate_name_through_the_store_and_the_port(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, id) = seeded_duplicates(cx, "store-lyrics-dup-undo");
+    let baseline = arrangement_of(cx, &store, id).lyrics();
+    assert_eq!(baseline.sections[0].label, baseline.sections[1].label);
+    let first = baseline.sections[0].id;
+    let start = history(cx, &slot, id).len();
+
+    // Directly through the store: the removal, then the earlier snapshot.
+    let mut removed = baseline.clone();
+    removed.remove_section(first).expect("section");
+    let removed = removed.reviewed_against(&baseline);
+    assert_eq!(save_lyrics(cx, &store, id, removed, session(0xb1)), Ok(id));
+    assert_eq!(
+        save_lyrics(cx, &store, id, baseline.clone(), session(0xb2)),
+        Ok(id),
+        "the stored duplicate is committable again"
+    );
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), baseline);
+    assert_eq!(history(cx, &slot, id).len(), start + 2);
+
+    // Through the port and a real EditSession: remove then Undo, then rename
+    // then Undo.
+    let editor = lyrics_editor(cx, &store, id, baseline.clone());
+    let accepted = editor.update(cx, |editor, cx| {
+        editor.structural(
+            EditPoint::Structural,
+            |lyrics| {
+                lyrics.remove_section(first).expect("section");
+                *lyrics = lyrics.clone().reviewed_against(&baseline);
+            },
+            cx,
+        )
+    });
+    assert!(accepted);
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    assert_eq!(arrangement_of(cx, &store, id).sections().len(), 1);
+    assert!(editor.update(cx, |editor, cx| editor.undo(cx)));
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    assert_eq!(
+        arrangement_of(cx, &store, id).lyrics(),
+        baseline,
+        "Undo of the removal restores the duplicate"
+    );
+
+    let accepted = editor.update(cx, |editor, cx| {
+        editor.structural(
+            EditPoint::Structural,
+            |lyrics| {
+                lyrics.rename_section(first, "Koro").expect("rename");
+                *lyrics = lyrics.clone().reviewed_against(&baseline);
+            },
+            cx,
+        )
+    });
+    assert!(accepted);
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    assert_eq!(
+        arrangement_of(cx, &store, id).sections()[0].label(),
+        Some("Koro")
+    );
+    assert!(editor.update(cx, |editor, cx| editor.undo(cx)));
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    assert_eq!(
+        arrangement_of(cx, &store, id).lyrics(),
+        baseline,
+        "Undo of the rename restores the duplicate"
+    );
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), baseline);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn n8_both_writes_queued_before_either_runs_keep_both(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-queued");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+
+    let mut lyrics_after = before.lyrics();
+    lyrics_after
+        .set_section_lyrics(lyrics_after.sections[0].id, "Queued words".to_owned())
+        .expect("section");
+    let details_after = ArrangementDetails {
+        notes: Some("Queued details".to_owned()),
+        ..before.details()
+    };
+    // Both are queued (the store validates each at dequeue) before either is
+    // awaited.
+    let lyrics_task = store.update(cx, |store, cx| {
+        store.save_arrangement_lyrics(id, lyrics_after, session(0xc1), cx)
+    });
+    let details_task = store.update(cx, |store, cx| {
+        store.save_arrangement_details(id, details_after.clone(), cx)
+    });
+    assert_eq!(run(cx, lyrics_task), Ok(id));
+    assert_eq!(run(cx, details_task), Ok(id));
+
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let after = arrangement_of(cx, store, id);
+        assert_eq!(after.sections()[0].lyrics(), "Queued words");
+        assert_eq!(after.details(), details_after);
+    };
+    check(cx, &store);
+    assert_eq!(history(cx, &slot, id).len(), start + 2);
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn n8_undo_of_a_reorder_through_the_port_restores_the_order(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-reorder-undo");
+    let baseline = arrangement_of(cx, &store, id).lyrics();
+    let first = baseline.sections[0].id;
+    let start = history(cx, &slot, id).len();
+    let editor = lyrics_editor(cx, &store, id, baseline.clone());
+
+    let accepted = editor.update(cx, |editor, cx| {
+        editor.structural(
+            EditPoint::Structural,
+            |lyrics| {
+                assert!(lyrics.move_section(first, Step::Down).expect("section"));
+                *lyrics = lyrics.clone().reviewed_against(&baseline);
+            },
+            cx,
+        )
+    });
+    assert!(accepted);
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    let moved = arrangement_of(cx, &store, id);
+    assert_eq!(moved.sections()[1].id(), first);
+    assert_eq!(moved.pagination_state(), PaginationState::Approved);
+
+    assert!(editor.update(cx, |editor, cx| editor.undo(cx)));
+    assert_eq!(settle(cx, &editor), NavigationGuard::Proceed);
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), baseline);
+    assert_eq!(history(cx, &slot, id).len(), start + 2);
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), baseline);
     finish(cx, &slot, &dir);
 }

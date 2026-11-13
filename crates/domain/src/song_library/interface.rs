@@ -21,7 +21,7 @@ use super::model::{
     Arrangement, ArrangementDetails, ArrangementDraft, Choir, ChoirDraft, OccurrenceDraft, Section,
     SectionDraft, SongDraft, SongWork, require_listed_languages,
 };
-use super::sections::{ArrangementLyrics, require_changed_names};
+use super::sections::{ArrangementLyrics, require_present_labels};
 
 mod hydrate;
 
@@ -562,30 +562,54 @@ impl SongLibrary {
     /// associations, owning Song, creation time, and archive state exactly as
     /// stored. The pagination state is taken as given rather than recomputed,
     /// because the editor applies the review rule to forward edits and commits
-    /// an earlier snapshot, state included, when it undoes. Callers other than
-    /// the editor and storage refresh are not expected to supply it.
+    /// an earlier snapshot, state included, when it undoes. Callers must pass
+    /// only a state computed by [`ArrangementLyrics::reviewed_against`] or
+    /// taken from a snapshot that was committed before; never construct
+    /// [`super::PaginationState::Approved`] to skip review.
     ///
-    /// Section names follow the label rule: a present name must not be blank,
-    /// and a name that is new or differs from the stored one for the same
-    /// identity must be unique by [`match_key`]. Unchanged names and unlabeled
-    /// sections stay valid, so duplicate names already stored keep editing.
-    /// Section and occurrence identities follow the same permanent reservation
-    /// as [`Self::edit_arrangement`].
-    ///
-    /// Refused with [`SongLibraryError::Archived`] when the Arrangement or its
-    /// Song is archived. The edit is all or nothing: any refusal changes
-    /// nothing.
+    /// The checks are those of [`Self::check_arrangement_lyrics`]. The edit is
+    /// all or nothing: any refusal changes nothing.
     pub fn edit_arrangement_lyrics(
         &mut self,
         id: ArrangementId,
         lyrics: ArrangementLyrics,
     ) -> Result<&Arrangement, SongLibraryError> {
+        self.check_arrangement_lyrics(id, &lyrics)?;
         let arrangement = self
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        arrangement.replace_lyrics(lyrics.sections, lyrics.sequence, lyrics.pagination)?;
+        self.section_ids
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
+        self.occurrence_ids
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
+        Ok(arrangement)
+    }
+
+    /// Checks a Lyrics edit against the whole library without changing it.
+    ///
+    /// Refused with [`SongLibraryError::Archived`] when the Arrangement or its
+    /// Song is archived. A present section name must not be blank. Name
+    /// uniqueness is not checked here: it is enforced where a name is
+    /// introduced ([`ArrangementLyrics::add_section`] and
+    /// [`ArrangementLyrics::rename_section`]), so every snapshot that was
+    /// committed once can be committed again, and duplicate names already
+    /// stored keep editing and undoing. Section and occurrence identities
+    /// follow the same permanent reservation as [`Self::edit_arrangement`]:
+    /// one that another Arrangement holds or once held is refused with
+    /// `DuplicateSection` or `DuplicateOccurrence`.
+    pub fn check_arrangement_lyrics(
+        &self,
+        id: ArrangementId,
+        lyrics: &ArrangementLyrics,
+    ) -> Result<(), SongLibraryError> {
+        let arrangement = self
+            .arrangements
+            .get(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
         Self::require_editable(&self.songs, arrangement)?;
-        require_changed_names(&arrangement.lyrics().sections, &lyrics.sections)?;
+        require_present_labels(&lyrics.sections)?;
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
@@ -593,12 +617,7 @@ impl SongLibrary {
             &lyrics.sequence,
             id,
         )?;
-        arrangement.replace_lyrics(lyrics.sections, lyrics.sequence, lyrics.pagination)?;
-        self.section_ids
-            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
-        self.occurrence_ids
-            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
-        Ok(arrangement)
+        arrangement.check_lyrics(&lyrics.sections, &lyrics.sequence)
     }
 
     /// Takes an Arrangement as storage returned it after a commit: content,

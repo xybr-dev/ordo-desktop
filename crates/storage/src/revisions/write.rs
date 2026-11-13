@@ -676,48 +676,15 @@ impl Core {
             metadata.notes.as_deref(),
             std::iter::empty(),
         )?;
-        let at = self.timestamp();
-        timestamp_text(at)?;
-        let (conn, ids, fault) = self.write_parts()?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(map_error)?;
-        let mut steps = WriteSteps::new(fault);
-        let entity = RevisionEntity::Arrangement(arrangement);
-        require_entity(&tx, entity)?;
-        let head = match latest_in(&tx, entity)? {
-            Some(head) => head,
-            None => backfill_creation(&tx, ids, &mut steps, at, entity)?.id,
-        };
-        let stored = read_arrangement(&tx, arrangement)?.ok_or(StorageError::NotFound {
-            kind: RecordKind::Arrangement,
-            id: arrangement.entity(),
-        })?;
-        let mut content = ArrangementContent::of(&stored);
-        content.title = metadata.title;
-        content.languages = metadata.languages;
-        content.choirs = metadata.choirs;
-        content.rendition_attribution = metadata.rendition_attribution;
-        content.occasions = metadata.occasions;
-        content.notes = metadata.notes;
-        validate_arrangement_content(&content, true)?;
-        let link = Link {
-            parent: Some(head),
-            kind: RevisionKind::Edit,
-            session: Some(session),
-            restored_from: None,
-        };
-        let done = commit_arrangement_in(
-            &tx,
-            ids,
-            &mut steps,
-            at,
-            arrangement,
-            (&content, stored.pagination),
-            &link,
-        )?;
-        tx.commit().map_err(map_error)?;
-        Ok(done)
+        self.commit_arrangement_partial(arrangement, session, true, |content, stored| {
+            content.title = metadata.title;
+            content.languages = metadata.languages;
+            content.choirs = metadata.choirs;
+            content.rendition_attribution = metadata.rendition_attribution;
+            content.occasions = metadata.occasions;
+            content.notes = metadata.notes;
+            stored.pagination
+        })
     }
 
     /// Replaces only an Arrangement's sections, Sequence and pagination state
@@ -748,6 +715,27 @@ impl Core {
                 });
             }
         }
+        // The lyrics commit does not author the metadata, so it does not
+        // require a language the details commit owns.
+        self.commit_arrangement_partial(arrangement, session, false, |content, _| {
+            content.sections = sections;
+            content.sequence = sequence;
+            pagination
+        })
+    }
+
+    /// The shared skeleton of the partial Arrangement commits: one immediate
+    /// transaction reads the head revision (backfilling a `creation` revision
+    /// for a row with no history) and the stored Arrangement, `apply` changes
+    /// the part this commit owns and returns the pagination state to store,
+    /// and one Edit revision is appended.
+    fn commit_arrangement_partial(
+        &mut self,
+        arrangement: ArrangementId,
+        session: HistorySessionId,
+        require_language_now: bool,
+        apply: impl FnOnce(&mut ArrangementContent, &ArrangementRecord) -> PaginationState,
+    ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
         let at = self.timestamp();
         timestamp_text(at)?;
         let (conn, ids, fault) = self.write_parts()?;
@@ -766,9 +754,8 @@ impl Core {
             id: arrangement.entity(),
         })?;
         let mut content = ArrangementContent::of(&stored);
-        content.sections = sections;
-        content.sequence = sequence;
-        validate_arrangement_content(&content, true)?;
+        let pagination = apply(&mut content, &stored);
+        validate_arrangement_content(&content, require_language_now)?;
         let link = Link {
             parent: Some(head),
             kind: RevisionKind::Edit,

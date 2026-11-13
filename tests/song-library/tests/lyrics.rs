@@ -11,9 +11,9 @@ use domain::pagination::{
     join_with_previous, slide_at, slide_body, slides, split_after, split_point,
 };
 use domain::song_library::{
-    ArrangementDraft, ArrangementLyrics, ChoirDraft, Field, OccurrenceDraft, PaginationState,
-    RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError, Step,
-    section_name_suggestions,
+    ArchiveState, ArrangementDraft, ArrangementLyrics, ChoirDraft, Field, HydrateArrangement,
+    HydrateSong, OccurrenceDraft, PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary,
+    SongLibraryError, Step, section_name_suggestions,
 };
 
 fn entity(n: u8) -> EntityId {
@@ -311,18 +311,13 @@ fn ac3_names_are_required_nonblank_and_unique_ignoring_case() {
     assert_eq!(stored.sections[2].label.as_deref(), Some("Bridge"));
     assert_eq!(stored.sections[0].label.as_deref(), Some("verse  1"));
 
-    let mut duplicate = stored;
-    duplicate.sections.push(SectionDraft::labeled(
-        section_id(103),
-        "CHORUS",
-        "new words",
-    ));
-    assert_refused_lyrics(
-        &mut library,
-        id,
-        duplicate,
-        SongLibraryError::DuplicateField(Field::SectionLabel),
+    // Uniqueness is enforced where a name is introduced, not on the whole edit.
+    let mut more = stored;
+    assert_eq!(
+        more.add_section(section_id(103), "CHORUS"),
+        Err(SongLibraryError::DuplicateField(Field::SectionLabel))
     );
+    assert_eq!(more.sections.len(), 3, "a refused add changes nothing");
 }
 
 #[test]
@@ -515,16 +510,14 @@ fn ac9_removing_a_used_section_removes_its_occurrences_atomically() {
 
     let mut refused = baseline.clone();
     refused.remove_section(section_id(101)).expect("remove");
-    refused.sections.push(SectionDraft::labeled(
-        section_id(103),
-        "verse 1",
-        "new words",
-    ));
+    refused
+        .sections
+        .push(SectionDraft::labeled(section_id(103), "  ", "new words"));
     assert_refused_lyrics(
         &mut library,
         id,
         refused,
-        SongLibraryError::DuplicateField(Field::SectionLabel),
+        SongLibraryError::BlankField(Field::SectionLabel),
     );
 }
 
@@ -710,14 +703,10 @@ fn stored_duplicate_names_still_load_and_edit() {
         .expect("rename one of the duplicates");
 
     let mut added = lyrics_of(&library, id);
-    added
-        .sections
-        .push(SectionDraft::labeled(section_id(103), "verse", "new"));
-    assert_refused_lyrics(
-        &mut library,
-        id,
-        added,
-        SongLibraryError::DuplicateField(Field::SectionLabel),
+    assert_eq!(
+        added.add_section(section_id(103), "verse"),
+        Err(SongLibraryError::DuplicateField(Field::SectionLabel)),
+        "a new name still has to be unique"
     );
 }
 
@@ -809,4 +798,346 @@ fn edit_arrangement_lyrics_keeps_metadata_and_refuses_foreign_or_archived_ids() 
         archived,
         SongLibraryError::Archived(RecordRef::Arrangement(id)),
     );
+}
+
+/// Two stored sections named "Chorus" (a legacy or imported Arrangement), an
+/// unlabeled third, and one Sequence occurrence each for the first two.
+fn duplicate_names_library() -> (SongLibrary, ArrangementId) {
+    let mut library = library();
+    let id = arrangement_id(1);
+    create(
+        &mut library,
+        id,
+        draft(
+            "English",
+            vec![
+                SectionDraft::labeled(section_id(100), "Chorus", "a"),
+                SectionDraft::labeled(section_id(101), "Chorus", "b"),
+                SectionDraft::new(section_id(102), "c"),
+            ],
+            vec![
+                OccurrenceDraft::new(occurrence_id(200), section_id(100)),
+                OccurrenceDraft::new(occurrence_id(201), section_id(101)),
+            ],
+        ),
+        Vec::new(),
+    );
+    library.approve_pagination(id).expect("approved");
+    (library, id)
+}
+
+#[test]
+fn b3_undo_restores_a_section_whose_name_is_a_stored_duplicate() {
+    let (mut library, id) = duplicate_names_library();
+    let before = lyrics_of(&library, id);
+
+    let mut removed = before.clone();
+    assert_eq!(removed.remove_section(section_id(100)), Ok(1));
+    let removed = removed.reviewed_against(&before);
+    library
+        .edit_arrangement_lyrics(id, removed)
+        .expect("remove one of the duplicates");
+    library
+        .edit_arrangement_lyrics(id, before.clone())
+        .expect("Undo of the removal is committable again");
+    assert_eq!(lyrics_of(&library, id), before);
+
+    let mut renamed = before.clone();
+    renamed
+        .rename_section(section_id(100), "Koro")
+        .expect("rename");
+    library
+        .edit_arrangement_lyrics(id, renamed)
+        .expect("rename one of the duplicates");
+    library
+        .edit_arrangement_lyrics(id, before.clone())
+        .expect("Undo of the rename is committable again");
+    assert_eq!(lyrics_of(&library, id), before);
+}
+
+#[test]
+fn n1_renaming_to_the_sections_own_key_skips_the_uniqueness_check() {
+    let (library, id) = duplicate_names_library();
+    let mut lyrics = lyrics_of(&library, id);
+    lyrics
+        .rename_section(section_id(100), "Chorus")
+        .expect("the same name is allowed beside a stored duplicate");
+    lyrics
+        .rename_section(section_id(100), "  CHORUS ")
+        .expect("a respelling with the same key is allowed");
+    assert_eq!(lyrics.sections[0].label.as_deref(), Some("CHORUS"));
+    assert_eq!(
+        lyrics.rename_section(section_id(102), "chorus"),
+        Err(SongLibraryError::DuplicateField(Field::SectionLabel)),
+        "another section still may not take the name"
+    );
+}
+
+#[test]
+fn n3_names_are_trimmed_before_they_are_checked_and_stored() {
+    let (library, id) = duplicate_names_library();
+    let mut lyrics = lyrics_of(&library, id);
+    assert_eq!(lyrics.add_section(section_id(103), "  Bridge \t"), Ok(3));
+    assert_eq!(lyrics.sections[3].label.as_deref(), Some("Bridge"));
+    lyrics
+        .rename_section(section_id(102), " Ending ")
+        .expect("rename");
+    assert_eq!(lyrics.sections[2].label.as_deref(), Some("Ending"));
+    assert_eq!(
+        lyrics.add_section(section_id(104), "  bridge"),
+        Err(SongLibraryError::DuplicateField(Field::SectionLabel)),
+        "the trimmed name is what is compared"
+    );
+    assert_eq!(
+        lyrics.rename_section(section_id(102), "   "),
+        Err(SongLibraryError::BlankField(Field::SectionLabel))
+    );
+}
+
+#[test]
+fn n2_a_huge_verse_number_neither_panics_nor_wraps() {
+    let mut lyrics = ArrangementLyrics {
+        sections: vec![SectionDraft::labeled(
+            section_id(1),
+            "Verse 18446744073709551615",
+            "",
+        )],
+        sequence: Vec::new(),
+        pagination: PaginationState::Draft,
+    };
+    let languages = vec!["English".to_owned()];
+    assert_eq!(
+        section_name_suggestions(&languages, &lyrics).0,
+        "Verse 1",
+        "a number that does not fit u32 is ignored"
+    );
+    lyrics.sections[0].label = Some("Verse 4294967295".to_owned());
+    assert_eq!(
+        section_name_suggestions(&languages, &lyrics).0,
+        "Verse 4294967295",
+        "the highest u32 saturates instead of wrapping"
+    );
+}
+
+#[test]
+fn b2_the_whole_library_check_sees_ids_other_arrangements_hold_or_held() {
+    let mut library = library();
+    let id = arrangement_id(1);
+    let other = arrangement_id(2);
+    create(
+        &mut library,
+        id,
+        draft(
+            "English",
+            vec![SectionDraft::labeled(section_id(100), "Verse 1", "a")],
+            vec![OccurrenceDraft::new(occurrence_id(200), section_id(100))],
+        ),
+        Vec::new(),
+    );
+    create(
+        &mut library,
+        other,
+        draft(
+            "English",
+            vec![
+                SectionDraft::labeled(section_id(150), "Held", "x"),
+                SectionDraft::labeled(section_id(151), "Gone", "y"),
+            ],
+            vec![OccurrenceDraft::new(occurrence_id(250), section_id(150))],
+        ),
+        Vec::new(),
+    );
+    // Section 151 and occurrence 250 leave the other Arrangement for good but
+    // stay reserved to it; section 152 is current there.
+    let mut shrunk = lyrics_of(&library, other);
+    shrunk.remove_section(section_id(151)).expect("section");
+    shrunk.remove_section(section_id(150)).expect("section");
+    shrunk
+        .sections
+        .push(SectionDraft::labeled(section_id(152), "Kept", ""));
+    library
+        .edit_arrangement_lyrics(other, shrunk)
+        .expect("other edit");
+
+    let before = lyrics_of(&library, id);
+    let cases: Vec<(ArrangementLyrics, SongLibraryError)> = vec![
+        {
+            let mut next = before.clone();
+            next.sections
+                .push(SectionDraft::labeled(section_id(152), "Current", ""));
+            (next, SongLibraryError::DuplicateSection(section_id(152)))
+        },
+        {
+            let mut next = before.clone();
+            next.sections
+                .push(SectionDraft::labeled(section_id(151), "History", ""));
+            (next, SongLibraryError::DuplicateSection(section_id(151)))
+        },
+        {
+            let mut next = before.clone();
+            next.sequence
+                .push(OccurrenceDraft::new(occurrence_id(250), section_id(100)));
+            (
+                next,
+                SongLibraryError::DuplicateOccurrence(occurrence_id(250)),
+            )
+        },
+    ];
+    for (next, expected) in cases {
+        assert_eq!(
+            library.check_arrangement_lyrics(id, &next),
+            Err(expected.clone()),
+            "the check refuses"
+        );
+        assert_refused_lyrics(&mut library, id, next, expected);
+    }
+
+    let mut fine = before.clone();
+    fine.set_section_lyrics(section_id(100), "ok".to_owned())
+        .expect("lyrics");
+    assert_eq!(library.check_arrangement_lyrics(id, &fine), Ok(()));
+    assert_eq!(lyrics_of(&library, id), before, "a check never mutates");
+    assert_eq!(
+        library.check_arrangement_lyrics(arrangement_id(9), &fine),
+        Err(SongLibraryError::UnknownArrangement(arrangement_id(9)))
+    );
+}
+
+#[test]
+fn b1_lyrics_of_an_arrangement_with_no_language_can_be_edited() {
+    // A language is required on creation, so a no-language Arrangement is one
+    // loaded from storage (stored before T2.6).
+    let id = arrangement_id(1);
+    let created = at(10);
+    let mut library = SongLibrary::hydrate(
+        vec![HydrateSong {
+            id: song_id(1),
+            created_at: created,
+            draft: SongDraft::titled("Kyrie"),
+            archive_state: ArchiveState::Active,
+        }],
+        vec![HydrateArrangement {
+            id,
+            song: song_id(1),
+            created_at: created,
+            draft: ArrangementDraft {
+                sections: vec![SectionDraft::labeled(section_id(100), "Verse 1", "a")],
+                ..ArrangementDraft::default()
+            },
+            choirs: Vec::new(),
+            pagination_state: PaginationState::Draft,
+            archive_state: ArchiveState::Active,
+        }],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("hydrate");
+    let mut lyrics = lyrics_of(&library, id);
+    lyrics
+        .set_section_lyrics(section_id(100), "new words".to_owned())
+        .expect("lyrics");
+    assert_eq!(library.check_arrangement_lyrics(id, &lyrics), Ok(()));
+    library
+        .edit_arrangement_lyrics(id, lyrics)
+        .expect("the domain accepts it, so storage must too");
+    let arrangement = library.arrangement(id).expect("arrangement");
+    assert_eq!(arrangement.sections()[0].lyrics(), "new words");
+    assert!(arrangement.languages().is_empty());
+}
+
+#[test]
+fn n8_split_and_join_keep_crlf_line_ends() {
+    let three = "a\r\nb\r\nc";
+    assert_eq!(
+        split_after(three, 0, 1).as_deref(),
+        Some("a\r\n\nb\r\nc"),
+        "Split lands after the CRLF"
+    );
+    assert_eq!(slides("a\r\n\nb\r\nc").len(), 2);
+    assert_eq!(
+        join_with_previous("a\r\n\r\nb", 1).as_deref(),
+        Some("a\r\nb"),
+        "Join replaces exactly the blank run"
+    );
+}
+
+#[test]
+fn n8_reviewed_against_passes_other_states_and_catches_a_sequence_only_change() {
+    let (library, id) = duplicate_names_library();
+    let baseline = lyrics_of(&library, id);
+    assert_eq!(baseline.pagination, PaginationState::Approved);
+
+    for state in [PaginationState::Draft, PaginationState::NeedsReview] {
+        let mut changed = baseline.clone();
+        changed.pagination = state;
+        changed
+            .set_section_lyrics(section_id(100), "other".to_owned())
+            .expect("lyrics");
+        assert_eq!(
+            changed.reviewed_against(&baseline).pagination,
+            state,
+            "only Approved moves"
+        );
+    }
+
+    let mut sequence_only = baseline.clone();
+    sequence_only
+        .sequence
+        .push(OccurrenceDraft::new(occurrence_id(210), section_id(100)));
+    assert_eq!(
+        sequence_only.reviewed_against(&baseline).pagination,
+        PaginationState::NeedsReview,
+        "a Sequence-only change needs review"
+    );
+}
+
+#[test]
+fn n8_an_archived_song_refuses_a_lyrics_edit() {
+    let (mut library, id) = duplicate_names_library();
+    let lyrics = lyrics_of(&library, id);
+    library.archive_song(song_id(1), at(30)).expect("archive");
+    let expected = SongLibraryError::Archived(RecordRef::Song(song_id(1)));
+    assert_eq!(
+        library.check_arrangement_lyrics(id, &lyrics),
+        Err(expected.clone())
+    );
+    assert_refused_lyrics(&mut library, id, lyrics, expected);
+}
+
+#[test]
+fn n8_undo_of_a_reorder_restores_the_order() {
+    let (mut library, id) = duplicate_names_library();
+    let before = lyrics_of(&library, id);
+    let mut moved = before.clone();
+    assert_eq!(moved.move_section(section_id(102), Step::Up), Ok(true));
+    let moved = moved.reviewed_against(&before);
+    assert_eq!(moved.pagination, PaginationState::Approved);
+    library.edit_arrangement_lyrics(id, moved).expect("reorder");
+    assert_eq!(
+        lyrics_of(&library, id)
+            .sections
+            .iter()
+            .map(|section| section.id)
+            .collect::<Vec<_>>(),
+        vec![section_id(100), section_id(102), section_id(101)]
+    );
+    library
+        .edit_arrangement_lyrics(id, before.clone())
+        .expect("Undo");
+    assert_eq!(lyrics_of(&library, id), before);
+}
+
+#[test]
+fn n9_deleting_the_blank_line_by_hand_joins_the_slides() {
+    let before = "Niño\nGinoó\n\nAleluya";
+    assert_eq!(slides(before).len(), 2);
+    // The operator puts the caret on the blank line and deletes it.
+    let blank = before.find("\n\n").expect("blank line") + 1;
+    let mut edited = before.to_owned();
+    edited.remove(blank);
+    assert_eq!(edited, "Niño\nGinoó\nAleluya");
+    let generated = slides(&edited);
+    assert_eq!(generated.len(), 1, "no blank line, one slide");
+    assert_eq!(slide_body(&edited, &generated[0]), "Niño\nGinoó\nAleluya");
+    assert_eq!(generated[0].lines.len(), 3);
 }

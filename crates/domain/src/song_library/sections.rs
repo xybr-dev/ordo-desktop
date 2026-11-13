@@ -43,10 +43,11 @@ pub struct ArrangementLyrics {
 impl ArrangementLyrics {
     /// Appends a named section with no lyrics and returns its position.
     ///
-    /// The name must not be blank and must be unique by [`match_key`] within
-    /// the Arrangement. The identity must not already name a section here.
-    /// Nothing changes on refusal.
+    /// The name is trimmed, must not be blank, and must be unique by
+    /// [`match_key`] within the Arrangement. The identity must not already name
+    /// a section here. Nothing changes on refusal.
     pub fn add_section(&mut self, id: SectionId, name: &str) -> Result<usize, SongLibraryError> {
+        let name = name.trim();
         text::require_present(Field::SectionLabel, name)?;
         require_unique_name(&self.sections, name, None)?;
         if self.sections.iter().any(|section| section.id == id) {
@@ -58,13 +59,19 @@ impl ArrangementLyrics {
 
     /// Renames one section.
     ///
-    /// The name follows the same rule as [`Self::add_section`] and may not
-    /// repeat another section's name. Renaming a section to its own name is
-    /// allowed. Nothing changes on refusal.
+    /// The name is trimmed and follows the same rule as [`Self::add_section`],
+    /// so it may not repeat another section's name. A name whose match key
+    /// equals the section's own current key is allowed without that check (it
+    /// only changes the spelling), so a section that shares a stored duplicate
+    /// name can still be respelled. Nothing changes on refusal.
     pub fn rename_section(&mut self, id: SectionId, name: &str) -> Result<(), SongLibraryError> {
         let index = self.position(id)?;
+        let name = name.trim();
         text::require_present(Field::SectionLabel, name)?;
-        require_unique_name(&self.sections, name, Some(id))?;
+        let own_key = self.sections[index].label.as_deref().map(match_key);
+        if own_key != Some(match_key(name)) {
+            require_unique_name(&self.sections, name, Some(id))?;
+        }
         self.sections[index].label = Some(name.to_owned());
         Ok(())
     }
@@ -225,47 +232,15 @@ pub fn section_name_suggestions(
     (prefill, suggestions)
 }
 
-/// Checks the names a Lyrics edit introduces or changes.
+/// Checks that every present section name is non-blank.
 ///
-/// Every present name must be non-blank. A name that is new or differs from the
-/// stored section with the same identity must be unique by [`match_key`] in the
-/// edited content. A name that is unchanged is not compared again, so duplicate
-/// names already stored keep loading and editing as they are.
-pub(crate) fn require_changed_names(
-    current: &[SectionDraft],
-    next: &[SectionDraft],
-) -> Result<(), SongLibraryError> {
-    for section in next {
+/// Uniqueness is not checked here: it is enforced where a name is introduced
+/// (add and rename), so a snapshot committed once can always be committed
+/// again and duplicate names already stored keep loading, editing and undoing.
+pub(crate) fn require_present_labels(sections: &[SectionDraft]) -> Result<(), SongLibraryError> {
+    for section in sections {
         if let Some(label) = section.label.as_deref() {
             text::require_present(Field::SectionLabel, label)?;
-        }
-    }
-    let stored: std::collections::BTreeMap<SectionId, Option<&str>> = current
-        .iter()
-        .map(|section| (section.id, section.label.as_deref()))
-        .collect();
-    for section in next {
-        let Some(label) = section.label.as_deref() else {
-            continue;
-        };
-        let unchanged = stored
-            .get(&section.id)
-            .is_some_and(|stored| *stored == Some(label));
-        if unchanged {
-            continue;
-        }
-        let key = match_key(label);
-        let repeated = next
-            .iter()
-            .filter(|other| {
-                other
-                    .label
-                    .as_deref()
-                    .is_some_and(|other| match_key(other) == key)
-            })
-            .count();
-        if repeated > 1 {
-            return Err(SongLibraryError::DuplicateField(Field::SectionLabel));
         }
     }
     Ok(())
@@ -311,7 +286,7 @@ fn require_unique_name(
 }
 
 /// One past the highest number already used as `{word} {number}`, or 1.
-fn next_number(word: &str, sections: &[SectionDraft]) -> usize {
+fn next_number(word: &str, sections: &[SectionDraft]) -> u32 {
     let prefix = format!("{} ", match_key(word));
     sections
         .iter()
@@ -322,9 +297,9 @@ fn next_number(word: &str, sections: &[SectionDraft]) -> usize {
             if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
                 return None;
             }
-            number.parse().ok()
+            number.parse::<u32>().ok()
         })
         .max()
         .unwrap_or(0)
-        + 1
+        .saturating_add(1)
 }

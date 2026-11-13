@@ -13,9 +13,9 @@ use domain::{
     identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId, Timestamp},
     song_library::{
         ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
-        ChoirDraft, Field, HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong,
-        OccurrenceDraft, PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary,
-        SongLibraryError, match_key,
+        ChoirDraft, Field, HydrateArrangement, HydrateChoir, HydrateSong, OccurrenceDraft,
+        PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError,
+        match_key,
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
@@ -278,80 +278,6 @@ fn check_arrangement_details(
     scratch
         .edit_arrangement_details(probe, details.clone())
         .map(Arrangement::details)
-}
-
-/// Checks a Lyrics edit against the domain's own rules on a scratch library
-/// holding only this Arrangement's stored content and its current section and
-/// occurrence identities, so the cost does not grow with the parish library.
-fn check_lyrics(
-    arrangement: &Arrangement,
-    lyrics: &ArrangementLyrics,
-) -> Result<(), SongLibraryError> {
-    let at = Timestamp::from_millis(0);
-    let song = arrangement.song();
-    let choirs: Vec<ChoirId> = arrangement.choirs().iter().copied().collect();
-    let stored = ArrangementDraft {
-        title: arrangement.title().map(str::to_owned),
-        languages: arrangement.languages().to_vec(),
-        rendition_attribution: arrangement.rendition_attribution().map(str::to_owned),
-        occasions: arrangement.occasions().iter().cloned().collect(),
-        notes: arrangement.notes().map(str::to_owned),
-        sections: arrangement
-            .sections()
-            .iter()
-            .map(|section| SectionDraft {
-                id: section.id(),
-                label: section.label().map(str::to_owned),
-                lyrics: section.lyrics().to_owned(),
-            })
-            .collect(),
-        sequence: arrangement
-            .sequence()
-            .iter()
-            .map(|occurrence| OccurrenceDraft::new(occurrence.id(), occurrence.section()))
-            .collect(),
-    };
-    let reserved = HydrateReserved {
-        arrangement: arrangement.id(),
-        sections: stored.sections.iter().map(|section| section.id).collect(),
-        occurrences: stored
-            .sequence
-            .iter()
-            .map(|occurrence| occurrence.id)
-            .collect(),
-    };
-    let mut scratch = SongLibrary::hydrate(
-        vec![HydrateSong {
-            id: song,
-            created_at: at,
-            draft: SongDraft::titled("probe"),
-            archive_state: ArchiveState::Active,
-        }],
-        vec![HydrateArrangement {
-            id: arrangement.id(),
-            song,
-            created_at: arrangement.created_at(),
-            draft: stored,
-            choirs: choirs.clone(),
-            pagination_state: arrangement.pagination_state(),
-            archive_state: ArchiveState::Active,
-        }],
-        choirs
-            .iter()
-            .enumerate()
-            .map(|(index, id)| HydrateChoir {
-                id: *id,
-                created_at: at,
-                draft: ChoirDraft::named(format!("probe {index}")),
-                archive_state: ArchiveState::Active,
-            })
-            .collect(),
-        vec![reserved],
-    )
-    .map_err(|error| error.cause)?;
-    scratch
-        .edit_arrangement_lyrics(arrangement.id(), lyrics.clone())
-        .map(|_| ())
 }
 
 fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
@@ -621,8 +547,9 @@ impl LibraryStore {
     /// [`Self::save_arrangement_details`]: storage reads the head revision and
     /// the metadata in the same transaction and returns the whole stored
     /// Arrangement, which memory then takes, so a lyrics autosave never
-    /// overwrites newer details. The domain checks the edit first (a blank or
-    /// duplicate section name is refused without I/O). Lyrics equal to the
+    /// overwrites newer details. The domain checks the edit first on the whole
+    /// library (a blank section name or a foreign identity is refused without
+    /// I/O). Lyrics equal to the
     /// stored ones write nothing and resolve to the id. A storage error leaves
     /// memory unchanged.
     pub fn save_arrangement_lyrics(
@@ -836,7 +763,9 @@ impl LibraryStore {
                         *id,
                     ))));
                 }
-                check_lyrics(arrangement, lyrics).map_err(refusal)?;
+                self.library
+                    .check_arrangement_lyrics(*id, lyrics)
+                    .map_err(refusal)?;
                 if *lyrics == arrangement.lyrics() {
                     return Ok(Verdict::Unchanged(id.entity()));
                 }

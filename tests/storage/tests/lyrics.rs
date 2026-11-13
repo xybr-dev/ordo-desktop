@@ -805,3 +805,63 @@ fn lyrics_commit_refuses_repeated_and_unknown_identities_before_writing() {
     );
     shutdown(storage);
 }
+
+#[test]
+fn b1_lyrics_commit_on_an_arrangement_with_no_language_succeeds_and_keeps_metadata() {
+    let dir = TempDir::new("no-language");
+    shutdown(open(&dir));
+    let (_song, arrangement, section) = plant_legacy_arrangement(&dir);
+    raw(&dir)
+        .execute(
+            "DELETE FROM arrangement_language WHERE arrangement_id = ?1",
+            params![arrangement.to_string()],
+        )
+        .expect("remove the language");
+
+    let storage = open(&dir);
+    let entity = RevisionEntity::Arrangement(arrangement);
+    let occurrence = domain::identity::OccurrenceId::from_entity(entity_id(0x84));
+    let (stored, revision) = bounded(storage.commit_arrangement_lyrics(
+        arrangement,
+        vec![SectionContent {
+            id: section,
+            label: Some("Verse 1".to_owned()),
+            lyrics: "Typed with no language".to_owned(),
+        }],
+        vec![OccurrenceContent {
+            id: occurrence,
+            section,
+        }],
+        PaginationState::Draft,
+        session(0x86),
+    ))
+    .expect("the lyrics commit does not require a language");
+    assert_eq!(stored.sections[0].lyrics, "Typed with no language");
+    assert!(stored.languages.is_empty(), "the language stays absent");
+    assert_eq!(
+        stored.title.as_deref(),
+        Some("Old"),
+        "metadata is untouched"
+    );
+    assert_eq!(revision.kind, RevisionKind::Edit);
+
+    // The details commit still requires a language: it owns that rule.
+    assert_eq!(
+        bounded(storage.commit_arrangement_metadata(
+            arrangement,
+            ArrangementMetadata {
+                title: Some("Old".to_owned()),
+                languages: Vec::new(),
+                choirs: Vec::new(),
+                rendition_attribution: None,
+                occasions: Vec::new(),
+                notes: None,
+            },
+            session(0x87),
+        ))
+        .map(|_| ()),
+        Err(invalid("language", "required"))
+    );
+    assert_eq!(bounded(storage.revisions(entity)).expect("chain").len(), 2);
+    shutdown(storage);
+}
