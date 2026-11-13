@@ -18,6 +18,7 @@ use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
 use super::{
     add_section::open_add_section,
     editor::{ArrangementEditor, TaskTab},
+    editor_pane::{ensure_area, main_pane},
     sections::{anchored, sections_pane},
 };
 
@@ -58,6 +59,7 @@ pub fn build(
     match tab {
         TaskTab::Lyrics => {
             editor.lyrics.resolve_selection(&content);
+            ensure_area(editor, &weak, &content, window, cx);
             let sections = sections_pane(editor, &weak, &content, read_only, environment, cx);
             Panes {
                 sections: Some(sections),
@@ -122,7 +124,7 @@ fn head(text: &'static str, environment: UiEnvironment) -> Div {
         .child(text)
 }
 
-fn column(environment: UiEnvironment) -> Div {
+pub(super) fn column(environment: UiEnvironment) -> Div {
     let scale = environment.preferences().scale;
     div()
         .flex()
@@ -178,7 +180,7 @@ fn lyrics_pane(
                             .child("No sections yet"),
                     )
                     .child(div().text_color(rgb(palette.text_muted)).child(
-                        "Add each part once, such as a verse, the refrain or an ending.                          A section used several times is still written once.",
+                        "Add each part once, such as a verse, the refrain or an ending. A section used several times is still written once.",
                     ))
                     .when(!read_only, |empty| {
                         empty.child(anchored(add, &anchor, "arrangement-add-section"))
@@ -186,28 +188,7 @@ fn lyrics_pane(
             )
             .into_any_element();
     }
-    column(environment)
-        .debug_selector(|| "arrangement-overview".into())
-        .children(content.sections.iter().enumerate().map(|(at, section)| {
-            div()
-                .debug_selector(move || format!("arrangement-lyrics-{at}"))
-                .flex()
-                .flex_col()
-                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(palette.text))
-                        .child(section_name(&content.sections, at)),
-                )
-                .children(
-                    section
-                        .lyrics
-                        .lines()
-                        .map(|line| div().text_color(rgb(palette.text)).child(line.to_owned())),
-                )
-        }))
-        .into_any_element()
+    main_pane(editor, weak, content, read_only, environment, cx)
 }
 
 fn inspector_pane(environment: UiEnvironment) -> AnyElement {

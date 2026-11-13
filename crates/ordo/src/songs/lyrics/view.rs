@@ -6,8 +6,11 @@
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use domain::{identity::SectionId, song_library::ArrangementLyrics};
-use gpui::{App, Bounds, FocusHandle, Pixels};
-use ui::{overlay::OverlayHost, primitives::field::FieldState};
+use gpui::{App, Bounds, FocusHandle, Pixels, Subscription};
+use ui::{
+    overlay::OverlayHost,
+    primitives::{field::FieldState, text_area::TextAreaState},
+};
 
 /// The popover that names a new section.
 pub(super) struct AddSection {
@@ -43,6 +46,16 @@ pub(super) struct LyricsView {
     pub reload: bool,
     /// Set when the lyric editor should take focus at the next render.
     pub focus_area: bool,
+    /// The lyric editor, made once the first section is shown.
+    pub area: Option<TextAreaState>,
+    /// The section whose lyrics the editor holds now.
+    pub shown: Option<SectionId>,
+    /// The slide the caret is on (0-based).
+    pub slide: usize,
+    /// The slide to put the caret on when the editor next reloads.
+    pub reload_slide: Option<usize>,
+    /// Keeps the editor's event and caret subscriptions alive.
+    pub subscriptions: Vec<Subscription>,
 }
 
 impl LyricsView {
@@ -59,6 +72,11 @@ impl LyricsView {
             empty_anchor: Anchor::default(),
             reload: false,
             focus_area: false,
+            area: None,
+            shown: None,
+            slide: 0,
+            reload_slide: None,
+            subscriptions: Vec::new(),
         }
     }
 

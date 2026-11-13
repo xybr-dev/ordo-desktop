@@ -667,3 +667,199 @@ fn ac3_suggestions_are_editable_chips(cx: &mut TestAppContext) {
     settle(vcx);
     assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Refrain");
 }
+
+fn area_value(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> String {
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("the lyric editor exists");
+    vcx.update(|_, cx| area.value(cx).to_string())
+}
+
+/// Gives the lyric editor focus and replaces its text with `text` as typing
+/// would (reports `Changed`).
+fn type_into_area(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("the lyric editor exists");
+    vcx.update(|window, cx| {
+        area.set_value("", window, cx);
+        area.focus(window, cx);
+    });
+    for (at, part) in text.split('\n').enumerate() {
+        if at > 0 {
+            vcx.simulate_keystrokes("enter");
+        }
+        if !part.is_empty() {
+            vcx.simulate_input(part);
+        }
+    }
+    vcx.run_until_parked();
+}
+
+fn caption(vcx: &mut VisualTestContext) -> bool {
+    present(vcx, "arrangement-slide-caption")
+}
+
+/// Replaces the first section's lyrics in the session and reloads the field.
+fn seed_lyrics(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
+    type_lyrics(editor, text, vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.lyrics.reload = true;
+        cx.notify();
+    });
+    settle(vcx);
+}
+
+fn slide_counts(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> (usize, usize) {
+    let text = area_value(editor, vcx);
+    let selected = editor.read_with(vcx, |editor, _| editor.selected_slide());
+    (domain::pagination::slides(&text).len(), selected)
+}
+
+#[gpui::test]
+fn typing_sets_the_lyrics_and_a_blank_line_makes_two_slides(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    let _ = shell;
+    type_into_area(
+        &editor,
+        "Ginoó
+
+Niño",
+        vcx,
+    );
+    assert_eq!(
+        area_value(&editor, vcx),
+        "Ginoó
+
+Niño"
+    );
+    let session = editor
+        .read_with(vcx, |editor, _| editor.session().cloned())
+        .expect("session");
+    let stored = session.read_with(vcx, |session, _| {
+        session.content().sections[0].lyrics.clone()
+    });
+    assert_eq!(
+        stored,
+        "Ginoó
+
+Niño",
+        "Changed reaches the session"
+    );
+    assert_eq!(slide_counts(&editor, vcx).0, 2);
+    assert!(caption(vcx));
+    // Deleting the blank line joins the slides again.
+    vcx.simulate_keystrokes("home backspace");
+    settle(vcx);
+    assert_eq!(
+        area_value(&editor, vcx),
+        "Ginoó
+Niño"
+    );
+    assert_eq!(slide_counts(&editor, vcx).0, 1);
+}
+
+#[gpui::test]
+fn split_and_join_are_structural_edits_with_exact_labels(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_editor(cx, "t27-split-join");
+    let editor = open_editor(&shell, id, vcx);
+    seed_lyrics(
+        &editor,
+        "Ginoó
+Niño
+Paz
+Vida",
+        vcx,
+    );
+    assert!(
+        present(vcx, "button-Split after line 2"),
+        "labelled by its line"
+    );
+    assert!(
+        present(vcx, "button-Join with previous"),
+        "slide 1 cannot join"
+    );
+    click(vcx, "button-Split after line 2");
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    settle(vcx);
+    assert_eq!(
+        stored_lyrics(&store, id, vcx),
+        "Ginoó
+Niño
+
+Paz
+Vida"
+    );
+    assert_eq!(
+        area_value(&editor, vcx),
+        "Ginoó
+Niño
+
+Paz
+Vida",
+        "reloaded"
+    );
+    assert_eq!(slide_counts(&editor, vcx), (2, 0));
+    // A native Ctrl+Z in the field cannot bring back the pre-split text.
+    editor.update_in(vcx, |editor, window, cx| {
+        editor.select_slide(1, window, cx);
+    });
+    settle(vcx);
+    assert!(present(vcx, "button-Join slide 2 with slide 1"));
+    vcx.simulate_keystrokes("ctrl-z");
+    settle(vcx);
+    assert_eq!(
+        area_value(&editor, vcx),
+        "Ginoó
+Niño
+
+Paz
+Vida"
+    );
+    click(vcx, "button-Join slide 2 with slide 1");
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    settle(vcx);
+    assert_eq!(
+        stored_lyrics(&store, id, vcx),
+        "Ginoó
+Niño
+Paz
+Vida"
+    );
+    assert_eq!(slide_counts(&editor, vcx), (1, 0));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn split_is_unavailable_on_a_one_line_slide(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    seed_lyrics(&editor, "Ginoó", vcx);
+    assert!(present(vcx, "button-Split slide"));
+    let refused = editor.update(vcx, |editor, cx| editor.split_selected_slide(cx));
+    assert_eq!(refused, Err("A slide needs two lines to split.".to_owned()));
+    assert_eq!(
+        editor.update(vcx, |editor, cx| editor.join_selected_slide(cx)),
+        Err("The first slide has no slide before it.".to_owned())
+    );
+}
+
+#[gpui::test]
+fn the_selected_slide_follows_the_caret(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    type_into_area(
+        &editor,
+        "Ginoó
+
+Niño",
+        vcx,
+    );
+    settle(vcx);
+    assert_eq!(slide_counts(&editor, vcx), (2, 1));
+    vcx.simulate_keystrokes("ctrl-home");
+    settle(vcx);
+    assert_eq!(slide_counts(&editor, vcx), (2, 0));
+}

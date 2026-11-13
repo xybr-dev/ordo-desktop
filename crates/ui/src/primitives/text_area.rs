@@ -132,6 +132,13 @@ impl TextAreaState {
         })
     }
 
+    /// Calls `on` whenever the value, caret or selection may have changed,
+    /// including moves that report no [`TextAreaEvent`], until the returned
+    /// subscription is dropped. It also fires for [`Self::set_value`].
+    pub fn observe(&self, cx: &mut App, mut on: impl FnMut(&mut App) + 'static) -> Subscription {
+        cx.observe(&self.input, move |_, cx| on(cx))
+    }
+
     /// The handle keyboard focus lands on.
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.input.read(cx).presentation().focus_handle().clone()
