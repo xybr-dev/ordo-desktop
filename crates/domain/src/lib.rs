@@ -9,6 +9,10 @@
 //!
 //! T2.1 adds [`identity`]: canonical UUIDv4 entity handles, the typed ids the
 //! parish store uses, and the canonical UTC timestamp codec.
+//!
+//! T2.2 adds [`revisions`]: pure edit-safety mechanics (text coalescing, the
+//! editor Undo stack, History sessions and grouping) with time passed in.
 
 pub mod identity;
 pub mod presentation;
+pub mod revisions;
