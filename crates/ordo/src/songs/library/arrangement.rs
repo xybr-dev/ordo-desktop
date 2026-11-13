@@ -247,9 +247,6 @@ fn body(library: &SongLibrary, arrangement: &Arrangement, environment: UiEnviron
                             .text_color(rgb(palette.text))
                             .child("No sections yet"),
                     )
-                    .child(div().text_color(rgb(palette.text_muted)).child(
-                        "Sections hold the lyrics, and the Sequence says the order they are sung in.",
-                    ))
                     .child(
                         div()
                             .debug_selector(|| "arrangement-add-section".into())
