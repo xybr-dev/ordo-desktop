@@ -17,12 +17,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb,
 };
 use rendering::{TemplateContent, TemplateKind};
-use ui::{
-    environment::UiEnvironment,
-    overlay::Overlay,
-    primitives::button::Button,
-    tokens,
-};
+use ui::{environment::UiEnvironment, overlay::Overlay, primitives::button::Button, tokens};
 
 use super::{
     editor::ArrangementEditor,
@@ -77,10 +72,7 @@ fn selected(editor: &ArrangementEditor, content: &ArrangementLyrics, cx: &App) -
         .collect();
     Some(Selected {
         section: section_name(&content.sections, at),
-        slide: editor
-            .lyrics
-            .slide
-            .min(generated.len().saturating_sub(1)),
+        slide: editor.lyrics.slide.min(generated.len().saturating_sub(1)),
         count: generated.len(),
         bodies,
     })
@@ -256,7 +248,10 @@ pub(super) fn inspector_body(
                     "Position",
                     format!("{} of {}", chosen.slide + 1, chosen.count),
                 ))
-                .child(row("Pagination", pagination_label(content.pagination).to_owned())),
+                .child(row(
+                    "Pagination",
+                    pagination_label(content.pagination).to_owned(),
+                )),
         )
         .into_any_element()
 }

@@ -44,7 +44,10 @@ pub(super) struct Rename {
 impl ArrangementEditor {
     /// The selected section's rename field while the panes show one.
     pub fn rename_field(&self) -> Option<FieldState> {
-        self.lyrics.rename.as_ref().map(|rename| rename.field.clone())
+        self.lyrics
+            .rename
+            .as_ref()
+            .map(|rename| rename.field.clone())
     }
 
     /// Moves a section one place in the Lyrics list. A move past an edge does
@@ -290,7 +293,8 @@ pub(super) fn rename_control(
                 match event.keystroke.key.as_str() {
                     "enter" if plain => {
                         cx.stop_propagation();
-                        let _ = weak.update(cx, |editor, cx| editor.commit_rename(false, window, cx));
+                        let _ =
+                            weak.update(cx, |editor, cx| editor.commit_rename(false, window, cx));
                     }
                     "escape" if plain => {
                         cx.stop_propagation();
@@ -300,8 +304,13 @@ pub(super) fn rename_control(
                 }
             })
             .child(
-                Field::new("arrangement-rename-field", NAME_LABEL, &rename.field, environment)
-                    .on_surface(palette.background),
+                Field::new(
+                    "arrangement-rename-field",
+                    NAME_LABEL,
+                    &rename.field,
+                    environment,
+                )
+                .on_surface(palette.background),
             )
             .children(rename.error.clone().map(|copy| {
                 div()

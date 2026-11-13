@@ -881,7 +881,9 @@ fn thumbnails_have_one_fixed_16_9_size_whether_alone_or_in_a_full_row(cx: &mut T
     let (_shell, editor, _id, vcx) = in_memory(cx, false);
     seed_lyrics(&editor, "Ginoó", vcx);
     let alone = thumbnail_size(vcx, "thumb-0");
-    seed_lyrics(&editor, "Ginoó
+    seed_lyrics(
+        &editor,
+        "Ginoó
 
 Niño
 
@@ -891,30 +893,40 @@ Vida
 
 Amén
 
-Ave", vcx);
+Ave",
+        vcx,
+    );
     for slide in ["thumb-0", "thumb-3", "thumb-5"] {
         assert_eq!(thumbnail_size(vcx, slide), alone, "{slide}");
     }
-    assert!((alone.0 * 9.0 / 16.0 - alone.1).abs() < 1.0, "16:9: {alone:?}");
+    assert!(
+        (alone.0 * 9.0 / 16.0 - alone.1).abs() < 1.0,
+        "16:9: {alone:?}"
+    );
 }
 
 #[gpui::test]
 fn slides_are_composed_off_thread_cached_and_shown_in_the_inspector(cx: &mut TestAppContext) {
     let (_shell, editor, _id, vcx) = in_memory(cx, false);
-    seed_lyrics(&editor, "Ginoó
+    seed_lyrics(
+        &editor,
+        "Ginoó
 Niño
 
 Paz
-Vida", vcx);
+Vida",
+        vcx,
+    );
     wait_for_frames(&editor, 2, vcx);
     assert!(present(vcx, "inspector-preview") && present(vcx, "inspector-meta"));
-    let ready = editor.read_with(vcx, |editor, _| {
-        editor.lyrics.frames.len()
-    });
+    let ready = editor.read_with(vcx, |editor, _| editor.lyrics.frames.len());
     assert!(ready >= 2, "a frame per slide, cached by (header, body)");
     // Re-rendering composes nothing new.
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, _| editor.lyrics.frames.len()), ready);
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| editor.lyrics.frames.len()),
+        ready
+    );
     assert!(editor.read_with(vcx, |editor, _| editor.lyrics.pending.is_empty()));
     // Another section drops what the first still waited for.
     click(vcx, "arrangement-section-1");
@@ -928,20 +940,31 @@ Vida", vcx);
 #[gpui::test]
 fn clicking_a_thumbnail_selects_its_lines_and_the_inspector_follows(cx: &mut TestAppContext) {
     let (_shell, editor, _id, vcx) = in_memory(cx, false);
-    seed_lyrics(&editor, "Ginoó
+    seed_lyrics(
+        &editor,
+        "Ginoó
 Niño
 
 Paz
-Vida", vcx);
+Vida",
+        vcx,
+    );
     click(vcx, "thumb-1");
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, _| editor.selected_slide()), 1);
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| editor.selected_slide()),
+        1
+    );
     let area = editor
         .read_with(vcx, |editor, _| editor.lyric_area())
         .expect("area");
     let (range, value) = vcx.update(|_, cx| (area.selected_range(cx), area.value(cx).to_string()));
-    assert_eq!(&value[range], "Paz
-Vida", "the slide's source lines are selected");
+    assert_eq!(
+        &value[range],
+        "Paz
+Vida",
+        "the slide's source lines are selected"
+    );
     assert!(present(vcx, "inspector-slide"));
 }
 
@@ -972,7 +995,9 @@ fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String>
 }
 
 fn sequence_len(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> usize {
-    editor.read_with(vcx, |editor, cx| editor.content(cx).expect("content").sequence.len())
+    editor.read_with(vcx, |editor, cx| {
+        editor.content(cx).expect("content").sequence.len()
+    })
 }
 
 fn type_in_rename(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
@@ -998,7 +1023,11 @@ fn move_buttons_reorder_the_list_only_and_edges_are_unavailable(cx: &mut TestApp
     click(vcx, "button-Move down");
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
-    assert_eq!(sequence_len(&editor, vcx), sequence, "the Sequence is unchanged");
+    assert_eq!(
+        sequence_len(&editor, vcx),
+        sequence,
+        "the Sequence is unchanged"
+    );
     assert_eq!(
         toasts(&shell, vcx),
         ["Moved Verse 1 in Lyrics. The Sequence is unchanged."]
@@ -1020,9 +1049,7 @@ fn alt_arrows_move_the_focused_row_and_focus_stays_on_it(cx: &mut TestAppContext
     vcx.simulate_keystrokes("alt-up");
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
-    let focused = vcx.update(|window, cx| {
-        editor.read(cx).lyrics.rows[&chorus].is_focused(window)
-    });
+    let focused = vcx.update(|window, cx| editor.read(cx).lyrics.rows[&chorus].is_focused(window));
     assert!(focused, "focus stays on the moved row");
 }
 
@@ -1033,7 +1060,10 @@ fn rename_commits_on_enter_restores_on_escape_and_explains_a_taken_name(cx: &mut
     type_in_rename(&editor, "chorus", vcx);
     vcx.simulate_keystrokes("enter");
     settle(vcx);
-    assert!(present(vcx, "arrangement-rename-error"), "a taken name is explained");
+    assert!(
+        present(vcx, "arrangement-rename-error"),
+        "a taken name is explained"
+    );
     assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
     vcx.simulate_keystrokes("escape");
     settle(vcx);
@@ -1067,7 +1097,11 @@ fn removing_a_used_section_asks_first_and_removes_its_occurrences_in_one_edit(
     click(vcx, "button-Remove section");
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
-    assert_eq!(sequence_len(&editor, vcx), 2, "the Chorus occurrence went with it");
+    assert_eq!(
+        sequence_len(&editor, vcx),
+        2,
+        "the Chorus occurrence went with it"
+    );
     assert_eq!(toasts(&shell, vcx), ["Removed Chorus."]);
     // Selection falls back onto an existing section.
     assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
@@ -1086,12 +1120,16 @@ fn undo_after_a_structural_section_edit_restores_the_list_and_selection_stays_va
     editor
         .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
         .expect("added");
-    wait(vcx, |vcx| save_state(&editor, vcx) == Some(SaveState::Saved));
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
     editor.update(vcx, |editor, cx| {
         let id = editor.selected_section().expect("selected");
         editor.remove_section(id, cx).expect("removed");
     });
-    wait(vcx, |vcx| save_state(&editor, vcx) == Some(SaveState::Saved));
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), base);
     editor.update(vcx, |editor, cx| editor.undo(cx));

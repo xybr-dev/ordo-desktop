@@ -29,8 +29,8 @@ use ui::{
 use super::{
     editor::ArrangementEditor,
     navigator::{inspector_button, thumbnails},
-    section_actions::rename_control,
     panes::{column, section_name},
+    section_actions::rename_control,
     sections::GENERIC_REFUSAL,
 };
 
@@ -390,7 +390,11 @@ pub(super) fn main_pane(
                         }),
                 ),
         )
-        .children((!read_only).then(|| rename_control(editor, weak, environment)).flatten())
+        .children(
+            (!read_only)
+                .then(|| rename_control(editor, weak, environment))
+                .flatten(),
+        )
         .children(thumbnails(editor, weak, content, environment, cx))
         .child(
             div()

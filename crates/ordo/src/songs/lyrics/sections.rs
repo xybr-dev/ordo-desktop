@@ -191,7 +191,13 @@ pub(super) fn sections_pane(
                 .children(add),
         )
         .children(rows)
-        .child(section_buttons(weak, content, selected, read_only, environment))
+        .child(section_buttons(
+            weak,
+            content,
+            selected,
+            read_only,
+            environment,
+        ))
         .child(
             div()
                 .text_size(px(scale.apply(tokens::typography::META.size)))

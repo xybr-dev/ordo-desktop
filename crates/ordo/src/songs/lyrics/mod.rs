@@ -11,8 +11,8 @@
 
 pub mod add_section;
 pub mod editor;
-pub mod navigator;
 pub mod editor_pane;
+pub mod navigator;
 pub mod panes;
 pub mod port;
 pub mod section_actions;
