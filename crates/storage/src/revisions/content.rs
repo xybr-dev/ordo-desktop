@@ -84,6 +84,24 @@ pub struct ArrangementContent {
     pub sequence: Vec<OccurrenceContent>,
 }
 
+/// The metadata of an Arrangement: everything in [`ArrangementContent`]
+/// except the sections and the Sequence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArrangementMetadata {
+    /// The display title exactly as authored; `None` derives the label.
+    pub title: Option<String>,
+    /// Languages in authored order; at least one.
+    pub languages: Vec<String>,
+    /// Choirs that perform this Arrangement; stored sorted ascending.
+    pub choirs: Vec<ChoirId>,
+    /// Who this rendition is attributed to, exactly as authored.
+    pub rendition_attribution: Option<String>,
+    /// Occasions; stored sorted ascending by byte order.
+    pub occasions: Vec<String>,
+    /// Source and rights notes exactly as authored.
+    pub notes: Option<String>,
+}
+
 /// The content of one revision, by entity kind.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RevisionContent {
@@ -192,8 +210,9 @@ struct ArrangementDoc {
 }
 
 /// The format-1 Arrangement payload: a required title and no notes. It is read
-/// only; this build never writes it again.
-#[derive(Deserialize)]
+/// only for stored revisions; it is serialized solely to check that stored
+/// bytes are canonical, never to write.
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ArrangementDocV1 {
     format: u32,
@@ -293,6 +312,42 @@ pub(crate) fn encode(content: &RevisionContent) -> Result<Encoded, StorageError>
     let sha256 = assets::hash(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| encoding_failed())?;
     Ok(Encoded { text, sha256 })
+}
+
+/// The canonical format-1 text of decoded legacy content, used only to prove
+/// that stored format-1 bytes are canonical (nothing is written). `None` when
+/// the content has no title, which format 1 cannot express.
+pub(crate) fn legacy_arrangement_text(content: &ArrangementContent) -> Option<String> {
+    let mut choirs = content.choirs.clone();
+    choirs.sort_unstable();
+    let bytes = serde_json::to_vec(&ArrangementDocV1 {
+        format: ARRANGEMENT_FORMAT_V1,
+        entity: "arrangement".to_owned(),
+        title: content.title.clone()?,
+        languages: content.languages.clone(),
+        choirs: choirs.iter().map(ToString::to_string).collect(),
+        rendition_attribution: content.rendition_attribution.clone(),
+        occasions: sorted(&content.occasions),
+        sections: content
+            .sections
+            .iter()
+            .map(|section| SectionDoc {
+                id: section.id.to_string(),
+                label: section.label.clone(),
+                lyrics: section.lyrics.clone(),
+            })
+            .collect(),
+        sequence: content
+            .sequence
+            .iter()
+            .map(|occurrence| OccurrenceDoc {
+                id: occurrence.id.to_string(),
+                section: occurrence.section.to_string(),
+            })
+            .collect(),
+    })
+    .ok()?;
+    String::from_utf8(bytes).ok()
 }
 
 /// SHA-256 of the stored text bytes.

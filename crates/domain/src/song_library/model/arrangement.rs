@@ -454,11 +454,14 @@ impl Metadata {
 
 /// The rule for languages a caller supplies on creation or an edit: at least
 /// one, each the display name of a built-in language (matched ignoring case
-/// and diacritics) and stored under that display name.
+/// and diacritics) and stored under that display name. A language the
+/// Arrangement already holds (`current`, matched exactly) may be kept even when
+/// it is not built in; only a language being added must be listed.
 ///
 /// Hydration does not call this, so stored records keep whatever they hold.
 pub(crate) fn require_listed_languages(
     languages: Vec<String>,
+    current: &[String],
 ) -> Result<Vec<String>, SongLibraryError> {
     if languages.is_empty() {
         return Err(SongLibraryError::BlankField(Field::Language));
@@ -467,6 +470,9 @@ pub(crate) fn require_listed_languages(
         .into_iter()
         .map(|language| {
             text::require_present(Field::Language, &language)?;
+            if current.contains(&language) {
+                return Ok(language);
+            }
             languages::canonical(&language)
                 .map(|listed| listed.name().to_owned())
                 .ok_or(SongLibraryError::UnlistedLanguage(language))

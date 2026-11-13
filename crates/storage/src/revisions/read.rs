@@ -173,9 +173,19 @@ pub(crate) fn load_content(
     // Strict decoding: current-format bytes must be exactly what this build
     // writes for the decoded content. serde alone accepts a missing optional
     // key, reordered keys, whitespace and unsorted sets; none of those is
-    // canonical. Format-1 Arrangements are only hash-checked above and are
-    // never re-serialized.
-    if current && content::encode(&decoded)?.text != text {
+    // canonical. A format-1 Arrangement is compared with its format-1
+    // re-encoding in memory; it is never written back.
+    let canonical = if current {
+        Some(content::encode(&decoded)?.text)
+    } else {
+        match &decoded {
+            RevisionContent::Arrangement(arrangement) => {
+                content::legacy_arrangement_text(arrangement)
+            }
+            RevisionContent::Song(_) => None,
+        }
+    };
+    if canonical.as_deref() != Some(text.as_str()) {
         return Err(damaged());
     }
     Ok((entity, decoded))

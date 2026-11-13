@@ -637,42 +637,129 @@ fn ac6_an_archived_source_may_be_duplicated_and_is_copied_as_stored() {
     assert_eq!(copy.languages(), ["Cebuano"]);
 }
 
-#[test]
-fn ac2_a_stored_arrangement_without_a_language_still_loads_and_duplicates_as_it_is() {
-    use domain::song_library::{HydrateArrangement, HydrateSong};
-    let hydrated = SongLibrary::hydrate(
+/// A library holding Song 1, Choirs 20 and 21, and legacy Arrangements 5
+/// (titled, no language), 6 (untitled, no language, no Choir) and 7 (untitled,
+/// no language, Choir "Koro" only), plus 8 (unlisted language "ceb", "en").
+fn legacy_library() -> SongLibrary {
+    use domain::song_library::{HydrateArrangement, HydrateChoir, HydrateSong};
+    let stored = |n: u8, title: Option<&str>, languages: &[&str], choirs: Vec<ChoirId>| {
+        let mut draft = ArrangementDraft::titled("x");
+        draft.title = title.map(str::to_owned);
+        draft.languages = languages.iter().map(|l| (*l).to_owned()).collect();
+        HydrateArrangement {
+            id: arrangement_id(n),
+            song: song_id(1),
+            created_at: at(10),
+            draft,
+            choirs,
+            pagination_state: PaginationState::Draft,
+            archive_state: ArchiveState::Active,
+        }
+    };
+    SongLibrary::hydrate(
         vec![HydrateSong {
             id: song_id(1),
             created_at: at(0),
             draft: SongDraft::titled("Kyrie"),
             archive_state: ArchiveState::Active,
         }],
-        vec![HydrateArrangement {
-            id: arrangement_id(5),
-            song: song_id(1),
-            created_at: at(10),
-            draft: ArrangementDraft::titled("Legacy"),
-            choirs: vec![],
-            pagination_state: PaginationState::Draft,
+        vec![
+            stored(5, Some("Legacy"), &[], vec![]),
+            stored(6, None, &[], vec![]),
+            stored(7, None, &[], vec![choir_id(20)]),
+            stored(8, None, &["ceb", "en"], vec![]),
+        ],
+        vec![HydrateChoir {
+            id: choir_id(20),
+            created_at: at(0),
+            draft: ChoirDraft::named("Koro"),
             archive_state: ArchiveState::Active,
         }],
         vec![],
-        vec![],
-    );
-    let mut library = hydrated.expect("legacy record loads");
+    )
+    .expect("legacy records load")
+}
+
+#[test]
+fn ac2_a_stored_arrangement_without_a_language_still_loads_and_labels_but_cannot_be_duplicated() {
+    let mut library = legacy_library();
     assert_eq!(
         library.arrangement_label(arrangement_id(5)).as_deref(),
         Ok("Legacy")
     );
-    let copy = library
-        .duplicate_arrangement(
-            arrangement_id(5),
-            arrangement_id(6),
-            at(100),
-            vec![],
-            vec![],
-        )
-        .expect("copied as stored");
-    assert!(copy.languages().is_empty());
-    assert_eq!(copy.title(), Some("Legacy"));
+    assert_eq!(
+        library.arrangement_label(arrangement_id(6)).as_deref(),
+        Ok("Untitled")
+    );
+    assert_eq!(
+        library.arrangement_label(arrangement_id(7)).as_deref(),
+        Ok("Koro")
+    );
+    // Duplicating is a creation, so the language rule applies.
+    for source in [5, 6, 7] {
+        assert_eq!(
+            library
+                .duplicate_arrangement(
+                    arrangement_id(source),
+                    arrangement_id(50),
+                    at(100),
+                    vec![],
+                    vec![],
+                )
+                .map(|_| ()),
+            Err(SongLibraryError::BlankField(Field::Language))
+        );
+    }
+    assert!(library.arrangement(arrangement_id(50)).is_err());
+}
+
+#[test]
+fn ac2_an_unlisted_legacy_language_may_be_kept_but_not_added() {
+    let mut library = legacy_library();
+    let mut details = details_of(&library, 8);
+    details.notes = Some("kept".to_owned());
+    // Keeping "ceb" and "en" as stored is fine.
+    library
+        .edit_arrangement_details(arrangement_id(8), details.clone())
+        .expect("legacy languages kept");
+    assert_eq!(
+        library
+            .arrangement(arrangement_id(8))
+            .expect("a")
+            .languages(),
+        ["ceb", "en"]
+    );
+    // Adding a built-in language next to them is fine too.
+    details.languages.push("Latin".to_owned());
+    library
+        .edit_arrangement_details(arrangement_id(8), details.clone())
+        .expect("a listed language added");
+    assert_eq!(
+        library
+            .arrangement(arrangement_id(8))
+            .expect("a")
+            .languages(),
+        ["ceb", "en", "Latin"]
+    );
+    // An unlisted language that was never stored is still refused.
+    details.languages.push("Klingon".to_owned());
+    assert_eq!(
+        library
+            .edit_arrangement_details(arrangement_id(8), details)
+            .map(|_| ()),
+        Err(SongLibraryError::UnlistedLanguage("Klingon".to_owned()))
+    );
+    // A lyrics edit keeps them as well.
+    let mut draft = ArrangementDraft::titled("x");
+    draft.languages = vec!["ceb".to_owned()];
+    library
+        .edit_arrangement(arrangement_id(8), draft.clone())
+        .expect("content edit keeps a stored language");
+    draft.languages = vec!["ceb".to_owned(), "xx".to_owned()];
+    assert_eq!(
+        library
+            .edit_arrangement(arrangement_id(8), draft)
+            .map(|_| ()),
+        Err(SongLibraryError::UnlistedLanguage("xx".to_owned()))
+    );
 }

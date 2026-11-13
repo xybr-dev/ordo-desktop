@@ -244,41 +244,60 @@ fn ac4_lyric_evidence_is_per_line_capped_at_three_per_song() {
 /// Arrangement (11); Song 2 has one Cebuano/Adult Arrangement (20); Song 3
 /// has no Arrangement; Song 4 has one Arrangement with no language, no Choir.
 fn filter_library() -> SongLibrary {
-    let mut library = SongLibrary::new();
-    library
-        .create_choir(choir_id(900), at(0), ChoirDraft::named("Youth"))
-        .unwrap();
-    library
-        .create_choir(choir_id(901), at(0), ChoirDraft::named("Adult"))
-        .unwrap();
-    for (n, title) in [(1, "One"), (2, "Two"), (3, "Three"), (4, "Four")] {
-        add_song(&mut library, n, title);
-    }
-    add_arrangement(
-        &mut library,
-        10,
-        1,
-        draft("Cebuano", Some("Cebuano"), &["x"], 100),
-        vec![choir_id(900)],
-    );
+    use domain::song_library::{
+        ArchiveState, HydrateArrangement, HydrateChoir, HydrateSong, PaginationState,
+    };
+    let choirs = [(900, "Youth"), (901, "Adult")]
+        .into_iter()
+        .map(|(n, name)| HydrateChoir {
+            id: choir_id(n),
+            created_at: at(0),
+            draft: ChoirDraft::named(name),
+            archive_state: ArchiveState::Active,
+        })
+        .collect();
+    let songs = [(1, "One"), (2, "Two"), (3, "Three"), (4, "Four")]
+        .into_iter()
+        .map(|(n, title)| HydrateSong {
+            id: song_id(n),
+            created_at: at(0),
+            draft: SongDraft::titled(title),
+            archive_state: ArchiveState::Active,
+        })
+        .collect();
+    let stored =
+        |n: u32, song: u32, draft: ArrangementDraft, choirs: Vec<ChoirId>| HydrateArrangement {
+            id: arrangement_id(n),
+            song: song_id(song),
+            created_at: at(i64::from(n)),
+            draft,
+            choirs,
+            pagination_state: PaginationState::Draft,
+            archive_state: ArchiveState::Active,
+        };
     let mut english = draft("English", Some("English"), &["y"], 110);
     english.occasions = vec!["Advent".to_owned()];
-    add_arrangement(&mut library, 11, 1, english, vec![choir_id(901)]);
-    add_arrangement(
-        &mut library,
-        20,
-        2,
-        draft("Cebuano", Some("Cebuano"), &["z"], 120),
-        vec![choir_id(901)],
-    );
-    add_arrangement(
-        &mut library,
-        40,
-        4,
-        draft("Bare", None, &["w"], 130),
-        Vec::new(),
-    );
-    library
+    // Song 4's Arrangement is a legacy record from before a language was
+    // required, so it is hydrated rather than created.
+    let mut bare = draft("Bare", None, &["w"], 130);
+    bare.languages = Vec::new();
+    let arrangements = vec![
+        stored(
+            10,
+            1,
+            draft("Cebuano", Some("Cebuano"), &["x"], 100),
+            vec![choir_id(900)],
+        ),
+        stored(11, 1, english, vec![choir_id(901)]),
+        stored(
+            20,
+            2,
+            draft("Cebuano", Some("Cebuano"), &["z"], 120),
+            vec![choir_id(901)],
+        ),
+        stored(40, 4, bare, Vec::new()),
+    ];
+    SongLibrary::hydrate(songs, arrangements, choirs, Vec::new()).expect("filter library loads")
 }
 
 fn filtered(
@@ -361,10 +380,10 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
     let hits = search(&library, &filtered(&[FilterValue::Unspecified], &[], &[]));
     assert_eq!(songs(&hits), vec![song_id(4)]);
 
-    // No language: new Arrangements always have one, so only stored legacy
-    // records could match; none exist here and Unspecified is not a wildcard.
+    // No language: Song 4's hydrated legacy Arrangement again; Unspecified is
+    // not a wildcard.
     let hits = search(&library, &filtered(&[], &[FilterValue::Unspecified], &[]));
-    assert!(songs(&hits).is_empty());
+    assert_eq!(songs(&hits), vec![song_id(4)]);
 
     // No occasion: Song 1's Cebuano Arrangement, Song 2 and Song 4, but not
     // Song 1's English Advent Arrangement.
@@ -382,7 +401,7 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
             &[],
         ),
     );
-    assert_eq!(songs(&hits), vec![song_id(1)]);
+    assert_eq!(songs(&hits), vec![song_id(4), song_id(1)]);
 
     // The occasion filter reads the Arrangement's own tags (and the Song's).
     let hits = search(&library, &filtered(&[], &[], &[FilterValue::Is("advent")]));

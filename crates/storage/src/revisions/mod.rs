@@ -14,7 +14,8 @@ use domain::presentation::ContentHash;
 use domain::revisions::{RevisionEntity, RevisionKind};
 
 pub use content::{
-    ArrangementContent, OccurrenceContent, RevisionContent, SectionContent, SongContent,
+    ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent, SectionContent,
+    SongContent,
 };
 pub(crate) use read::revision_ids;
 pub(crate) use write::append_creation;

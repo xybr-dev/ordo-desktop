@@ -223,6 +223,7 @@ pub(crate) fn validate_song_fields(
 
 /// Validates the Arrangement before any statement runs.
 fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError> {
+    require_language(&arrangement.languages)?;
     validate_arrangement_fields(
         arrangement.title.as_deref(),
         &arrangement.languages,
@@ -248,6 +249,18 @@ fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError
     Ok(())
 }
 
+/// A new or edited Arrangement needs at least one language. Content that is
+/// restored, imported or replaced may predate the rule and skips this check.
+pub(crate) fn require_language(languages: &[String]) -> Result<(), StorageError> {
+    if languages.is_empty() {
+        return Err(StorageError::InvalidInput {
+            field: "language",
+            reason: "required",
+        });
+    }
+    Ok(())
+}
+
 /// The Arrangement field rules shared by create and by revision commits.
 pub(crate) fn validate_arrangement_fields<'a>(
     title: Option<&str>,
@@ -260,12 +273,6 @@ pub(crate) fn validate_arrangement_fields<'a>(
 ) -> Result<(), StorageError> {
     if let Some(value) = title {
         require_present("title", value)?;
-    }
-    if languages.is_empty() {
-        return Err(StorageError::InvalidInput {
-            field: "language",
-            reason: "required",
-        });
     }
     for language in languages {
         require_present("language", language)?;

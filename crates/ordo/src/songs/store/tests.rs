@@ -4,15 +4,17 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
 use domain::{
-    identity::{ArrangementId, ChoirId, EntityId, SongId},
+    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId},
     revisions::{RevisionEntity, RevisionKind},
     song_library::{
-        Arrangement, ArrangementDetails, ChoirDraft, PaginationState, SongDraft, SongLibrary,
+        ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ChoirDraft,
+        HydrateArrangement, HydrateSong, PaginationState, SongDraft, SongLibrary,
     },
 };
 use gpui::{Entity, SharedString, Task, TestAppContext};
 use storage::{
-    NewArrangement, NewSection, RevisionRecord, ShutdownOutcome, Storage, StorageConfig,
+    ArrangementContent, NewArrangement, NewSection, RevisionRecord, ShutdownOutcome, Storage,
+    StorageConfig,
 };
 
 use crate::songs::{
@@ -838,4 +840,198 @@ fn ac6_store_arrangement_writes_of_every_kind_complete_in_submission_order(
         assert_eq!(store.library().arrangements().count(), 2);
     });
     finish(cx, &slot, &dir);
+}
+
+/// Swaps the store's memory for a library holding one legacy Arrangement of
+/// `song` with no language, as a parish stored before T2.6 may hold.
+fn hold_a_legacy_arrangement(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    song: SongId,
+    id: ArrangementId,
+) {
+    let at = domain::identity::Timestamp::from_millis(0);
+    let library = SongLibrary::hydrate(
+        vec![HydrateSong {
+            id: song,
+            created_at: at,
+            draft: SongDraft::titled("Legacy"),
+            archive_state: ArchiveState::Active,
+        }],
+        vec![HydrateArrangement {
+            id,
+            song,
+            created_at: at,
+            draft: ArrangementDraft::default(),
+            choirs: Vec::new(),
+            pagination_state: PaginationState::Draft,
+            archive_state: ArchiveState::Active,
+        }],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("hydrate");
+    store.update(cx, |store, cx| store.replace_library(library, cx));
+}
+
+#[gpui::test]
+fn ac2_store_duplicating_an_arrangement_without_a_language_is_refused(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, id) = seeded(cx, "store-arr-dup-legacy");
+    let start = history(cx, &slot, id).len();
+    hold_a_legacy_arrangement(cx, &store, song, id);
+    let changes = count_changes(cx, &store);
+
+    assert_eq!(
+        duplicate_arr(cx, &store, id),
+        Err(SharedString::from("language is blank"))
+    );
+    assert_eq!(history(cx, &slot, id).len(), start, "no revision");
+    assert_eq!(*changes.borrow(), 0, "no event");
+    store.read_with(cx, |store, _| {
+        assert_eq!(store.library().arrangements().count(), 1);
+    });
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac2_store_details_may_keep_a_stored_language_that_is_not_listed(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, id) = seeded(cx, "store-arr-keep-language");
+    // Memory holds an Arrangement whose language is not in the built-in list.
+    let at = domain::identity::Timestamp::from_millis(0);
+    let library = SongLibrary::hydrate(
+        vec![HydrateSong {
+            id: song,
+            created_at: at,
+            draft: SongDraft::titled("Panis Angelicus"),
+            archive_state: ArchiveState::Active,
+        }],
+        vec![HydrateArrangement {
+            id,
+            song,
+            created_at: at,
+            draft: ArrangementDraft {
+                languages: vec!["Latin".into(), "ceb".into()],
+                ..ArrangementDraft::default()
+            },
+            choirs: Vec::new(),
+            pagination_state: PaginationState::Approved,
+            archive_state: ArchiveState::Active,
+        }],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("hydrate");
+    store.update(cx, |store, cx| store.replace_library(library, cx));
+
+    let kept = ArrangementDetails {
+        languages: vec!["Latin".into(), "ceb".into()],
+        notes: Some("Kept".into()),
+        ..arrangement_of(cx, &store, id).details()
+    };
+    assert_eq!(save_arr(cx, &store, id, kept), Ok(id));
+    let added = ArrangementDetails {
+        languages: vec!["Latin".into(), "ceb".into(), "Klingon".into()],
+        ..arrangement_of(cx, &store, id).details()
+    };
+    assert_eq!(
+        save_arr(cx, &store, id, added),
+        Err(SharedString::from(
+            "\"Klingon\" is not in Ordo's list of languages"
+        ))
+    );
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_store_a_save_never_overwrites_newer_sections(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-arr-newer-sections");
+    let before = arrangement_of(cx, &store, id);
+
+    // Another writer changes the lyrics and the pagination state behind the
+    // store, after its memory was loaded.
+    let future = slot
+        .with(|storage| storage.arrangement(id))
+        .expect("storage is open");
+    let stored = cx.foreground_executor().block_test(future).expect("record");
+    let mut newer = ArrangementContent::of(&stored);
+    newer.sections[0].lyrics = "Newer lyrics".to_owned();
+    let head = history(cx, &slot, id).last().expect("head").id;
+    let session = HistorySessionId::from_entity(EntityId::from_random_bytes([7; 16]));
+    let future = slot
+        .with(|storage| {
+            storage.commit_arrangement_edit(
+                id,
+                newer.clone(),
+                PaginationState::NeedsReview,
+                RevisionKind::Edit,
+                Some(session),
+                head,
+            )
+        })
+        .expect("storage is open");
+    cx.foreground_executor()
+        .block_test(future)
+        .expect("newer sections");
+
+    let edited = ArrangementDetails {
+        notes: Some("Details only".into()),
+        ..before.details()
+    };
+    assert_eq!(save_arr(cx, &store, id, edited.clone()), Ok(id));
+
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let after = arrangement_of(cx, store, id);
+        assert_eq!(after.details(), edited);
+        assert_eq!(after.sections()[0].lyrics(), "Newer lyrics");
+        assert_eq!(after.pagination_state(), PaginationState::NeedsReview);
+    };
+    check(cx, &store);
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_store_a_save_that_changes_nothing_writes_nothing(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-arr-noop-save");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    assert_eq!(save_arr(cx, &store, id, before.details()), Ok(id));
+    assert_eq!(history(cx, &slot, id).len(), start, "no revision");
+    assert_eq!(*changes.borrow(), 0, "no event");
+    assert_eq!(arrangement_of(cx, &store, id), before);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_store_a_storage_refusal_after_validation_leaves_memory_unchanged(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-arr-storage-refuses");
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let changes = count_changes(cx, &store);
+
+    // Swap in an open store of another, empty parish: memory still holds the
+    // Arrangement, the domain accepts the edit, and storage cannot find it.
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(ShutdownOutcome::Clean));
+    let other = temp_dir("store-arr-other-parish");
+    slot.put(Storage::spawn(StorageConfig::in_directory(&other)));
+
+    let edited = ArrangementDetails {
+        notes: Some("Never lands".into()),
+        ..arrangement_of(cx, &store, id).details()
+    };
+    let outcome = save_arr(cx, &store, id, edited);
+    assert!(outcome.is_err(), "storage refuses: {outcome:?}");
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    assert_eq!(*changes.borrow(), 0);
+
+    finish(cx, &slot, &other);
+    let _ = std::fs::remove_dir_all(&dir);
 }

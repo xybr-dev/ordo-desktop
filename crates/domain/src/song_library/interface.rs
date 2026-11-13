@@ -486,7 +486,7 @@ impl SongLibrary {
             self.require_choir_active(*choir)?;
         }
         let mut draft = draft;
-        draft.languages = require_listed_languages(draft.languages)?;
+        draft.languages = require_listed_languages(draft.languages, &[])?;
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
@@ -534,7 +534,7 @@ impl SongLibrary {
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
         Self::require_editable(&self.songs, arrangement)?;
         let mut draft = draft;
-        draft.languages = require_listed_languages(draft.languages)?;
+        draft.languages = require_listed_languages(draft.languages, arrangement.languages())?;
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
@@ -555,7 +555,9 @@ impl SongLibrary {
     /// The metadata is title, languages, Choirs, rendition attribution,
     /// occasions, and notes. Languages follow the same rule as
     /// [`Self::create_arrangement`]. Choirs must exist and be distinct, and an
-    /// archived Choir may stay associated but cannot be newly associated.
+    /// archived Choir may stay associated but cannot be newly associated. A
+    /// language the Arrangement already holds may be kept even when it is not
+    /// built in; only a language being added must be listed.
     /// Refused with [`SongLibraryError::Archived`] when the Arrangement or its
     /// Song is archived. The edit is all or nothing: any invalid part refuses
     /// the whole edit and changes nothing.
@@ -570,7 +572,7 @@ impl SongLibrary {
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
         Self::require_editable(&self.songs, arrangement)?;
         let mut details = details;
-        details.languages = require_listed_languages(details.languages)?;
+        details.languages = require_listed_languages(details.languages, arrangement.languages())?;
         text::require_distinct(Field::Choir, &details.choirs)?;
         for choir in &details.choirs {
             let stored = self
@@ -594,7 +596,7 @@ impl SongLibrary {
     /// as in "Cebuano + English · Koro San Roque +1". Choirs are ordered by
     /// match key of their name, then identity, and archived Choirs count. An
     /// Arrangement with neither a title, a language nor a Choir is labelled
-    /// "Untitled Arrangement" (only a stored record from before languages were
+    /// "Untitled" (only a stored record from before languages were
     /// required can be that bare).
     pub fn arrangement_label(&self, id: ArrangementId) -> Result<String, SongLibraryError> {
         let arrangement = self.arrangement(id)?;
@@ -619,7 +621,7 @@ impl SongLibrary {
             }
         }
         if label.is_empty() {
-            label.push_str("Untitled Arrangement");
+            label.push_str("Untitled");
         }
         Ok(label)
     }
@@ -635,9 +637,10 @@ impl SongLibrary {
     /// [`super::PaginationState::Draft`] and is active. Later edits to either
     /// side never reach the other.
     ///
-    /// An archived source may be duplicated and is copied as stored, so a
-    /// legacy source without a language duplicates as it is. An archived Song
-    /// refuses with [`SongLibraryError::Archived`]. A used `new_id` is
+    /// An archived source may be duplicated and is copied as stored. A
+    /// duplicate is a creation, so a legacy source without a language is
+    /// refused with `BlankField(Field::Language)`. An archived Song refuses
+    /// with [`SongLibraryError::Archived`]. A used `new_id` is
     /// `DuplicateArrangement`; a section or occurrence identity another
     /// Arrangement (the source included) has ever used is `DuplicateSection` or
     /// `DuplicateOccurrence`; wrong counts are `IdentityCountMismatch`.
@@ -659,6 +662,9 @@ impl SongLibrary {
         {
             return Err(SongLibraryError::Archived(RecordRef::Song(song)));
         }
+        if original.languages().is_empty() {
+            return Err(SongLibraryError::BlankField(Field::Language));
+        }
         if self.arrangements.contains_key(&new_id) {
             return Err(SongLibraryError::DuplicateArrangement(new_id));
         }
@@ -676,6 +682,16 @@ impl SongLibrary {
             .map(Section::id)
             .zip(section_ids.iter().copied())
             .collect();
+        let mut sequence = Vec::with_capacity(original.sequence().len());
+        for (occurrence, id) in original.sequence().iter().zip(&occurrence_ids) {
+            let section = *renamed.get(&occurrence.section()).ok_or(
+                SongLibraryError::SectionNotInArrangement {
+                    arrangement: source,
+                    section: occurrence.section(),
+                },
+            )?;
+            sequence.push(OccurrenceDraft { id: *id, section });
+        }
         let draft = ArrangementDraft {
             title: original.title().map(str::to_owned),
             languages: original.languages().to_vec(),
@@ -692,15 +708,7 @@ impl SongLibrary {
                     lyrics: section.lyrics().to_owned(),
                 })
                 .collect(),
-            sequence: original
-                .sequence()
-                .iter()
-                .zip(&occurrence_ids)
-                .map(|(occurrence, id)| OccurrenceDraft {
-                    id: *id,
-                    section: renamed[&occurrence.section()],
-                })
-                .collect(),
+            sequence,
         };
         let choirs: Vec<ChoirId> = original
             .choirs()

@@ -10,19 +10,17 @@
 use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 
 use domain::{
-    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, RevisionId, SongId, Timestamp},
-    revisions::{RevisionEntity, RevisionKind},
+    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId, Timestamp},
     song_library::{
-        Arrangement, ArrangementDetails, ArrangementDraft, ChoirDraft, OccurrenceDraft,
-        PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError,
-        match_key,
+        ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ChoirDraft, Field,
+        HydrateArrangement, HydrateChoir, HydrateSong, OccurrenceDraft, PaginationState, RecordRef,
+        SectionDraft, SongDraft, SongLibrary, SongLibraryError, match_key,
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
 use storage::{
-    ArrangementContent, ArrangementRecord, ChoirDetails, ChoirRecord, NewArrangement, NewChoir,
-    NewSection, NewSong, OccurrenceContent, SectionContent, ShutdownOutcome, SongRecord, Storage,
-    StorageConfig, StorageError,
+    ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord, NewArrangement, NewChoir,
+    NewSection, NewSong, ShutdownOutcome, SongRecord, Storage, StorageConfig, StorageError,
 };
 
 /// Where the parish library is in its life.
@@ -142,29 +140,29 @@ enum Stored {
     Arrangement(ArrangementRecord),
 }
 
-/// What validation worked out from the library for a write, so the pump does
-/// not look the Arrangement up a second time.
-enum Prepared {
-    /// Nothing beyond the write itself.
-    Nothing,
-    /// The content and pagination state a details Save commits.
-    Save(Box<ArrangementContent>, PaginationState),
-    /// The copy a Duplicate creates.
-    Copy(NewArrangement),
+/// What validation decided for a write.
+enum Verdict {
+    /// The write changes nothing, so there is no revision, no write and no
+    /// event: the task resolves to this id.
+    Unchanged(EntityId),
+    /// The storage call to make.
+    Write(Prepared),
 }
 
-/// A write in progress: one storage call, or a details Save that first reads
-/// the Arrangement's latest revision and then commits on top of it. Both steps
-/// run while the store's `writing` flag is held, so no other write interleaves
-/// between them.
-enum Started {
-    One(StoredWrite),
-    Save {
-        parent: Pin<Box<dyn Future<Output = Result<RevisionId, StorageError>> + Send>>,
-        arrangement: ArrangementId,
-        content: Box<ArrangementContent>,
-        pagination: PaginationState,
-    },
+/// The storage call for a write, built from the domain-checked values.
+/// Dispatch is over this enum alone, so every case is handled and none can be
+/// "not prepared".
+enum Prepared {
+    CreateSong(Box<NewSong>),
+    CreateChoir(NewChoir),
+    EditChoir(ChoirId, ChoirDetails),
+    ArchiveChoir(ChoirId),
+    RestoreChoir(ChoirId),
+    CreateArrangement(Box<NewArrangement>),
+    /// An atomic metadata-only commit: storage reads the sections and
+    /// Sequence in the same transaction, so memory never supplies them.
+    SaveMetadata(ArrangementId, Box<ArrangementMetadata>),
+    Copy(Box<NewArrangement>),
 }
 
 /// The text shown when a write cannot reach the parish store.
@@ -215,32 +213,62 @@ fn check_song_draft(draft: &SongDraft) -> Result<(), SharedString> {
 }
 
 /// Checks Arrangement details against the domain's own rules on a scratch
-/// library holding only a probe Song and the named Choirs, so the cost does not
-/// grow with the parish library. Returns the details with the languages under
-/// their display names, the form storage must be given.
+/// library holding only a probe Song, the named Choirs and (for an existing
+/// Arrangement) a probe holding its current languages and Choirs, so the cost
+/// does not grow with the parish library and a language the Arrangement
+/// already has may be kept. Returns the details with the languages under their
+/// display names, the form storage must be given.
 fn check_arrangement_details(
     details: &ArrangementDetails,
+    existing: Option<&Arrangement>,
 ) -> Result<ArrangementDetails, SongLibraryError> {
     let at = Timestamp::from_millis(0);
     let song = SongId::from_entity(EntityId::from_random_bytes([1; 16]));
-    let mut scratch = SongLibrary::new();
-    scratch.create_song(song, at, SongDraft::titled("probe"))?;
-    for (index, choir) in details.choirs.iter().enumerate() {
-        // A repeated Choir fails here and is reported by `create_arrangement`.
-        let _ = scratch.create_choir(*choir, at, ChoirDraft::named(format!("probe {index}")));
+    let held_choirs: Vec<ChoirId> = existing
+        .map(|arrangement| arrangement.choirs().iter().copied().collect())
+        .unwrap_or_default();
+    let mut named: Vec<ChoirId> = Vec::new();
+    for choir in held_choirs.iter().chain(&details.choirs) {
+        if !named.contains(choir) {
+            named.push(*choir);
+        }
     }
     let probe = ArrangementId::from_entity(EntityId::from_random_bytes([2; 16]));
-    let draft = ArrangementDraft {
-        title: details.title.clone(),
-        languages: details.languages.clone(),
-        rendition_attribution: details.rendition_attribution.clone(),
-        occasions: details.occasions.clone(),
-        notes: details.notes.clone(),
-        sections: Vec::new(),
-        sequence: Vec::new(),
+    let held = HydrateArrangement {
+        id: probe,
+        song,
+        created_at: at,
+        draft: ArrangementDraft {
+            languages: existing.map(|a| a.languages().to_vec()).unwrap_or_default(),
+            ..ArrangementDraft::default()
+        },
+        choirs: held_choirs,
+        pagination_state: PaginationState::Draft,
+        archive_state: ArchiveState::Active,
     };
+    let mut scratch = SongLibrary::hydrate(
+        vec![HydrateSong {
+            id: song,
+            created_at: at,
+            draft: SongDraft::titled("probe"),
+            archive_state: ArchiveState::Active,
+        }],
+        vec![held],
+        named
+            .iter()
+            .enumerate()
+            .map(|(index, id)| HydrateChoir {
+                id: *id,
+                created_at: at,
+                draft: ChoirDraft::named(format!("probe {index}")),
+                archive_state: ArchiveState::Active,
+            })
+            .collect(),
+        Vec::new(),
+    )
+    .map_err(|error| error.cause)?;
     scratch
-        .create_arrangement(probe, song, at, draft, details.choirs.clone())
+        .edit_arrangement_details(probe, details.clone())
         .map(Arrangement::details)
 }
 
@@ -275,36 +303,6 @@ fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
             .sequence
             .iter()
             .map(|occurrence| OccurrenceDraft::new(occurrence.id, occurrence.section))
-            .collect(),
-    }
-}
-
-/// The content a details Save commits: the new details over the sections and
-/// Sequence the Arrangement already has.
-fn content_with(arrangement: &Arrangement, details: &ArrangementDetails) -> ArrangementContent {
-    ArrangementContent {
-        title: details.title.clone(),
-        languages: details.languages.clone(),
-        choirs: details.choirs.clone(),
-        rendition_attribution: details.rendition_attribution.clone(),
-        occasions: details.occasions.clone(),
-        notes: details.notes.clone(),
-        sections: arrangement
-            .sections()
-            .iter()
-            .map(|section| SectionContent {
-                id: section.id(),
-                label: section.label().map(str::to_owned),
-                lyrics: section.lyrics().to_owned(),
-            })
-            .collect(),
-        sequence: arrangement
-            .sequence()
-            .iter()
-            .map(|occurrence| OccurrenceContent {
-                id: occurrence.id(),
-                section: occurrence.section(),
-            })
             .collect(),
     }
 }
@@ -346,6 +344,18 @@ fn copy_of(library: &SongLibrary, source: &Arrangement) -> NewArrangement {
             .filter_map(|occurrence| positions.get(&occurrence.section()).copied())
             .collect(),
     }
+}
+
+/// Whether two sets of details are the same, ignoring the order of Choirs and
+/// occasions (the Arrangement keeps both as sets).
+fn same_details(a: &ArrangementDetails, b: &ArrangementDetails) -> bool {
+    let sorted = |details: &ArrangementDetails| {
+        let mut details = details.clone();
+        details.choirs.sort_unstable();
+        details.occasions.sort_unstable();
+        details
+    };
+    sorted(a) == sorted(b)
 }
 
 /// A fresh History-session id from OS randomness: each details Save is its own
@@ -528,8 +538,11 @@ impl LibraryStore {
 
     /// Replaces an Arrangement's details as one History session's `Edit`
     /// revision, leaving its sections, Sequence and pagination state as they
-    /// are. A stale parent revision or any storage error fails the Save and
-    /// leaves memory unchanged.
+    /// are. It is an atomic metadata-only commit: storage reads the head
+    /// revision, sections and Sequence in the same transaction and returns the
+    /// whole stored Arrangement, which memory then takes, so a Save never
+    /// overwrites newer sections. Details equal to the stored ones write
+    /// nothing and resolve to the id. A storage error leaves memory unchanged.
     pub fn save_arrangement_details(
         &mut self,
         id: ArrangementId,
@@ -616,74 +629,30 @@ impl LibraryStore {
                 continue;
             }
             let prepared = match self.validate(&mut write) {
-                Ok(prepared) => prepared,
+                Ok(Verdict::Write(prepared)) => prepared,
+                Ok(Verdict::Unchanged(id)) => {
+                    let _ = reply.try_send(Ok(id));
+                    continue;
+                }
                 Err(message) => {
                     let _ = reply.try_send(Err(message));
                     continue;
                 }
             };
-            let started = self.storage.with(|storage| match (&write, prepared) {
-                (LibraryWrite::CreateSong(draft), _) => {
-                    Started::One(boxed_song(storage.create_song(NewSong {
-                        title: draft.title.clone(),
-                        aliases: draft.aliases.clone(),
-                        original_attribution: draft.original_attribution.clone(),
-                        provenance: draft.provenance.clone(),
-                        rights_notes: draft.rights_notes.clone(),
-                        liturgical_moments: draft.liturgical_moments.clone(),
-                        occasions: draft.occasions.clone(),
-                    })))
+            let started = self.storage.with(|storage| match prepared {
+                Prepared::CreateSong(new) => boxed_song(storage.create_song(*new)),
+                Prepared::CreateChoir(new) => boxed(storage.create_choir(new)),
+                Prepared::EditChoir(id, details) => boxed(storage.edit_choir(id, details)),
+                Prepared::ArchiveChoir(id) => boxed(storage.archive_choir(id)),
+                Prepared::RestoreChoir(id) => boxed(storage.restore_choir(id)),
+                Prepared::CreateArrangement(new) | Prepared::Copy(new) => {
+                    boxed_arrangement(storage.create_arrangement(*new))
                 }
-                (LibraryWrite::Create(draft), _) => {
-                    Started::One(boxed(storage.create_choir(NewChoir {
-                        name: draft.name.clone(),
-                        short_label: draft.short_label.clone(),
-                        languages: draft.languages.clone(),
-                        notes: draft.notes.clone(),
-                    })))
+                Prepared::SaveMetadata(id, metadata) => {
+                    let commit =
+                        storage.commit_arrangement_metadata(id, *metadata, fresh_session());
+                    boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
                 }
-                (LibraryWrite::Edit(id, draft), _) => Started::One(boxed(storage.edit_choir(
-                    *id,
-                    ChoirDetails {
-                        name: draft.name.clone(),
-                        short_label: draft.short_label.clone(),
-                        languages: draft.languages.clone(),
-                        notes: draft.notes.clone(),
-                    },
-                ))),
-                (LibraryWrite::Archive(id), _) => Started::One(boxed(storage.archive_choir(*id))),
-                (LibraryWrite::Restore(id), _) => Started::One(boxed(storage.restore_choir(*id))),
-                (LibraryWrite::CreateArrangement(song, details), _) => Started::One(
-                    boxed_arrangement(storage.create_arrangement(NewArrangement {
-                        song: *song,
-                        title: details.title.clone(),
-                        languages: details.languages.clone(),
-                        choirs: details.choirs.clone(),
-                        rendition_attribution: details.rendition_attribution.clone(),
-                        occasions: details.occasions.clone(),
-                        notes: details.notes.clone(),
-                        sections: Vec::new(),
-                        sequence: Vec::new(),
-                    })),
-                ),
-                (
-                    LibraryWrite::SaveArrangementDetails(id, _),
-                    Prepared::Save(content, pagination),
-                ) => Started::Save {
-                    parent: Box::pin(storage.latest_revision(RevisionEntity::Arrangement(*id))),
-                    arrangement: *id,
-                    content,
-                    pagination,
-                },
-                (LibraryWrite::DuplicateArrangement(_), Prepared::Copy(copy)) => {
-                    Started::One(boxed_arrangement(storage.create_arrangement(copy)))
-                }
-                // `validate` always prepares what its write kind needs.
-                _ => Started::One(Box::pin(async {
-                    Err(StorageError::Sqlite(
-                        "the write was not prepared".to_owned(),
-                    ))
-                })),
             });
             let Some(started) = started else {
                 let _ = reply.try_send(Err(NOT_OPEN.into()));
@@ -691,59 +660,11 @@ impl LibraryStore {
             };
             self.writing = true;
             cx.spawn(async move |this, cx| {
-                let stored = match started {
-                    Started::One(future) => {
-                        cx.background_spawn(async move {
-                            future.await.map_err(|error| error.to_string())
-                        })
-                        .await
-                    }
-                    Started::Save {
-                        parent,
-                        arrangement,
-                        content,
-                        pagination,
-                    } => {
-                        let parent = cx
-                            .background_spawn(async move {
-                                parent.await.map_err(|error| error.to_string())
-                            })
-                            .await;
-                        match parent {
-                            Err(message) => Err(message),
-                            Ok(parent) => {
-                                // Still inside this write: `writing` is held.
-                                let commit = this
-                                    .update(cx, |this, _| {
-                                        this.storage.with(|storage| {
-                                            storage.commit_arrangement_edit(
-                                                arrangement,
-                                                *content,
-                                                pagination,
-                                                RevisionKind::Edit,
-                                                Some(fresh_session()),
-                                                parent,
-                                            )
-                                        })
-                                    })
-                                    .ok()
-                                    .flatten();
-                                match commit {
-                                    Some(commit) => {
-                                        cx.background_spawn(async move {
-                                            commit
-                                                .await
-                                                .map(|(record, _)| Stored::Arrangement(record))
-                                                .map_err(|error| error.to_string())
-                                        })
-                                        .await
-                                    }
-                                    None => Err(NOT_OPEN.to_owned()),
-                                }
-                            }
-                        }
-                    }
-                };
+                let stored = cx
+                    .background_spawn(
+                        async move { started.await.map_err(|error| error.to_string()) },
+                    )
+                    .await;
                 let _ = this.update(cx, |this, cx| {
                     let outcome = match stored {
                         Ok(record) => this.apply(&write, &record),
@@ -762,40 +683,66 @@ impl LibraryStore {
         }
     }
 
-    /// The domain's verdict on a write, before any I/O, with whatever the write
-    /// needs from the library. An Arrangement write's languages are rewritten
-    /// to their display names, the form storage is given.
-    fn validate(&self, write: &mut LibraryWrite) -> Result<Prepared, SharedString> {
-        match write {
+    /// The domain's verdict on a write, before any I/O, with the storage call
+    /// it needs. An Arrangement write's languages are rewritten to their
+    /// display names, the form storage is given.
+    fn validate(&self, write: &mut LibraryWrite) -> Result<Verdict, SharedString> {
+        let prepared = match write {
             LibraryWrite::CreateArrangement(song, details) => {
                 self.check_arrangement_target(*song, None, details)?;
-                Ok(Prepared::Nothing)
+                Prepared::CreateArrangement(Box::new(NewArrangement {
+                    song: *song,
+                    title: details.title.clone(),
+                    languages: details.languages.clone(),
+                    choirs: details.choirs.clone(),
+                    rendition_attribution: details.rendition_attribution.clone(),
+                    occasions: details.occasions.clone(),
+                    notes: details.notes.clone(),
+                    sections: Vec::new(),
+                    sequence: Vec::new(),
+                }))
             }
             LibraryWrite::SaveArrangementDetails(id, details) => {
                 let arrangement = self.library.arrangement(*id).map_err(refusal)?;
                 self.check_arrangement_target(arrangement.song(), Some(arrangement), details)?;
-                Ok(Prepared::Save(
-                    Box::new(content_with(arrangement, details)),
-                    arrangement.pagination_state(),
-                ))
+                if same_details(details, &arrangement.details()) {
+                    return Ok(Verdict::Unchanged(id.entity()));
+                }
+                Prepared::SaveMetadata(
+                    *id,
+                    Box::new(ArrangementMetadata {
+                        title: details.title.clone(),
+                        languages: details.languages.clone(),
+                        choirs: details.choirs.clone(),
+                        rendition_attribution: details.rendition_attribution.clone(),
+                        occasions: details.occasions.clone(),
+                        notes: details.notes.clone(),
+                    }),
+                )
             }
             LibraryWrite::DuplicateArrangement(source) => {
                 let arrangement = self.library.arrangement(*source).map_err(refusal)?;
                 self.require_song_active(arrangement.song())?;
-                Ok(Prepared::Copy(copy_of(&self.library, arrangement)))
+                // A copy is a creation, so a legacy source without a language
+                // is refused as the domain refuses it.
+                if arrangement.languages().is_empty() {
+                    return Err(refusal(SongLibraryError::BlankField(Field::Language)));
+                }
+                Prepared::Copy(Box::new(copy_of(&self.library, arrangement)))
             }
-            write => self
-                .validate_choir_or_song(write)
-                .map(|()| Prepared::Nothing),
-        }
+            write => self.validate_choir_or_song(write)?,
+        };
+        Ok(Verdict::Write(prepared))
     }
 
     /// Validates the Choir and Song writes.
-    fn validate_choir_or_song(&self, write: &LibraryWrite) -> Result<(), SharedString> {
+    fn validate_choir_or_song(&self, write: &LibraryWrite) -> Result<Prepared, SharedString> {
         match write {
             LibraryWrite::CreateArrangement(..)
             | LibraryWrite::SaveArrangementDetails(..)
-            | LibraryWrite::DuplicateArrangement(_) => Ok(()),
+            | LibraryWrite::DuplicateArrangement(_) => {
+                Err(SharedString::from("Not a Choir or Song write."))
+            }
             LibraryWrite::Create(draft) => {
                 check_draft(draft)?;
                 // One Choir per name, however it is cased or spaced, archived
@@ -815,15 +762,40 @@ impl LibraryStore {
                             ""
                         }
                     ))),
-                    None => Ok(()),
+                    None => Ok(Prepared::CreateChoir(NewChoir {
+                        name: draft.name.clone(),
+                        short_label: draft.short_label.clone(),
+                        languages: draft.languages.clone(),
+                        notes: draft.notes.clone(),
+                    })),
                 }
             }
-            LibraryWrite::CreateSong(draft) => check_song_draft(draft),
+            LibraryWrite::CreateSong(draft) => {
+                check_song_draft(draft)?;
+                Ok(Prepared::CreateSong(Box::new(NewSong {
+                    title: draft.title.clone(),
+                    aliases: draft.aliases.clone(),
+                    original_attribution: draft.original_attribution.clone(),
+                    provenance: draft.provenance.clone(),
+                    rights_notes: draft.rights_notes.clone(),
+                    liturgical_moments: draft.liturgical_moments.clone(),
+                    occasions: draft.occasions.clone(),
+                })))
+            }
             LibraryWrite::Edit(id, draft) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     return Err(refusal(SongLibraryError::Archived(RecordRef::Choir(*id))));
                 }
-                check_draft(draft)
+                check_draft(draft)?;
+                Ok(Prepared::EditChoir(
+                    *id,
+                    ChoirDetails {
+                        name: draft.name.clone(),
+                        short_label: draft.short_label.clone(),
+                        languages: draft.languages.clone(),
+                        notes: draft.notes.clone(),
+                    },
+                ))
             }
             LibraryWrite::Archive(id) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
@@ -831,11 +803,11 @@ impl LibraryStore {
                         RecordRef::Choir(*id),
                     )));
                 }
-                Ok(())
+                Ok(Prepared::ArchiveChoir(*id))
             }
             LibraryWrite::Restore(id) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
-                    Ok(())
+                    Ok(Prepared::RestoreChoir(*id))
                 } else {
                     Err(refusal(SongLibraryError::NotArchived(RecordRef::Choir(
                         *id,
@@ -880,7 +852,7 @@ impl LibraryStore {
                 ))));
             }
         }
-        *details = check_arrangement_details(details).map_err(refusal)?;
+        *details = check_arrangement_details(details, existing).map_err(refusal)?;
         Ok(())
     }
 
@@ -939,6 +911,12 @@ impl LibraryStore {
                 Ok(record.id.entity())
             }
             (LibraryWrite::SaveArrangementDetails(id, _), Stored::Arrangement(record)) => {
+                // The record is the whole stored Arrangement, sections and
+                // Sequence included, so memory follows storage even when
+                // another writer changed them since this library was loaded.
+                self.library
+                    .edit_arrangement(*id, arrangement_draft_of(record))
+                    .map_err(refusal)?;
                 self.library
                     .edit_arrangement_details(*id, details_of(record))
                     .map_err(refusal)?;

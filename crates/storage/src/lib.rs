@@ -93,8 +93,8 @@ pub use parish_store::{
     OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
-    ArrangementContent, OccurrenceContent, RevisionContent, RevisionRecord, SectionContent,
-    SongContent,
+    ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent, RevisionRecord,
+    SectionContent, SongContent,
 };
 
 /// Where the database, managed assets and disposable cache live, and how long
@@ -547,6 +547,27 @@ impl Storage {
                 session,
                 expected_parent,
             )
+        })
+    }
+
+    /// Replaces only an Arrangement's metadata (title, notes, languages,
+    /// Choirs, attribution, occasions) and appends one `edit` revision.
+    ///
+    /// The head revision, sections, Sequence and pagination state are read in
+    /// the same immediate transaction and kept as they are there, so a commit
+    /// that landed since the caller last looked is never overwritten. An
+    /// Arrangement with no revisions first gets its `creation` revision in
+    /// that transaction. At least one language is required. Returns the whole
+    /// stored Arrangement and the new revision.
+    pub fn commit_arrangement_metadata(
+        &self,
+        arrangement: ArrangementId,
+        metadata: ArrangementMetadata,
+        session: HistorySessionId,
+    ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
+    {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_arrangement_metadata(arrangement, metadata, session)
         })
     }
 

@@ -463,6 +463,15 @@ fn t2_6_migrates_populated_v5_parish() {
             params![arrangement.to_string(), song.to_string(), STAMP],
         )
         .expect("arrangement");
+        // An archived Arrangement with no language and a NULL attribution: the
+        // NULLs and the archive state must survive the copy.
+        conn.execute(
+            "INSERT INTO arrangement \
+             (id, song_id, title, rendition_attribution, created_at, archived_at, pagination_state) \
+             VALUES (?1, ?2, 'Bare', NULL, ?3, ?3, 'needs_review')",
+            params![entity_id(0x5a).to_string(), song.to_string(), STAMP],
+        )
+        .expect("bare arrangement");
         for (position, language) in ["Cebuano", "English"].into_iter().enumerate() {
             conn.execute(
                 "INSERT INTO arrangement_language (arrangement_id, position, language) \
@@ -641,6 +650,53 @@ fn t2_6_migrates_populated_v5_parish() {
     .expect("a NULL title is valid");
     conn.execute_batch("ROLLBACK TO nullable; RELEASE nullable")
         .expect("rollback");
+
+    // The hand-copied CHECKs still hold after the rebuild.
+    let good_id = entity_id(0x5b).to_string();
+    let song_key = song.to_string();
+    for (label, id, title, notes, pagination) in [
+        ("a blank title", good_id.as_str(), Some("  "), None, "draft"),
+        (
+            "blank notes",
+            good_id.as_str(),
+            Some("T"),
+            Some("  "),
+            "draft",
+        ),
+        (
+            "a bogus pagination state",
+            good_id.as_str(),
+            Some("T"),
+            None,
+            "bogus",
+        ),
+        ("a malformed id", "not-an-id", Some("T"), None, "draft"),
+    ] {
+        let refused = conn
+            .execute(
+                "INSERT INTO arrangement (id, song_id, title, notes, created_at, pagination_state) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, song_key, title, notes, STAMP, pagination],
+            )
+            .expect_err(label);
+        assert!(
+            refused.to_string().contains("CHECK constraint failed"),
+            "{label} is refused by a CHECK, got: {refused}"
+        );
+    }
+    let kept: (Option<String>, Option<String>, String) = conn
+        .query_row(
+            "SELECT rendition_attribution, archived_at, pagination_state FROM arrangement \
+             WHERE id = ?1",
+            params![entity_id(0x5a).to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("the bare Arrangement");
+    assert_eq!(
+        kept,
+        (None, Some(STAMP.to_owned()), "needs_review".to_owned()),
+        "NULL attribution, archive state and pagination state survive the copy"
+    );
 }
 
 #[test]
@@ -1160,4 +1216,284 @@ fn t2_6_restores_older_revision() {
     assert_eq!(foreign_key_violations(&conn), Vec::new());
     drop(conn);
     shutdown(storage);
+}
+
+/// Plants a song, an arrangement with the given languages and, when
+/// `content` is given, its creation revision, into a freshly opened parish.
+fn plant_legacy_arrangement(
+    dir: &TempDir,
+    languages: &[&str],
+    revision: Option<(RevisionId, &str)>,
+) -> (SongId, ArrangementId) {
+    let song = SongId::from_entity(entity_id(0x81));
+    let arrangement = ArrangementId::from_entity(entity_id(0x82));
+    let conn = raw(dir);
+    conn.execute(
+        "INSERT INTO song (id, title, created_at) VALUES (?1, 'Kyrie', ?2)",
+        params![song.to_string(), STAMP],
+    )
+    .expect("song");
+    conn.execute(
+        "INSERT INTO arrangement (id, song_id, title, created_at) VALUES (?1, ?2, 'Old', ?3)",
+        params![arrangement.to_string(), song.to_string(), STAMP],
+    )
+    .expect("arrangement");
+    for (position, language) in languages.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO arrangement_language (arrangement_id, position, language) \
+             VALUES (?1, ?2, ?3)",
+            params![arrangement.to_string(), position as i64, language],
+        )
+        .expect("language");
+    }
+    if let Some((id, content)) = revision {
+        conn.execute(
+            "INSERT INTO edit_revision \
+             (id, song_id, arrangement_id, parent_id, kind, session_id, restored_from_id, \
+             content, content_sha256, created_at) \
+             VALUES (?1, NULL, ?2, NULL, 'creation', NULL, NULL, ?3, ?4, ?5)",
+            params![
+                id.to_string(),
+                arrangement.to_string(),
+                content,
+                hex_sha256(content),
+                STAMP
+            ],
+        )
+        .expect("revision");
+    }
+    (song, arrangement)
+}
+
+#[test]
+fn t2_6_restoring_a_legacy_revision_without_a_language_succeeds() {
+    let dir = TempDir::new("restore-no-language");
+    shutdown(open(&dir));
+    let revision = RevisionId::from_entity(entity_id(0x83));
+    let legacy = concat!(
+        r#"{"format":1,"entity":"arrangement","title":"Old","languages":[],"choirs":[],"#,
+        r#""rendition_attribution":null,"occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    let (_, arrangement) = plant_legacy_arrangement(&dir, &[], Some((revision, legacy)));
+
+    let storage = open(&dir);
+    let (restored, record) =
+        bounded(storage.restore_revision(revision, revision, PaginationState::Draft))
+            .expect("a legacy revision without a language restores");
+    assert_eq!(record.kind, RevisionKind::Restoration);
+    let RevisionContent::Arrangement(content) = restored else {
+        panic!("an Arrangement revision holds Arrangement content");
+    };
+    assert!(content.languages.is_empty());
+
+    // A new Edit still needs a language.
+    let stored = bounded(storage.arrangement(arrangement)).expect("arrangement");
+    assert_eq!(
+        bounded(storage.commit_arrangement_edit(
+            arrangement,
+            ArrangementContent::of(&stored),
+            PaginationState::Draft,
+            RevisionKind::Edit,
+            Some(session(0x84)),
+            record.id,
+        ))
+        .map(|_| ()),
+        Err(invalid("language", "required"))
+    );
+    shutdown(storage);
+}
+
+#[test]
+fn t2_6_a_metadata_commit_keeps_sections_committed_behind_its_back() {
+    let dir = TempDir::new("metadata-newer-sections");
+    let storage = open(&dir);
+    let (song, choir) = seeded(&storage);
+    let created =
+        bounded(storage.create_arrangement(arrangement_input(song, choir))).expect("arrangement");
+    let entity = RevisionEntity::Arrangement(created.id);
+    let creation = bounded(storage.latest_revision(entity)).expect("creation");
+
+    // Another writer changes the sections, the Sequence and the pagination
+    // state after the caller last looked.
+    let mut newer = ArrangementContent::of(&created);
+    newer.sections[0].lyrics = "Newer lyrics".to_owned();
+    newer.sequence.truncate(1);
+    let (_, newer_revision) = bounded(storage.commit_arrangement_edit(
+        created.id,
+        newer.clone(),
+        PaginationState::NeedsReview,
+        RevisionKind::Edit,
+        Some(session(0x90)),
+        creation,
+    ))
+    .expect("newer sections");
+
+    let metadata = storage::ArrangementMetadata {
+        title: None,
+        languages: vec!["Latin".to_owned()],
+        choirs: Vec::new(),
+        rendition_attribution: None,
+        occasions: Vec::new(),
+        notes: Some("Only the metadata".to_owned()),
+    };
+    let (record, revision) =
+        bounded(storage.commit_arrangement_metadata(created.id, metadata.clone(), session(0x91)))
+            .expect("metadata commit");
+
+    assert_eq!(revision.parent, Some(newer_revision.id));
+    assert_eq!(revision.kind, RevisionKind::Edit);
+    assert_eq!(revision.session, Some(session(0x91)));
+    assert_eq!(record.title, None);
+    assert_eq!(record.languages, vec!["Latin"]);
+    assert_eq!(record.notes.as_deref(), Some("Only the metadata"));
+    assert_eq!(record.choirs, Vec::new());
+    assert_eq!(record.pagination, PaginationState::NeedsReview);
+    let stored = ArrangementContent::of(&record);
+    assert_eq!(stored.sections, newer.sections, "the newer sections stay");
+    assert_eq!(stored.sequence, newer.sequence, "the newer Sequence stays");
+    assert_eq!(
+        bounded(storage.revision_content(revision.id)),
+        Ok(RevisionContent::Arrangement(stored))
+    );
+    assert_eq!(
+        bounded(storage.revisions(entity))
+            .expect("chain")
+            .iter()
+            .map(|record| record.id)
+            .collect::<Vec<_>>(),
+        vec![creation, newer_revision.id, revision.id]
+    );
+
+    // A refusal writes nothing.
+    let refused = storage::ArrangementMetadata {
+        languages: Vec::new(),
+        ..metadata
+    };
+    assert_eq!(
+        bounded(storage.commit_arrangement_metadata(created.id, refused, session(0x92)))
+            .map(|_| ()),
+        Err(invalid("language", "required"))
+    );
+    assert_eq!(bounded(storage.revisions(entity)).expect("chain").len(), 3);
+    shutdown(storage);
+}
+
+#[test]
+fn t2_6_a_metadata_commit_backfills_a_missing_creation_revision() {
+    let dir = TempDir::new("metadata-backfill");
+    shutdown(open(&dir));
+    let (_, arrangement) = plant_legacy_arrangement(&dir, &["Cebuano"], None);
+
+    let storage = open(&dir);
+    let entity = RevisionEntity::Arrangement(arrangement);
+    let (record, revision) = bounded(storage.commit_arrangement_metadata(
+        arrangement,
+        storage::ArrangementMetadata {
+            title: Some("New".to_owned()),
+            languages: vec!["Cebuano".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: None,
+        },
+        session(0x93),
+    ))
+    .expect("metadata commit on a row with no history");
+    assert_eq!(record.title.as_deref(), Some("New"));
+    let chain = bounded(storage.revisions(entity)).expect("chain");
+    assert_eq!(chain.len(), 2);
+    assert_eq!(chain[0].kind, RevisionKind::Creation);
+    assert_eq!(revision.parent, Some(chain[0].id));
+    assert_eq!(
+        bounded(storage.commit_arrangement_metadata(
+            ArrangementId::from_entity(entity_id(0x94)),
+            storage::ArrangementMetadata {
+                title: None,
+                languages: vec!["Cebuano".to_owned()],
+                choirs: Vec::new(),
+                rendition_attribution: None,
+                occasions: Vec::new(),
+                notes: None,
+            },
+            session(0x95),
+        ))
+        .map(|_| ()),
+        Err(StorageError::NotFound {
+            kind: storage::RecordKind::Arrangement,
+            id: entity_id(0x94),
+        })
+    );
+    shutdown(storage);
+}
+
+#[test]
+fn t2_6_non_canonical_arrangement_payloads_are_reported() {
+    let dir = TempDir::new("arrangement-canonical");
+    shutdown(open(&dir));
+    let revision = RevisionId::from_entity(entity_id(0xa1));
+    let (_, arrangement) = plant_legacy_arrangement(&dir, &["Cebuano"], None);
+    let canonical_v2 = concat!(
+        r#"{"format":2,"entity":"arrangement","languages":["Cebuano"],"choirs":[],"#,
+        r#""rendition_attribution":null,"occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    let null_keys_v2 = concat!(
+        r#"{"format":2,"entity":"arrangement","title":null,"notes":null,"#,
+        r#""languages":["Cebuano"],"choirs":[],"rendition_attribution":null,"#,
+        r#""occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    let canonical_v1 = concat!(
+        r#"{"format":1,"entity":"arrangement","title":"Old","languages":["Cebuano"],"#,
+        r#""choirs":[],"rendition_attribution":null,"occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    let spaced_v1 = concat!(
+        r#"{"format":1, "entity":"arrangement","title":"Old","languages":["Cebuano"],"#,
+        r#""choirs":[],"rendition_attribution":null,"occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    let missing_key_v1 = concat!(
+        r#"{"format":1,"entity":"arrangement","title":"Old","languages":["Cebuano"],"#,
+        r#""choirs":[],"occasions":[],"sections":[],"sequence":[]}"#,
+    );
+    for (text, ok) in [
+        (canonical_v2, true),
+        (null_keys_v2, false),
+        (canonical_v1, true),
+        (spaced_v1, false),
+        (missing_key_v1, false),
+    ] {
+        {
+            let conn = raw(&dir);
+            plant_with(&conn, revision, arrangement, text);
+        }
+        let storage = open(&dir);
+        let read = bounded(storage.revision_content(revision));
+        if ok {
+            assert!(read.is_ok(), "canonical payload reads: {text}");
+        } else {
+            assert_eq!(
+                read,
+                Err(StorageError::RevisionIntegrity { id: revision }),
+                "non-canonical payload is reported: {text}"
+            );
+        }
+        shutdown(storage);
+    }
+}
+
+fn plant_with(conn: &Connection, revision: RevisionId, arrangement: ArrangementId, text: &str) {
+    conn.execute("DELETE FROM edit_revision", [])
+        .expect("clear");
+    conn.execute(
+        "INSERT INTO edit_revision \
+         (id, song_id, arrangement_id, parent_id, kind, session_id, restored_from_id, \
+         content, content_sha256, created_at) \
+         VALUES (?1, NULL, ?2, NULL, 'creation', NULL, NULL, ?3, ?4, ?5)",
+        params![
+            revision.to_string(),
+            arrangement.to_string(),
+            text,
+            hex_sha256(text),
+            STAMP
+        ],
+    )
+    .expect("plant");
 }
