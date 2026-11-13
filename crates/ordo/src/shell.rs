@@ -40,7 +40,10 @@ use crate::{
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     presenter::PresenterView,
     settings,
-    songs::{ArrangementOverview, ChoirsWorkspace, LibraryStore, SongsWorkspace},
+    songs::{
+        ArrangementDetailsPanel, ArrangementOverview, ChoirsWorkspace, LibraryStore,
+        SongsWorkspace, arrangement_details,
+    },
 };
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
@@ -138,6 +141,8 @@ pub struct ShellView {
     /// Set beside `editing` when the focused editor is an Arrangement's
     /// overview; `None` for the placeholder entities.
     editing_arrangement: Option<ArrangementId>,
+    /// The Arrangement details panel while it is open over the focused view.
+    arrangement_details: Option<Entity<ArrangementDetailsPanel>>,
     /// The parish library the Songs screens read.
     library_store: Entity<LibraryStore>,
     /// Query, filters, selection and scroll of Library → Songs. Owned here so
@@ -267,6 +272,7 @@ impl ShellView {
             selected_row: None,
             editing: None,
             editing_arrangement: None,
+            arrangement_details: None,
             library_store,
             songs,
             _songs_observer: songs_observer,
@@ -490,6 +496,64 @@ impl ShellView {
         self.editing_arrangement = Some(id);
         self.registry.focus_region(WORKSPACE_ACTIONS);
         cx.notify();
+    }
+
+    /// The Arrangement details panel, while it is open.
+    pub fn arrangement_details(&self) -> Option<&Entity<ArrangementDetailsPanel>> {
+        self.arrangement_details.as_ref()
+    }
+
+    /// Opens the details of the Arrangement the focused view shows, as a
+    /// slideover over it. A duplicate made from there opens in the focused
+    /// view in its place. Does nothing without an open, editable Arrangement
+    /// or while the panel is already open.
+    pub fn open_arrangement_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.editing_arrangement else {
+            return;
+        };
+        if self.arrangement_details.is_some() || !self.arrangement_editable(id, cx) {
+            return;
+        }
+        let shell = cx.weak_entity();
+        let report = {
+            let shell = shell.clone();
+            Rc::new(
+                move |outcome: arrangement_details::Outcome, _: &mut Window, cx: &mut App| {
+                    if let arrangement_details::Outcome::Duplicated(copy) = outcome {
+                        let _ = shell.update(cx, |shell, cx| shell.open_arrangement(copy, cx));
+                    }
+                },
+            )
+        };
+        let closed = Rc::new(move |cx: &mut App| {
+            let _ = shell.update(cx, |shell, cx| {
+                shell.arrangement_details = None;
+                cx.notify();
+            });
+        });
+        let panel = ArrangementDetailsPanel::open_edit(
+            self.library_store.clone(),
+            id,
+            self.overlays.clone(),
+            report,
+            closed,
+            window,
+            cx,
+        );
+        self.arrangement_details = Some(panel);
+        cx.notify();
+    }
+
+    /// Whether the Arrangement and its Song are active, so its details can be
+    /// edited.
+    fn arrangement_editable(&self, id: ArrangementId, cx: &App) -> bool {
+        let library = self.library_store.read(cx).library();
+        library.arrangement(id).is_ok_and(|arrangement| {
+            !arrangement.is_archived()
+                && library
+                    .song(arrangement.song())
+                    .is_ok_and(|song| !song.is_archived())
+        })
     }
 
     pub fn environment(&self) -> UiEnvironment {
@@ -1273,6 +1337,25 @@ impl ShellView {
         let gutter = self.gutter(window);
         let view = cx.entity().downgrade();
         let back = self.context(cx);
+        // An Arrangement's title is its label, which follows its details.
+        let entity = match self.editing_arrangement {
+            Some(id) => ArrangementOverview::new(id)
+                .title(self.library_store.read(cx).library())
+                .into(),
+            None => entity,
+        };
+        let details = self
+            .editing_arrangement
+            .is_some_and(|id| self.arrangement_editable(id, cx))
+            .then(|| {
+                let shell = cx.entity().downgrade();
+                Button::new("arrangement-details", "Arrangement details", environment)
+                    .on_surface(palette.background)
+                    .on_activate(move |window, cx| {
+                        let _ = shell
+                            .update(cx, |shell, cx| shell.open_arrangement_details(window, cx));
+                    })
+            });
         let header = div()
             .flex_none()
             .flex()
@@ -1315,7 +1398,8 @@ impl ShellView {
                             .child(entity.clone()),
                         entity,
                         environment,
-                    )),
+                    ))
+                    .children(details.map(|button| div().flex_none().ml_auto().child(button))),
             )
             .child(
                 div()

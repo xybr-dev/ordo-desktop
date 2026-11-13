@@ -118,7 +118,7 @@ pub(crate) async fn seed_near_matches(storage: &Storage) -> Seeded {
 }
 
 /// A seeded temporary parish, opened for a test.
-fn parish(
+pub(crate) fn parish(
     cx: &mut TestAppContext,
     tag: &str,
 ) -> (PathBuf, StorageSlot, Entity<LibraryStore>, Seeded) {
@@ -127,7 +127,7 @@ fn parish(
 
 /// The seeded parish plus `extra` Latin Songs (each with one Arrangement) and,
 /// when `hollow`, an archived Song "Hollow" that has no Arrangements.
-fn parish_with(
+pub(crate) fn parish_with(
     cx: &mut TestAppContext,
     tag: &str,
     extra: usize,
@@ -683,9 +683,9 @@ fn ac6_create_commits_once_and_lands_on_the_new_song(cx: &mut TestAppContext) {
         assert!(songs.new_song().is_none());
     });
     assert!(present(vcx, "songs-no-arrangements"));
-    // The action is shown and unavailable, and says so on screen.
+    // The action is shown and available: T2.6 opens New Arrangement from it.
     assert!(present(vcx, "button-Add first Arrangement"));
-    assert!(present(vcx, "control-unavailable"));
+    assert!(!present(vcx, "control-unavailable"));
     finish(vcx, &slot, &dir);
 }
 

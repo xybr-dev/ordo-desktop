@@ -104,6 +104,9 @@ pub struct Overlay {
     /// sign that taking it does not close the surface.
     gate: Option<Gate>,
     secondary: Option<(SharedString, Activate)>,
+    /// Set by [`Overlay::leading_gated`]: a quiet action at the start of the
+    /// footer, with its own availability.
+    leading: Option<(SharedString, Gate, Activate)>,
     on_close: Option<Activate>,
     primary_focus: Option<FocusHandle>,
 }
@@ -128,6 +131,7 @@ impl Overlay {
             primary: None,
             gate: None,
             secondary: None,
+            leading: None,
             on_close: None,
             primary_focus: None,
         }
@@ -187,6 +191,20 @@ impl Overlay {
         self
     }
 
+    /// A quiet action at the start of the footer, away from the decision pair,
+    /// for a related action that is not the decision itself (branching a copy
+    /// of what the surface edits). Like a gated primary it does not close the
+    /// surface when taken: the caller closes it once the action stood.
+    pub fn leading_gated(
+        mut self,
+        label: impl Into<SharedString>,
+        gate: impl Fn(&App) -> Availability + 'static,
+        activate: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.leading = Some((label.into(), Rc::new(gate), Rc::new(activate)));
+        self
+    }
+
     /// Opens with focus on the primary action instead of on the surface, for a
     /// decision whose safe answer is the primary one (a confirmation that
     /// defaults to staying put). The handle is the caller's, so it can also
@@ -202,6 +220,22 @@ impl Overlay {
         self.on_close = Some(Rc::new(on_close));
         self
     }
+}
+
+/// Lets content inside a surface take Escape before the surface does, for a
+/// popup the content opens and owns (a picker under a form field). `handler`
+/// runs first when Escape is pressed anywhere inside `element`; returning
+/// `true` means it closed something of its own, and the surface stays. The
+/// surface closes on Escape only when every such handler declines.
+pub fn escape_first<E: gpui::InteractiveElement>(
+    element: E,
+    handler: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> E {
+    element.capture_action(move |_: &gpui_base::actions::Cancel, window, cx| {
+        if handler(window, cx) {
+            cx.stop_propagation();
+        }
+    })
 }
 
 /// An operator-only bottom-center message.
@@ -1005,7 +1039,7 @@ impl OverlayHost {
         environment: UiEnvironment,
         cx: &App,
     ) -> Option<impl IntoElement + use<>> {
-        if overlay.primary.is_none() && overlay.secondary.is_none() {
+        if overlay.primary.is_none() && overlay.secondary.is_none() && overlay.leading.is_none() {
             return None;
         }
         let palette = tokens::palette(environment.appearance());
@@ -1076,6 +1110,22 @@ impl OverlayHost {
                 .p(px(scale.apply(tokens::spacing::GROUP)))
                 .border_t(px(tokens::border::SEPARATOR))
                 .border_color(rgb(palette.border))
+                .when_some(
+                    overlay.leading.clone(),
+                    |footer, (label, gate, activate)| {
+                        let availability = gate(cx);
+                        let take = self.guarded(id, gate, activate);
+                        footer.child(
+                            div().flex_1().flex().justify_start().child(
+                                Button::new(("overlay-leading", id), label, environment)
+                                    .quiet()
+                                    .availability(availability)
+                                    .on_surface(palette.surface)
+                                    .on_activate(move |window, cx| take(window, cx)),
+                            ),
+                        )
+                    },
+                )
                 .children(action(overlay.secondary.clone(), true))
                 .children(action(overlay.primary.clone(), false)),
         )

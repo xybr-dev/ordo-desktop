@@ -32,6 +32,7 @@ use ui::{
 };
 
 use super::{
+    arrangement_details::{self, ArrangementDetailsPanel},
     new_song::{NewSongPanel, Outcome},
     store::{LibraryEvent, LibraryState, LibraryStore},
 };
@@ -61,6 +62,8 @@ pub struct SongsWorkspace {
     overlays: Option<OverlayHost>,
     /// The New song panel while it is open.
     new_song: Option<Entity<NewSongPanel>>,
+    /// The New Arrangement panel while it is open.
+    new_arrangement: Option<Entity<ArrangementDetailsPanel>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -90,6 +93,7 @@ impl SongsWorkspace {
             restore_scroll: None,
             overlays: None,
             new_song: None,
+            new_arrangement: None,
             _subscriptions: vec![typed, changed],
         };
         workspace.refresh(cx);
@@ -105,6 +109,11 @@ impl SongsWorkspace {
     /// The New song panel, while it is open.
     pub fn new_song(&self) -> Option<&Entity<NewSongPanel>> {
         self.new_song.as_ref()
+    }
+
+    /// The New Arrangement panel, while it is open.
+    pub fn new_arrangement(&self) -> Option<&Entity<ArrangementDetailsPanel>> {
+        self.new_arrangement.as_ref()
     }
 
     /// How many temporary surfaces the shell's overlay layer holds open.
@@ -166,6 +175,61 @@ impl SongsWorkspace {
         });
         let panel = NewSongPanel::open(self.store.clone(), host, report, closed, window, cx);
         self.new_song = Some(panel);
+        cx.notify();
+    }
+
+    /// Opens the New Arrangement panel for `song` over the workspace, leaving
+    /// the query, filters, selection and scroll as they are. A created
+    /// Arrangement is opened through `open`. Does nothing while the library is
+    /// not readable, the Song is archived or gone, or a panel is already open.
+    pub fn open_new_arrangement(
+        &mut self,
+        song: SongId,
+        open: OpenArrangement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(host) = self.overlays.clone() else {
+            return;
+        };
+        let addable = self
+            .store
+            .read(cx)
+            .library()
+            .song(song)
+            .is_ok_and(|work| !work.is_archived());
+        if self.new_arrangement.is_some()
+            || !addable
+            || *self.store.read(cx).state() != LibraryState::Ready
+        {
+            return;
+        }
+        let weak = cx.weak_entity();
+        let report = Rc::new(
+            move |outcome: arrangement_details::Outcome, window: &mut Window, cx: &mut App| {
+                if let arrangement_details::Outcome::Created(id)
+                | arrangement_details::Outcome::Duplicated(id) = outcome
+                {
+                    open(id, window, cx);
+                }
+            },
+        );
+        let closed = Rc::new(move |cx: &mut App| {
+            let _ = weak.update(cx, |workspace, cx| {
+                workspace.new_arrangement = None;
+                cx.notify();
+            });
+        });
+        let panel = ArrangementDetailsPanel::open_new(
+            self.store.clone(),
+            song,
+            host,
+            report,
+            closed,
+            window,
+            cx,
+        );
+        self.new_arrangement = Some(panel);
         cx.notify();
     }
 
