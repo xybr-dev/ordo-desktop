@@ -7,13 +7,16 @@ use domain::{
 };
 use gpui::{Entity, TestAppContext, VisualTestContext};
 
-use super::{ArrangementDetailsPanel, Mode, Picker, build_details, derived_label};
+use ui::primitives::Availability;
+
+use super::{ArrangementDetailsPanel, Mode, Picker, build_details, derived_label, form};
 use crate::{
     shell::ShellView,
     songs::{
         LibraryStore,
         choirs::tests::{open_store, present, wait},
         new_song::tests::{click, finish, parish, settle, settle_depth, songs_of, type_into},
+        store::tests::hold_a_legacy_arrangement,
     },
 };
 
@@ -455,5 +458,50 @@ fn a_save_with_no_change_writes_nothing_and_closes(cx: &mut TestAppContext) {
     });
     click(vcx, "button-Save details");
     settle_depth(&songs_of(&shell, vcx), vcx, 0);
+    finish(vcx, &slot, &dir);
+}
+
+/// B1: a parish stored before T2.6 may hold an Arrangement with no language.
+/// A copy is a creation, so Duplicate is shown blocked with its reason rather
+/// than failing with the domain's raw refusal, and pressing it writes nothing.
+#[gpui::test]
+fn duplicate_is_blocked_with_a_reason_for_an_arrangement_with_no_language(cx: &mut TestAppContext) {
+    let (dir, slot, store, seeded) = parish(cx, "t26-dup-legacy");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let id = arrangement_of(&store, seeded.near, "Cebuano unison", vcx);
+    hold_a_legacy_arrangement(vcx, &store, seeded.near, id);
+    settle(vcx);
+    let panel = open_edit(&shell, id, vcx);
+    panel.read_with(vcx, |panel, cx| {
+        assert_eq!(
+            panel.duplicate_availability(cx),
+            Availability::unavailable(form::DUPLICATE_NO_LANGUAGE_REASON)
+        );
+    });
+    assert!(present(vcx, "button-Duplicate Arrangement") && present(vcx, "control-unavailable"));
+
+    // The reason wraps inside the slideover and pushes Cancel and Save below
+    // it: nothing overflows the surface or overlaps another action.
+    let bounds = |vcx: &mut VisualTestContext, selector: &'static str| {
+        vcx.debug_bounds(selector).expect("on screen")
+    };
+    let card = bounds(vcx, "overlay-Arrangement details");
+    let reason = bounds(vcx, "control-unavailable");
+    let duplicate = bounds(vcx, "button-Duplicate Arrangement");
+    let cancel = bounds(vcx, "button-Cancel");
+    for inner in [reason, duplicate, cancel] {
+        assert!(inner.left() >= card.left() && inner.right() <= card.right());
+    }
+    assert!(cancel.top() >= reason.bottom());
+    let before = arrangement_count(&store, vcx);
+    click(vcx, "button-Duplicate Arrangement");
+    settle(vcx);
+    assert_eq!(arrangement_count(&store, vcx), before, "nothing is written");
+    // The panel stays open with no error: the block is not a failed write.
+    shell.read_with(vcx, |shell, _| {
+        assert!(shell.arrangement_details().is_some())
+    });
+    panel.read_with(vcx, |panel, _| assert!(panel.error.is_none()));
+    click(vcx, "button-Cancel");
     finish(vcx, &slot, &dir);
 }

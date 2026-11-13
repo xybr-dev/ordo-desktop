@@ -22,6 +22,9 @@ pub(super) const CREATE: &str = "Create Arrangement";
 pub(super) const SAVE: &str = "Save details";
 pub(super) const DUPLICATE: &str = "Duplicate Arrangement";
 pub(super) const BUSY_REASON: &str = "Saving the Arrangement";
+/// Why Duplicate is blocked for an Arrangement stored with no language (a
+/// parish stored before T2.6): a copy is a creation and needs one.
+pub(super) const DUPLICATE_NO_LANGUAGE_REASON: &str = "Save a language before duplicating";
 pub(super) const SAVED_TOAST: &str = "Saved Arrangement details.";
 pub(super) const NO_LANGUAGE: &str = "Choose the language this rendition is sung in.";
 pub(super) const LANGUAGE_HINT: &str = "Several only when this exact rendition mixes them.";

@@ -844,7 +844,7 @@ fn ac6_store_arrangement_writes_of_every_kind_complete_in_submission_order(
 
 /// Swaps the store's memory for a library holding one legacy Arrangement of
 /// `song` with no language, as a parish stored before T2.6 may hold.
-fn hold_a_legacy_arrangement(
+pub(crate) fn hold_a_legacy_arrangement(
     cx: &mut TestAppContext,
     store: &Entity<LibraryStore>,
     song: SongId,

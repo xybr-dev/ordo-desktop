@@ -1105,6 +1105,11 @@ impl OverlayHost {
                 })
                 .flex_none()
                 .flex()
+                // A leading action takes a row of its own, where its
+                // Unavailable reason can wrap; the other actions wrap below it,
+                // still at the trailing end. The three never fit one row of a
+                // slideover side by side.
+                .flex_wrap()
                 .justify_end()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .p(px(scale.apply(tokens::spacing::GROUP)))
@@ -1116,7 +1121,7 @@ impl OverlayHost {
                         let availability = gate(cx);
                         let take = self.guarded(id, gate, activate);
                         footer.child(
-                            div().flex_1().flex().justify_start().child(
+                            div().w_full().flex().flex_col().items_start().child(
                                 Button::new(("overlay-leading", id), label, environment)
                                     .quiet()
                                     .availability(availability)

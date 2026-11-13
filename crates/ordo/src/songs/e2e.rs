@@ -359,6 +359,23 @@ fn t2_4_e2e_archived_only_keeps_evidence_scroll_and_selection_across_a_round_tri
     assert!(present(vcx, "songs-detail"));
 }
 
+/// Wheels the Arrangement details body to its end, as an operator would, so
+/// Notes is clear of the two-row footer before it is clicked.
+fn scroll_details_to_end(vcx: &mut VisualTestContext) {
+    let card = vcx
+        .debug_bounds("overlay-Arrangement details")
+        .expect("the panel is open");
+    let at = card.center();
+    vcx.simulate_mouse_move(at, None, gpui::Modifiers::default());
+    vcx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), -card.size.height)),
+        modifiers: gpui::Modifiers::default(),
+        touch_phase: gpui::TouchPhase::Moved,
+    });
+    vcx.run_until_parked();
+}
+
 /// T2.5: a near-duplicate title is inspected against two candidates and backed
 /// out of twice with the form untouched; then Create commits one Song with no
 /// Arrangements, and a reopen from disk finds it and leaves the candidates as
@@ -514,6 +531,7 @@ fn t2_6_e2e_create_edit_cancel_duplicate_then_reload_with_independent_histories(
     // Edit through the shared notice.
     open_edit(&shell, original, vcx);
     assert!(present(vcx, "ad-shared-notice"));
+    scroll_details_to_end(vcx);
     type_into(vcx, "ad-notes", "Revised once");
     press(vcx, "button-Save details");
     crate::songs::choirs::tests::wait(vcx, |vcx| {
@@ -525,6 +543,7 @@ fn t2_6_e2e_create_edit_cancel_duplicate_then_reload_with_independent_histories(
 
     // A cancelled edit stores nothing.
     open_edit(&shell, original, vcx);
+    scroll_details_to_end(vcx);
     type_into(vcx, "ad-notes", " and discarded");
     press(vcx, "button-Cancel");
     settle_depth(&songs_of(&shell, vcx), vcx, 0);

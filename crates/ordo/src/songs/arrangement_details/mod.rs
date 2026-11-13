@@ -192,13 +192,7 @@ impl ArrangementDetailsPanel {
             let duplicate = panel.clone();
             overlay = overlay.leading_gated(
                 form::DUPLICATE,
-                move |cx| {
-                    if gate.read(cx).busy {
-                        Availability::unavailable(form::BUSY_REASON)
-                    } else {
-                        Availability::Available
-                    }
-                },
+                move |cx| gate.read(cx).duplicate_availability(cx),
                 move |window, cx| {
                     duplicate.update(cx, |panel, cx| panel.duplicate(window, cx));
                 },
@@ -511,13 +505,37 @@ impl ArrangementDetailsPanel {
         }
     }
 
+    /// Whether Duplicate can run: not while a write is in flight, and not for
+    /// an Arrangement STORED with no language, since a copy is a creation and
+    /// the domain refuses one without a language (T2.6 plan decision 7).
+    /// Staging a language does not unblock it: Duplicate copies what is stored.
+    pub fn duplicate_availability(&self, cx: &App) -> Availability {
+        if self.busy {
+            return Availability::unavailable(form::BUSY_REASON);
+        }
+        let Mode::Edit(id) = self.mode else {
+            return Availability::Disabled;
+        };
+        let languageless = self
+            .store
+            .read(cx)
+            .library()
+            .arrangement(id)
+            .is_ok_and(|arrangement| arrangement.languages().is_empty());
+        if languageless {
+            Availability::unavailable(form::DUPLICATE_NO_LANGUAGE_REASON)
+        } else {
+            Availability::Available
+        }
+    }
+
     /// Duplicates the STORED Arrangement (not the staged edit), closes the
     /// panel and reports the copy.
     pub fn duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Mode::Edit(id) = self.mode else {
             return;
         };
-        if self.busy {
+        if !self.duplicate_availability(cx).is_available() {
             return;
         }
         let task = self
