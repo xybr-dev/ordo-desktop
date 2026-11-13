@@ -1174,23 +1174,24 @@ verify it exists with no fabricated Arrangement.
 boundary.
 
 **Changes:** `crates/ordo/src/songs/arrangement_details/`,
-`crates/domain/src/song_library/arrangements.rs`, `tests/e2e/songs/arrangement_details.*`
+`crates/domain/src/song_library/model/arrangement.rs`, `crates/domain/src/song_library/interface.rs`,
+`crates/ordo/src/songs/e2e.rs`
 
 **Depends on:** T2.3, T2.5.
 
 **AC**
 
-- [ ] `[UI-AUTO]` New/Edit Arrangement uses the same viewport-bounded floating
+- [x] `[UI-AUTO]` New/Edit Arrangement uses the same viewport-bounded floating
       details surface with scenario-specific Create or Save action.
-- [ ] `[AUTO]` At least one language is required; title and Choirs are optional,
+- [x] `[AUTO]` At least one language is required; title and Choirs are optional,
       and blank display title derives from language/Choir context.
-- [ ] `[UI-AUTO]` Composer/original author are absent; translator/adapter,
+- [x] `[UI-AUTO]` Composer/original author are absent; translator/adapter,
       applicability, source, rendition, and rights notes are available.
-- [ ] `[UI-AUTO]` Editing a multi-Choir shared Arrangement warns before Save;
+- [x] `[UI-AUTO]` Editing a multi-Choir shared Arrangement warns before Save;
       Duplicate Arrangement is available as the safe branch.
-- [ ] `[UI-AUTO]` Cancel discards staged metadata without disturbing the
+- [x] `[UI-AUTO]` Cancel discards staged metadata without disturbing the
       underlying page; successful creation lands in Lyrics.
-- [ ] `[AUTO]` Metadata Save creates a revision without mutating immutable
+- [x] `[AUTO]` Metadata Save creates a revision without mutating immutable
       snapshots or existing Mass-local overrides.
 
 **E2E** `[UI-AUTO]` — Create a blank-title two-language Arrangement shared by

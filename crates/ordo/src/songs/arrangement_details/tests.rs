@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Runs one store write to completion.
-fn write<T: 'static>(
+pub(crate) fn write<T: 'static>(
     store: &Entity<LibraryStore>,
     vcx: &mut VisualTestContext,
     write: impl FnOnce(
@@ -32,11 +32,14 @@ fn write<T: 'static>(
         .expect("the write succeeds")
 }
 
-fn arrangement_count(store: &Entity<LibraryStore>, vcx: &mut VisualTestContext) -> usize {
+pub(crate) fn arrangement_count(
+    store: &Entity<LibraryStore>,
+    vcx: &mut VisualTestContext,
+) -> usize {
     store.read_with(vcx, |store, _| store.library().arrangements().count())
 }
 
-fn choir_named(
+pub(crate) fn choir_named(
     store: &Entity<LibraryStore>,
     name: &str,
     vcx: &mut VisualTestContext,
@@ -50,7 +53,7 @@ fn choir_named(
     })
 }
 
-fn label_of(
+pub(crate) fn label_of(
     store: &Entity<LibraryStore>,
     id: ArrangementId,
     vcx: &mut VisualTestContext,
@@ -79,7 +82,7 @@ fn arrangement_of(
 }
 
 /// Selects `song` and opens New Arrangement from its detail pane.
-fn open_new(
+pub(crate) fn open_new(
     shell: &Entity<ShellView>,
     song: SongId,
     vcx: &mut VisualTestContext,
@@ -94,7 +97,7 @@ fn open_new(
 }
 
 /// Opens the focused view of `id` and then its details panel.
-fn open_edit(
+pub(crate) fn open_edit(
     shell: &Entity<ShellView>,
     id: ArrangementId,
     vcx: &mut VisualTestContext,
