@@ -12,6 +12,12 @@
 //! migrations applied, each in its own immediate transaction together with its
 //! ledger row and `user_version`. Shutdown checkpoints the WAL with TRUNCATE.
 //!
+//! Managed assets: image originals live under `assets/<id>` beside the
+//! database, committed together with their rows (see `create_theme`). After
+//! migrations succeed, open creates `assets/`, `assets/.staging/` and the
+//! disposable `cache/`, and sweeps staging leftovers and unreferenced
+//! canonical-id files. Open refuses a `cache_dir` that overlaps `assets_dir`.
+//!
 //! The compile-fail examples below are the automated evidence that callers
 //! cannot reach the driver, a connection, SQL, or a transaction (T0.7 AC1-2).
 //! The baseline compiles:
@@ -59,9 +65,10 @@
 use std::fmt;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod assets;
 #[cfg(test)]
 mod erd;
 mod migrations;
@@ -70,29 +77,53 @@ mod parish_schema_tests;
 mod parish_store;
 mod worker;
 
-use domain::identity::{ArrangementId, EntityId, SongId};
+use domain::identity::{ArrangementId, EntityId, ManagedAssetId, SongId, ThemeId};
 use migrations::Migration;
 use worker::{Core, Exit, Message, Sources};
 
+pub use domain::presentation::ContentHash;
 pub use parish_store::{
-    ArrangementRecord, ChoirRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong,
-    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
+    ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
+    NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
+    SectionRecord, SongRecord, ThemeRecord,
 };
 
-/// Where the database lives and how long a request waits on a locked file.
+/// Where the database, managed assets and disposable cache live, and how long
+/// a request waits on a locked file.
+///
+/// `cache_dir` must not equal `assets_dir` or be nested with it; open refuses
+/// such a configuration with `InvalidInput { field: "cache_dir", .. }`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConfig {
     pub path: PathBuf,
     pub busy_timeout: Duration,
+    /// Authoritative asset files, one per managed asset, plus `.staging/`.
+    pub assets_dir: PathBuf,
+    /// Disposable cache; safe to delete at any time.
+    pub cache_dir: PathBuf,
 }
 
 impl StorageConfig {
-    /// Configuration with the default 5 second busy timeout.
+    /// Configuration with the default 5 second busy timeout. The asset and
+    /// cache directories are `assets` and `cache` beside the database file.
     pub fn new(path: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        let parent = match path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
         Self {
-            path: path.into(),
+            assets_dir: parent.join("assets"),
+            cache_dir: parent.join("cache"),
+            path,
             busy_timeout: Duration::from_secs(5),
         }
+    }
+
+    /// Configuration for a parish data directory: `root/parish.sqlite3`,
+    /// `root/assets` and `root/cache`.
+    pub fn in_directory(root: impl AsRef<Path>) -> Self {
+        Self::new(root.as_ref().join("parish.sqlite3"))
     }
 }
 
@@ -192,6 +223,10 @@ pub enum StorageError {
     ParishExists,
     /// The id source produced colliding ids too many times in a row.
     IdentityExhausted { kind: RecordKind },
+    /// Writing an asset file failed; nothing was committed and no file was left behind.
+    AssetWrite(String),
+    /// The stored bytes of an asset are missing or do not match its recorded hash.
+    AssetIntegrity { id: ManagedAssetId },
 }
 
 impl fmt::Display for StorageError {
@@ -224,6 +259,13 @@ impl fmt::Display for StorageError {
             Self::ParishExists => write!(f, "the parish already exists"),
             Self::IdentityExhausted { kind } => {
                 write!(f, "could not generate a unique {kind} id")
+            }
+            Self::AssetWrite(message) => write!(f, "asset file error: {message}"),
+            Self::AssetIntegrity { id } => {
+                write!(
+                    f,
+                    "asset {id} is missing or does not match its recorded hash"
+                )
             }
         }
     }
@@ -373,6 +415,47 @@ impl Storage {
         })
     }
 
+    /// Creates a Theme. A background image is written under `assets/` and
+    /// committed with its `managed_asset` row and the Theme row, or not at all.
+    pub fn create_theme(
+        &self,
+        theme: NewTheme,
+    ) -> impl Future<Output = Result<ThemeRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.create_theme(theme)
+        })
+    }
+
+    /// Reads one Theme, or `NotFound`.
+    pub fn theme(
+        &self,
+        id: ThemeId,
+    ) -> impl Future<Output = Result<ThemeRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| core.theme(id))
+    }
+
+    /// Reads the verified bytes of one asset: `NotFound` without a row,
+    /// `AssetIntegrity` when the file is missing or does not match its hash.
+    /// Read-only; never repairs.
+    pub fn read_asset(
+        &self,
+        id: ManagedAssetId,
+    ) -> impl Future<Output = Result<Vec<u8>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| core.read_asset(id))
+    }
+
+    /// Re-hashes every asset file and reports missing and corrupt ones.
+    /// Read-only; never repairs. A read error other than a missing file
+    /// fails the report with `AssetWrite` instead of being classified.
+    pub fn verify_assets(&self) -> impl Future<Output = Result<AssetReport, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.verify_assets())
+    }
+
+    /// Removes and recreates the disposable cache directory.
+    pub fn clear_cache(&self) -> impl Future<Output = Result<(), StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.clear_cache())
+    }
+
     /// Checkpoints the WAL (TRUNCATE), closes the connection, and reports how
     /// the worker thread ended.
     ///
@@ -478,6 +561,18 @@ impl Storage {
     ) -> impl Future<Output = Result<(), StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
             core.inject_write_failure(step);
+            Ok::<(), StorageError>(())
+        })
+    }
+
+    /// The next asset file write writes half the bytes to the staging file and
+    /// then fails with `StorageError::AssetWrite`, then the hook clears. A
+    /// create that fails before its file write leaves the hook armed.
+    pub fn inject_asset_write_failure(
+        &self,
+    ) -> impl Future<Output = Result<(), StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| {
+            core.inject_asset_write_failure();
             Ok::<(), StorageError>(())
         })
     }

@@ -6,14 +6,17 @@
 
 use std::str::FromStr;
 
-use domain::identity::{ArrangementId, ChoirId, SongId, Timestamp};
+use domain::identity::{ArrangementId, ChoirId, ManagedAssetId, SongId, ThemeId, Timestamp};
+use domain::presentation::ContentHash;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+use crate::assets;
 use crate::worker::Core;
 use crate::{RecordKind, StorageError, map_error};
 
 use super::records::{
-    ArrangementRecord, ChoirRecord, OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
+    ArrangementRecord, AssetReport, ChoirRecord, ManagedAssetRecord, OccurrenceRecord,
+    ParishRecord, SectionRecord, SongRecord, ThemeRecord,
 };
 
 /// A stable error for a stored value the store cannot parse.
@@ -372,6 +375,166 @@ fn arrangements_for_song(
     Ok(arrangements)
 }
 
+/// One `managed_asset` row, parsed.
+fn asset_row(
+    id: String,
+    sha256: &str,
+    byte_len: i64,
+    media_type: String,
+    created_at: &str,
+) -> Result<ManagedAssetRecord, StorageError> {
+    Ok(ManagedAssetRecord {
+        id: entity(&id, "corrupt id")?,
+        sha256: sha256
+            .parse::<ContentHash>()
+            .map_err(|_| corrupt("corrupt sha256"))?,
+        byte_len: u64::try_from(byte_len).map_err(|_| corrupt("corrupt byte_len"))?,
+        media_type,
+        created_at: time(created_at, "corrupt created_at")?,
+    })
+}
+
+/// Reads one asset row, or `None` when it does not exist.
+fn read_asset_row(
+    tx: &Transaction<'_>,
+    id: ManagedAssetId,
+) -> Result<Option<ManagedAssetRecord>, StorageError> {
+    let row = tx
+        .query_row(
+            "SELECT id, sha256, byte_len, media_type, created_at FROM managed_asset \
+             WHERE id = ?1",
+            params![id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(map_error)?;
+    row.map(|(id, sha256, byte_len, media_type, created_at)| {
+        asset_row(id, &sha256, byte_len, media_type, &created_at)
+    })
+    .transpose()
+}
+
+fn theme_by_id(conn: &mut Connection, id: ThemeId) -> Result<ThemeRecord, StorageError> {
+    let tx = conn.transaction().map_err(map_error)?;
+    let row = tx
+        .query_row(
+            "SELECT name, background_asset_id, created_at, archived_at FROM theme WHERE id = ?1",
+            params![id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(map_error)?;
+    let Some((name, background_id, created_at, archived_at)) = row else {
+        return Err(StorageError::NotFound {
+            kind: RecordKind::Theme,
+            id: id.entity(),
+        });
+    };
+    let background = match background_id {
+        Some(text) => {
+            let asset_id = entity::<ManagedAssetId>(&text, "corrupt background_asset_id")?;
+            Some(
+                read_asset_row(&tx, asset_id)?
+                    .ok_or_else(|| corrupt("theme references a missing asset row"))?,
+            )
+        }
+        None => None,
+    };
+    Ok(ThemeRecord {
+        id,
+        name,
+        background,
+        created_at: time(&created_at, "corrupt created_at")?,
+        archived_at: match archived_at {
+            Some(text) => Some(time(&text, "corrupt archived_at")?),
+            None => None,
+        },
+    })
+}
+
+/// True when the bytes match the row's recorded length and hash.
+fn intact(record: &ManagedAssetRecord, bytes: &[u8]) -> bool {
+    u64::try_from(bytes.len()) == Ok(record.byte_len) && assets::hash(bytes) == record.sha256
+}
+
+fn read_asset_bytes(
+    conn: &mut Connection,
+    layout: &assets::AssetLayout,
+    id: ManagedAssetId,
+) -> Result<Vec<u8>, StorageError> {
+    let record = {
+        let tx = conn.transaction().map_err(map_error)?;
+        read_asset_row(&tx, id)?.ok_or(StorageError::NotFound {
+            kind: RecordKind::ManagedAsset,
+            id: id.entity(),
+        })?
+    };
+    match assets::read_file(layout, id.entity())? {
+        Some(bytes) if intact(&record, &bytes) => Ok(bytes),
+        _ => Err(StorageError::AssetIntegrity { id }),
+    }
+}
+
+fn verify_all_assets(
+    conn: &mut Connection,
+    layout: &assets::AssetLayout,
+) -> Result<AssetReport, StorageError> {
+    let records = {
+        let tx = conn.transaction().map_err(map_error)?;
+        let mut statement = tx
+            .prepare(
+                "SELECT id, sha256, byte_len, media_type, created_at FROM managed_asset \
+                 ORDER BY id",
+            )
+            .map_err(map_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(map_error)?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (id, sha256, byte_len, media_type, created_at) = row.map_err(map_error)?;
+            records.push(asset_row(id, &sha256, byte_len, media_type, &created_at)?);
+        }
+        records
+    };
+    let mut report = AssetReport {
+        checked: records.len(),
+        missing: Vec::new(),
+        corrupt: Vec::new(),
+    };
+    for record in &records {
+        match assets::read_file(layout, record.id.entity())? {
+            None => report.missing.push(record.id),
+            Some(bytes) if !intact(record, &bytes) => report.corrupt.push(record.id),
+            Some(_) => {}
+        }
+    }
+    Ok(report)
+}
+
 impl Core {
     /// Reads the Parish, if one has been created.
     pub(crate) fn parish(&mut self) -> Result<Option<ParishRecord>, StorageError> {
@@ -413,5 +576,24 @@ impl Core {
     ) -> Result<Vec<ArrangementRecord>, StorageError> {
         let conn = self.connection_mut()?;
         arrangements_for_song(conn, song)
+    }
+
+    /// Reads one Theme or reports `NotFound`.
+    pub(crate) fn theme(&mut self, id: ThemeId) -> Result<ThemeRecord, StorageError> {
+        let conn = self.connection_mut()?;
+        theme_by_id(conn, id)
+    }
+
+    /// Reads and verifies one asset file; read-only, never repairs.
+    pub(crate) fn read_asset(&mut self, id: ManagedAssetId) -> Result<Vec<u8>, StorageError> {
+        let (conn, layout) = self.asset_read_parts()?;
+        read_asset_bytes(conn, layout, id)
+    }
+
+    /// Re-hashes every asset file; read-only, never repairs. A read error
+    /// other than a missing file fails the whole report.
+    pub(crate) fn verify_assets(&mut self) -> Result<AssetReport, StorageError> {
+        let (conn, layout) = self.asset_read_parts()?;
+        verify_all_assets(conn, layout)
     }
 }

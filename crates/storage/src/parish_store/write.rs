@@ -7,16 +7,18 @@
 //! every row in one create shares the operation's single creation time.
 
 use domain::identity::{
-    ArrangementId, ChoirId, EntityId, OccurrenceId, ParishId, SectionId, SongId, Timestamp,
+    ArrangementId, ChoirId, EntityId, ManagedAssetId, OccurrenceId, ParishId, SectionId, SongId,
+    ThemeId, Timestamp,
 };
 use rusqlite::{Connection, OptionalExtension, Params, Transaction, TransactionBehavior, params};
 
-use crate::worker::{Core, Sources};
+use crate::assets::{self, AssetLayout};
+use crate::worker::{AssetWriteParts, Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
 use super::records::{
-    ArrangementRecord, ChoirRecord, NewArrangement, NewChoir, NewParish, NewSong, OccurrenceRecord,
-    ParishRecord, SectionRecord, SongRecord,
+    ArrangementRecord, ChoirRecord, ManagedAssetRecord, NewArrangement, NewChoir, NewParish,
+    NewSong, NewTheme, OccurrenceRecord, ParishRecord, SectionRecord, SongRecord, ThemeRecord,
 };
 
 /// How many identities one entity insert may try before giving up.
@@ -501,6 +503,205 @@ fn insert_arrangement(
     })
 }
 
+/// Validates the Theme before any statement runs or any byte is hashed.
+fn validate_theme(theme: &NewTheme) -> Result<(), StorageError> {
+    require_present("name", &theme.name)?;
+    if let Some(upload) = &theme.background {
+        if !matches!(upload.media_type.as_str(), "image/png" | "image/jpeg") {
+            return Err(StorageError::InvalidInput {
+                field: "media_type",
+                reason: "unsupported",
+            });
+        }
+        if upload.bytes.is_empty() {
+            return Err(StorageError::InvalidInput {
+                field: "background",
+                reason: "empty",
+            });
+        }
+        if i64::try_from(upload.bytes.len()).is_err() {
+            return Err(StorageError::InvalidInput {
+                field: "background",
+                reason: "too large",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Draws an asset identity whose row and file are both absent.
+fn draw_asset_id(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    layout: &AssetLayout,
+) -> Result<EntityId, StorageError> {
+    for _ in 0..MAX_ID_ATTEMPTS {
+        let id = EntityId::from_random_bytes(ids.next_bytes());
+        let row_exists = tx
+            .query_row(
+                "SELECT 1 FROM managed_asset WHERE id = ?1",
+                params![id.to_string()],
+                |_row| Ok(()),
+            )
+            .optional()
+            .map_err(map_error)?
+            .is_some();
+        if !row_exists && !assets::file_exists(layout, id)? {
+            return Ok(id);
+        }
+    }
+    Err(StorageError::IdentityExhausted {
+        kind: RecordKind::ManagedAsset,
+    })
+}
+
+/// Inserts the asset row, then the Theme row that references it.
+fn insert_asset_and_theme(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    asset: &ManagedAssetRecord,
+    name: &str,
+    created: &str,
+) -> Result<EntityId, StorageError> {
+    let byte_len = i64::try_from(asset.byte_len).map_err(|_| StorageError::InvalidInput {
+        field: "background",
+        reason: "too large",
+    })?;
+    let asset_text = asset.id.to_string();
+    write(
+        tx,
+        steps,
+        "INSERT INTO managed_asset (id, sha256, byte_len, media_type, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            asset_text,
+            asset.sha256.to_string(),
+            byte_len,
+            asset.media_type,
+            created
+        ],
+    )?;
+    insert_theme_row(tx, ids, steps, name, Some(&asset_text), created)
+}
+
+/// Inserts the Theme row, regenerating its identity after a collision.
+fn insert_theme_row(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    name: &str,
+    background: Option<&str>,
+    created: &str,
+) -> Result<EntityId, StorageError> {
+    insert_entity(ids, steps, RecordKind::Theme, |id, steps| {
+        write(
+            tx,
+            steps,
+            "INSERT INTO theme (id, name, background_asset_id, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![id.to_string(), name, background, created],
+        )
+    })
+}
+
+/// Creates a Theme; a background image is written and committed with it.
+///
+/// Order: validate, hash, open the immediate transaction, draw an asset id
+/// (row and file absent), stage and sync the file, rename it into place,
+/// insert the asset row, insert the Theme row, commit. Any failure from the
+/// file write onward removes the staging and final files, and the dropped
+/// transaction rolls the rows back.
+fn insert_theme(
+    parts: AssetWriteParts<'_>,
+    at: Timestamp,
+    theme: NewTheme,
+) -> Result<ThemeRecord, StorageError> {
+    let AssetWriteParts {
+        conn,
+        ids,
+        fault,
+        layout,
+        asset_fault,
+    } = parts;
+    validate_theme(&theme)?;
+    let created = timestamp_text(at)?;
+    let hashed = match &theme.background {
+        Some(upload) => {
+            let byte_len =
+                u64::try_from(upload.bytes.len()).map_err(|_| StorageError::InvalidInput {
+                    field: "background",
+                    reason: "too large",
+                })?;
+            Some((assets::hash(&upload.bytes), byte_len))
+        }
+        None => None,
+    };
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+
+    let (Some(upload), Some((sha256, byte_len))) = (theme.background, hashed) else {
+        let id = insert_theme_row(&tx, ids, &mut steps, &theme.name, None, &created)?;
+        tx.commit().map_err(map_error)?;
+        return Ok(ThemeRecord {
+            id: ThemeId::from_entity(id),
+            name: theme.name,
+            background: None,
+            created_at: at,
+            archived_at: None,
+        });
+    };
+
+    let asset_id = draw_asset_id(&tx, ids, layout)?;
+    let asset = ManagedAssetRecord {
+        id: ManagedAssetId::from_entity(asset_id),
+        sha256,
+        byte_len,
+        media_type: upload.media_type,
+        created_at: at,
+    };
+    let fail_midway = std::mem::take(asset_fault);
+    if let Err(error) = assets::write_file(layout, asset_id, &upload.bytes, fail_midway) {
+        assets::remove_files(layout, asset_id);
+        return Err(error);
+    }
+    let theme_id = match insert_asset_and_theme(&tx, ids, &mut steps, &asset, &theme.name, &created)
+    {
+        Ok(id) => id,
+        Err(error) => {
+            assets::remove_files(layout, asset_id);
+            return Err(error);
+        }
+    };
+    if let Err(error) = tx.commit() {
+        // A commit error can still mean the commit landed. Then the caller gets
+        // an error although the Theme exists, and a retry would create a second
+        // Theme. Keep the file when its row is there, or when that cannot be
+        // checked: an unreferenced file is swept on the next open, a referenced
+        // missing file is a loss.
+        let landed = conn
+            .query_row(
+                "SELECT 1 FROM managed_asset WHERE id = ?1",
+                params![asset_id.to_string()],
+                |_row| Ok(()),
+            )
+            .optional();
+        if matches!(landed, Ok(None)) {
+            assets::remove_files(layout, asset_id);
+        }
+        return Err(map_error(error));
+    }
+    Ok(ThemeRecord {
+        id: ThemeId::from_entity(theme_id),
+        name: theme.name,
+        background: Some(asset),
+        created_at: at,
+        archived_at: None,
+    })
+}
+
 impl Core {
     /// Creates the Parish and its identity.
     pub(crate) fn create_parish(
@@ -534,5 +735,14 @@ impl Core {
         let at = self.timestamp();
         let (conn, ids, fault) = self.write_parts()?;
         insert_arrangement(conn, ids, at, fault, arrangement)
+    }
+
+    /// Creates one Theme; with a background, its asset file and rows commit together.
+    /// If COMMIT reports failure but the rows landed, the caller gets an error
+    /// although the Theme exists, and a retry would create a second Theme.
+    pub(crate) fn create_theme(&mut self, theme: NewTheme) -> Result<ThemeRecord, StorageError> {
+        let at = self.timestamp();
+        let parts = self.asset_write_parts()?;
+        insert_theme(parts, at, theme)
     }
 }

@@ -5,8 +5,10 @@
 //! driver type, so callers never depend on the storage implementation.
 
 use domain::identity::{
-    ArrangementId, ChoirId, OccurrenceId, ParishId, SectionId, SongId, Timestamp,
+    ArrangementId, ChoirId, ManagedAssetId, OccurrenceId, ParishId, SectionId, SongId, ThemeId,
+    Timestamp,
 };
+use domain::presentation::ContentHash;
 
 /// Description of the Parish to create.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -169,4 +171,63 @@ pub struct ArrangementRecord {
     pub created_at: Timestamp,
     /// When the Arrangement was archived, if it has been.
     pub archived_at: Option<Timestamp>,
+}
+
+/// Image bytes to store as a managed asset.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetUpload {
+    /// The original file bytes; never empty.
+    pub bytes: Vec<u8>,
+    /// `image/png` or `image/jpeg`.
+    pub media_type: String,
+}
+
+/// The stored metadata of one managed asset file.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManagedAssetRecord {
+    /// Canonical UUIDv4 identity; also the file name under `assets/`.
+    pub id: ManagedAssetId,
+    /// SHA-256 of the stored bytes.
+    pub sha256: ContentHash,
+    /// Length of the stored bytes.
+    pub byte_len: u64,
+    /// The media type exactly as stored.
+    pub media_type: String,
+    /// Creation time.
+    pub created_at: Timestamp,
+}
+
+/// Description of the Theme to create.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NewTheme {
+    /// The Theme name exactly as authored.
+    pub name: String,
+    /// An optional background image, stored as a managed asset.
+    pub background: Option<AssetUpload>,
+}
+
+/// The stored Theme.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThemeRecord {
+    /// Canonical UUIDv4 identity.
+    pub id: ThemeId,
+    /// The name exactly as authored.
+    pub name: String,
+    /// The background image asset, if any.
+    pub background: Option<ManagedAssetRecord>,
+    /// Creation time.
+    pub created_at: Timestamp,
+    /// When the Theme was archived, if it has been.
+    pub archived_at: Option<Timestamp>,
+}
+
+/// Outcome of re-hashing every managed asset file.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetReport {
+    /// How many asset rows were checked.
+    pub checked: usize,
+    /// Assets whose file is absent or unreadable, sorted by id.
+    pub missing: Vec<ManagedAssetId>,
+    /// Assets whose bytes do not match the recorded length or hash, sorted by id.
+    pub corrupt: Vec<ManagedAssetId>,
 }
