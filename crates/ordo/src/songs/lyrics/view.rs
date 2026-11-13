@@ -6,7 +6,8 @@
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use domain::{identity::SectionId, song_library::ArrangementLyrics};
-use gpui::{App, Bounds, FocusHandle, Pixels, Subscription};
+use gpui::{App, Bounds, FocusHandle, Pixels, Subscription, Task};
+use rendering::FrameCache;
 use ui::{
     overlay::OverlayHost,
     primitives::{field::FieldState, text_area::TextAreaState},
@@ -56,6 +57,10 @@ pub(super) struct LyricsView {
     pub reload_slide: Option<usize>,
     /// Keeps the editor's event and caret subscriptions alive.
     pub subscriptions: Vec<Subscription>,
+    /// Composed slide frames, by (section name, slide body).
+    pub frames: FrameCache<super::navigator::FrameKey>,
+    /// Compositions in flight; dropping one cancels it.
+    pub pending: HashMap<super::navigator::FrameKey, Task<()>>,
 }
 
 impl LyricsView {
@@ -77,6 +82,8 @@ impl LyricsView {
             slide: 0,
             reload_slide: None,
             subscriptions: Vec::new(),
+            frames: FrameCache::new(rendering::FRAME_CAPACITY),
+            pending: HashMap::new(),
         }
     }
 

@@ -863,3 +863,99 @@ Niño",
     settle(vcx);
     assert_eq!(slide_counts(&editor, vcx), (2, 0));
 }
+
+fn thumbnail_size(vcx: &mut VisualTestContext, selector: &'static str) -> (f32, f32) {
+    let bounds = vcx.debug_bounds(selector).expect(selector);
+    (bounds.size.width.into(), bounds.size.height.into())
+}
+
+fn wait_for_frames(editor: &Entity<ArrangementEditor>, count: usize, vcx: &mut VisualTestContext) {
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.read_with(vcx, |editor, _| editor.lyrics.frames.len()) >= count
+    });
+}
+
+#[gpui::test]
+fn thumbnails_have_one_fixed_16_9_size_whether_alone_or_in_a_full_row(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    seed_lyrics(&editor, "Ginoó", vcx);
+    let alone = thumbnail_size(vcx, "thumb-0");
+    seed_lyrics(&editor, "Ginoó
+
+Niño
+
+Paz
+
+Vida
+
+Amén
+
+Ave", vcx);
+    for slide in ["thumb-0", "thumb-3", "thumb-5"] {
+        assert_eq!(thumbnail_size(vcx, slide), alone, "{slide}");
+    }
+    assert!((alone.0 * 9.0 / 16.0 - alone.1).abs() < 1.0, "16:9: {alone:?}");
+}
+
+#[gpui::test]
+fn slides_are_composed_off_thread_cached_and_shown_in_the_inspector(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    seed_lyrics(&editor, "Ginoó
+Niño
+
+Paz
+Vida", vcx);
+    wait_for_frames(&editor, 2, vcx);
+    assert!(present(vcx, "inspector-preview") && present(vcx, "inspector-meta"));
+    let ready = editor.read_with(vcx, |editor, _| {
+        editor.lyrics.frames.len()
+    });
+    assert!(ready >= 2, "a frame per slide, cached by (header, body)");
+    // Re-rendering composes nothing new.
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, _| editor.lyrics.frames.len()), ready);
+    assert!(editor.read_with(vcx, |editor, _| editor.lyrics.pending.is_empty()));
+    // Another section drops what the first still waited for.
+    click(vcx, "arrangement-section-1");
+    settle(vcx);
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| editor.selected_section().is_some()),
+        true
+    );
+}
+
+#[gpui::test]
+fn clicking_a_thumbnail_selects_its_lines_and_the_inspector_follows(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    seed_lyrics(&editor, "Ginoó
+Niño
+
+Paz
+Vida", vcx);
+    click(vcx, "thumb-1");
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, _| editor.selected_slide()), 1);
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    let (range, value) = vcx.update(|_, cx| (area.selected_range(cx), area.value(cx).to_string()));
+    assert_eq!(&value[range], "Paz
+Vida", "the slide's source lines are selected");
+    assert!(present(vcx, "inspector-slide"));
+}
+
+#[gpui::test]
+fn below_the_pane_minima_only_the_inspector_moves_to_a_slideover(cx: &mut TestAppContext) {
+    let (shell, _editor, _id, vcx) = in_memory(cx, false);
+    vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+    settle(vcx);
+    assert!(present(vcx, "arrangement-sections"), "the sections stay");
+    assert!(present(vcx, "arrangement-overview"));
+    assert!(!present(vcx, "arrangement-inspector"), "no Inspector pane");
+    assert!(present(vcx, "button-Inspector"));
+    click(vcx, "button-Inspector");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Inspector"));
+    assert!(present(vcx, "inspector-slide"));
+}

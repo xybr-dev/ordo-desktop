@@ -13,7 +13,7 @@ use domain::{
 };
 use gpui::{
     AnyElement, App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
-    WeakEntity, Window, div, px, rgb,
+    WeakEntity, Window, div, prelude::FluentBuilder as _, px, rgb,
 };
 use ui::{
     environment::UiEnvironment,
@@ -28,6 +28,7 @@ use ui::{
 
 use super::{
     editor::ArrangementEditor,
+    navigator::{inspector_button, thumbnails},
     panes::{column, section_name},
     sections::GENERIC_REFUSAL,
 };
@@ -301,6 +302,7 @@ pub(super) fn main_pane(
     weak: &WeakEntity<ArrangementEditor>,
     content: &ArrangementLyrics,
     read_only: bool,
+    compact: bool,
     environment: UiEnvironment,
     cx: &App,
 ) -> AnyElement {
@@ -373,11 +375,21 @@ pub(super) fn main_pane(
                 )
                 .child(
                     div()
-                        .debug_selector(|| "arrangement-slide-caption".into())
-                        .text_color(rgb(palette.text_muted))
-                        .child(caption),
+                        .flex()
+                        .items_center()
+                        .gap(px(scale.apply(tokens::spacing::RELATED)))
+                        .child(
+                            div()
+                                .debug_selector(|| "arrangement-slide-caption".into())
+                                .text_color(rgb(palette.text_muted))
+                                .child(caption),
+                        )
+                        .when(compact, |group| {
+                            group.child(inspector_button(weak, environment))
+                        }),
                 ),
         )
+        .children(thumbnails(editor, weak, content, environment, cx))
         .child(
             div()
                 .debug_selector(move || format!("arrangement-lyrics-{at}"))

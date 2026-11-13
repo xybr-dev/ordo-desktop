@@ -19,6 +19,7 @@ use super::{
     add_section::open_add_section,
     editor::{ArrangementEditor, TaskTab},
     editor_pane::{ensure_area, main_pane},
+    navigator::{inspector_pane, request_frames},
     sections::{anchored, sections_pane},
 };
 
@@ -60,6 +61,7 @@ pub fn build(
         TaskTab::Lyrics => {
             editor.lyrics.resolve_selection(&content);
             ensure_area(editor, &weak, &content, window, cx);
+            request_frames(editor, &content, cx);
             let sections = sections_pane(editor, &weak, &content, read_only, environment, cx);
             Panes {
                 sections: Some(sections),
@@ -73,7 +75,7 @@ pub fn build(
                     window,
                     cx,
                 ),
-                inspector: (!compact).then(|| inspector_pane(environment)),
+                inspector: (!compact).then(|| inspector_pane(editor, &content, environment, cx)),
             }
         }
         TaskTab::Sequence => Panes {
@@ -114,7 +116,7 @@ fn missing(environment: UiEnvironment) -> AnyElement {
         .into_any_element()
 }
 
-fn head(text: &'static str, environment: UiEnvironment) -> Div {
+pub(super) fn head(text: &'static str, environment: UiEnvironment) -> Div {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     div()
@@ -139,7 +141,7 @@ fn lyrics_pane(
     weak: &gpui::WeakEntity<ArrangementEditor>,
     content: &ArrangementLyrics,
     read_only: bool,
-    _compact: bool,
+    compact: bool,
     environment: UiEnvironment,
     window: &mut Window,
     cx: &mut App,
@@ -188,20 +190,7 @@ fn lyrics_pane(
             )
             .into_any_element();
     }
-    main_pane(editor, weak, content, read_only, environment, cx)
-}
-
-fn inspector_pane(environment: UiEnvironment) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    column(environment)
-        .debug_selector(|| "arrangement-inspector".into())
-        .child(head("Inspector", environment))
-        .child(
-            div()
-                .text_color(rgb(palette.text_muted))
-                .child("Nothing to inspect yet."),
-        )
-        .into_any_element()
+    main_pane(editor, weak, content, read_only, compact, environment, cx)
 }
 
 fn sequence_pane(content: &ArrangementLyrics, environment: UiEnvironment) -> AnyElement {
