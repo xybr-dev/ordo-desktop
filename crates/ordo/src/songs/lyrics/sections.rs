@@ -12,10 +12,13 @@ use gpui::{
 };
 use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
 
+use crate::commands::registry::{LYRICS_SECTIONS_CONTEXT, MoveDown, MoveUp};
+
 use super::{
     add_section::{ADD_SECTION, open_add_section},
     editor::ArrangementEditor,
     panes::section_name,
+    section_actions::section_buttons,
     view::Anchor,
 };
 
@@ -116,10 +119,24 @@ pub(super) fn sections_pane(
             .or_insert_with(|| cx.focus_handle().tab_stop(true))
             .clone();
         let choose = weak.clone();
+        let (up, down) = (weak.clone(), weak.clone());
         div()
             .id(("arrangement-section-row", at))
             .debug_selector(move || format!("arrangement-section-{at}"))
             .track_focus(&focus)
+            .key_context(LYRICS_SECTIONS_CONTEXT)
+            .on_action(move |_: &MoveUp, _, cx| {
+                let _ = up.update(cx, |editor, cx| {
+                    editor.select_section(id, cx);
+                    let _ = editor.move_section(id, domain::song_library::Step::Up, cx);
+                });
+            })
+            .on_action(move |_: &MoveDown, _, cx| {
+                let _ = down.update(cx, |editor, cx| {
+                    editor.select_section(id, cx);
+                    let _ = editor.move_section(id, domain::song_library::Step::Down, cx);
+                });
+            })
             .flex()
             .flex_col()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
@@ -174,6 +191,7 @@ pub(super) fn sections_pane(
                 .children(add),
         )
         .children(rows)
+        .child(section_buttons(weak, content, selected, read_only, environment))
         .child(
             div()
                 .text_size(px(scale.apply(tokens::typography::META.size)))

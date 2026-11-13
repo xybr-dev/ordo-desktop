@@ -20,6 +20,7 @@ use super::{
     editor::{ArrangementEditor, TaskTab},
     editor_pane::{ensure_area, main_pane},
     navigator::{inspector_pane, request_frames},
+    section_actions::ensure_rename,
     sections::{anchored, sections_pane},
 };
 
@@ -62,7 +63,13 @@ pub fn build(
             editor.lyrics.resolve_selection(&content);
             ensure_area(editor, &weak, &content, window, cx);
             request_frames(editor, &content, cx);
+            ensure_rename(editor, &content, window, cx);
             let sections = sections_pane(editor, &weak, &content, read_only, environment, cx);
+            if let Some(id) = editor.lyrics.focus_row.take() {
+                if let Some(handle) = editor.lyrics.rows.get(&id).cloned() {
+                    window.defer(cx, move |window, cx| window.focus(&handle, cx));
+                }
+            }
             Panes {
                 sections: Some(sections),
                 main: lyrics_pane(

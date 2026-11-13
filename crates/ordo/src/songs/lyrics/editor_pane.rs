@@ -29,6 +29,7 @@ use ui::{
 use super::{
     editor::ArrangementEditor,
     navigator::{inspector_button, thumbnails},
+    section_actions::rename_control,
     panes::{column, section_name},
     sections::GENERIC_REFUSAL,
 };
@@ -173,7 +174,7 @@ impl ArrangementEditor {
     }
 
     /// One structural lyrics edit with its reload, toast and Undo.
-    fn structural_lyrics(
+    pub(super) fn structural_lyrics(
         &mut self,
         change: impl FnOnce(&mut ArrangementLyrics) -> bool,
         message: String,
@@ -389,6 +390,7 @@ pub(super) fn main_pane(
                         }),
                 ),
         )
+        .children((!read_only).then(|| rename_control(editor, weak, environment)).flatten())
         .children(thumbnails(editor, weak, content, environment, cx))
         .child(
             div()

@@ -61,6 +61,10 @@ pub(super) struct LyricsView {
     pub frames: FrameCache<super::navigator::FrameKey>,
     /// Compositions in flight; dropping one cancels it.
     pub pending: HashMap<super::navigator::FrameKey, Task<()>>,
+    /// The rename field of the selected section.
+    pub rename: Option<super::section_actions::Rename>,
+    /// A section whose row takes focus after a move.
+    pub focus_row: Option<SectionId>,
 }
 
 impl LyricsView {
@@ -84,6 +88,8 @@ impl LyricsView {
             subscriptions: Vec::new(),
             frames: FrameCache::new(rendering::FRAME_CAPACITY),
             pending: HashMap::new(),
+            rename: None,
+            focus_row: None,
         }
     }
 

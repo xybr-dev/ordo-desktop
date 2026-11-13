@@ -959,3 +959,146 @@ fn below_the_pane_minima_only_the_inspector_moves_to_a_slideover(cx: &mut TestAp
     assert_eq!(dialog(&shell, vcx).as_deref(), Some("Inspector"));
     assert!(present(vcx, "inspector-slide"));
 }
+
+fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String> {
+    shell.read_with(vcx, |shell, cx| {
+        shell
+            .overlays()
+            .toasts(cx)
+            .iter()
+            .map(|toast| toast.to_string())
+            .collect()
+    })
+}
+
+fn sequence_len(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> usize {
+    editor.read_with(vcx, |editor, cx| editor.content(cx).expect("content").sequence.len())
+}
+
+fn type_in_rename(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
+    let field = editor
+        .read_with(vcx, |editor, _| editor.rename_field())
+        .expect("rename field");
+    vcx.update(|window, cx| {
+        field.focus(window, cx);
+        field.set_value(text.to_owned(), window, cx);
+    });
+}
+
+#[gpui::test]
+fn move_buttons_reorder_the_list_only_and_edges_are_unavailable(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    // Verse 1 is first: Move up does nothing and writes nothing.
+    click(vcx, "button-Move up");
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    assert!(toasts(&shell, vcx).is_empty(), "an edge move is a no-op");
+    let sequence = sequence_len(&editor, vcx);
+    click(vcx, "button-Move down");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
+    assert_eq!(sequence_len(&editor, vcx), sequence, "the Sequence is unchanged");
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Moved Verse 1 in Lyrics. The Sequence is unchanged."]
+    );
+}
+
+#[gpui::test]
+fn alt_arrows_move_the_focused_row_and_focus_stays_on_it(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    click(vcx, "arrangement-section-1");
+    let chorus = editor
+        .read_with(vcx, |editor, _| editor.selected_section())
+        .expect("selected");
+    vcx.update(|window, cx| {
+        let handle = editor.read(cx).lyrics.rows[&chorus].clone();
+        window.focus(&handle, cx);
+    });
+    vcx.simulate_keystrokes("alt-up");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
+    let focused = vcx.update(|window, cx| {
+        editor.read(cx).lyrics.rows[&chorus].is_focused(window)
+    });
+    assert!(focused, "focus stays on the moved row");
+}
+
+#[gpui::test]
+fn rename_commits_on_enter_restores_on_escape_and_explains_a_taken_name(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    type_in_rename(&editor, "chorus", vcx);
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert!(present(vcx, "arrangement-rename-error"), "a taken name is explained");
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    let field = editor
+        .read_with(vcx, |editor, _| editor.rename_field())
+        .expect("field");
+    assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Verse 1");
+    assert!(!present(vcx, "arrangement-rename-error"));
+    type_in_rename(&editor, "Verse One", vcx);
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse One", "Chorus"]);
+    assert_eq!(toasts(&shell, vcx), ["Renamed Verse 1 to Verse One."]);
+}
+
+#[gpui::test]
+fn removing_a_used_section_asks_first_and_removes_its_occurrences_in_one_edit(
+    cx: &mut TestAppContext,
+) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    click(vcx, "arrangement-section-1");
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Remove Chorus?"));
+    click(vcx, "button-Cancel");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
+    assert_eq!(sequence_len(&editor, vcx), 2, "the Chorus occurrence went with it");
+    assert_eq!(toasts(&shell, vcx), ["Removed Chorus."]);
+    // Selection falls back onto an existing section.
+    assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
+}
+
+#[gpui::test]
+fn undo_after_a_structural_section_edit_restores_the_list_and_selection_stays_valid(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-section-undo");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    let base = sections_of(&editor, vcx);
+    let mut with_bridge = base.clone();
+    with_bridge.push("Bridge".to_owned());
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    wait(vcx, |vcx| save_state(&editor, vcx) == Some(SaveState::Saved));
+    editor.update(vcx, |editor, cx| {
+        let id = editor.selected_section().expect("selected");
+        editor.remove_section(id, cx).expect("removed");
+    });
+    wait(vcx, |vcx| save_state(&editor, vcx) == Some(SaveState::Saved));
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), base);
+    editor.update(vcx, |editor, cx| editor.undo(cx));
+    wait(vcx, |vcx| {
+        settle(vcx);
+        sections_of(&editor, vcx) == with_bridge
+    });
+    assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
+    finish(vcx, &slot, &dir);
+}
