@@ -7,11 +7,12 @@
 //! separate Arrangement even when it retains the underlying composition, and
 //! several Choirs may share one exact Arrangement.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
 use crate::song_library::interface::{Field, SongLibraryError};
 use crate::song_library::languages;
+use crate::song_library::sections::ArrangementLyrics;
 
 use super::ArchiveState;
 use super::text;
@@ -20,10 +21,9 @@ use super::text;
 ///
 /// A new Arrangement starts in [`PaginationState::Draft`]. Approving it moves
 /// it to [`PaginationState::Approved`]. While it is approved, adding or
-/// removing a section, changing a section's lyrics or label, or changing the
-/// Sequence moves it to [`PaginationState::NeedsReview`]; title, language,
-/// Choir, attribution, occasion, and section-order changes do not affect
-/// pagination.
+/// removing a section, changing a section's lyrics, or changing the Sequence
+/// moves it to [`PaginationState::NeedsReview`]; title, language, Choir,
+/// attribution, occasion, section-label, and section-order changes do not.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaginationState {
     /// Pagination has not been reviewed yet.
@@ -262,8 +262,8 @@ impl Arrangement {
 
     /// Replaces the authored content and applies the pagination review rule.
     ///
-    /// Adding or removing a section, changing a section's lyrics or label, or
-    /// changing the Sequence moves an approved Arrangement to
+    /// Adding or removing a section, changing a section's lyrics, or changing
+    /// the Sequence moves an approved Arrangement to
     /// [`PaginationState::NeedsReview`]. Draft and already-needs-review states
     /// stay as they are. Identity, owning Song, Choir associations, creation
     /// time, and archive state are preserved.
@@ -277,6 +277,32 @@ impl Arrangement {
             self.pagination_state = PaginationState::NeedsReview;
         }
         self.content = next;
+        Ok(())
+    }
+
+    /// Replaces sections, Sequence, and pagination state as given, keeping the
+    /// metadata, Choir associations, identity, creation time, and archive
+    /// state. Applies no review rule.
+    ///
+    /// Nothing changes on refusal.
+    pub(crate) fn replace_lyrics(
+        &mut self,
+        sections: Vec<SectionDraft>,
+        sequence: Vec<OccurrenceDraft>,
+        pagination_state: PaginationState,
+    ) -> Result<(), SongLibraryError> {
+        let draft = ArrangementDraft {
+            title: self.content.title.clone(),
+            languages: self.content.languages.clone(),
+            rendition_attribution: self.content.rendition_attribution.clone(),
+            occasions: self.content.occasions.iter().cloned().collect(),
+            notes: self.content.notes.clone(),
+            sections,
+            sequence,
+        };
+        let next = ArrangementContent::validate(self.id, draft)?;
+        self.content = next;
+        self.pagination_state = pagination_state;
         Ok(())
     }
 
@@ -385,6 +411,35 @@ impl Arrangement {
             rendition_attribution: self.content.rendition_attribution.clone(),
             occasions: self.content.occasions.iter().cloned().collect(),
             notes: self.content.notes.clone(),
+        }
+    }
+
+    /// The current authored content, ready for the Lyrics editor to change and
+    /// hand back to
+    /// [`crate::song_library::SongLibrary::edit_arrangement_lyrics`].
+    ///
+    /// Sections are in authored order, Sequence occurrences in performance
+    /// order, and the review state is included so an edit can commit the state
+    /// it computed.
+    pub fn lyrics(&self) -> ArrangementLyrics {
+        ArrangementLyrics {
+            sections: self
+                .content
+                .sections
+                .iter()
+                .map(|section| SectionDraft {
+                    id: section.id(),
+                    label: section.label().map(str::to_owned),
+                    lyrics: section.lyrics().to_owned(),
+                })
+                .collect(),
+            sequence: self
+                .content
+                .sequence
+                .iter()
+                .map(|occurrence| OccurrenceDraft::new(occurrence.id(), occurrence.section()))
+                .collect(),
+            pagination: self.pagination_state,
         }
     }
 
@@ -588,15 +643,21 @@ impl ArrangementContent {
 
 /// Whether an edit changed content that affects slide pagination.
 ///
-/// Section order alone does not affect pagination, so sections are compared by
-/// identity rather than by position.
+/// Sections are compared by identity and lyrics rather than by position, so
+/// reordering the section list alone does not affect pagination. Labels are
+/// outside the slide content (Decision 18) and never do.
 fn pagination_content_changed(previous: &ArrangementContent, next: &ArrangementContent) -> bool {
     if previous.sequence != next.sequence {
         return true;
     }
-    let mut previous_sections: Vec<&Section> = previous.sections.iter().collect();
-    let mut next_sections: Vec<&Section> = next.sections.iter().collect();
-    previous_sections.sort_by_key(|section| section.id());
-    next_sections.sort_by_key(|section| section.id());
-    previous_sections != next_sections
+    lyrics_by_section(previous) != lyrics_by_section(next)
+}
+
+/// The lyrics of each section keyed by identity.
+fn lyrics_by_section(content: &ArrangementContent) -> BTreeMap<SectionId, &str> {
+    content
+        .sections
+        .iter()
+        .map(|section| (section.id(), section.lyrics()))
+        .collect()
 }
