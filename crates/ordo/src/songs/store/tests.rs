@@ -5,21 +5,25 @@ use std::{cell::RefCell, path::Path, rc::Rc};
 
 use domain::{
     identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId},
-    revisions::{RevisionEntity, RevisionKind},
+    revisions::{EditPoint, RevisionEntity, RevisionKind},
     song_library::{
-        ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ChoirDraft,
-        HydrateArrangement, HydrateSong, PaginationState, SongDraft, SongLibrary,
+        ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
+        ChoirDraft, HydrateArrangement, HydrateSong, PaginationState, SongDraft, SongLibrary, Step,
     },
 };
-use gpui::{Entity, SharedString, Task, TestAppContext};
+use gpui::{AppContext, Entity, SharedString, Task, TestAppContext};
 use storage::{
     ArrangementContent, NewArrangement, NewSection, RevisionRecord, ShutdownOutcome, Storage,
     StorageConfig,
 };
 
-use crate::songs::{
-    LibraryEvent, LibraryStore, StorageSlot,
-    choirs::tests::{open_parish, temp_dir},
+use crate::{
+    edit_session::{CommitPoint, EditSession, NavigationGuard, RevisionPort, SaveFailure},
+    songs::{
+        LibraryEvent, LibraryStore, StorageSlot,
+        choirs::tests::{open_parish, temp_dir},
+        lyrics::port::LyricsPort,
+    },
 };
 
 /// Counts the `Changed` events the store emits from now on.
@@ -1066,4 +1070,444 @@ fn ac6_store_a_storage_refusal_after_validation_leaves_memory_unchanged(cx: &mut
 
     finish(cx, &slot, &other);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- Lyrics writes and the Lyrics revision port (T2.7) ----
+
+fn session(byte: u8) -> HistorySessionId {
+    HistorySessionId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+fn save_lyrics(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    id: ArrangementId,
+    lyrics: ArrangementLyrics,
+    session: HistorySessionId,
+) -> Result<ArrangementId, SharedString> {
+    let task = store.update(cx, |store, cx| {
+        store.save_arrangement_lyrics(id, lyrics, session, cx)
+    });
+    run(cx, task)
+}
+
+/// One editor session over `store`, committed at `committed` and writing
+/// through the real [`LyricsPort`].
+fn lyrics_editor(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    id: ArrangementId,
+    committed: ArrangementLyrics,
+) -> Entity<EditSession<ArrangementLyrics>> {
+    let port: Rc<dyn RevisionPort<ArrangementLyrics>> =
+        Rc::new(LyricsPort::new(store.downgrade(), id, cx.to_async()));
+    cx.new(|cx| EditSession::new(RevisionEntity::Arrangement(id), committed, port, cx))
+}
+
+/// Flushes the session and asserts the queue is durable.
+fn settle(
+    cx: &mut TestAppContext,
+    session: &Entity<EditSession<ArrangementLyrics>>,
+) -> NavigationGuard {
+    let task = session.update(cx, |session, cx| session.request_navigation(cx));
+    run(cx, task)
+}
+
+#[gpui::test]
+fn ac8_reorder_commits_one_revision_and_leaves_the_sequence(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-reorder");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    let mut reordered = before.lyrics();
+    let first = reordered.sections[0].id;
+    let second = reordered.sections[1].id;
+    assert!(reordered.move_section(first, Step::Down).expect("moved"));
+    assert_eq!(
+        reordered
+            .sections
+            .iter()
+            .map(|section| section.id)
+            .collect::<Vec<_>>(),
+        vec![second, first]
+    );
+    assert_eq!(
+        reordered.pagination,
+        PaginationState::Approved,
+        "order alone never moves the review state"
+    );
+    let sequence_before: Vec<_> = before
+        .sequence()
+        .iter()
+        .map(|occurrence| (occurrence.id(), occurrence.section()))
+        .collect();
+
+    assert_eq!(
+        save_lyrics(cx, &store, id, reordered, session(0x21)),
+        Ok(id)
+    );
+    assert_eq!(*changes.borrow(), 1, "one Changed for one lyrics commit");
+
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let after = arrangement_of(cx, store, id);
+        assert_eq!(
+            after
+                .sections()
+                .iter()
+                .map(|section| section.id())
+                .collect::<Vec<_>>(),
+            vec![second, first]
+        );
+        assert_eq!(
+            after
+                .sequence()
+                .iter()
+                .map(|occurrence| (occurrence.id(), occurrence.section()))
+                .collect::<Vec<_>>(),
+            sequence_before,
+            "the Sequence keeps its identities and order"
+        );
+        assert_eq!(after.details(), before.details(), "metadata is untouched");
+        assert_eq!(after.pagination_state(), PaginationState::Approved);
+    };
+    check(cx, &store);
+
+    let revisions = history(cx, &slot, id);
+    assert_eq!(revisions.len(), start + 1, "exactly one revision");
+    let last = revisions.last().expect("revision");
+    assert_eq!(last.kind, RevisionKind::Edit);
+    assert_eq!(
+        last.parent,
+        revisions.get(start - 1).map(|record| record.id)
+    );
+    assert_eq!(last.session, Some(session(0x21)));
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac9_undo_through_the_port_restores_approval_and_occurrences(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-undo");
+    let before = arrangement_of(cx, &store, id);
+    let baseline = before.lyrics();
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    let removed = baseline.sections[0].id;
+    let removed_label = baseline.sections[0].label.clone();
+    assert_eq!(baseline.occurrences_of(removed), 2);
+    let session = lyrics_editor(cx, &store, id, baseline.clone());
+
+    let accepted = session.update(cx, |session, cx| {
+        session.structural(
+            EditPoint::Structural,
+            |lyrics| {
+                lyrics.remove_section(removed).expect("section");
+                *lyrics = lyrics.clone().reviewed_against(&baseline);
+            },
+            cx,
+        )
+    });
+    assert!(accepted, "the removal is a structural edit");
+    assert_eq!(settle(cx, &session), NavigationGuard::Proceed);
+
+    let after_remove = arrangement_of(cx, &store, id);
+    assert_eq!(after_remove.sections().len(), 1);
+    assert_eq!(
+        after_remove.sequence().len(),
+        1,
+        "the section's occurrences went with it"
+    );
+    assert_eq!(
+        after_remove.pagination_state(),
+        PaginationState::NeedsReview,
+        "changed lyrics need review"
+    );
+    let revisions = history(cx, &slot, id);
+    assert_eq!(revisions.len(), start + 1);
+    assert_eq!(revisions.last().expect("revision").kind, RevisionKind::Edit);
+
+    assert!(session.update(cx, |session, cx| session.undo(cx)));
+    assert_eq!(settle(cx, &session), NavigationGuard::Proceed);
+
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let restored = arrangement_of(cx, store, id);
+        assert_eq!(
+            restored.lyrics(),
+            baseline,
+            "Undo restores identity, order, lyrics and pagination"
+        );
+        assert_eq!(restored.sections()[0].label(), removed_label.as_deref());
+        assert_eq!(restored.sequence().len(), 3);
+        assert_eq!(restored.pagination_state(), PaginationState::Approved);
+        assert_eq!(
+            restored.details(),
+            before.details(),
+            "metadata is untouched"
+        );
+    };
+    check(cx, &store);
+    assert_eq!(*changes.borrow(), 2, "one Changed per commit");
+
+    let revisions = history(cx, &slot, id);
+    assert_eq!(revisions.len(), start + 2, "Undo is one more revision");
+    let [.., removal, undo] = revisions.as_slice() else {
+        panic!("two lyrics revisions");
+    };
+    assert_eq!(removal.kind, RevisionKind::Edit);
+    assert_eq!(undo.kind, RevisionKind::Edit);
+    assert_eq!(undo.parent, Some(removal.id));
+    assert!(undo.session.is_some());
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn lyrics_and_details_writes_in_either_order_keep_both(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-interleaved");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+
+    // Lyrics first, then details.
+    let mut lyrics_after = before.lyrics();
+    lyrics_after
+        .set_section_lyrics(lyrics_after.sections[0].id, "First words".to_owned())
+        .expect("section");
+    assert_eq!(
+        save_lyrics(cx, &store, id, lyrics_after, session(0x31)),
+        Ok(id)
+    );
+    let details_after = ArrangementDetails {
+        title: Some("After the lyrics".to_owned()),
+        notes: Some("Details kept".to_owned()),
+        ..before.details()
+    };
+    assert_eq!(save_arr(cx, &store, id, details_after.clone()), Ok(id));
+    let after = arrangement_of(cx, &store, id);
+    assert_eq!(after.sections()[0].lyrics(), "First words");
+    assert_eq!(after.details(), details_after);
+
+    // Details first, then lyrics.
+    let details_mid = ArrangementDetails {
+        notes: Some("Second details".to_owned()),
+        ..details_after.clone()
+    };
+    assert_eq!(save_arr(cx, &store, id, details_mid.clone()), Ok(id));
+    let mut second_lyrics = after.lyrics();
+    second_lyrics
+        .set_section_lyrics(second_lyrics.sections[1].id, "Second words".to_owned())
+        .expect("section");
+    assert_eq!(
+        save_lyrics(cx, &store, id, second_lyrics, session(0x32)),
+        Ok(id)
+    );
+
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let after = arrangement_of(cx, store, id);
+        assert_eq!(after.sections()[0].lyrics(), "First words");
+        assert_eq!(after.sections()[1].lyrics(), "Second words");
+        assert_eq!(after.details(), details_mid);
+        assert_eq!(after.sequence(), before.sequence());
+        assert_eq!(after.pagination_state(), PaginationState::Approved);
+    };
+    check(cx, &store);
+    assert_eq!(
+        history(cx, &slot, id).len(),
+        start + 4,
+        "each successful write is one revision"
+    );
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_failed_lyrics_write_leaves_memory_and_history_unchanged(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-write-fails");
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    let mut edited = arrangement_of(cx, &store, id).lyrics();
+    edited
+        .set_section_lyrics(edited.sections[1].id, "Never lands".to_owned())
+        .expect("section");
+    let future = slot
+        .with(|storage| storage.inject_write_failure(1))
+        .expect("storage is open");
+    cx.foreground_executor().block_test(future).expect("armed");
+
+    let outcome = save_lyrics(cx, &store, id, edited.clone(), session(0x41));
+    let message = outcome.expect_err("the injected fault reaches the caller");
+    assert!(
+        message.contains("injected write failure"),
+        "unexpected message {message:?}"
+    );
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    assert_eq!(history(cx, &slot, id).len(), start);
+    assert_eq!(*changes.borrow(), 0, "a failed write emits nothing");
+
+    // The fault hook cleared with the failed transaction, so the same edit
+    // lands on retry.
+    assert_eq!(
+        save_lyrics(cx, &store, id, edited.clone(), session(0x42)),
+        Ok(id)
+    );
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), edited);
+    assert_eq!(history(cx, &slot, id).len(), start + 1);
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    assert_eq!(arrangement_of(cx, &store, id).lyrics(), edited);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn lyrics_equal_to_memory_write_nothing(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-noop");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    assert_eq!(
+        save_lyrics(cx, &store, id, before.lyrics(), session(0x51)),
+        Ok(id)
+    );
+    assert_eq!(history(cx, &slot, id).len(), start, "no revision");
+    assert_eq!(*changes.borrow(), 0, "no event");
+    assert_eq!(arrangement_of(cx, &store, id), before);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_lyrics_write_the_domain_refuses_writes_nothing(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-refused");
+    let before = arrangement_of(cx, &store, id);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+
+    let mut blank = before.lyrics();
+    blank.sections[0].label = Some("   ".to_owned());
+    assert_eq!(
+        save_lyrics(cx, &store, id, blank, session(0x61)),
+        Err(SharedString::from("section label is blank"))
+    );
+    assert_eq!(history(cx, &slot, id).len(), start);
+    assert_eq!(arrangement_of(cx, &store, id), before);
+    assert_eq!(*changes.borrow(), 0);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn an_archived_arrangement_or_song_refuses_a_lyrics_write(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-archived");
+    let lyrics = arrangement_of(cx, &store, id).lyrics();
+    let future = slot
+        .with(|storage| storage.archive_arrangement(id))
+        .expect("storage is open");
+    cx.foreground_executor()
+        .block_test(future)
+        .expect("archived");
+    let (slot, store) = reopen(cx, &slot, &dir);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+    assert_eq!(
+        save_lyrics(cx, &store, id, lyrics, session(0x71)),
+        Err(SharedString::from(format!(
+            "Arrangement {id} is archived and inspect-only until restored"
+        )))
+    );
+    assert_eq!(history(cx, &slot, id).len(), start);
+    assert_eq!(*changes.borrow(), 0);
+    finish(cx, &slot, &dir);
+
+    let (dir, slot, store, song, id) = seeded(cx, "store-lyrics-archived-song");
+    let lyrics = arrangement_of(cx, &store, id).lyrics();
+    let future = slot
+        .with(|storage| storage.archive_song(song))
+        .expect("storage is open");
+    cx.foreground_executor()
+        .block_test(future)
+        .expect("archived");
+    let (slot, store) = reopen(cx, &slot, &dir);
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+    assert_eq!(
+        save_lyrics(cx, &store, id, lyrics, session(0x72)),
+        Err(SharedString::from(format!(
+            "Song work {song} is archived and inspect-only until restored"
+        )))
+    );
+    assert_eq!(history(cx, &slot, id).len(), start);
+    assert_eq!(*changes.borrow(), 0);
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn the_port_refuses_other_commit_points_and_a_released_store(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-port");
+    let lyrics = arrangement_of(cx, &store, id).lyrics();
+    let start = history(cx, &slot, id).len();
+    let changes = count_changes(cx, &store);
+    let port = LyricsPort::new(store.downgrade(), id, cx.to_async());
+
+    for point in [
+        CommitPoint {
+            kind: RevisionKind::Creation,
+            session: None,
+        },
+        CommitPoint {
+            kind: RevisionKind::Edit,
+            session: None,
+        },
+    ] {
+        let outcome = cx
+            .foreground_executor()
+            .block_test(port.commit(lyrics.clone(), point));
+        assert_eq!(
+            outcome,
+            Err(SaveFailure {
+                message: "The Lyrics editor writes Edit revisions with a History session.".into()
+            })
+        );
+    }
+    assert_eq!(
+        history(cx, &slot, id).len(),
+        start,
+        "refusals write nothing"
+    );
+    assert_eq!(*changes.borrow(), 0);
+
+    // A port whose Store was released fails cleanly instead of panicking.
+    let weak = store.downgrade();
+    drop(store);
+    drop(port);
+    let port = LyricsPort::new(weak, id, cx.to_async());
+    let outcome = cx.foreground_executor().block_test(port.commit(
+        lyrics,
+        CommitPoint {
+            kind: RevisionKind::Edit,
+            session: Some(session(0x81)),
+        },
+    ));
+    assert_eq!(
+        outcome,
+        Err(SaveFailure {
+            message: "The parish store is not open.".into()
+        })
+    );
+    finish(cx, &slot, &dir);
 }

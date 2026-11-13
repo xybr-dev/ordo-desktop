@@ -10,6 +10,7 @@ pub mod choirs;
 #[cfg(test)]
 mod e2e;
 pub mod library;
+pub mod lyrics;
 pub mod new_song;
 pub mod store;
 
