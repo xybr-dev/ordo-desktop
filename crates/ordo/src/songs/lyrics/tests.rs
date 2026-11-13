@@ -37,6 +37,10 @@ fn at() -> Timestamp {
 /// sections and a three-place Sequence. Its store has no storage, so every
 /// commit fails: the way to test the failed-flush paths.
 fn library(archived: bool) -> (SongLibrary, ArrangementId) {
+    build(archived, false)
+}
+
+fn build(archived: bool, empty: bool) -> (SongLibrary, ArrangementId) {
     let mut library = SongLibrary::new();
     let song = SongId::from_entity(entity(10));
     library
@@ -65,15 +69,23 @@ fn library(archived: bool) -> (SongLibrary, ArrangementId) {
                 rendition_attribution: None,
                 notes: None,
                 occasions: Vec::new(),
-                sections: vec![
-                    SectionDraft::labeled(verse, "Verse 1", "Ave Maria"),
-                    SectionDraft::labeled(chorus, "Chorus", "Refrain line"),
-                ],
-                sequence: vec![
-                    occurrence(23, verse),
-                    occurrence(24, chorus),
-                    occurrence(25, verse),
-                ],
+                sections: if empty {
+                    Vec::new()
+                } else {
+                    vec![
+                        SectionDraft::labeled(verse, "Verse 1", "Ave Maria"),
+                        SectionDraft::labeled(chorus, "Chorus", "Refrain line"),
+                    ]
+                },
+                sequence: if empty {
+                    Vec::new()
+                } else {
+                    vec![
+                        occurrence(23, verse),
+                        occurrence(24, chorus),
+                        occurrence(25, verse),
+                    ]
+                },
             },
             Vec::new(),
         )
@@ -99,6 +111,33 @@ fn in_memory(
     let (shell, vcx) = open_store(cx, store);
     let editor = open_editor(&shell, id, vcx);
     (shell, editor, id, vcx)
+}
+
+/// The shell over an in-memory Arrangement that has no sections yet.
+fn in_memory_empty(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<ShellView>,
+    Entity<ArrangementEditor>,
+    &mut VisualTestContext,
+) {
+    let (library, id) = build(false, true);
+    let store = cx.new(|cx| LibraryStore::with_library(library, cx));
+    let (shell, vcx) = open_store(cx, store);
+    let editor = open_editor(&shell, id, vcx);
+    (shell, editor, vcx)
+}
+
+fn sections_of(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> Vec<String> {
+    editor.read_with(vcx, |editor, cx| {
+        editor
+            .content(cx)
+            .expect("content")
+            .sections
+            .iter()
+            .map(|section| section.label.clone().unwrap_or_default())
+            .collect()
+    })
 }
 
 fn open_editor(
@@ -537,4 +576,94 @@ fn undo_and_redo_keys_are_registry_rows(cx: &mut TestAppContext) {
     vcx.simulate_keystrokes("ctrl-y");
     wait(vcx, |vcx| stored_lyrics(&store, id, vcx) == "Second words");
     finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac2_empty_arrangement_offers_add_first_section_focused(cx: &mut TestAppContext) {
+    let (shell, editor, vcx) = in_memory_empty(cx);
+    assert!(present(vcx, "arrangement-no-sections"));
+    assert!(present(vcx, "button-Add first section"));
+    // Focus arrives on the action: Enter opens the popover.
+    let keystroke = gpui::Keystroke::parse("enter").expect("key");
+    vcx.simulate_event(gpui::KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    vcx.simulate_event(gpui::KeyUpEvent { keystroke });
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Add section"));
+    assert!(editor.read_with(vcx, |editor, _| editor.add_section_open()));
+}
+
+#[gpui::test]
+fn ac2_leaving_an_empty_arrangement_keeps_it_empty(cx: &mut TestAppContext) {
+    let (shell, editor, vcx) = in_memory_empty(cx);
+    assert!(sections_of(&editor, vcx).is_empty());
+    click(vcx, "button-Back to Songs");
+    wait(vcx, |vcx| !editing(&shell, vcx));
+    settle(vcx);
+    let store = shell.read_with(vcx, |shell, _| shell.library_store().clone());
+    let stored = store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangement(ArrangementId::from_entity(entity(20)))
+            .expect("stored")
+            .lyrics()
+            .sections
+            .len()
+    });
+    assert_eq!(stored, 0, "opening and leaving writes no section");
+    assert_eq!(dialog(&shell, vcx), None);
+}
+
+#[gpui::test]
+fn ac3_add_section_needs_a_unique_name_then_focuses_the_lyrics(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    let attempt =
+        |editor: &Entity<ArrangementEditor>, name: &'static str, vcx: &mut VisualTestContext| {
+            editor.update(vcx, |editor, cx| editor.add_section(name, cx))
+        };
+    assert_eq!(
+        attempt(&editor, "  ", vcx),
+        Err("A section needs a name.".to_owned())
+    );
+    assert_eq!(
+        attempt(&editor, "verse 1", vcx),
+        Err("Another section is already called verse 1.".to_owned())
+    );
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    // A double Enter inside one update adds once.
+    let results = editor.update(vcx, |editor, cx| {
+        (
+            editor.add_section("Bridge", cx),
+            editor.add_section("Bridge", cx),
+        )
+    });
+    assert!(results.0.is_ok() && results.1.is_err(), "{results:?}");
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus", "Bridge"]);
+    let (selected, last) = editor.read_with(vcx, |editor, cx| {
+        (
+            editor.selected_section(),
+            editor.content(cx).expect("content").sections[2].id,
+        )
+    });
+    assert_eq!(selected, Some(last), "the new section is selected");
+}
+
+#[gpui::test]
+fn ac3_suggestions_are_editable_chips(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    click(vcx, "button-Add section");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Add section"));
+    let field = editor
+        .read_with(vcx, |editor, _| editor.add_section_field())
+        .expect("popover open");
+    assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Verse 2");
+    assert!(present(vcx, "add-section-chips"));
+    // A chip fills the field for editing; Chorus is taken so it is not offered.
+    click_now(vcx, "button-Refrain");
+    settle(vcx);
+    assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Refrain");
 }

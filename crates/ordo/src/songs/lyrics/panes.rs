@@ -10,18 +10,16 @@
 
 use domain::song_library::{ArrangementLyrics, SectionDraft};
 use gpui::{
-    AnyElement, Div, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, App, Context, Div, FontWeight, IntoElement, ParentElement, Styled, Window, div,
+    prelude::*, px, rgb,
 };
-use ui::{
-    environment::UiEnvironment,
-    primitives::{Availability, button::Button},
-    tokens,
+use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
+
+use super::{
+    add_section::open_add_section,
+    editor::{ArrangementEditor, TaskTab},
+    sections::{anchored, sections_pane},
 };
-
-use super::editor::TaskTab;
-
-/// Why sections cannot be added yet, in the operator's words.
-const ADD_SECTION_REASON: &str = "Writing lyrics isn't available yet";
 
 /// The Sequence tab's note.
 pub const SEQUENCE_NOTE: &str = "Editing the Sequence isn't available yet";
@@ -38,30 +36,47 @@ pub struct Panes {
     pub inspector: Option<AnyElement>,
 }
 
-/// The slots for `tab`. `content` is `None` when the Arrangement is gone.
+/// The slots for the editor's selected tab. A compact window keeps the
+/// sections and the main pane; the Inspector then opens as a slideover.
 pub fn build(
-    tab: TaskTab,
-    content: Option<&ArrangementLyrics>,
-    read_only: bool,
+    editor: &mut ArrangementEditor,
     compact: bool,
     environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut Context<ArrangementEditor>,
 ) -> Panes {
-    let Some(content) = content else {
+    let tab = editor.tab(cx);
+    let read_only = editor.is_read_only();
+    let Some(content) = editor.content(cx) else {
         return Panes {
             sections: None,
             main: missing(environment),
             inspector: None,
         };
     };
+    let weak = cx.weak_entity();
     match tab {
-        TaskTab::Lyrics => Panes {
-            sections: (!compact).then(|| sections_pane(content, environment)),
-            main: lyrics_pane(content, read_only, environment),
-            inspector: (!compact).then(|| inspector_pane(environment)),
-        },
+        TaskTab::Lyrics => {
+            editor.lyrics.resolve_selection(&content);
+            let sections = sections_pane(editor, &weak, &content, read_only, environment, cx);
+            Panes {
+                sections: Some(sections),
+                main: lyrics_pane(
+                    editor,
+                    &weak,
+                    &content,
+                    read_only,
+                    compact,
+                    environment,
+                    window,
+                    cx,
+                ),
+                inspector: (!compact).then(|| inspector_pane(environment)),
+            }
+        }
         TaskTab::Sequence => Panes {
             sections: None,
-            main: sequence_pane(content, environment),
+            main: sequence_pane(&content, environment),
             inspector: None,
         },
     }
@@ -116,58 +131,37 @@ fn column(environment: UiEnvironment) -> Div {
         .size_full()
 }
 
-fn sections_pane(content: &ArrangementLyrics, environment: UiEnvironment) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    let rows = content.sections.iter().enumerate().map(|(at, section)| {
-        div()
-            .debug_selector(move || format!("arrangement-section-{at}"))
-            .flex()
-            .items_center()
-            .gap(px(scale.apply(tokens::spacing::RELATED)))
-            .child(
-                div()
-                    .min_w_0()
-                    .text_color(rgb(palette.text))
-                    .child(section_name(&content.sections, at)),
-            )
-            .when(section.lyrics.trim().is_empty(), |row| {
-                row.child(
-                    div()
-                        .text_size(px(scale.apply(tokens::typography::META.size)))
-                        .text_color(rgb(palette.text_muted))
-                        .child("Empty"),
-                )
-            })
-    });
-    column(environment)
-        .debug_selector(|| "arrangement-sections".into())
-        .child(head("Sections", environment))
-        .children(rows)
-        .child(
-            div()
-                .text_size(px(scale.apply(tokens::typography::META.size)))
-                .text_color(rgb(palette.text_muted))
-                .child("Lyrics order is for writing only; the Sequence sets what\u{2019}s sung."),
-        )
-        .into_any_element()
-}
-
+#[allow(clippy::too_many_arguments)]
 fn lyrics_pane(
+    editor: &mut ArrangementEditor,
+    weak: &gpui::WeakEntity<ArrangementEditor>,
     content: &ArrangementLyrics,
     read_only: bool,
+    _compact: bool,
     environment: UiEnvironment,
+    window: &mut Window,
+    cx: &mut App,
 ) -> AnyElement {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     if content.sections.is_empty() {
+        let (editor_weak, anchor) = (weak.clone(), editor.lyrics.empty_anchor.clone());
         let add = Button::new(
             "arrangement-add-section-button",
             "Add first section",
             environment,
         )
         .on_surface(palette.background)
-        .availability(Availability::unavailable(ADD_SECTION_REASON));
+        .track_focus(&editor.lyrics.add_first)
+        .on_activate({
+            let anchor = anchor.clone();
+            move |window, cx| open_add_section(&editor_weak, &anchor, window, cx)
+        });
+        if editor.lyrics.focus_add_first && !read_only {
+            editor.lyrics.focus_add_first = false;
+            let handle = editor.lyrics.add_first.clone();
+            window.defer(cx, move |window, cx| handle.focus(window, cx));
+        }
         return column(environment)
             .debug_selector(|| "arrangement-overview".into())
             .child(
@@ -184,15 +178,10 @@ fn lyrics_pane(
                             .child("No sections yet"),
                     )
                     .child(div().text_color(rgb(palette.text_muted)).child(
-                        "Add each part once, such as a verse, the refrain or an ending. \
-                         A section used several times is still written once.",
+                        "Add each part once, such as a verse, the refrain or an ending.                          A section used several times is still written once.",
                     ))
                     .when(!read_only, |empty| {
-                        empty.child(
-                            div()
-                                .debug_selector(|| "arrangement-add-section".into())
-                                .child(add),
-                        )
+                        empty.child(anchored(add, &anchor, "arrangement-add-section"))
                     }),
             )
             .into_any_element();

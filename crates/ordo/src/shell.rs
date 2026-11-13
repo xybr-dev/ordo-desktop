@@ -543,10 +543,16 @@ impl ShellView {
         self.editing_arrangement = Some(id);
         let store = self.library_store.clone();
         let editor = cx.new(|cx| ArrangementEditor::new(id, store, cx));
+        let overlays = self.overlays.clone();
+        editor.update(cx, |editor, _| editor.set_overlays(overlays));
         // Replacing the old editor drops its session.
         self._editor_observer = Some(cx.observe(&editor, |_, _, cx| cx.notify()));
+        // An empty Arrangement puts focus on its Add first section action.
+        let editor_takes_focus = editor.read(cx).wants_initial_focus();
         self.arrangement_editor = Some(editor);
-        self.registry.focus_region(WORKSPACE_ACTIONS);
+        if !editor_takes_focus {
+            self.registry.focus_region(WORKSPACE_ACTIONS);
+        }
         cx.notify();
     }
 
@@ -1653,7 +1659,7 @@ impl ShellView {
         let compact = f32::from(window.viewport_size().width) < NARROW_WORKSPACE;
         let panes = editor
             .as_ref()
-            .map(|editor| editor.read(cx).panes(compact, environment, cx));
+            .map(|editor| editor.update(cx, |e, cx| e.panes(compact, environment, window, cx)));
         let (sections, main, inspector) = match panes {
             Some(panes) => (panes.sections, panes.main, panes.inspector),
             None => (

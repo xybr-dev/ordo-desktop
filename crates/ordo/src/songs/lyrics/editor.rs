@@ -12,12 +12,14 @@ use domain::{identity::ArrangementId, revisions::RevisionEntity, song_library::A
 use gpui::{App, AppContext, Context, Entity, Subscription, Task, Window};
 use ui::{
     environment::UiEnvironment,
+    overlay::OverlayHost,
     primitives::selection::{Choice, SelectionState, Tabs},
 };
 
 use super::{
     panes::{self, Panes},
     port::LyricsPort,
+    view::LyricsView,
 };
 use crate::{
     edit_session::{EditSession, EditSessionEvent, NavigationGuard, RevisionPort, SaveState},
@@ -54,6 +56,8 @@ pub struct ArrangementEditor {
     /// `None` when the Arrangement or its Song is archived, or gone.
     session: Option<Entity<EditSession<ArrangementLyrics>>>,
     tabs: SelectionState,
+    /// Selection, popover and focus requests of the Lyrics task.
+    pub(super) lyrics: LyricsView,
     /// Redraw on every session event; dropped with the editor.
     _session_events: Option<Subscription>,
 }
@@ -89,16 +93,36 @@ impl ArrangementEditor {
                 )
             })
         });
-        let events = session
-            .as_ref()
-            .map(|session| cx.subscribe(session, |_, _, _: &EditSessionEvent, cx| cx.notify()));
+        let events = session.as_ref().map(|session| {
+            cx.subscribe(session, |editor, _, event: &EditSessionEvent, cx| {
+                if matches!(event, EditSessionEvent::ContentReplaced) {
+                    editor.lyrics.content_replaced();
+                }
+                cx.notify();
+            })
+        });
+        let empty = committed_is_empty(&store, arrangement, cx);
+        let mut lyrics = LyricsView::new(cx);
+        lyrics.focus_add_first = session.is_some() && empty;
         Self {
             arrangement,
             store,
             session,
             tabs,
+            lyrics,
             _session_events: events,
         }
+    }
+
+    /// Whether the editor will place focus itself on arrival (an empty
+    /// Arrangement focuses its Add first section action).
+    pub fn wants_initial_focus(&self) -> bool {
+        self.lyrics.focus_add_first
+    }
+
+    /// The library store the editor reads.
+    pub fn store(&self) -> &Entity<LibraryStore> {
+        &self.store
     }
 
     /// The Arrangement being edited.
@@ -161,16 +185,22 @@ impl ArrangementEditor {
         }
     }
 
+    /// Lets the editor open popovers, dialogs and toasts on the shell's one
+    /// overlay layer.
+    pub fn set_overlays(&mut self, overlays: OverlayHost) {
+        self.lyrics.overlays = Some(overlays);
+    }
+
     /// The three pane slots for the selected tab. `compact` omits the
     /// Sections and Inspector slots.
-    pub fn panes(&self, compact: bool, environment: UiEnvironment, cx: &App) -> Panes {
-        panes::build(
-            self.tab(cx),
-            self.content(cx).as_ref(),
-            self.is_read_only(),
-            compact,
-            environment,
-        )
+    pub fn panes(
+        &mut self,
+        compact: bool,
+        environment: UiEnvironment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Panes {
+        panes::build(self, compact, environment, window, cx)
     }
 
     /// Flushes pending text and resolves once everything is durable
@@ -235,4 +265,13 @@ fn editable_lyrics(
         .song(found.song())
         .is_ok_and(|song| !song.is_archived());
     (!found.is_archived() && song_active).then(|| found.lyrics())
+}
+
+/// Whether the stored Arrangement has no sections.
+fn committed_is_empty(store: &Entity<LibraryStore>, arrangement: ArrangementId, cx: &App) -> bool {
+    store
+        .read(cx)
+        .library()
+        .arrangement(arrangement)
+        .is_ok_and(|found| found.lyrics().sections.is_empty())
 }

@@ -9,10 +9,13 @@
 //! [`crate::songs::LibraryStore`] queue, so the GPUI thread never waits on
 //! storage.
 
+pub mod add_section;
 pub mod editor;
 pub mod panes;
 pub mod port;
+pub mod sections;
 #[cfg(test)]
 mod tests;
+mod view;
 
 pub use editor::{ArrangementEditor, TaskTab};
