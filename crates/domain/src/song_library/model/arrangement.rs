@@ -233,6 +233,17 @@ impl Arrangement {
         self.pagination_state = PaginationState::Approved;
     }
 
+    /// Archives the Arrangement; an already archived one keeps its original
+    /// time.
+    pub(crate) fn archive(&mut self, at: Timestamp) {
+        self.archive_state.archive(at);
+    }
+
+    /// Restores the Arrangement to active; an active one is unchanged.
+    pub(crate) fn restore(&mut self) {
+        self.archive_state.restore();
+    }
+
     /// The canonical identity of this Arrangement.
     pub fn id(&self) -> ArrangementId {
         self.id
