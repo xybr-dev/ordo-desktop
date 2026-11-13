@@ -4,7 +4,7 @@
      Do not edit by hand: run `ORDO_BLESS_ERD=1 cargo test -p storage erd`
      and commit the result. Domain meaning lives in CONTEXT.md. -->
 
-Schema version: 5 (`0005_library_details`).
+Schema version: 6 (`0006_arrangement_details`).
 
 ## Overview
 
@@ -14,6 +14,7 @@ erDiagram
         text id PK
         text song_id FK
         text title
+        text notes
         text rendition_attribution
         text created_at
         text archived_at
@@ -175,13 +176,14 @@ erDiagram
 
 ## arrangement
 
-**Owner:** Song Library. **Lifecycle:** Belongs to one song; archived independently of the song; permanent deletion only after reference checks.
+**Owner:** Song Library. **Lifecycle:** Belongs to one song; optional display title and source/rights notes; archived independently of the song; permanent deletion only after reference checks.
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
 | id | text | no | — | PK | `canonical UUIDv4` |
 | song_id | text | no | — | — | — |
-| title | text | no | — | — | `length(trim(title)) > 0` |
+| title | text | yes | — | — | `title IS NULL OR length(trim(title)) > 0` |
+| notes | text | yes | — | — | `notes IS NULL OR length(trim(notes)) > 0` |
 | rendition_attribution | text | yes | — | — | — |
 | created_at | text | no | — | — | `canonical UTC time` |
 | archived_at | text | yes | — | — | `NULL or canonical UTC time` |

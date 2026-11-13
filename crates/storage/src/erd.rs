@@ -144,7 +144,7 @@ const NOTES: &[(&str, &str, &str)] = &[
     (
         "arrangement",
         "Song Library",
-        "Belongs to one song; archived independently of the song; permanent deletion only after reference checks.",
+        "Belongs to one song; optional display title and source/rights notes; archived independently of the song; permanent deletion only after reference checks.",
     ),
     (
         "arrangement_language",

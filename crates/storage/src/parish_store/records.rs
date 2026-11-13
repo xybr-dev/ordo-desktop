@@ -139,9 +139,10 @@ pub struct NewSection {
 pub struct NewArrangement {
     /// The Song work this Arrangement belongs to.
     pub song: SongId,
-    /// The title exactly as authored.
-    pub title: String,
-    /// Languages in authored order; must be unique.
+    /// The display title exactly as authored; `None` derives the label. When
+    /// present, must not be blank.
+    pub title: Option<String>,
+    /// Languages in authored order; at least one, each unique.
     pub languages: Vec<String>,
     /// Choirs that perform this Arrangement; duplicates are invalid.
     pub choirs: Vec<ChoirId>,
@@ -149,6 +150,8 @@ pub struct NewArrangement {
     pub rendition_attribution: Option<String>,
     /// Occasions this Arrangement belongs to; duplicates are invalid.
     pub occasions: Vec<String>,
+    /// Source and rights notes exactly as authored; when present, not blank.
+    pub notes: Option<String>,
     /// Reusable sections in authored order.
     pub sections: Vec<NewSection>,
     /// Section indexes in performance order; an index may repeat.
@@ -186,8 +189,8 @@ pub struct ArrangementRecord {
     pub id: ArrangementId,
     /// The Song work this Arrangement belongs to.
     pub song: SongId,
-    /// The title exactly as authored.
-    pub title: String,
+    /// The display title, if any.
+    pub title: Option<String>,
     /// Languages in authored order.
     pub languages: Vec<String>,
     /// Choirs that perform this Arrangement, sorted ascending.
@@ -196,6 +199,8 @@ pub struct ArrangementRecord {
     pub rendition_attribution: Option<String>,
     /// Occasions, sorted ascending by byte order.
     pub occasions: Vec<String>,
+    /// Source and rights notes, if any.
+    pub notes: Option<String>,
     /// Sections by position.
     pub sections: Vec<SectionRecord>,
     /// Sequence occurrences by performance position.
@@ -276,6 +281,7 @@ impl From<ArrangementRecord> for HydrateArrangement {
                 languages: record.languages,
                 rendition_attribution: record.rendition_attribution,
                 occasions: record.occasions,
+                notes: record.notes,
                 sections: record
                     .sections
                     .into_iter()

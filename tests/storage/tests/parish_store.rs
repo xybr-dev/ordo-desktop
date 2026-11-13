@@ -122,11 +122,12 @@ fn section(label: Option<&str>, lyrics: &str) -> NewSection {
 fn arrangement_input(song: SongId) -> NewArrangement {
     NewArrangement {
         song,
-        title: "Plainchant".to_owned(),
-        languages: Vec::new(),
+        title: Some("Plainchant".to_owned()),
+        languages: vec!["en".to_owned()],
         choirs: Vec::new(),
         rendition_attribution: None,
         occasions: Vec::new(),
+        notes: None,
         sections: Vec::new(),
         sequence: Vec::new(),
     }
@@ -178,11 +179,12 @@ fn created_records_rehydrate_exactly_after_restart() {
     .expect("song");
     let arrangement = bounded(storage.create_arrangement(NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
+        title: Some("SATB".to_owned()),
         languages: vec!["en".to_owned(), "la".to_owned()],
         choirs: vec![second_choir.id, first_choir.id],
         rendition_attribution: Some("Arr. Smith".to_owned()),
         occasions: vec!["Lent".to_owned(), "Advent".to_owned()],
+        notes: Some("Public domain".to_owned()),
         sections: vec![
             section(Some("Verse"), "Line one\nLine two"),
             section(None, "Unlabelled"),
@@ -389,8 +391,14 @@ fn invalid_input_writes_nothing() {
     // Arrangements.
     let mut arrangement_cases: Vec<(NewArrangement, StorageError)> = Vec::new();
     let mut blank_title = arrangement_input(song.id);
-    blank_title.title = "  ".to_owned();
+    blank_title.title = Some("  ".to_owned());
     arrangement_cases.push((blank_title, invalid("title", "blank")));
+    let mut blank_notes = arrangement_input(song.id);
+    blank_notes.notes = Some(" \t ".to_owned());
+    arrangement_cases.push((blank_notes, invalid("notes", "blank")));
+    let mut missing_language = arrangement_input(song.id);
+    missing_language.languages = Vec::new();
+    arrangement_cases.push((missing_language, invalid("language", "required")));
     let mut blank_language = arrangement_input(song.id);
     blank_language.languages = vec![" ".to_owned()];
     arrangement_cases.push((blank_language, invalid("language", "blank")));
@@ -508,11 +516,12 @@ fn injected_failure_mid_arrangement_preserves_prior_state() {
 
     let injected_input = || NewArrangement {
         song: song.id,
-        title: "SATB".to_owned(),
+        title: Some("SATB".to_owned()),
         languages: vec!["en".to_owned()],
         choirs: vec![first_choir.id, second_choir.id],
         rendition_attribution: None,
         occasions: vec!["Lent".to_owned()],
+        notes: None,
         sections: vec![
             section(Some("A"), "a"),
             section(None, "b"),
@@ -521,7 +530,7 @@ fn injected_failure_mid_arrangement_preserves_prior_state() {
         sequence: vec![0, 1, 0, 2, 0],
     };
     let mut good = arrangement_input(song.id);
-    good.title = "Good".to_owned();
+    good.title = Some("Good".to_owned());
     good.sections = vec![section(None, "kept")];
     good.sequence = vec![0];
     let good = bounded(storage.create_arrangement(good)).expect("good arrangement");

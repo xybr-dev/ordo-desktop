@@ -93,8 +93,8 @@ pub use parish_store::{
     OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
-    ArrangementContent, OccurrenceContent, RevisionContent, RevisionRecord, SectionContent,
-    SongContent,
+    ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent, RevisionRecord,
+    SectionContent, SongContent,
 };
 
 /// Where the database, managed assets and disposable cache live, and how long
@@ -550,6 +550,28 @@ impl Storage {
         })
     }
 
+    /// Replaces only an Arrangement's metadata (title, notes, languages,
+    /// Choirs, attribution, occasions) and appends one `edit` revision.
+    ///
+    /// The head revision, sections, Sequence and pagination state are read in
+    /// the same immediate transaction and kept as they are there, so a commit
+    /// that landed since the caller last looked is never overwritten. An
+    /// Arrangement with no revisions first gets its `creation` revision in
+    /// that transaction. At least one language is required. The archive state
+    /// is not checked: the caller gates that. Returns the whole stored
+    /// Arrangement and the new revision.
+    pub fn commit_arrangement_metadata(
+        &self,
+        arrangement: ArrangementId,
+        metadata: ArrangementMetadata,
+        session: HistorySessionId,
+    ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
+    {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_arrangement_metadata(arrangement, metadata, session)
+        })
+    }
+
     /// Commits an earlier revision's content as a new `restoration` revision.
     /// `expected_parent` must be the entity's latest revision, else
     /// `StaleRevision`; an entity with no revisions is refused with
@@ -968,7 +990,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(5));
+        assert_eq!(status.map(|s| s.version), Ok(6));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

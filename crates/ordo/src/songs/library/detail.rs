@@ -364,7 +364,9 @@ fn arrangement_row(
     } else {
         choirs.join(", ")
     };
-    let title = arrangement.title().to_owned();
+    let title = library
+        .arrangement_label(arrangement.id())
+        .unwrap_or_default();
     // Archived Songs and Arrangements are inspect-only.
     let open_label = if arrangement.is_archived() || song.is_archived() {
         "Inspect"

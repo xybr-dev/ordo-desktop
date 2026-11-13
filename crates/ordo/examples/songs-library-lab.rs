@@ -232,7 +232,8 @@ fn seed(dir: &Path) -> Result<(), Failure> {
             block_on(
                 storage.create_arrangement(NewArrangement {
                     song: song.id,
-                    title: setting.title.to_owned(),
+                    title: Some(setting.title.to_owned()),
+                    notes: None,
                     languages: vec![setting.language.to_owned()],
                     choirs: setting.choirs.iter().map(|at| choirs[*at]).collect(),
                     rendition_attribution: None,

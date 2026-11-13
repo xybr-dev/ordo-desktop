@@ -58,7 +58,8 @@ async fn arrangement(
     storage
         .create_arrangement(NewArrangement {
             song,
-            title: title.to_owned(),
+            title: Some(title.to_owned()),
+            notes: None,
             languages: vec![language.to_owned()],
             choirs,
             rendition_attribution: None,
