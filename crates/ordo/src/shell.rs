@@ -1629,6 +1629,9 @@ impl ShellView {
                     .on_surface(palette.background)
                     .on_activate(move |_, cx| editor.update(cx, |editor, cx| editor.retry_save(cx)))
             });
+        if let Some(editor) = editor.as_ref() {
+            editor.update(cx, |editor, cx| editor.sync_tab_marker(window, cx));
+        }
         let tabs = editor.as_ref().map(|editor| {
             let shell = cx.entity().downgrade();
             div()
@@ -1643,7 +1646,6 @@ impl ShellView {
                         let _ = shell.update(cx, |_, cx| cx.notify());
                     }
                 }))
-                .children(editor.read(cx).sequence_tab_marker(environment, cx))
         });
         let archived = (read_only && self.editing_arrangement.is_some()).then(|| {
             div()

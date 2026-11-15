@@ -23,12 +23,11 @@ use ui::{
         Availability,
         button::{Button, Tone},
         focus_visible,
-        list::Badge,
     },
     tokens,
 };
 
-use super::{Item, occurrence_name};
+use super::{Item, SequenceSelection, occurrence_name};
 use crate::{
     commands::registry::{MoveDown, MoveUp, RemoveOccurrence, SEQUENCE_OCCURRENCES_CONTEXT},
     songs::lyrics::{
@@ -89,6 +88,12 @@ pub fn summary(content: &ArrangementLyrics) -> String {
     }
 }
 
+/// An element id that belongs to an occurrence, not to its place in the list,
+/// so a moved row keeps its hover, drag and focus-ring state.
+fn keyed(prefix: &'static str, id: OccurrenceId) -> ElementId {
+    ElementId::Name(SharedString::from(format!("{prefix}-{id}")))
+}
+
 /// A row's slide count: "{n} slide(s)".
 fn slide_count(count: usize) -> String {
     if count == 1 {
@@ -141,6 +146,60 @@ pub(super) fn pane(
     editor.sequence.kids.retain(|(id, _), _| {
         content.occurrence_index(*id).is_some() && editor.expanded.contains(id)
     });
+    // Every stop has its handle before anything is drawn, and the stop that
+    // owns focus now is found: within the list selection follows focus
+    // (Decision 7), so Delete and Alt+Up act on the row that is highlighted.
+    let mut focused = None;
+    for occurrence in &content.sequence {
+        let Some(section) = content
+            .sections
+            .iter()
+            .find(|section| section.id == occurrence.section)
+        else {
+            continue;
+        };
+        let id = occurrence.id;
+        let row = editor
+            .sequence
+            .rows
+            .entry(id)
+            .or_insert_with(|| cx.focus_handle().tab_stop(true))
+            .clone();
+        if row.is_focused(window) {
+            focused = Some(Item::Row(id));
+        }
+        if editor.expanded.contains(&id) {
+            for slide in 0..slides(&section.lyrics).len() {
+                let kid = editor
+                    .sequence
+                    .kids
+                    .entry((id, slide))
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true))
+                    .clone();
+                if kid.is_focused(window) {
+                    focused = Some(Item::Child(id, slide));
+                }
+            }
+        }
+    }
+    if focused != editor.sequence.last_focus {
+        // Only a change of focus moves the selection: a selection made by
+        // code (an Add, a Repeat) stands until focus follows it.
+        let followed = match focused {
+            Some(Item::Row(id))
+                if editor.sequence_selection.map(|chosen| chosen.occurrence) != Some(id) =>
+            {
+                Some(SequenceSelection::occurrence(id))
+            }
+            Some(Item::Child(occurrence, slide)) => Some(SequenceSelection { occurrence, slide })
+                .filter(|chosen| editor.sequence_selection != Some(*chosen)),
+            _ => None,
+        };
+        if followed.is_some() {
+            editor.sequence_selection = followed;
+        }
+        editor.sequence.last_focus = focused;
+    }
     let selected = editor.sequence_selection;
     let last = content.sequence.len().saturating_sub(1);
     let mut rows = Vec::with_capacity(content.sequence.len());
@@ -153,23 +212,11 @@ pub(super) fn pane(
             continue;
         };
         let id = occurrence.id;
-        let focus = editor
-            .sequence
-            .rows
-            .entry(id)
-            .or_insert_with(|| cx.focus_handle().tab_stop(true))
-            .clone();
+        let focus = editor.sequence.rows[&id].clone();
         let open = editor.expanded.contains(&id);
         let kid_focus: Vec<_> = if open {
             (0..slides(&section.lyrics).len())
-                .map(|slide| {
-                    editor
-                        .sequence
-                        .kids
-                        .entry((id, slide))
-                        .or_insert_with(|| cx.focus_handle().tab_stop(true))
-                        .clone()
-                })
+                .map(|slide| editor.sequence.kids[&(id, slide)].clone())
                 .collect()
         } else {
             Vec::new()
@@ -221,7 +268,10 @@ pub(super) fn pane(
         empty_state(editor, weak, content, read_only, environment)
     } else {
         div()
+            .id("sequence-list")
             .debug_selector(|| "arrangement-sequence".into())
+            .role(Role::List)
+            .aria_label("Performance sequence")
             .flex()
             .flex_col()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
@@ -307,6 +357,13 @@ fn empty_state(
         .items_start()
         .gap(px(scale.apply(tokens::spacing::RELATED)))
         .child(
+            svg()
+                .flex_none()
+                .size(px(scale.apply(24.0)))
+                .text_color(rgb(palette.text_muted))
+                .data(icon::LIST_ORDERED.as_bytes()),
+        )
+        .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(palette.text))
@@ -355,7 +412,7 @@ fn occurrence_row(
         icon::CHEVRON_RIGHT
     };
     let expander = div()
-        .id(("sequence-expander", at))
+        .id(keyed("sequence-expander", id))
         .debug_selector(move || format!("sequence-expander-{at}"))
         .flex()
         .flex_none()
@@ -378,7 +435,7 @@ fn occurrence_row(
                 .data(glyph.as_bytes()),
         );
     let label = div()
-        .id(("sequence-name", at))
+        .id(keyed("sequence-name", id))
         .debug_selector(move || format!("sequence-name-{at}"))
         .flex()
         .flex_1()
@@ -404,7 +461,24 @@ fn occurrence_row(
                 .child(slide_count(count)),
         )
         .when(same, |label| {
-            label.child(Badge::new(SAME_SECTION, environment))
+            label.child(
+                div()
+                    .debug_selector(move || format!("sequence-same-{at}"))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .text_size(px(scale.apply(tokens::typography::META.size)))
+                    .text_color(rgb(palette.text_muted))
+                    .child(
+                        svg()
+                            .flex_none()
+                            .size(px(scale.apply(12.0)))
+                            .text_color(rgb(palette.text_muted))
+                            .data(icon::LINK.as_bytes()),
+                    )
+                    .child(SAME_SECTION),
+            )
         });
     let actions = (current && !read_only).then(|| {
         let icon_button = |button_id: &'static str,
@@ -435,6 +509,7 @@ fn occurrence_row(
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .child(
                 Button::new("sequence-repeat", "Repeat", environment)
+                    .icon(icon::REPEAT)
                     .quiet()
                     .on_surface(palette.surface_secondary)
                     .on_activate(move |_, cx| {
@@ -496,7 +571,7 @@ fn occurrence_row(
             border: palette.border,
         };
         div()
-            .id(("sequence-grip", at))
+            .id(keyed("sequence-grip", id))
             .debug_selector(move || format!("sequence-grip-{at}"))
             .flex()
             .flex_none()
@@ -512,30 +587,36 @@ fn occurrence_row(
             )
     });
     let row = div()
-        .id(("sequence-row", at))
+        .id(keyed("sequence-row", id))
         .debug_selector(move || format!("arrangement-sequence-{at}"))
         .track_focus(&focus)
         .key_context(SEQUENCE_OCCURRENCES_CONTEXT)
         .role(Role::ListItem)
-        .aria_label(format!("{pos} {name}"))
+        .aria_label(format!(
+            "{pos} {name}, {}{}",
+            slide_count(count),
+            if same { ", also sung elsewhere" } else { "" }
+        ))
         .aria_selected(current)
         .aria_expanded(open)
-        .on_action(move |_: &MoveUp, _, cx| {
-            let _ = up.update(cx, |editor, cx| editor.move_occurrence_by(id, Step::Up, cx));
-        })
-        .on_action(move |_: &MoveDown, _, cx| {
-            let _ = down.update(cx, |editor, cx| {
-                editor.move_occurrence_by(id, Step::Down, cx);
-            });
-        })
-        .on_action(move |_: &RemoveOccurrence, window, cx| {
-            // A button inside the row shares the key context; Delete is the
-            // row's alone.
-            if !removal_focus.is_focused(window) {
-                cx.propagate();
-                return;
-            }
-            let _ = gone.update(cx, |editor, cx| editor.remove_occurrence(id, cx));
+        .when(!read_only, |row| {
+            row.on_action(move |_: &MoveUp, _, cx| {
+                let _ = up.update(cx, |editor, cx| editor.move_occurrence_by(id, Step::Up, cx));
+            })
+            .on_action(move |_: &MoveDown, _, cx| {
+                let _ = down.update(cx, |editor, cx| {
+                    editor.move_occurrence_by(id, Step::Down, cx);
+                });
+            })
+            .on_action(move |_: &RemoveOccurrence, window, cx| {
+                // A button inside the row shares the key context; Delete is
+                // the row's alone.
+                if !removal_focus.is_focused(window) {
+                    cx.propagate();
+                    return;
+                }
+                let _ = gone.update(cx, |editor, cx| editor.remove_occurrence(id, cx));
+            })
         })
         .on_key_down(walker(weak, Item::Row(id), focus.clone()))
         .flex()
@@ -614,7 +695,7 @@ fn tiles(
             );
             let tile = div()
                 .id(ElementId::NamedInteger(
-                    SharedString::from(format!("sequence-child-{at}")),
+                    SharedString::from(format!("sequence-child-{id}")),
                     slide as u64,
                 ))
                 .track_focus(&handle)
@@ -662,7 +743,10 @@ fn tiles(
             focus_visible(tile, environment, palette.background)
         });
     div()
+        .id(keyed("sequence-children", id))
         .debug_selector(move || format!("sequence-children-{at}"))
+        .role(Role::List)
+        .aria_label(format!("Slides of {pos} {name}"))
         .flex()
         .flex_wrap()
         .gap(px(scale.apply(tokens::spacing::RELATED)))

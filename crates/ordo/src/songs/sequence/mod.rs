@@ -15,7 +15,7 @@ pub mod readiness;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use domain::{
     identity::{OccurrenceId, SectionId},
@@ -110,7 +110,10 @@ fn request_frames(
     content: &ArrangementLyrics,
     cx: &mut Context<ArrangementEditor>,
 ) {
-    let mut wanted: HashSet<FrameKey> = HashSet::new();
+    // The selected slide first, then every expanded slide in sung order: a
+    // request cut at the cache's capacity keeps what matters most.
+    let mut chosen: Option<FrameKey> = None;
+    let mut wanted: Vec<FrameKey> = Vec::new();
     for occurrence in &content.sequence {
         let Some(section) = content
             .sections
@@ -128,9 +131,10 @@ fn request_frames(
             .filter(|selection| selection.occurrence == occurrence.id)
             && let Some(key) = keys.get(selection.slide.min(keys.len().saturating_sub(1)))
         {
-            wanted.insert(key.clone());
+            chosen = Some(key.clone());
         }
     }
+    let wanted: Vec<FrameKey> = chosen.into_iter().chain(wanted).collect();
     compose_frames(editor, wanted, cx);
 }
 
@@ -190,6 +194,10 @@ pub struct SequenceView {
     /// Whether the Sequence task was the one shown at the last render, so
     /// arriving on an empty Sequence can focus its action once.
     pub shown: bool,
+    /// The stop that owned focus at the last render, if any. Selection
+    /// follows focus when this changes, and a content replacement hands focus
+    /// on only when a stop held it.
+    pub last_focus: Option<Item>,
 }
 
 impl SequenceView {
@@ -202,6 +210,7 @@ impl SequenceView {
             focus_add_first: false,
             focus_item: None,
             shown: false,
+            last_focus: None,
         }
     }
 }

@@ -221,7 +221,9 @@ pub enum FocusContext {
     Rail,
     ShortcutReference,
     /// The Sequence's occurrence list in an open editor: only the Editing
-    /// keys act there, through their GPUI context, never the Engine.
+    /// keys act there, through their GPUI context, never the Engine. It is a
+    /// marker for the policy table; the view's key context does the routing,
+    /// so no code resolves focus to this value yet.
     SequenceOccurrences,
     /// A text field or emergency editor.
     TextEntry,

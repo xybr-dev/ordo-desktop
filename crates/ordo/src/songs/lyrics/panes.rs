@@ -59,6 +59,7 @@ pub fn build(
     match tab {
         TaskTab::Lyrics => {
             editor.sequence.shown = false;
+            editor.sequence.last_focus = None;
             editor.lyrics.resolve_selection(&content);
             ensure_area(editor, &weak, &content, window, cx);
             request_frames(editor, &content, cx);

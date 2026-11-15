@@ -187,7 +187,7 @@ fn ac6_header_shows_incomplete_and_the_tab_marker_for_an_empty_sequence(cx: &mut
     );
     assert!(present(vcx, "editor-readiness"));
     assert!(
-        present(vcx, "sequence-tab-marker"),
+        present(vcx, "choice-marker"),
         "the Sequence tab is marked"
     );
     let label = vcx.debug_bounds("editor-readiness").expect("label");
@@ -209,7 +209,7 @@ fn readiness_follows_the_content_and_uses_the_planned_copy(cx: &mut TestAppConte
         Some("Verse 1, Chorus need pagination review")
     );
     assert!(present(vcx, "editor-readiness"));
-    assert!(!present(vcx, "sequence-tab-marker"));
+    assert!(!present(vcx, "choice-marker"));
     let none = BTreeSet::new();
     let mut one = content.clone();
     one.sections[1].pagination = PaginationState::Approved;

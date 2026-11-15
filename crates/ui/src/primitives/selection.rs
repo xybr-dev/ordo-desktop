@@ -27,6 +27,10 @@ use std::rc::Rc;
 pub struct Choice {
     pub label: SharedString,
     pub availability: Availability,
+    /// A persistent warning on the choice: a warning marker beside its label
+    /// and the text as the tab's accessible description. Unlike an
+    /// Unavailable reason it does not change what activating the choice does.
+    pub marker: Option<SharedString>,
 }
 
 impl Choice {
@@ -34,7 +38,13 @@ impl Choice {
         Self {
             label: label.into(),
             availability: Availability::Available,
+            marker: None,
         }
+    }
+    /// Marks the choice with a warning and the reason for it (shown by Tabs).
+    pub fn marker(mut self, reason: impl Into<SharedString>) -> Self {
+        self.marker = Some(reason.into());
+        self
     }
     pub fn availability(mut self, availability: Availability) -> Self {
         self.availability = availability;
@@ -267,7 +277,9 @@ impl State {
                 .choices
                 .iter()
                 .zip(&choices)
-                .all(|(a, b)| a.label == b.label && a.availability == b.availability);
+                .all(|(a, b)| {
+                a.label == b.label && a.availability == b.availability && a.marker == b.marker
+            });
         if same {
             return;
         }
@@ -860,6 +872,20 @@ impl Control {
             } else {
                 palette.text_muted
             }))
+            .when_some(choice.marker.clone(), |t, reason| {
+                t.aria_description(reason).child(
+                    div()
+                        .debug_selector(|| "choice-marker".into())
+                        .flex_none()
+                        .ml(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                        .child(
+                            gpui::svg()
+                                .size(px(scale.apply(10.0)))
+                                .text_color(rgb(palette.warning))
+                                .data(super::record::Marker::Diamond.svg().as_bytes()),
+                        ),
+                )
+            })
             .when_some(choice.availability.reason(), |t, r| {
                 t.aria_description(format!("Unavailable. {r}"))
                     .child(super::note(
@@ -1518,6 +1544,66 @@ mod tests {
                 );
             });
         }
+    }
+
+    #[gpui::test]
+    fn select_from_code_picks_an_enabled_index_and_ignores_the_rest(cx: &mut TestAppContext) {
+        for kind in [Kind::Select, Kind::Tabs] {
+            let (view, cx) = open(cx, kind);
+            let state = view.read_with(cx, |v, _| v.state.clone());
+            // An enabled index is selected, and becomes the active one.
+            cx.update(|_, cx| state.select(3, cx));
+            view.read_with(cx, |v, cx| {
+                assert_eq!(v.state.selected(cx), Some(3), "{kind:?}");
+                assert_eq!(v.state.0.read(cx).active, Some(3), "{kind:?}");
+            });
+            // A disabled index changes nothing.
+            cx.update(|_, cx| state.select(1, cx));
+            view.read_with(cx, |v, cx| {
+                assert_eq!(v.state.selected(cx), Some(3), "{kind:?} disabled");
+            });
+            // So does an index past the end.
+            cx.update(|_, cx| state.select(9, cx));
+            view.read_with(cx, |v, cx| {
+                assert_eq!(v.state.selected(cx), Some(3), "{kind:?} out of range");
+            });
+            // Selecting from code is not an activation: the caller knows.
+            view.read_with(cx, |v, _| {
+                assert_eq!(v.activations.get(), 0, "{kind:?} on_select not called");
+                assert_eq!(v.cleared.get(), 0, "{kind:?} not cleared");
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn a_marked_tab_shows_its_marker_and_describes_it(cx: &mut TestAppContext) {
+        let (view, cx) = open_with(
+            cx,
+            Kind::Tabs,
+            vec![
+                Choice::new("Lyrics"),
+                Choice::new("Sequence").marker("No performance sequence yet"),
+            ],
+            Some(0),
+        );
+        assert!(
+            cx.debug_bounds("choice-marker").is_some(),
+            "the marked tab carries its marker"
+        );
+        // Clearing the marker takes it off the tab again.
+        let state = view.read_with(cx, |v, _| v.state.clone());
+        cx.update(|window, cx| {
+            state.set_choices(
+                vec![Choice::new("Lyrics"), Choice::new("Sequence")],
+                window,
+                cx,
+            );
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("choice-marker").is_none(),
+            "an unmarked tab has none"
+        );
     }
 
     #[gpui::test]

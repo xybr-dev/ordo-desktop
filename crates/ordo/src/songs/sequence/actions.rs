@@ -95,7 +95,9 @@ impl ArrangementEditor {
         let Some(index) = self.structural_sequence(|c| c.repeat_occurrence(id, source), cx) else {
             return;
         };
-        self.placed(id, index, &content, section, false, cx);
+        // The button that was pressed belongs to the old row's actions and
+        // goes away with its selection, so focus follows to the new row.
+        self.placed(id, index, &content, section, true, cx);
     }
 
     /// Selects and announces an occurrence that was just inserted.
@@ -270,9 +272,27 @@ impl ArrangementEditor {
     /// Shows or hides one occurrence's slides. Selection is untouched.
     pub fn toggle_expanded(&mut self, id: OccurrenceId, cx: &mut Context<Self>) {
         if !self.expanded.remove(&id) {
-            self.expanded.insert(id);
+            self.insert_expanded(id);
+        } else {
+            self.rescue_focus(cx);
         }
         cx.notify();
+    }
+
+    fn insert_expanded(&mut self, id: OccurrenceId) {
+        self.expanded.insert(id);
+    }
+
+    /// A slide tile that held focus and was just hidden hands focus to its
+    /// row, so it is never left on nothing.
+    fn rescue_focus(&mut self, cx: &mut Context<Self>) {
+        if let Some(Item::Child(id, _)) = self.sequence.last_focus
+            && !self.expanded.contains(&id)
+        {
+            self.sequence.focus_item = Some(Item::Row(id));
+            self.sequence_selection = Some(SequenceSelection::occurrence(id));
+        }
+        let _ = cx;
     }
 
     /// Whether every occurrence of a non-empty Sequence is expanded.
@@ -292,6 +312,7 @@ impl ArrangementEditor {
         };
         if self.all_expanded(&content) {
             self.expanded.clear();
+            self.rescue_focus(cx);
         } else {
             self.expanded
                 .extend(content.sequence.iter().map(|occurrence| occurrence.id));

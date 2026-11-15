@@ -42,10 +42,7 @@ fn shown(editor: &ArrangementEditor, content: &ArrangementLyrics) -> Option<Show
     let keys = slide_keys(section);
     let count = slides(&section.lyrics).len();
     let slide = selection.slide.min(count.checked_sub(1)?);
-    let name = section
-        .label
-        .clone()
-        .unwrap_or_else(|| "Unnamed section".to_owned());
+    let name = super::occurrence_name(content, section.id);
     Some(Shown {
         where_: format!(
             "{} {name} \u{b7} slide {} of {count}",

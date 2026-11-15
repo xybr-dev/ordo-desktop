@@ -22,6 +22,7 @@ use ui::{
 };
 
 use super::{editor::ArrangementEditor, panes::section_name};
+use crate::songs::sequence::readiness::information;
 
 /// The quiet action that puts an unused section into the Sequence.
 pub const ADD_TO_SEQUENCE: &str = "Add to Sequence";
@@ -78,7 +79,7 @@ impl ArrangementEditor {
         if self.is_read_only() || before.occurrences_of(section) != 0 {
             return;
         }
-        self.add_occurrence(section, false, cx);
+        self.add_occurrence(section, true, cx);
         let grew = self
             .content(cx)
             .is_some_and(|now| now.sequence.len() > before.sequence.len());
@@ -96,6 +97,9 @@ impl ArrangementEditor {
         let Some(at) = content.sections.iter().position(|row| row.id == section) else {
             return;
         };
+        if content.sections[at].pagination == PaginationState::Approved {
+            return;
+        }
         let message = approved_message(&section_name(&content.sections, at));
         let result = self.structural_lyrics(
             move |content| match content.approve_section(section) {
@@ -109,7 +113,14 @@ impl ArrangementEditor {
             None,
             cx,
         );
+        let saved = result.is_ok();
         self.notify_refusal(result, cx);
+        if saved {
+            // The notice and its button go away; focus moves to the lyric
+            // editor instead of being left on nothing.
+            self.lyrics.focus_area = true;
+            cx.notify();
+        }
     }
 }
 
@@ -127,8 +138,8 @@ pub(super) fn add_to_sequence_button(
         .flex_none()
         .child(
             Button::new("arrangement-add-to-sequence", ADD_TO_SEQUENCE, environment)
-                .name(format!("Add {name} to the Sequence"))
-                .icon(icon::PLUS)
+                .name(format!("Add to Sequence: {name}"))
+                .icon(icon::LIST_PLUS)
                 .quiet()
                 .on_surface(surface)
                 .on_activate(move |_: &mut Window, cx: &mut App| {
@@ -168,9 +179,9 @@ pub(super) fn review_notice(
         .child(
             svg()
                 .flex_none()
-                .size(px(scale.apply(10.0)))
-                .text_color(rgb(palette.primary_foreground))
-                .data(Marker::Square.svg().as_bytes()),
+                .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                .text_color(rgb(information(environment.appearance())))
+                .data(icon::INFO.as_bytes()),
         )
         .child(
             div()
@@ -194,7 +205,7 @@ pub(super) fn review_notice(
         .into_any_element()
 }
 
-/// A section row's status line: plain meta for Empty, a square marker and
+/// A section row's status line: plain meta for Empty, a round marker and
 /// "Needs review" otherwise.
 pub(super) fn status_line(
     status: &'static str,
@@ -211,7 +222,7 @@ pub(super) fn status_line(
         .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
         .text_size(px(scale.apply(tokens::typography::META.size)))
         .text_color(rgb(if info {
-            palette.primary_foreground
+            information(environment.appearance())
         } else {
             palette.text_muted
         }))
@@ -220,8 +231,8 @@ pub(super) fn status_line(
                 svg()
                     .flex_none()
                     .size(px(scale.apply(10.0)))
-                    .text_color(rgb(palette.primary_foreground))
-                    .data(Marker::Square.svg().as_bytes()),
+                    .text_color(rgb(information(environment.appearance())))
+                    .data(Marker::Dot.svg().as_bytes()),
             )
         })
         .child(status)

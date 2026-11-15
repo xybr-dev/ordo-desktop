@@ -30,7 +30,7 @@ use crate::{
     edit_session::{EditSession, EditSessionEvent, NavigationGuard, RevisionPort, SaveState},
     songs::{
         LibraryStore,
-        sequence::{SequenceSelection, SequenceView},
+        sequence::{Item, SequenceSelection, SequenceView},
     },
 };
 
@@ -239,6 +239,21 @@ impl ArrangementEditor {
         };
         self.expanded
             .retain(|id| after.occurrence_index(*id).is_some());
+        // A Sequence stop that had focus keeps it on what is now selected:
+        // the row that came back, the next one, or Add first occurrence.
+        if self.sequence.shown
+            && let Some(held) = self.sequence.last_focus
+        {
+            let (Item::Row(held) | Item::Child(held, _)) = held;
+            let kept = next == Some(held) && after.occurrence_index(held).is_some();
+            match next {
+                Some(next) if !kept => {
+                    self.sequence.focus_item = Some(Item::Row(next));
+                }
+                None if after.sequence.is_empty() => self.sequence.focus_add_first = true,
+                _ => {}
+            }
+        }
     }
 
     /// Records a failed compose of the key, as the compose task does.
@@ -248,6 +263,7 @@ impl ArrangementEditor {
         key: super::navigator::FrameKey,
         content: &ArrangementLyrics,
     ) {
+        self.lyrics.failed.insert(key.clone());
         self.lyrics
             .frames
             .insert(key, Err(rendering::UnavailableReason::DecodeFailed));
@@ -260,9 +276,10 @@ impl ArrangementEditor {
         self.lyrics.frames.peek(key).is_some()
     }
 
-    /// Re-reads which sections' slides failed to compose from the frames the
-    /// Lyrics task and the Sequence composed. Sections never composed are not
-    /// listed: nothing is known about them yet.
+    /// Re-reads which sections' slides failed to compose. A failure is
+    /// remembered until the same slide composes again, even after its cache
+    /// entry was evicted. Sections never composed are not listed: nothing is
+    /// known about them yet.
     pub(crate) fn refresh_unrenderable(&mut self, content: &ArrangementLyrics) {
         self.unrenderable = content
             .sections
@@ -270,10 +287,7 @@ impl ArrangementEditor {
             .filter(|section| {
                 slides(&section.lyrics).iter().any(|source| {
                     let key = (section.label.clone(), slide_body(&section.lyrics, source));
-                    matches!(
-                        self.lyrics.frames.peek(&key),
-                        Some(rendering::FrameEntry::Unavailable(_))
-                    )
+                    self.lyrics.failed.contains(&key)
                 })
             })
             .map(|section| section.id)
@@ -303,16 +317,25 @@ impl ArrangementEditor {
         ))
     }
 
-    /// The warning marker for the Sequence tab: shown while sections exist and
-    /// the Sequence is empty.
-    pub fn sequence_tab_marker(
-        &self,
-        environment: UiEnvironment,
-        cx: &App,
-    ) -> Option<gpui::AnyElement> {
-        let content = self.content(cx)?;
-        (!content.sections.is_empty() && content.sequence.is_empty())
-            .then(|| crate::songs::sequence::readiness::tab_marker(environment))
+    /// Marks the Sequence tab while sections exist and the Sequence is empty,
+    /// and clears the mark otherwise. The marker sits inside the tab and its
+    /// reason is the tab's accessible description.
+    pub fn sync_tab_marker(&self, window: &mut Window, cx: &mut App) {
+        let marked = self
+            .content(cx)
+            .is_some_and(|content| !content.sections.is_empty() && content.sequence.is_empty());
+        let choices = TaskTab::ALL
+            .iter()
+            .map(|tab| {
+                let choice = Choice::new(tab.label());
+                if marked && *tab == TaskTab::Sequence {
+                    choice.marker(crate::songs::sequence::readiness::EMPTY_SEQUENCE)
+                } else {
+                    choice
+                }
+            })
+            .collect();
+        self.tabs.set_choices(choices, window, cx);
     }
 
     /// Lets the editor open popovers, dialogs and toasts on the shell's one

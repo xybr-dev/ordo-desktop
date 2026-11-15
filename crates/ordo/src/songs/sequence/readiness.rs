@@ -1,4 +1,5 @@
-//! The header's readiness label, its reasons and the Sequence tab's marker.
+//! The header's readiness label and its reasons (the Sequence tab's marker
+//! uses [`EMPTY_SEQUENCE`]).
 //!
 //! The rules are [`domain::song_library::readiness`]'s; this module only
 //! words them (Decision 14) and draws them. The label comes before the save
@@ -14,7 +15,7 @@ use gpui::{
     div, px, rgb, svg,
 };
 use ui::{
-    environment::UiEnvironment,
+    environment::{ResolvedAppearance, UiEnvironment},
     primitives::{record::Marker, tooltip},
     tokens,
 };
@@ -31,6 +32,15 @@ pub const NEEDS_REVIEW: &str = "Needs review";
 pub const READY: &str = "Ready";
 /// The reason for an empty Sequence (also the Sequence tab marker's text).
 pub const EMPTY_SEQUENCE: &str = "No performance sequence yet";
+
+/// The information colour of the appearance (DESIGN.md's `info`): what a
+/// status that asks for a look, not a fix, is drawn in.
+pub fn information(appearance: ResolvedAppearance) -> u32 {
+    match appearance {
+        ResolvedAppearance::Light => tokens::color::INFORMATION_PREPARATION,
+        ResolvedAppearance::Dark => tokens::color::INFORMATION_PRESENTER,
+    }
+}
 
 /// The header label of a readiness state.
 pub fn state_label(state: ReadinessState) -> &'static str {
@@ -100,7 +110,7 @@ pub fn header_label(
     let (color, marker) = match readiness.state {
         ReadinessState::NoSections => (palette.text_muted, None),
         ReadinessState::Incomplete => (palette.warning, Some(Marker::Diamond)),
-        ReadinessState::NeedsReview => (palette.primary_foreground, Some(Marker::Square)),
+        ReadinessState::NeedsReview => (information(environment.appearance()), Some(Marker::Dot)),
         ReadinessState::Ready => (palette.live, Some(Marker::Dot)),
     };
     let label = state_label(readiness.state);
@@ -133,27 +143,4 @@ pub fn header_label(
         }
         None => element.into_any_element(),
     }
-}
-
-/// The warning marker the Sequence tab carries while sections exist and the
-/// Sequence is empty.
-pub fn tab_marker(environment: UiEnvironment) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    tooltip(
-        div()
-            .id("sequence-tab-marker")
-            .debug_selector(|| "sequence-tab-marker".into())
-            .flex_none()
-            .aria_label(EMPTY_SEQUENCE)
-            .child(
-                svg()
-                    .size(px(scale.apply(10.0)))
-                    .text_color(rgb(palette.warning))
-                    .data(Marker::Diamond.svg().as_bytes()),
-            ),
-        EMPTY_SEQUENCE,
-        environment,
-    )
-    .into_any_element()
 }

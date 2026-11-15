@@ -22,6 +22,7 @@ use ui::{environment::UiEnvironment, overlay::Overlay, primitives::button::Butto
 use super::{
     editor::ArrangementEditor,
     panes::{column, head, section_name},
+    view::EDITOR_FRAME_CAPACITY,
 };
 use crate::canonical_views::live_viewport;
 
@@ -102,21 +103,33 @@ pub(super) fn request_frames(
         editor.lyrics.pending.clear();
         return;
     };
-    let wanted: HashSet<FrameKey> = (0..chosen.count).map(|slide| chosen.key(slide)).collect();
+    let wanted: Vec<FrameKey> = (0..chosen.count).map(|slide| chosen.key(slide)).collect();
     compose_frames(editor, wanted, cx);
 }
 
 /// Starts composing the wanted frames that nothing holds yet and drops the
 /// requests nobody waits for any more. Composition runs off the GPUI thread;
 /// both tasks share the one cache.
+///
+/// `wanted` is in the order the operator needs the frames. A request is cut at
+/// the cache's capacity, so it can never evict its own members: the frames
+/// past the cut stay placeholders. Frames already held are marked recent, so
+/// what is on screen is the last thing the cache lets go of.
 pub(crate) fn compose_frames(
     editor: &mut ArrangementEditor,
-    wanted: HashSet<FrameKey>,
+    wanted: Vec<FrameKey>,
     cx: &mut Context<ArrangementEditor>,
 ) {
-    editor.lyrics.pending.retain(|key, _| wanted.contains(key));
+    let mut seen = HashSet::new();
+    let wanted: Vec<FrameKey> = wanted
+        .into_iter()
+        .filter(|key| seen.insert(key.clone()))
+        .take(EDITOR_FRAME_CAPACITY)
+        .collect();
+    let keep: HashSet<&FrameKey> = wanted.iter().collect();
+    editor.lyrics.pending.retain(|key, _| keep.contains(key));
     for key in wanted {
-        if editor.lyrics.frames.peek(&key).is_some() || editor.lyrics.pending.contains_key(&key) {
+        if editor.lyrics.frames.get(&key).is_some() || editor.lyrics.pending.contains_key(&key) {
             continue;
         }
         let content = TemplateContent {
@@ -134,6 +147,11 @@ pub(crate) fn compose_frames(
                 .await;
             let _ = editor.update(cx, |editor, cx| {
                 editor.lyrics.pending.remove(&stored);
+                if composed.is_err() {
+                    editor.lyrics.failed.insert(stored.clone());
+                } else {
+                    editor.lyrics.failed.remove(&stored);
+                }
                 editor.lyrics.frames.insert(stored, composed.map(Arc::new));
                 if let Some(content) = editor.content(cx) {
                     editor.refresh_unrenderable(&content);
