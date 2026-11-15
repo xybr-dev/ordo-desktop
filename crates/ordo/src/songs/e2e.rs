@@ -963,7 +963,10 @@ fn owner(
             Owner::Tile(*id, *slide)
         } else if add_first.is_focused(window) {
             Owner::AddFirst
-        } else if area.as_ref().is_some_and(|handle| handle.is_focused(window)) {
+        } else if area
+            .as_ref()
+            .is_some_and(|handle| handle.is_focused(window))
+        {
             Owner::LyricArea
         } else if let Some((name, _)) = known.iter().find(|(_, handle)| handle.is_focused(window)) {
             Owner::Named(name)
@@ -1036,7 +1039,11 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     let ids = |vcx: &mut VisualTestContext| -> Vec<OccurrenceId> {
         editor.read_with(vcx, |editor, cx| {
             let content = editor.content(cx).expect("content");
-            content.sequence.iter().map(|occurrence| occurrence.id).collect()
+            content
+                .sequence
+                .iter()
+                .map(|occurrence| occurrence.id)
+                .collect()
         })
     };
     let names = |vcx: &mut VisualTestContext| -> Vec<String> {
@@ -1049,9 +1056,8 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
                 .collect()
         })
     };
-    let selected = |vcx: &mut VisualTestContext| {
-        editor.read_with(vcx, |editor, _| editor.sequence_selection)
-    };
+    let selected =
+        |vcx: &mut VisualTestContext| editor.read_with(vcx, |editor, _| editor.sequence_selection);
     let focus = |known: &[(&'static str, gpui::FocusHandle)], vcx: &mut VisualTestContext| {
         owner(&editor, &shell, known, vcx)
     };
@@ -1068,14 +1074,20 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     learn(&mut known, "Back to Songs", vcx);
     vcx.simulate_keystrokes("tab");
     settle(vcx);
-    assert_eq!(focus(&known, vcx), Owner::Region("Workspace actions".into()));
+    assert_eq!(
+        focus(&known, vcx),
+        Owner::Region("Workspace actions".into())
+    );
     learn(&mut known, "Lyrics tab", vcx);
     vcx.simulate_keystrokes("right");
     settle(vcx);
     learn(&mut known, "Sequence tab", vcx);
     vcx.simulate_keystrokes("enter");
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Sequence);
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        super::lyrics::TaskTab::Sequence
+    );
     assert_eq!(
         focus(&known, vcx),
         Owner::AddFirst,
@@ -1090,8 +1102,15 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     let first = ids(vcx);
     assert_eq!(names(vcx), ["Verse 1"]);
     assert_eq!(selected(vcx), on(first[0]));
-    assert_eq!(focus(&known, vcx), Owner::Row(first[0]), "focus follows the new row");
-    assert_eq!(toasts(&shell, vcx), ["Added Verse 1 at 01 in the Sequence."]);
+    assert_eq!(
+        focus(&known, vcx),
+        Owner::Row(first[0]),
+        "focus follows the new row"
+    );
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Added Verse 1 at 01 in the Sequence."]
+    );
 
     // 02 Chorus, 03 Verse 2, 04 Chorus: Add in Available sections, each placed
     // after the selection, focus staying on the pressed button.
@@ -1116,7 +1135,10 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     assert_eq!(names(vcx), ["Verse 1", "Chorus", "Verse 2"]);
     assert_eq!(selected(vcx), on(ids(vcx)[2]));
     assert_eq!(focus(&known, vcx), Owner::Named("Add Verse 2"));
-    assert_eq!(toasts(&shell, vcx), ["Added Verse 2 at 03 in the Sequence."]);
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Added Verse 2 at 03 in the Sequence."]
+    );
     vcx.simulate_keystrokes("shift-tab");
     settle(vcx);
     assert_eq!(focus(&known, vcx), Owner::Named("Add Chorus"));
@@ -1130,7 +1152,11 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     assert_eq!(toasts(&shell, vcx), ["Added Chorus at 04 in the Sequence."]);
     assert_eq!(stored(vcx).sequence.len(), 4, "saved as it went");
     assert_eq!(
-        stored(vcx).sequence.iter().map(|o| o.section).collect::<Vec<_>>(),
+        stored(vcx)
+            .sequence
+            .iter()
+            .map(|o| o.section)
+            .collect::<Vec<_>>(),
         [verse_1, chorus, verse_2, chorus],
         "04 is a second occurrence of the one Chorus section"
     );
@@ -1151,7 +1177,10 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     settle(vcx);
     vcx.simulate_keystrokes("enter");
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Lyrics);
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        super::lyrics::TaskTab::Lyrics
+    );
     vcx.simulate_keystrokes("f6");
     settle(vcx);
     region("Primary list", vcx);
@@ -1159,10 +1188,16 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
         vcx.simulate_keystrokes("tab");
         settle(vcx);
     }
-    assert_eq!(super::lyrics::tests::focused_row(&editor, vcx), Some(chorus));
+    assert_eq!(
+        super::lyrics::tests::focused_row(&editor, vcx),
+        Some(chorus)
+    );
     tap(vcx, "enter");
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, _| editor.selected_section()), Some(chorus));
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| editor.selected_section()),
+        Some(chorus)
+    );
     vcx.simulate_keystrokes("f6");
     settle(vcx);
     region("Main editor", vcx);
@@ -1196,8 +1231,15 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     settle(vcx);
     vcx.simulate_keystrokes("enter");
     settle(vcx);
-    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Sequence);
-    assert_eq!(selected(vcx), on(o4), "the selection survived the tab switch");
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        super::lyrics::TaskTab::Sequence
+    );
+    assert_eq!(
+        selected(vcx),
+        on(o4),
+        "the selection survived the tab switch"
+    );
     vcx.simulate_keystrokes("f6");
     settle(vcx);
     vcx.simulate_keystrokes("f6");
@@ -1212,17 +1254,34 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
         settle(vcx);
         editor.update(vcx, |editor, _| editor.frame_of(&chorus_key).is_some())
     });
-    assert!(crate::songs::choirs::tests::present(vcx, "sequence-child-1-0"));
-    assert!(crate::songs::choirs::tests::present(vcx, "sequence-child-3-0"));
+    assert!(crate::songs::choirs::tests::present(
+        vcx,
+        "sequence-child-1-0"
+    ));
+    assert!(crate::songs::choirs::tests::present(
+        vcx,
+        "sequence-child-3-0"
+    ));
     let chorus_frame = editor
         .update(vcx, |editor, _| editor.frame_of(&chorus_key))
         .expect("composed");
-    pinned("lyrics-t2-8-chorus-edited-slide-1", &chorus_frame.serialize());
+    pinned(
+        "lyrics-t2-8-chorus-edited-slide-1",
+        &chorus_frame.serialize(),
+    );
     let content = editor.read_with(vcx, |editor, cx| editor.content(cx).expect("content"));
     for occurrence in [o2, o4] {
         let at = content.occurrence_index(occurrence).expect("occurrence");
-        let section = content.sections.iter().find(|s| s.id == content.sequence[at].section).expect("section");
-        assert_eq!(slide_keys(section).remove(0), chorus_key, "both occurrences use the one edited key");
+        let section = content
+            .sections
+            .iter()
+            .find(|s| s.id == content.sequence[at].section)
+            .expect("section");
+        assert_eq!(
+            slide_keys(section).remove(0),
+            chorus_key,
+            "both occurrences use the one edited key"
+        );
     }
 
     // Alt+Down then Alt+Up on 01.
@@ -1235,13 +1294,27 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     assert_eq!(ids(vcx), [o2, o1, o3, o4]);
     assert_eq!(focus(&known, vcx), Owner::Row(o1));
     assert_eq!(selected(vcx), on(o1));
-    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o2, o1, o3, o4]);
+    assert_eq!(
+        stored(vcx)
+            .sequence
+            .iter()
+            .map(|o| o.id)
+            .collect::<Vec<_>>(),
+        [o2, o1, o3, o4]
+    );
     assert_eq!(toasts(&shell, vcx), ["Moved Verse 1 to 02."]);
     vcx.simulate_keystrokes("alt-up");
     written(&editor, vcx);
     assert_eq!(ids(vcx), [o1, o2, o3, o4]);
     assert_eq!(focus(&known, vcx), Owner::Row(o1));
-    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o1, o2, o3, o4]);
+    assert_eq!(
+        stored(vcx)
+            .sequence
+            .iter()
+            .map(|o| o.id)
+            .collect::<Vec<_>>(),
+        [o1, o2, o3, o4]
+    );
     assert_eq!(toasts(&shell, vcx), ["Moved Verse 1 to 01."]);
 
     // Focus 04 by Tab and press Delete: 03 is selected and focused.
@@ -1259,7 +1332,11 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     assert_eq!(ids(vcx), [o1, o2, o3]);
     assert_eq!(selected(vcx), on(o3), "03 is selected");
     assert_eq!(focus(&known, vcx), Owner::Row(o3), "and focused");
-    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus", "Verse 2"], "the section stays");
+    assert_eq!(
+        sections_of(&editor, vcx),
+        ["Verse 1", "Chorus", "Verse 2"],
+        "the section stays"
+    );
     assert_eq!(
         toasts(&shell, vcx),
         ["Removed 04 Chorus from the Sequence. The section stays in Lyrics."]
@@ -1274,11 +1351,20 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     written(&editor, vcx);
     assert_eq!(selected(vcx), on(o4), "04 is selected");
     assert_eq!(focus(&known, vcx), Owner::Row(o4), "and focused");
-    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o1, o2, o3, o4]);
+    assert_eq!(
+        stored(vcx)
+            .sequence
+            .iter()
+            .map(|o| o.id)
+            .collect::<Vec<_>>(),
+        [o1, o2, o3, o4]
+    );
 
     // Reopen the parish from disk.
     press(vcx, "button-Back to Songs");
-    wait(vcx, |vcx| shell.read_with(vcx, |shell, _| shell.editing().is_none()));
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing().is_none())
+    });
     settle(vcx);
     stop(vcx, &slot);
     let (slot, store) = open_parish(cx, &dir);
@@ -1288,7 +1374,15 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     });
     let order: Vec<_> = flatten(&reloaded)
         .iter()
-        .map(|flat| (flat.occurrence, flat.position, flat.section, flat.slide, flat.slides_in_section))
+        .map(|flat| {
+            (
+                flat.occurrence,
+                flat.position,
+                flat.section,
+                flat.slide,
+                flat.slides_in_section,
+            )
+        })
         .collect();
     assert_eq!(
         order,
@@ -1306,10 +1400,16 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     press(vcx, "tab-1");
     press(vcx, "button-Expand all");
     let frames_of = |section: usize| slide_keys(&reloaded.sections[section]);
-    let wanted: Vec<_> = frames_of(0).into_iter().chain(frames_of(1)).chain(frames_of(2)).collect();
+    let wanted: Vec<_> = frames_of(0)
+        .into_iter()
+        .chain(frames_of(1))
+        .chain(frames_of(2))
+        .collect();
     wait(vcx, |vcx| {
         settle(vcx);
-        editor.update(vcx, |editor, _| wanted.iter().all(|key| editor.frame_of(key).is_some()))
+        editor.update(vcx, |editor, _| {
+            wanted.iter().all(|key| editor.frame_of(key).is_some())
+        })
     });
     let frame = |section: usize, slide: usize, vcx: &mut VisualTestContext| {
         let key = frames_of(section).remove(slide);
@@ -1319,7 +1419,11 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
             .serialize()
     };
     for flat in flatten(&reloaded) {
-        let at = reloaded.sections.iter().position(|s| s.id == flat.section).expect("section");
+        let at = reloaded
+            .sections
+            .iter()
+            .position(|s| s.id == flat.section)
+            .expect("section");
         let name = match (at, flat.slide) {
             (0, 0) => "lyrics-t2-7-verse-1-slide-1",
             (0, 1) => "lyrics-t2-7-verse-1-slide-2",
