@@ -1,0 +1,62 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
+footer-absent
+pagination authored-body=2 header-lines=1 body-lines=2 footer-lines=0 content-height=208 available-height=862 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=161 height=58 text=Verse 2
+glyph zone=header line=0 font=primary id=96 x=120 y=129 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=148 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=174 y=129 x-advance=17 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=191 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=214 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=header line=0 font=primary id=367 x=254 y=129 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=0 authored=0 x=382 y=465 width=1155 height=104 text=Sa kabuntagon nagbalik kami
+glyph zone=body line=0 font=primary id=77 x=382 y=553 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=435 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=162 x=507 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=550 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=123 x=597 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=200 x=647 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=695 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=196 x=742 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=112 x=771 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=143 x=818 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=175 x=868 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=170 x=917 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=9
+glyph zone=body line=0 font=primary id=170 x=991 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1040 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=1087 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=123 x=1137 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=112 x=1187 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=164 x=1234 y=553 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=149 x=1258 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=162 x=1280 y=553 x-advance=44 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=162 x=1349 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1392 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=169 x=1439 y=553 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=1515 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+line zone=body index=1 authored=1 x=458 y=569 width=1004 height=104 text=Salamat sa imong gugma
+glyph zone=body line=1 font=primary id=77 x=458 y=657 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=511 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=558 y=657 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=583 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=169 x=630 y=657 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=112 x=706 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=196 x=752 y=657 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=190 x=806 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=848 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=149 x=920 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=169 x=942 y=657 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=175 x=1018 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=170 x=1067 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=143 x=1116 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=143 x=1191 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=200 x=1241 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=143 x=1289 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=169 x=1339 y=657 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=112 x=1415 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+warnings 0

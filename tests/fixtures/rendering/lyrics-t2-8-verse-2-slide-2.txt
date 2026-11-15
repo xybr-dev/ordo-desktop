@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse 2
+body-lines:2
+Sa kabuntagon nagbalik kami
+Salamat sa imong gugma
+footer-absent
+image-absent

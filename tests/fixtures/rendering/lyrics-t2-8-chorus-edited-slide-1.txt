@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Chorus
+body-lines:2
+Aleluya, awit sa tanan
+Ginoó, among kalipay ug awit
+footer-absent
+image-absent

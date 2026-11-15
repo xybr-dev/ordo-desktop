@@ -909,3 +909,435 @@ fn t2_7_e2e_keyboard_sections_split_join_reorder_remove_undo_then_reload(cx: &mu
         .expect("shutdown");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The element that owns keyboard focus, by what the E2E can name: a Sequence
+/// row or slide tile, Add first occurrence, the lyric area, a control the test
+/// has met (and named with [`learn`]), or else just the F6 region.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Owner {
+    Row(domain::identity::OccurrenceId),
+    Tile(domain::identity::OccurrenceId, usize),
+    AddFirst,
+    LyricArea,
+    Named(&'static str),
+    Region(String),
+}
+
+/// Names the control that has focus right now, so later steps can assert it.
+fn learn(
+    known: &mut Vec<(&'static str, gpui::FocusHandle)>,
+    name: &'static str,
+    vcx: &mut VisualTestContext,
+) {
+    let handle = vcx
+        .update(|window, cx| window.focused(cx))
+        .expect("a control has focus");
+    assert!(
+        known.iter().all(|(_, other)| *other != handle),
+        "{name} is a control that already has a name"
+    );
+    known.push((name, handle));
+}
+
+fn owner(
+    editor: &Entity<super::lyrics::ArrangementEditor>,
+    shell: &Entity<crate::shell::ShellView>,
+    known: &[(&'static str, gpui::FocusHandle)],
+    vcx: &mut VisualTestContext,
+) -> Owner {
+    let region = super::lyrics::tests::region_now(shell, vcx);
+    let (rows, kids, add_first, area) = editor.read_with(vcx, |editor, cx| {
+        (
+            editor.sequence.rows.clone(),
+            editor.sequence.kids.clone(),
+            editor.sequence.add_first.clone(),
+            editor.lyric_area().map(|area| area.focus_handle(cx)),
+        )
+    });
+    vcx.update(|window, _| {
+        if let Some((id, _)) = rows.iter().find(|(_, handle)| handle.is_focused(window)) {
+            Owner::Row(*id)
+        } else if let Some(((id, slide), _)) =
+            kids.iter().find(|(_, handle)| handle.is_focused(window))
+        {
+            Owner::Tile(*id, *slide)
+        } else if add_first.is_focused(window) {
+            Owner::AddFirst
+        } else if area.as_ref().is_some_and(|handle| handle.is_focused(window)) {
+            Owner::LyricArea
+        } else if let Some((name, _)) = known.iter().find(|(_, handle)| handle.is_focused(window)) {
+            Owner::Named(name)
+        } else {
+            Owner::Region(region)
+        }
+    })
+}
+
+/// A slide's golden file: the frame plus its (empty) warnings.
+fn pinned(name: &str, frame: &str) {
+    assert_eq!(
+        golden(name),
+        format!("{frame}warnings 0\n"),
+        "{name}: the frame is the golden"
+    );
+}
+
+/// T2.8: the Sequence is built, repeated, edited once, reordered, trimmed and
+/// restored by keyboard on a real parish store. A reopen from disk shows the
+/// flattened order and the canonical frames the goldens pin.
+#[gpui::test]
+fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut TestAppContext) {
+    use super::lyrics::tests::{
+        area_value, entity, open_editor, parish_blank, region_now, saved as lyrics_saved,
+        sections_of, toasts,
+    };
+    use super::new_song::tests::{click as press, settle, stop};
+    use crate::songs::{
+        choirs::tests::wait,
+        sequence::{SequenceSelection, occurrence_name, slide_keys},
+    };
+    use domain::{
+        identity::{HistorySessionId, OccurrenceId, SectionId},
+        song_library::{SectionDraft, flatten},
+    };
+
+    const VERSE_1: &str = "Ginoó, among tabang sa buntag\nNiño sa among kasingkasing\n\nPaz ug kalipay sa tanan\nVida nga walay kataposan";
+    const CHORUS_FIRST: &str = "Aleluya, mga anak sa adlaw";
+    const CHORUS_EDITED: [&str; 2] = ["Aleluya, awit sa tanan", "Ginoó, among kalipay ug awit"];
+    const VERSE_2: &str = "Sa kagabhion nagpabilin ka\nGinoó, among kahayag\n\nSa kabuntagon nagbalik kami\nSalamat sa imong gugma";
+
+    let (dir, slot, store, shell, id, vcx) = parish_blank(cx, "t28-e2e");
+    let (verse_1, chorus, verse_2) = (
+        SectionId::from_entity(entity(61)),
+        SectionId::from_entity(entity(62)),
+        SectionId::from_entity(entity(63)),
+    );
+    // Verse 1, Chorus and Verse 2 are written through the store; the Sequence
+    // starts empty (a section never places itself).
+    let mut seeded = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("stored").lyrics()
+    });
+    seeded.sections = vec![
+        SectionDraft::labeled(verse_1, "Verse 1", VERSE_1),
+        SectionDraft::labeled(chorus, "Chorus", CHORUS_FIRST),
+        SectionDraft::labeled(verse_2, "Verse 2", VERSE_2),
+    ];
+    seeded.sequence.clear();
+    super::arrangement_details::tests::write(&store, vcx, |store, cx| {
+        store.save_arrangement_lyrics(id, seeded, HistorySessionId::from_entity(entity(8)), cx)
+    });
+    let stored = |vcx: &mut VisualTestContext| {
+        store.read_with(vcx, |store, _| {
+            store.library().arrangement(id).expect("stored").lyrics()
+        })
+    };
+    let editor = open_editor(&shell, id, vcx);
+    let mut known = Vec::new();
+    let ids = |vcx: &mut VisualTestContext| -> Vec<OccurrenceId> {
+        editor.read_with(vcx, |editor, cx| {
+            let content = editor.content(cx).expect("content");
+            content.sequence.iter().map(|occurrence| occurrence.id).collect()
+        })
+    };
+    let names = |vcx: &mut VisualTestContext| -> Vec<String> {
+        editor.read_with(vcx, |editor, cx| {
+            let content = editor.content(cx).expect("content");
+            content
+                .sequence
+                .iter()
+                .map(|occurrence| occurrence_name(&content, occurrence.section))
+                .collect()
+        })
+    };
+    let selected = |vcx: &mut VisualTestContext| {
+        editor.read_with(vcx, |editor, _| editor.sequence_selection)
+    };
+    let focus = |known: &[(&'static str, gpui::FocusHandle)], vcx: &mut VisualTestContext| {
+        owner(&editor, &shell, known, vcx)
+    };
+    let on = |id: OccurrenceId| Some(SequenceSelection::occurrence(id));
+    let region = |name: &str, vcx: &mut VisualTestContext| {
+        assert_eq!(region_now(&shell, vcx), name);
+    };
+
+    // The Arrangement opens on Lyrics with focus in the header actions: Tab
+    // past Back to the task tabs, Right to Sequence, Enter to open it.
+    region("Workspace actions", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    learn(&mut known, "Back to Songs", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Region("Workspace actions".into()));
+    learn(&mut known, "Lyrics tab", vcx);
+    vcx.simulate_keystrokes("right");
+    settle(vcx);
+    learn(&mut known, "Sequence tab", vcx);
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Sequence);
+    assert_eq!(
+        focus(&known, vcx),
+        Owner::AddFirst,
+        "an empty Sequence focuses Add first occurrence"
+    );
+    assert!(ids(vcx).is_empty());
+    assert_eq!(selected(vcx), None, "nothing is selected");
+
+    // 01 Verse 1: Enter on Add first occurrence.
+    tap(vcx, "enter");
+    written(&editor, vcx);
+    let first = ids(vcx);
+    assert_eq!(names(vcx), ["Verse 1"]);
+    assert_eq!(selected(vcx), on(first[0]));
+    assert_eq!(focus(&known, vcx), Owner::Row(first[0]), "focus follows the new row");
+    assert_eq!(toasts(&shell, vcx), ["Added Verse 1 at 01 in the Sequence."]);
+
+    // 02 Chorus, 03 Verse 2, 04 Chorus: Add in Available sections, each placed
+    // after the selection, focus staying on the pressed button.
+    vcx.simulate_keystrokes("shift-f6");
+    settle(vcx);
+    region("Primary list", vcx);
+    learn(&mut known, "Add Verse 1", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    learn(&mut known, "Add Chorus", vcx);
+    tap(vcx, "enter");
+    written(&editor, vcx);
+    assert_eq!(names(vcx), ["Verse 1", "Chorus"]);
+    assert_eq!(selected(vcx), on(ids(vcx)[1]));
+    assert_eq!(focus(&known, vcx), Owner::Named("Add Chorus"));
+    assert_eq!(toasts(&shell, vcx), ["Added Chorus at 02 in the Sequence."]);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    learn(&mut known, "Add Verse 2", vcx);
+    tap(vcx, "enter");
+    written(&editor, vcx);
+    assert_eq!(names(vcx), ["Verse 1", "Chorus", "Verse 2"]);
+    assert_eq!(selected(vcx), on(ids(vcx)[2]));
+    assert_eq!(focus(&known, vcx), Owner::Named("Add Verse 2"));
+    assert_eq!(toasts(&shell, vcx), ["Added Verse 2 at 03 in the Sequence."]);
+    vcx.simulate_keystrokes("shift-tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("Add Chorus"));
+    tap(vcx, "enter");
+    written(&editor, vcx);
+    assert_eq!(names(vcx), ["Verse 1", "Chorus", "Verse 2", "Chorus"]);
+    let [o1, o2, o3, o4]: [OccurrenceId; 4] = ids(vcx).try_into().expect("four occurrences");
+    assert_eq!(first[0], o1);
+    assert_eq!(selected(vcx), on(o4));
+    assert_eq!(focus(&known, vcx), Owner::Named("Add Chorus"));
+    assert_eq!(toasts(&shell, vcx), ["Added Chorus at 04 in the Sequence."]);
+    assert_eq!(stored(vcx).sequence.len(), 4, "saved as it went");
+    assert_eq!(
+        stored(vcx).sequence.iter().map(|o| o.section).collect::<Vec<_>>(),
+        [verse_1, chorus, verse_2, chorus],
+        "04 is a second occurrence of the one Chorus section"
+    );
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus", "Verse 2"]);
+
+    // Edit the Chorus once, in Lyrics: F6 to the header actions (focus lands on
+    // the active tab), Left, Enter; F6 to the sections, Tab to the Chorus row,
+    // Enter to choose it; F6 and Tab to the lyric area; Ctrl+A and type.
+    vcx.simulate_keystrokes("shift-f6");
+    settle(vcx);
+    region("Workspace actions", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    vcx.simulate_keystrokes("left");
+    settle(vcx);
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Lyrics);
+    vcx.simulate_keystrokes("f6");
+    settle(vcx);
+    region("Primary list", vcx);
+    for _ in 0..3 {
+        vcx.simulate_keystrokes("tab");
+        settle(vcx);
+    }
+    assert_eq!(super::lyrics::tests::focused_row(&editor, vcx), Some(chorus));
+    tap(vcx, "enter");
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, _| editor.selected_section()), Some(chorus));
+    vcx.simulate_keystrokes("f6");
+    settle(vcx);
+    region("Main editor", vcx);
+    for _ in 0..6 {
+        if focus(&known, vcx) == Owner::LyricArea {
+            break;
+        }
+        vcx.simulate_keystrokes("tab");
+        settle(vcx);
+    }
+    assert_eq!(focus(&known, vcx), Owner::LyricArea);
+    assert_eq!(area_value(&editor, vcx), CHORUS_FIRST);
+    vcx.simulate_keystrokes("ctrl-a");
+    type_lines(vcx, &CHORUS_EDITED);
+    lyrics_saved(&editor, vcx);
+    let edited = CHORUS_EDITED.join("\n");
+    assert_eq!(stored(vcx).sections[1].lyrics, edited);
+    assert_eq!(focus(&known, vcx), Owner::LyricArea);
+    assert_eq!(ids(vcx), [o1, o2, o3, o4], "the edit touched no occurrence");
+
+    // Back to Sequence: both Chorus occurrences share the edited frame.
+    for _ in 0..4 {
+        if region_now(&shell, vcx) == "Workspace actions" {
+            break;
+        }
+        vcx.simulate_keystrokes("f6");
+        settle(vcx);
+    }
+    region("Workspace actions", vcx);
+    vcx.simulate_keystrokes("right");
+    settle(vcx);
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, cx| editor.tab(cx)), super::lyrics::TaskTab::Sequence);
+    assert_eq!(selected(vcx), on(o4), "the selection survived the tab switch");
+    vcx.simulate_keystrokes("f6");
+    settle(vcx);
+    vcx.simulate_keystrokes("f6");
+    settle(vcx);
+    region("Main editor", vcx);
+    tap(vcx, "enter"); // Expand all, the first stop of the Sequence pane
+    settle(vcx);
+    assert_eq!(editor.read_with(vcx, |editor, _| editor.expanded.len()), 4);
+    let chorus_key = slide_keys(&stored(vcx).sections[1].clone()).remove(0);
+    assert_eq!(chorus_key, (Some("Chorus".to_owned()), edited.clone()));
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.update(vcx, |editor, _| editor.frame_of(&chorus_key).is_some())
+    });
+    assert!(crate::songs::choirs::tests::present(vcx, "sequence-child-1-0"));
+    assert!(crate::songs::choirs::tests::present(vcx, "sequence-child-3-0"));
+    let chorus_frame = editor
+        .update(vcx, |editor, _| editor.frame_of(&chorus_key))
+        .expect("composed");
+    pinned("lyrics-t2-8-chorus-edited-slide-1", &chorus_frame.serialize());
+    let content = editor.read_with(vcx, |editor, cx| editor.content(cx).expect("content"));
+    for occurrence in [o2, o4] {
+        let at = content.occurrence_index(occurrence).expect("occurrence");
+        let section = content.sections.iter().find(|s| s.id == content.sequence[at].section).expect("section");
+        assert_eq!(slide_keys(section).remove(0), chorus_key, "both occurrences use the one edited key");
+    }
+
+    // Alt+Down then Alt+Up on 01.
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Row(o1));
+    assert_eq!(selected(vcx), on(o1), "selection follows focus");
+    vcx.simulate_keystrokes("alt-down");
+    written(&editor, vcx);
+    assert_eq!(ids(vcx), [o2, o1, o3, o4]);
+    assert_eq!(focus(&known, vcx), Owner::Row(o1));
+    assert_eq!(selected(vcx), on(o1));
+    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o2, o1, o3, o4]);
+    assert_eq!(toasts(&shell, vcx), ["Moved Verse 1 to 02."]);
+    vcx.simulate_keystrokes("alt-up");
+    written(&editor, vcx);
+    assert_eq!(ids(vcx), [o1, o2, o3, o4]);
+    assert_eq!(focus(&known, vcx), Owner::Row(o1));
+    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o1, o2, o3, o4]);
+    assert_eq!(toasts(&shell, vcx), ["Moved Verse 1 to 01."]);
+
+    // Focus 04 by Tab and press Delete: 03 is selected and focused.
+    for _ in 0..30 {
+        if focus(&known, vcx) == Owner::Row(o4) {
+            break;
+        }
+        vcx.simulate_keystrokes("tab");
+        settle(vcx);
+    }
+    assert_eq!(focus(&known, vcx), Owner::Row(o4));
+    assert_eq!(selected(vcx), on(o4));
+    vcx.simulate_keystrokes("delete");
+    written(&editor, vcx);
+    assert_eq!(ids(vcx), [o1, o2, o3]);
+    assert_eq!(selected(vcx), on(o3), "03 is selected");
+    assert_eq!(focus(&known, vcx), Owner::Row(o3), "and focused");
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus", "Verse 2"], "the section stays");
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Removed 04 Chorus from the Sequence. The section stays in Lyrics."]
+    );
+
+    // Ctrl+Z puts 04 back, selected and focused.
+    vcx.simulate_keystrokes("ctrl-z");
+    wait(vcx, |vcx| {
+        settle(vcx);
+        ids(vcx) == [o1, o2, o3, o4]
+    });
+    written(&editor, vcx);
+    assert_eq!(selected(vcx), on(o4), "04 is selected");
+    assert_eq!(focus(&known, vcx), Owner::Row(o4), "and focused");
+    assert_eq!(stored(vcx).sequence.iter().map(|o| o.id).collect::<Vec<_>>(), [o1, o2, o3, o4]);
+
+    // Reopen the parish from disk.
+    press(vcx, "button-Back to Songs");
+    wait(vcx, |vcx| shell.read_with(vcx, |shell, _| shell.editing().is_none()));
+    settle(vcx);
+    stop(vcx, &slot);
+    let (slot, store) = open_parish(cx, &dir);
+    let (shell, vcx) = open_store(cx, store.clone());
+    let reloaded = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("persisted").lyrics()
+    });
+    let order: Vec<_> = flatten(&reloaded)
+        .iter()
+        .map(|flat| (flat.occurrence, flat.position, flat.section, flat.slide, flat.slides_in_section))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            (o1, 0, verse_1, 0, 2),
+            (o1, 0, verse_1, 1, 2),
+            (o2, 1, chorus, 0, 1),
+            (o3, 2, verse_2, 0, 2),
+            (o3, 2, verse_2, 1, 2),
+            (o4, 3, chorus, 0, 1),
+        ],
+        "exact flattened Cue order after reload"
+    );
+    let editor = open_editor(&shell, id, vcx);
+    press(vcx, "tab-1");
+    press(vcx, "button-Expand all");
+    let frames_of = |section: usize| slide_keys(&reloaded.sections[section]);
+    let wanted: Vec<_> = frames_of(0).into_iter().chain(frames_of(1)).chain(frames_of(2)).collect();
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.update(vcx, |editor, _| wanted.iter().all(|key| editor.frame_of(key).is_some()))
+    });
+    let frame = |section: usize, slide: usize, vcx: &mut VisualTestContext| {
+        let key = frames_of(section).remove(slide);
+        editor
+            .update(vcx, |editor, _| editor.frame_of(&key))
+            .expect("composed")
+            .serialize()
+    };
+    for flat in flatten(&reloaded) {
+        let at = reloaded.sections.iter().position(|s| s.id == flat.section).expect("section");
+        let name = match (at, flat.slide) {
+            (0, 0) => "lyrics-t2-7-verse-1-slide-1",
+            (0, 1) => "lyrics-t2-7-verse-1-slide-2",
+            (1, 0) => "lyrics-t2-8-chorus-edited-slide-1",
+            (2, 0) => "lyrics-t2-8-verse-2-slide-1",
+            (2, 1) => "lyrics-t2-8-verse-2-slide-2",
+            other => panic!("unexpected flat slide {other:?}"),
+        };
+        pinned(name, &frame(at, flat.slide, vcx));
+    }
+    assert_eq!(area_value_after_reload(&reloaded), edited);
+
+    cx.foreground_executor()
+        .block_test(slot.shutdown())
+        .expect("shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn area_value_after_reload(content: &domain::song_library::ArrangementLyrics) -> String {
+    content.sections[1].lyrics.clone()
+}
