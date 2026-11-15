@@ -57,6 +57,32 @@ const FORMAT_2_CONTENT: &str = concat!(
 /// SHA-256 of exactly [`FORMAT_2_CONTENT`], computed outside the test.
 const FORMAT_2_SHA256: &str = "e62100b812dfcd1e2c2e58cb5f3f020d5a07f23ed2f7ecc6fddd114f91ab8aee";
 
+/// A second stored format-2 payload: notes present and no title, the two
+/// fields format 2 omits when empty.
+const FORMAT_2_NOTES_CONTENT: &str = concat!(
+    r#"{"format":2,"entity":"arrangement","languages":["Cebuano"],"choirs":[]"#,
+    r#","rendition_attribution":null,"occasions":[],"notes":"Rights: parish","#,
+    r#""sections":[{"id":"84848484-8484-4484-8484-848484848484","label":"Vers"#,
+    r#"e","lyrics":"Words"}],"sequence":[]}"#,
+);
+
+/// SHA-256 of exactly [`FORMAT_2_NOTES_CONTENT`], computed outside the test.
+const FORMAT_2_NOTES_SHA256: &str =
+    "92eef0af8f6fdc72aa5291a174d813ad8d718eaaa8fac924d9eada574ceedf51";
+
+/// A format-2 head revision of the Approved Arrangement in [`v6_parish`].
+const V6_APPROVED_HEAD_CONTENT: &str = concat!(
+    r#"{"format":2,"entity":"arrangement","title":"Arrangement approved","lan"#,
+    r#"guages":["Cebuano"],"choirs":[],"rendition_attribution":null,"occasion"#,
+    r#"s":[],"sections":[{"id":"31313131-3131-4131-b131-313131313131","label""#,
+    r#":"Verse","lyrics":"Lyrics"},{"id":"32323232-3232-4232-b232-32323232323"#,
+    r#"2","label":"Verse","lyrics":"Lyrics"}],"sequence":[]}"#,
+);
+
+/// SHA-256 of exactly [`V6_APPROVED_HEAD_CONTENT`], computed outside the test.
+const V6_APPROVED_HEAD_SHA256: &str =
+    "fe177a0a5a07348cbc70676f883cfc7cfff6e156f05710bf7efc1ac6e9f37bdc";
+
 fn spawn_bounded<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> mpsc::Receiver<T> {
@@ -448,6 +474,8 @@ fn format_2_and_1_revisions_still_verify_and_decode_as_draft() {
     let occurrence = OccurrenceId::from_entity(entity_id(0x75));
     let first = RevisionId::from_entity(entity_id(0x76));
     let second = RevisionId::from_entity(entity_id(0x77));
+    let noted_arrangement = ArrangementId::from_entity(entity_id(0x82));
+    let noted_revision = RevisionId::from_entity(entity_id(0x86));
     {
         let conn = raw(&dir);
         conn.execute(
@@ -533,6 +561,31 @@ fn format_2_and_1_revisions_still_verify_and_decode_as_draft() {
             ],
         )
         .expect("format-2 revision");
+        conn.execute(
+            "INSERT INTO arrangement (id, song_id, created_at) VALUES (?1, ?2, ?3)",
+            params![noted_arrangement.to_string(), song.to_string(), STAMP],
+        )
+        .expect("notes-only arrangement");
+        conn.execute(
+            "INSERT INTO arrangement_language (arrangement_id, position, language) \
+             VALUES (?1, 0, 'Cebuano')",
+            params![noted_arrangement.to_string()],
+        )
+        .expect("notes-only language");
+        conn.execute(
+            "INSERT INTO edit_revision \
+             (id, song_id, arrangement_id, parent_id, kind, session_id, restored_from_id, \
+             content, content_sha256, created_at) \
+             VALUES (?1, NULL, ?2, NULL, 'creation', NULL, NULL, ?3, ?4, ?5)",
+            params![
+                noted_revision.to_string(),
+                noted_arrangement.to_string(),
+                FORMAT_2_NOTES_CONTENT,
+                FORMAT_2_NOTES_SHA256,
+                STAMP
+            ],
+        )
+        .expect("format-2 revision with notes and no title");
     }
 
     let storage = open(&dir);
@@ -569,6 +622,25 @@ fn format_2_and_1_revisions_still_verify_and_decode_as_draft() {
             "a legacy revision verifies against its stored text and decodes as Draft"
         );
     }
+    assert_eq!(
+        bounded(storage.revision_content(noted_revision)),
+        Ok(RevisionContent::Arrangement(ArrangementContent {
+            title: None,
+            languages: vec!["Cebuano".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: Some("Rights: parish".to_owned()),
+            sections: vec![storage::SectionContent {
+                id: SectionId::from_entity(entity_id(0x84)),
+                label: Some("Verse".to_owned()),
+                lyrics: "Words".to_owned(),
+                pagination: PaginationState::Draft,
+            }],
+            sequence: Vec::new(),
+        })),
+        "a format-2 payload with notes and without a title verifies and decodes as Draft"
+    );
     shutdown(storage);
 
     let conn = raw(&dir);
@@ -581,6 +653,95 @@ fn format_2_and_1_revisions_still_verify_and_decode_as_draft() {
         .collect();
     assert!(stored.contains(&FORMAT_1_CONTENT.to_owned()));
     assert!(stored.contains(&FORMAT_2_CONTENT.to_owned()));
+    assert!(stored.contains(&FORMAT_2_NOTES_CONTENT.to_owned()));
+}
+
+#[test]
+fn migration_0007_keeps_history_readable_and_the_next_commit_carries_the_states() {
+    let dir = TempDir::new("history");
+    let parish = v6_parish(&dir);
+    let (approved, _, _) = parish
+        .iter()
+        .find(|(_, _, state)| *state == PaginationState::Approved)
+        .expect("the Approved Arrangement");
+    let approved = *approved;
+    let head = RevisionId::from_entity(entity_id(0x90));
+    raw(&dir)
+        .execute(
+            "INSERT INTO edit_revision \
+             (id, song_id, arrangement_id, parent_id, kind, session_id, restored_from_id, \
+             content, content_sha256, created_at) \
+             VALUES (?1, NULL, ?2, NULL, 'creation', NULL, NULL, ?3, ?4, ?5)",
+            params![
+                head.to_string(),
+                approved.to_string(),
+                V6_APPROVED_HEAD_CONTENT,
+                V6_APPROVED_HEAD_SHA256,
+                STAMP
+            ],
+        )
+        .expect("format-2 head revision");
+
+    let storage = open(&dir);
+    let entity = RevisionEntity::Arrangement(approved);
+    let chain = bounded(storage.revisions(entity)).expect("chain");
+    assert_eq!(chain.iter().map(|r| r.id).collect::<Vec<_>>(), vec![head]);
+    let Ok(RevisionContent::Arrangement(legacy)) = bounded(storage.revision_content(head)) else {
+        panic!("the format-2 head must verify and decode");
+    };
+    assert_eq!(
+        legacy
+            .sections
+            .iter()
+            .map(|s| s.pagination)
+            .collect::<Vec<_>>(),
+        vec![PaginationState::Draft; 2],
+        "a legacy revision decodes every section as Draft"
+    );
+    let record = bounded(storage.arrangement(approved)).expect("arrangement");
+    assert_eq!(states(&record), vec![PaginationState::Approved; 2]);
+
+    let (committed, revision) = bounded(storage.commit_arrangement_metadata(
+        approved,
+        ArrangementMetadata {
+            title: record.title.clone(),
+            languages: record.languages.clone(),
+            choirs: record.choirs.clone(),
+            rendition_attribution: record.rendition_attribution.clone(),
+            occasions: record.occasions.clone(),
+            notes: Some("Rights: parish".to_owned()),
+        },
+        session(0x91),
+    ))
+    .expect("metadata commit");
+    assert_eq!(
+        states(&committed),
+        vec![PaginationState::Approved; 2],
+        "the record still says Approved"
+    );
+    let Ok(RevisionContent::Arrangement(current)) = bounded(storage.revision_content(revision.id))
+    else {
+        panic!("the new head must verify and decode");
+    };
+    assert_eq!(
+        current
+            .sections
+            .iter()
+            .map(|s| s.pagination)
+            .collect::<Vec<_>>(),
+        vec![PaginationState::Approved; 2],
+        "the next revision carries the migrated states"
+    );
+    shutdown(storage);
+
+    let text: String = raw(&dir)
+        .query_row(
+            "SELECT content FROM edit_revision WHERE id = ?1",
+            params![revision.id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("new revision text");
+    assert!(text.starts_with(r#"{"format":3,"#));
 }
 
 #[test]

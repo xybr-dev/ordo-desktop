@@ -438,7 +438,7 @@ fn ac5_restoring_the_previous_content_returns_the_occurrence_to_its_position() {
     );
     assert_eq!(restored, before);
     assert_eq!(
-        selection_after_replace(&removed, &restored, Some(occurrence_id(201))),
+        selection_after_replace(&removed, &restored, Some(occurrence_id(202))),
         Some(occurrence_id(201)),
         "Undo selects the occurrence it restored"
     );
@@ -535,8 +535,21 @@ fn selection_after_undo_selects_the_restored_occurrence() {
     );
     let before = lyrics_of(&library, id);
     let mut after = before.clone();
-    after.remove_occurrence(occurrence_id(201)).expect("remove");
+    let next = after
+        .remove_occurrence(occurrence_id(201))
+        .expect("remove")
+        .expect("a next occurrence");
+    assert_eq!(
+        next,
+        occurrence_id(202),
+        "Delete selects the next occurrence"
+    );
 
+    assert_eq!(
+        selection_after_replace(&after, &before, Some(next)),
+        Some(occurrence_id(201)),
+        "Undo of the removal selects the occurrence it brings back"
+    );
     assert_eq!(
         selection_after_replace(&before, &after, Some(occurrence_id(201))),
         Some(occurrence_id(202)),
@@ -572,6 +585,23 @@ fn selection_after_undo_selects_the_restored_occurrence() {
     assert_eq!(
         selection_after_replace(&before, &all_removed, Some(occurrence_id(201))),
         None
+    );
+}
+
+#[test]
+fn selection_after_undo_of_removing_the_last_occurrence_selects_it() {
+    let (library, id) = library_with(
+        vec![section(100, "Verse 1", "words")],
+        vec![use_of(200, 100)],
+    );
+    let before = lyrics_of(&library, id);
+    let mut emptied = before.clone();
+    assert_eq!(emptied.remove_occurrence(occurrence_id(200)), Ok(None));
+
+    assert_eq!(
+        selection_after_replace(&emptied, &before, None),
+        Some(occurrence_id(200)),
+        "with nothing selected, the occurrence that reappears is selected"
     );
 }
 
@@ -653,6 +683,38 @@ fn ac7_a_repeated_blank_section_is_one_finding_with_its_occurrence_count() {
             occurrences: 2,
         }],
         "a repeated section is reported once with every occurrence counted"
+    );
+}
+
+#[test]
+fn ac7_findings_across_sections_follow_first_occurrence_order() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+            section(102, "Bridge", ""),
+        ],
+        vec![use_of(200, 100), use_of(201, 101), use_of(202, 102)],
+    );
+    approve(&mut library, id, 101);
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::Incomplete);
+    assert_eq!(
+        judged.findings,
+        vec![
+            Finding {
+                kind: FindingKind::NotApproved(PaginationState::Draft),
+                section: Some(section_id(100)),
+                occurrences: 1,
+            },
+            Finding {
+                kind: FindingKind::NoLyrics,
+                section: Some(section_id(102)),
+                occurrences: 1,
+            },
+        ],
+        "a not-approved section at 01 is listed before a blank one at 03"
     );
 }
 
@@ -763,6 +825,101 @@ fn editing_one_section_marks_only_that_section_for_review() {
             section: Some(section_id(101)),
             occurrences: 1,
         }]
+    );
+}
+
+#[test]
+fn approve_then_reviewed_against_keeps_the_approval() {
+    let (library, id) = library_with(
+        vec![section(100, "Verse 1", "first words")],
+        vec![use_of(200, 100)],
+    );
+    let before = lyrics_of(&library, id);
+    let mut approved = before.clone();
+    assert_eq!(approved.approve_section(section_id(100)), Ok(true));
+
+    let reviewed = approved.reviewed_against(&before);
+    assert_eq!(
+        section_states(&reviewed),
+        vec![PaginationState::Approved],
+        "the editor's edit helper must not undo an Approve"
+    );
+}
+
+#[test]
+fn create_and_whole_content_edit_ignore_a_supplied_approval() {
+    let smuggled = |sections: Vec<SectionDraft>| ArrangementDraft {
+        languages: vec!["English".to_owned()],
+        sections,
+        sequence: vec![use_of(200, 100)],
+        ..ArrangementDraft::default()
+    };
+    let mut library = SongLibrary::new();
+    library
+        .create_song(song_id(1), at(0), SongDraft::titled("Kyrie"))
+        .expect("song");
+    library
+        .create_arrangement(
+            arrangement_id(1),
+            song_id(1),
+            at(10),
+            smuggled(vec![
+                section(100, "Verse 1", "first words").with_pagination(PaginationState::Approved),
+            ]),
+            Vec::new(),
+        )
+        .expect("arrangement");
+    assert_eq!(
+        section_states(&lyrics_of(&library, arrangement_id(1))),
+        vec![PaginationState::Draft],
+        "creation ignores a supplied approval"
+    );
+
+    library
+        .edit_arrangement(
+            arrangement_id(1),
+            smuggled(vec![
+                section(100, "Verse 1", "first words").with_pagination(PaginationState::Approved),
+                section(101, "Chorus", "chorus words").with_pagination(PaginationState::Approved),
+            ]),
+        )
+        .expect("edit");
+    assert_eq!(
+        section_states(&lyrics_of(&library, arrangement_id(1))),
+        vec![PaginationState::Draft, PaginationState::Draft],
+        "a stored Draft section and a new section both stay Draft"
+    );
+}
+
+#[test]
+fn move_occurrence_to_covers_one_occurrence_and_middle_targets() {
+    let (library, id) = library_with(
+        vec![section(100, "Verse 1", "first words")],
+        vec![use_of(200, 100)],
+    );
+    let mut single = lyrics_of(&library, id);
+    assert_eq!(single.move_occurrence_to(occurrence_id(200), 0), Ok(false));
+    assert_eq!(single.move_occurrence_to(occurrence_id(200), 5), Ok(false));
+    assert_eq!(
+        single.move_occurrence(occurrence_id(200), Step::Up),
+        Ok(false)
+    );
+    assert_eq!(
+        single.move_occurrence(occurrence_id(200), Step::Down),
+        Ok(false)
+    );
+
+    let (library, id) = library_with(
+        vec![section(100, "Verse 1", "first words")],
+        vec![use_of(200, 100), use_of(201, 100), use_of(202, 100)],
+    );
+    let mut three = lyrics_of(&library, id);
+    assert_eq!(three.move_occurrence_to(occurrence_id(200), 1), Ok(true));
+    let order: Vec<_> = three.sequence.iter().map(|o| o.id).collect();
+    assert_eq!(
+        order,
+        vec![occurrence_id(201), occurrence_id(200), occurrence_id(202)],
+        "the index counts the list without the moved occurrence"
     );
 }
 

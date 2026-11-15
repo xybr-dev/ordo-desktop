@@ -1330,7 +1330,15 @@ fn ac9_undo_through_the_port_restores_approval_and_occurrences(cx: &mut TestAppC
 fn lyrics_and_details_writes_in_either_order_keep_section_states(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let (dir, slot, store, _song, id) = seeded(cx, "store-lyrics-interleaved");
+    // Mixed states, so a write that reset them to one value would be seen.
+    let mut mixed = arrangement_of(cx, &store, id).lyrics();
+    mixed.sections[1].pagination = PaginationState::NeedsReview;
+    assert_eq!(save_lyrics(cx, &store, id, mixed, session(0x30)), Ok(id));
     let before = arrangement_of(cx, &store, id);
+    assert_eq!(
+        pagination_states(&before),
+        vec![PaginationState::Approved, PaginationState::NeedsReview]
+    );
     let start = history(cx, &slot, id).len();
 
     // Lyrics first, then details.
