@@ -419,6 +419,22 @@ impl SelectionState {
     pub fn selected(&self, cx: &App) -> Option<usize> {
         self.0.read(cx).current(cx)
     }
+    /// Selects choice `index` from code, as choosing it would, without
+    /// calling the `on_select` callback: the caller already knows. A
+    /// disabled or out-of-range index changes nothing.
+    pub fn select(&self, index: usize, cx: &mut App) {
+        self.0.update(cx, |state, cx| {
+            if state
+                .choices
+                .get(index)
+                .is_some_and(|choice| !choice.availability.is_disabled())
+            {
+                state.selected = Some(index);
+                state.active = Some(index);
+                cx.notify();
+            }
+        });
+    }
     pub fn is_open(&self, cx: &App) -> bool {
         self.0.read(cx).open
     }

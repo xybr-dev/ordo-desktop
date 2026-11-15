@@ -32,6 +32,7 @@ use super::{
     editor::ArrangementEditor,
     navigator::{inspector_button, thumbnails},
     panes::{column, head, section_name},
+    review::{add_to_sequence_button, needs_notice, review_notice},
     section_actions::{REMOVE_SECTION, rename_control},
     sections::GENERIC_REFUSAL,
 };
@@ -374,7 +375,14 @@ pub(super) fn main_pane(
     let generated = slides(&text);
     let slide = editor.lyrics.slide.min(generated.len().saturating_sub(1));
     let selected_id = content.sections.get(at).map(|section| section.id);
-    let sung = match selected_id.map_or(0, |id| content.occurrences_of(id)) {
+    let sung_times = selected_id.map_or(0, |id| content.occurrences_of(id));
+    let notice = selected_id
+        .filter(|id| !read_only && needs_notice(content, *id, !generated.is_empty()))
+        .map(|id| {
+            let state = content.sections[at].pagination;
+            review_notice(weak, id, state, environment)
+        });
+    let sung = match sung_times {
         0 => "Not in the Sequence yet".to_owned(),
         1 => "Sung 1 time in the Sequence".to_owned(),
         times => format!("Sung {times} times in the Sequence"),
@@ -441,6 +449,20 @@ pub(super) fn main_pane(
                         .debug_selector(|| "arrangement-section-sung".into())
                         .child(sung),
                 )
+                .when(
+                    !read_only && selected_id.is_some() && sung_times == 0,
+                    |row| {
+                        row.children(selected_id.map(|id| {
+                            add_to_sequence_button(
+                                weak,
+                                id,
+                                &section_name(&content.sections, at),
+                                palette.background,
+                                environment,
+                            )
+                        }))
+                    },
+                )
                 .when(!read_only, |row| {
                     row.child(
                         Button::new("arrangement-remove-section", REMOVE_SECTION, environment)
@@ -456,6 +478,7 @@ pub(super) fn main_pane(
                     row.child(inspector_button(weak, environment))
                 }),
         )
+        .children(notice)
         .child(
             div()
                 .debug_selector(move || format!("arrangement-lyrics-{at}"))

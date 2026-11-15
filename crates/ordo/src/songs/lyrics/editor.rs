@@ -190,6 +190,12 @@ impl ArrangementEditor {
         }
     }
 
+    /// Switches to the Sequence tab, as choosing it would.
+    pub(crate) fn show_sequence_tab(&mut self, cx: &mut Context<Self>) {
+        self.tabs.select(1, cx);
+        cx.notify();
+    }
+
     /// The task tabs element; the caller supplies the surface it sits on and
     /// the redraw seam for what the tab shows.
     pub fn tabs(
