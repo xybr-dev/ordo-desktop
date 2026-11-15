@@ -17,7 +17,7 @@ use gpui::{
 };
 use ui::{
     environment::UiEnvironment,
-    overlay::{Overlay, Toast},
+    overlay::Overlay,
     primitives::{
         Availability,
         button::Button,
@@ -26,8 +26,11 @@ use ui::{
     tokens,
 };
 
+use crate::edit_session::SaveState;
+
 use super::{
     editor::ArrangementEditor,
+    editor_pane::RETRY_TO_KEEP_EDITING,
     sections::{GENERIC_REFUSAL, refusal_copy},
     view::{AddSection, Anchor},
 };
@@ -83,6 +86,9 @@ impl ArrangementEditor {
         let Some(session) = self.session().cloned() else {
             return Err(GENERIC_REFUSAL.to_owned());
         };
+        if self.save_state(cx) == Some(SaveState::CouldntSave) {
+            return Err(RETRY_TO_KEEP_EDITING.to_owned());
+        }
         let name = name.trim().to_owned();
         let id = fresh_section();
         let probe = session.read(cx).content().clone();
@@ -103,20 +109,13 @@ impl ArrangementEditor {
             )
         });
         if !applied {
-            return Err(GENERIC_REFUSAL.to_owned());
+            return Err(self.refusal(cx).to_owned());
         }
+        self.dismiss_last_toast(cx);
         self.lyrics.add = None;
         self.lyrics.selected = Some(id);
         self.lyrics.focus_area = true;
-        if let Some(overlays) = self.lyrics.overlays.clone() {
-            let editor = cx.weak_entity();
-            overlays.notify(
-                Toast::confirmation(format!("Added section {name}.")).undo("Undo", move |_, cx| {
-                    let _ = editor.update(cx, |editor, cx| editor.undo(cx));
-                }),
-                cx,
-            );
-        }
+        self.notify_undoable(format!("Added section {name}."), cx);
         cx.notify();
         Ok(())
     }
@@ -192,6 +191,13 @@ fn availability(
     cx: &App,
 ) -> Availability {
     let name = field.value(cx);
+    if editor
+        .upgrade()
+        .is_some_and(|editor| editor.read(cx).save_state(cx) == Some(SaveState::CouldntSave))
+    {
+        // The popover stays open and says why; Retry save is in the header.
+        return Availability::unavailable(RETRY_TO_KEEP_EDITING);
+    }
     let content = editor
         .upgrade()
         .and_then(|editor| editor.read(cx).content(cx));
@@ -239,7 +245,11 @@ fn body(
     let content = editor
         .upgrade()
         .and_then(|editor| editor.read(cx).content(cx));
+    let failed = editor
+        .upgrade()
+        .is_some_and(|editor| editor.read(cx).save_state(cx) == Some(SaveState::CouldntSave));
     let error = match content.and_then(|content| problem(&content, &typed)) {
+        _ if failed => Some(RETRY_TO_KEEP_EDITING.to_owned()),
         Some(Problem::Taken(copy)) => Some(copy),
         _ => None,
     };

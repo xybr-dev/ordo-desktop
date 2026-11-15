@@ -306,7 +306,7 @@ fn main() -> Result<(), Failure> {
         let result = runtime.operator().update(cx, |shell, window, cx| {
             let store = cx.new(|cx| LibraryStore::open(dir.clone(), slot.clone(), cx));
             shell.set_library_store(store, window, cx);
-            shell.open(ordo::shell::rail::Destination::Library, cx);
+            shell.open(ordo::shell::rail::Destination::Library, window, cx);
         });
         if let Err(error) = result {
             eprintln!("the operator window closed before the lab could attach: {error}");

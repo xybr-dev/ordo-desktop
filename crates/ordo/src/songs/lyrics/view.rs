@@ -65,6 +65,9 @@ pub(super) struct LyricsView {
     pub rename: Option<super::section_actions::Rename>,
     /// A section whose row takes focus after a move.
     pub focus_row: Option<SectionId>,
+    /// The message of the last toast this visit posted, so the next edit can
+    /// take it back (its Undo would undo the newer edit instead).
+    pub last_toast: Option<gpui::SharedString>,
 }
 
 impl LyricsView {
@@ -90,6 +93,7 @@ impl LyricsView {
             pending: HashMap::new(),
             rename: None,
             focus_row: None,
+            last_toast: None,
         }
     }
 

@@ -14,7 +14,7 @@ use super::{ArrangementEditor, TaskTab};
 use crate::{
     commands::registry::{self, CommandId, Group, Scope},
     edit_session::SaveState,
-    shell::ShellView,
+    shell::{ShellView, rail::Destination},
     songs::{
         LibraryStore,
         arrangement_details::tests::write,
@@ -516,24 +516,6 @@ fn one_edit_session_serves_the_whole_visit_and_a_new_visit_starts_afresh(cx: &mu
         .read_with(vcx, |editor, _| editor.session().map(|s| s.entity_id()))
         .expect("session");
     assert_ne!(first, second, "closing dropped the first session");
-}
-
-#[gpui::test]
-fn the_regions_are_the_workspace_actions_the_list_the_editor_and_the_inspector(
-    cx: &mut TestAppContext,
-) {
-    let (_shell, _editor, _id, vcx) = in_memory(cx, false);
-    // Each pane's content sits in its own region: header and tabs, sections,
-    // lyrics, inspector.
-    for selector in [
-        "editor-tabs-row",
-        "editor-title",
-        "arrangement-sections",
-        "arrangement-overview",
-        "arrangement-inspector",
-    ] {
-        assert!(present(vcx, selector), "{selector}");
-    }
 }
 
 #[gpui::test]
@@ -1135,5 +1117,261 @@ fn undo_after_a_structural_section_edit_restores_the_list_and_selection_stays_va
         sections_of(&editor, vcx) == with_bridge
     });
     assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
+    finish(vcx, &slot, &dir);
+}
+
+fn region_now(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> String {
+    vcx.update(|window, cx| {
+        shell
+            .read(cx)
+            .focused_region(window, cx)
+            .map(|name| name.to_string())
+            .unwrap_or_default()
+    })
+}
+
+#[gpui::test]
+fn f6_cycles_actions_sections_lyrics_inspector_and_wraps(cx: &mut TestAppContext) {
+    let (shell, _editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    let mut visited = Vec::new();
+    for _ in 0..4 {
+        vcx.simulate_keystrokes("f6");
+        settle(vcx);
+        visited.push(region_now(&shell, vcx));
+    }
+    let order = [
+        "Workspace actions",
+        "Primary list",
+        "Main editor",
+        "Inspector",
+    ];
+    let start = order
+        .iter()
+        .position(|n| *n == visited[0])
+        .expect("a known region");
+    let expected: Vec<_> = (0..4).map(|k| order[(start + k) % 4]).collect();
+    assert_eq!(visited, expected, "reading order, all four");
+    vcx.simulate_keystrokes("f6");
+    settle(vcx);
+    assert_eq!(region_now(&shell, vcx), visited[0], "it wraps");
+    vcx.simulate_keystrokes("shift-f6");
+    settle(vcx);
+    assert_eq!(region_now(&shell, vcx), visited[3], "and goes back");
+
+    // Compact: the Inspector is a button, not a pane, so the cycle has three.
+    vcx.simulate_resize(gpui::size(gpui::px(900.0), gpui::px(900.0)));
+    vcx.run_until_parked();
+    settle(vcx);
+    let mut visited = Vec::new();
+    for _ in 0..4 {
+        vcx.simulate_keystrokes("f6");
+        settle(vcx);
+        visited.push(region_now(&shell, vcx));
+    }
+    assert!(
+        !visited.iter().any(|n| n == "Inspector"),
+        "no Inspector pane"
+    );
+    assert_eq!(visited[3], visited[0], "three regions, then it wraps");
+}
+
+#[gpui::test]
+fn rail_navigation_flushes_pending_lyrics_then_leaves(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_editor(cx, "t27-rail-flush");
+    let editor = open_editor(&shell, id, vcx);
+    type_lyrics(&editor, "Words changed", vcx);
+    assert_eq!(save_state(&editor, vcx), Some(SaveState::Saving));
+    shell.update_in(vcx, |shell, window, cx| {
+        shell.open(Destination::Masses, window, cx);
+    });
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.destination() == Destination::Masses)
+    });
+    settle(vcx);
+    assert_eq!(stored_lyrics(&store, id, vcx), "Words changed");
+    assert_eq!(dialog(&shell, vcx), None, "a successful flush asks nothing");
+    assert!(shell.read_with(vcx, |shell, _| shell.arrangement_editor().is_none()));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_failed_flush_blocks_rail_navigation(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    type_lyrics(&editor, "Unsaved words", vcx);
+    shell.update_in(vcx, |shell, window, cx| {
+        shell.open(Destination::Masses, window, cx);
+    });
+    wait_for_dialog(&shell, vcx);
+    assert_eq!(
+        shell.read_with(vcx, |shell, _| shell.destination()),
+        Destination::Library,
+        "the destination did not change"
+    );
+    assert!(shell.read_with(vcx, |shell, _| shell.arrangement_editor().is_some()));
+    click(vcx, "button-Leave without saving");
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.destination() == Destination::Masses)
+    });
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx), None);
+    assert!(shell.read_with(vcx, |shell, _| shell.arrangement_editor().is_none()));
+}
+
+/// Fails the save, so the session is in `CouldntSave`.
+fn fail_the_save(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
+    type_lyrics(editor, "Unsaved words", vcx);
+    editor.update(vcx, |editor, cx| editor.request_navigation(cx).detach());
+    vcx.run_until_parked();
+    settle(vcx);
+    assert_eq!(save_state(editor, vcx), Some(SaveState::CouldntSave));
+}
+
+#[gpui::test]
+fn after_a_failed_save_structural_edits_say_so_and_the_header_offers_retry_save(
+    cx: &mut TestAppContext,
+) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    assert!(!present(vcx, "button-Retry save"), "nothing failed yet");
+    fail_the_save(&editor, vcx);
+    assert!(
+        present(vcx, "button-Retry save"),
+        "the header offers Retry save"
+    );
+
+    click(vcx, "button-Move down");
+    assert_eq!(
+        sections_of(&editor, vcx),
+        ["Verse 1", "Chorus"],
+        "nothing moved"
+    );
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Couldn't save. Retry to keep editing."]
+    );
+
+    // The Add section popover stays open and says why.
+    click(vcx, "button-Add section");
+    settle(vcx);
+    assert!(editor.read_with(vcx, |editor, _| editor.add_section_open()));
+    assert!(present(vcx, "add-section-error"));
+
+    // Retry save runs the save again (it still fails here, so the button stays).
+    click(vcx, "button-Retry save");
+    vcx.run_until_parked();
+    assert_eq!(save_state(&editor, vcx), Some(SaveState::CouldntSave));
+}
+
+#[gpui::test]
+fn a_rename_blurred_after_a_failed_save_keeps_the_typed_name(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    fail_the_save(&editor, vcx);
+    type_in_rename(&editor, "Verse One", vcx);
+    // Focus leaves the field for the lyric editor.
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    vcx.update(|window, cx| area.focus(window, cx));
+    settle(vcx);
+    let field = editor
+        .read_with(vcx, |editor, _| editor.rename_field())
+        .expect("field");
+    assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Verse One");
+    assert!(present(vcx, "arrangement-rename-error"));
+}
+
+#[gpui::test]
+fn a_rename_typed_just_before_choosing_another_section_is_committed(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_editor(cx, "t27-rename-switch");
+    let editor = open_editor(&shell, id, vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.add_section("Chorus", cx).expect("added");
+    });
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    settle(vcx);
+    click(vcx, "arrangement-section-0");
+    type_in_rename(&editor, "Verse One", vcx);
+    editor.update(vcx, |editor, cx| {
+        let other = editor.content(cx).expect("content").sections[1].id;
+        editor.select_section(other, cx);
+    });
+    vcx.run_until_parked();
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    settle(vcx);
+    let stored = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("stored").lyrics()
+    });
+    let names: Vec<_> = stored.sections.iter().map(|s| s.label.clone()).collect();
+    assert_eq!(names[0].as_deref(), Some("Verse One"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn the_undo_toast_is_taken_back_by_the_next_edit(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-toast-undo");
+    let editor = open_editor(&shell, id, vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.add_section("Bridge", cx).expect("added");
+    });
+    settle(vcx);
+    assert_eq!(toasts(&shell, vcx), ["Added section Bridge."]);
+    // The lyric editor took focus; typing is the next edit.
+    type_into_area(&editor, "x", vcx);
+    settle(vcx);
+    assert!(
+        toasts(&shell, vcx).is_empty(),
+        "its Undo would undo the typing instead"
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ctrl_z_in_a_text_field_is_the_fields_own_and_outside_it_is_the_editors(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-ctrl-z-routing");
+    let editor = open_editor(&shell, id, vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.add_section("Bridge", cx).expect("added");
+    });
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    settle(vcx);
+    let with_bridge = sections_of(&editor, vcx);
+    assert_eq!(with_bridge.last().map(String::as_str), Some("Bridge"));
+    // The lyric editor has focus (Add section gave it): its own Undo wins,
+    // and with nothing typed it does nothing, so the section stays.
+    vcx.simulate_keystrokes("ctrl-z");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), with_bridge);
+    // Outside a text field the editor's Undo takes the section back.
+    click(vcx, "arrangement-section-0");
+    let row = editor.read_with(vcx, |editor, cx| {
+        let first = editor.content(cx).expect("content").sections[0].id;
+        editor.lyrics.rows[&first].clone()
+    });
+    vcx.update(|window, cx| window.focus(&row, cx));
+    vcx.simulate_keystrokes("ctrl-z");
+    wait(vcx, |vcx| {
+        settle(vcx);
+        sections_of(&editor, vcx).len() < with_bridge.len()
+    });
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn entering_presenter_mode_flushes_pending_lyrics(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_editor(cx, "t27-presenter-flush");
+    let editor = open_editor(&shell, id, vcx);
+    type_lyrics(&editor, "Typed before going live", vcx);
+    vcx.dispatch_action(crate::shell::EnterPresenter);
+    wait(vcx, |vcx| {
+        stored_lyrics(&store, id, vcx) == "Typed before going live"
+    });
     finish(vcx, &slot, &dir);
 }

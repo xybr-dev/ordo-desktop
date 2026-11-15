@@ -586,15 +586,34 @@ impl ShellView {
     /// through here: pending text is flushed through the edit session first.
     /// A successful flush leaves the session and continues; a failed one opens
     /// the save dialog and continues only if the operator chooses to leave
-    /// without saving. Presenter Mode has no editor mounted, so it never waits.
+    /// without saving. In Presenter Mode the flush still runs but no dialog is
+    /// opened: the continuation runs whatever the outcome.
     fn guarded(&mut self, then: Continuation, window: &mut Window, cx: &mut Context<Self>) {
         let editor = match self.arrangement_editor.clone() {
-            Some(editor) if !self.mode.is_presenter() && self.presenter.is_none() => editor,
-            _ => {
+            Some(editor) => editor,
+            None => {
                 then(self, window, cx);
                 return;
             }
         };
+        if self.mode.is_presenter() || self.presenter.is_some() {
+            // Live-output safety comes first: no dialog over the Presenter.
+            // The flush still runs, so pending text is durable before the
+            // continuation; a blocked flush is logged and the operator's
+            // choice (quit, leave) stands.
+            let flush = editor.update(cx, |editor, cx| editor.request_navigation(cx));
+            self.navigation = Some(cx.spawn_in(window, async move |shell, cx| {
+                let guard = flush.await;
+                let _ = shell.update_in(cx, |shell, window, cx| {
+                    shell.navigation = None;
+                    if guard == NavigationGuard::Blocked {
+                        eprintln!("ordo: lyrics could not be saved before leaving Presenter Mode");
+                    }
+                    then(shell, window, cx);
+                });
+            }));
+            return;
+        }
         let flush = editor.update(cx, |editor, cx| editor.request_navigation(cx));
         self.navigation = Some(cx.spawn_in(window, async move |shell, cx| {
             let guard = flush.await;
@@ -746,6 +765,12 @@ impl ShellView {
         })
     }
 
+    /// The name of the F6 region that holds focus, for tests.
+    #[cfg(test)]
+    pub(crate) fn focused_region(&self, window: &Window, cx: &App) -> Option<SharedString> {
+        self.registry.focused_region(window, cx)
+    }
+
     pub fn environment(&self) -> UiEnvironment {
         self.environment
     }
@@ -758,7 +783,26 @@ impl ShellView {
         }
     }
 
-    pub fn open(&mut self, destination: Destination, cx: &mut Context<Self>) {
+    /// Changes destination. An open Arrangement editor is flushed first: a
+    /// failed flush opens the save dialog and the destination changes only if
+    /// the operator leaves without saving.
+    pub fn open(&mut self, destination: Destination, window: &mut Window, cx: &mut Context<Self>) {
+        if self.destination == destination {
+            return;
+        }
+        if self.arrangement_editor.is_some() {
+            self.guarded(
+                Rc::new(move |shell, _, cx| shell.open_now(destination, cx)),
+                window,
+                cx,
+            );
+        } else {
+            self.open_now(destination, cx);
+        }
+    }
+
+    /// The destination change itself, once nothing unsaved stands in the way.
+    fn open_now(&mut self, destination: Destination, cx: &mut Context<Self>) {
         if self.destination == destination {
             return;
         }
@@ -898,8 +942,8 @@ impl ShellView {
     /// The action seam for opening the Song Library, which a later menu and the
     /// acceptance path both use. It opens Library on the local view the
     /// operator left it on — Songs, until they change it.
-    fn open_songs(&mut self, _: &OpenSongs, _: &mut Window, cx: &mut Context<Self>) {
-        self.open(Destination::Library, cx);
+    fn open_songs(&mut self, _: &OpenSongs, window: &mut Window, cx: &mut Context<Self>) {
+        self.open(Destination::Library, window, cx);
     }
 }
 
@@ -1089,8 +1133,10 @@ impl ShellView {
         .tone(Tone::Warning)
         .tooltip("Open Transfer & Backup")
         .on_surface(palette.surface)
-        .on_activate(move |_, cx| {
-            let _ = view.update(cx, |view, cx| view.open(Destination::TransferAndBackup, cx));
+        .on_activate(move |window, cx| {
+            let _ = view.update(cx, |view, cx| {
+                view.open(Destination::TransferAndBackup, window, cx)
+            });
         });
         let primary = if self.local_view(cx) == Some("Templates") {
             Button::new("new-template", "New template", environment).on_activate(slideover(
@@ -1295,8 +1341,8 @@ impl ShellView {
             environment,
             move |destination| {
                 let view = view.clone();
-                Box::new(move |_, cx| {
-                    let _ = view.update(cx, |view, cx| view.open(destination, cx));
+                Box::new(move |window, cx| {
+                    let _ = view.update(cx, |view, cx| view.open(destination, window, cx));
                 })
             },
             window,
@@ -1565,6 +1611,16 @@ impl ShellView {
                 }))
                 .child(state.label())
         });
+        // After a failed save every structural control refuses; this is the
+        // way back besides leaving.
+        let retry = (save_state == Some(SaveState::CouldntSave))
+            .then(|| editor.clone())
+            .flatten()
+            .map(|editor| {
+                Button::new("editor-retry-save", "Retry save", environment)
+                    .on_surface(palette.background)
+                    .on_activate(move |_, cx| editor.update(cx, |editor, cx| editor.retry_save(cx)))
+            });
         let tabs = editor.as_ref().map(|editor| {
             let shell = cx.entity().downgrade();
             div()
@@ -1639,6 +1695,7 @@ impl ShellView {
                             .items_center()
                             .gap(px(scale.apply(tokens::spacing::GROUP)))
                             .children(save_label)
+                            .children(retry)
                             .children(details),
                     ),
             )
@@ -1683,18 +1740,6 @@ impl ShellView {
                 .border_color(rgb(palette.border))
                 .child(pane)
         });
-        let inspector = inspector.map(|pane| {
-            self.registry
-                .region(INSPECTOR, window, cx)
-                .flex_none()
-                .w(side_width)
-                .h_full()
-                .overflow_hidden()
-                .p(px(gutter))
-                .border_l(px(tokens::border::SEPARATOR))
-                .border_color(rgb(palette.border))
-                .child(pane)
-        });
         let scroll = self.editor_scroll.clone();
         let body = self
             .registry
@@ -1712,6 +1757,20 @@ impl ShellView {
                     .child(main),
             )
             .children(scroll.indicator("editor-body", 0.0, window, cx, environment));
+        // Regions join the F6 cycle in call order: the Inspector is built after
+        // the Main editor so it is visited last.
+        let inspector = inspector.map(|pane| {
+            self.registry
+                .region(INSPECTOR, window, cx)
+                .flex_none()
+                .w(side_width)
+                .h_full()
+                .overflow_hidden()
+                .p(px(gutter))
+                .border_l(px(tokens::border::SEPARATOR))
+                .border_color(rgb(palette.border))
+                .child(pane)
+        });
         let panes = div()
             .flex_1()
             .min_h_0()

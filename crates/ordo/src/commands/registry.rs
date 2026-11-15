@@ -383,8 +383,18 @@ pub static ENTRIES: &[Entry] = &[
         "Ctrl+0",
         "Reset Interface scale",
     ),
-    editing(CommandId::Undo, &["ctrl-z"], "Ctrl+Z", "Undo"),
-    editing(CommandId::Redo, &["ctrl-y"], "Ctrl+Y", "Redo"),
+    editing(
+        CommandId::Undo,
+        &["ctrl-z"],
+        "Ctrl+Z",
+        "Undo (outside text fields)",
+    ),
+    editing(
+        CommandId::Redo,
+        &["ctrl-y"],
+        "Ctrl+Y",
+        "Redo (outside text fields)",
+    ),
     editing(CommandId::MoveUp, &["alt-up"], "Alt+Up", "Move section up"),
     editing(
         CommandId::MoveDown,

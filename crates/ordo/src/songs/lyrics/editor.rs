@@ -235,7 +235,8 @@ impl ArrangementEditor {
     }
 
     /// Editor Undo (the registry's `Ctrl+Z`).
-    pub fn undo(&self, cx: &mut App) {
+    pub fn undo(&mut self, cx: &mut App) {
+        self.dismiss_last_toast_app(cx);
         if let Some(session) = &self.session {
             session.update(cx, |session, cx| {
                 session.undo(cx);
@@ -244,7 +245,8 @@ impl ArrangementEditor {
     }
 
     /// Editor Redo (the registry's `Ctrl+Y`).
-    pub fn redo(&self, cx: &mut App) {
+    pub fn redo(&mut self, cx: &mut App) {
+        self.dismiss_last_toast_app(cx);
         if let Some(session) = &self.session {
             session.update(cx, |session, cx| {
                 session.redo(cx);

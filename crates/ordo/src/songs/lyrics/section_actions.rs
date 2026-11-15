@@ -23,6 +23,7 @@ use ui::{
 
 use super::{
     editor::ArrangementEditor,
+    editor_pane::RETRY_TO_KEEP_EDITING,
     panes::section_name,
     sections::{GENERIC_REFUSAL, refusal_copy},
 };
@@ -128,7 +129,8 @@ impl ArrangementEditor {
         };
         let used = content.occurrences_of(id);
         if used == 0 {
-            let _ = self.remove_section(id, cx);
+            let result = self.remove_section(id, cx);
+            self.notify_refusal(result, cx);
             return;
         }
         let Some(overlays) = self.lyrics.overlays.clone() else {
@@ -158,7 +160,10 @@ impl ArrangementEditor {
                     .into_any_element()
             })
             .primary(REMOVE_SECTION, move |_, cx| {
-                let _ = weak.update(cx, |editor, cx| editor.remove_section(id, cx));
+                let _ = weak.update(cx, |editor, cx| {
+                    let result = editor.remove_section(id, cx);
+                    editor.notify_refusal(result, cx);
+                });
             })
             .secondary("Cancel", |_, _| {});
         overlays.open(overlay, window, cx);
@@ -187,12 +192,18 @@ impl ArrangementEditor {
                     rename.error = None;
                 }
             }
-            Err(copy) if blur => {
+            // A refusal that is not about the name (a failed save): keep what was
+            // typed and say why, so the text is not thrown away.
+            Err(copy) if copy == GENERIC_REFUSAL || copy == RETRY_TO_KEEP_EDITING => {
+                if let Some(rename) = self.lyrics.rename.as_mut() {
+                    rename.error = Some(copy);
+                }
+            }
+            Err(_) if blur => {
                 field.set_value(current, window, cx);
                 if let Some(rename) = self.lyrics.rename.as_mut() {
                     rename.error = None;
                 }
-                let _ = copy;
             }
             Err(copy) => {
                 if let Some(rename) = self.lyrics.rename.as_mut() {
@@ -255,7 +266,15 @@ pub(super) fn ensure_rename(
                 rename.field.set_value(stored, window, cx);
             }
         }
-        _ => {
+        previous => {
+            // The operator moved to another section: what they typed in the
+            // old field commits first (focus-out only fires at the next draw).
+            if let Some(old) = previous.map(|rename| (rename.id, rename.field.clone()))
+                && content.sections.iter().any(|section| section.id == old.0)
+                && old.1.value(cx).trim() != named(content, old.0)
+            {
+                editor.commit_rename(true, window, cx);
+            }
             let field = FieldState::new(window, cx);
             field.set_value(stored, window, cx);
             let handle: FocusHandle = field.focus_handle(cx);
@@ -350,7 +369,8 @@ pub(super) fn section_buttons(
             .on_activate(move |_, cx| {
                 let _ = weak.update(cx, |editor, cx| {
                     if let Some(id) = editor.lyrics.selected {
-                        let _ = editor.move_section(id, step, cx);
+                        let result = editor.move_section(id, step, cx);
+                        editor.notify_refusal(result, cx);
                     }
                 });
             })

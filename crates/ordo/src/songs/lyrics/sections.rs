@@ -128,13 +128,15 @@ pub(super) fn sections_pane(
             .on_action(move |_: &MoveUp, _, cx| {
                 let _ = up.update(cx, |editor, cx| {
                     editor.select_section(id, cx);
-                    let _ = editor.move_section(id, domain::song_library::Step::Up, cx);
+                    let result = editor.move_section(id, domain::song_library::Step::Up, cx);
+                    editor.notify_refusal(result, cx);
                 });
             })
             .on_action(move |_: &MoveDown, _, cx| {
                 let _ = down.update(cx, |editor, cx| {
                     editor.select_section(id, cx);
-                    let _ = editor.move_section(id, domain::song_library::Step::Down, cx);
+                    let result = editor.move_section(id, domain::song_library::Step::Down, cx);
+                    editor.notify_refusal(result, cx);
                 });
             })
             .flex()

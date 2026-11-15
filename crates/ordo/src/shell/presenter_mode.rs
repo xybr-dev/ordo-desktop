@@ -130,6 +130,13 @@ impl ShellView {
         {
             return;
         }
+        // Pending lyric text is made durable before going live. Nothing waits
+        // on it: Presenter Mode never opens a dialog over the output.
+        if let Some(editor) = self.arrangement_editor.clone() {
+            editor
+                .update(cx, |editor, cx| editor.request_navigation(cx))
+                .detach();
+        }
         self.presenter_load = Some(cx.spawn_in(window, async move |this, cx| {
             // Finding the fixture touches the filesystem, so it runs with the
             // read, off the GPUI thread.

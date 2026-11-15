@@ -104,7 +104,7 @@ pub(crate) fn open_store(
     let (shell, cx) = cx.add_window_view(|window, cx| {
         let mut shell = ShellView::new(BUILD_IDENTITY, window, cx);
         shell.set_library_store(store, window, cx);
-        shell.open(Destination::Library, cx);
+        shell.open(Destination::Library, window, cx);
         window.activate_window();
         let focus = shell.focus_handle(cx);
         window.focus(&focus, cx);

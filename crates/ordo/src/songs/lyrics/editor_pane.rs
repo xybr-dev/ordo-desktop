@@ -5,6 +5,7 @@
 //! into one History point per pause). Split and Join are structural edits and
 //! reload the field from the session afterwards.
 
+use crate::edit_session::SaveState;
 use domain::{
     identity::SectionId,
     pagination::{slide_at, slides, split_point},
@@ -52,6 +53,10 @@ const JOIN_FIRST: &str = "The first slide has no slide before it.";
 /// Why a split or join has nothing to act on.
 const NO_SLIDE: &str = "Type some words first.";
 
+/// What a structural control says after a failed save: Retry save is in the
+/// header.
+pub const RETRY_TO_KEEP_EDITING: &str = "Couldn't save. Retry to keep editing.";
+
 /// The label of Split for a slide whose middle is after line `line`.
 pub fn split_label(line: usize) -> String {
     format!("Split after line {line}")
@@ -73,8 +78,58 @@ impl ArrangementEditor {
         self.lyrics.slide
     }
 
+    /// Why the session refused a structural edit: after a failed save, to
+    /// retry it; otherwise there was simply nothing to change.
+    pub(super) fn refusal(&self, cx: &App) -> &'static str {
+        match self.save_state(cx) {
+            Some(SaveState::CouldntSave) => RETRY_TO_KEEP_EDITING,
+            _ => GENERIC_REFUSAL,
+        }
+    }
+
+    /// Takes back the last toast this visit posted. A toast's Undo undoes the
+    /// latest point, so it must not outlive the edit that follows it.
+    pub(super) fn dismiss_last_toast(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_last_toast_app(cx);
+    }
+
+    /// [`Self::dismiss_last_toast`] for the Undo and Redo entry points, which
+    /// only hold an `App`.
+    pub(super) fn dismiss_last_toast_app(&mut self, cx: &mut App) {
+        if let (Some(message), Some(overlays)) =
+            (self.lyrics.last_toast.take(), self.lyrics.overlays.clone())
+        {
+            overlays.dismiss_toast(message, cx);
+        }
+    }
+
+    /// Posts a confirmation with an Undo button for the edit just made.
+    pub(super) fn notify_undoable(&mut self, message: String, cx: &mut Context<Self>) {
+        let Some(overlays) = self.lyrics.overlays.clone() else {
+            return;
+        };
+        self.lyrics.last_toast = Some(message.clone().into());
+        let editor = cx.weak_entity();
+        overlays.notify(
+            Toast::confirmation(message).undo("Undo", move |_, cx| {
+                let _ = editor.update(cx, |editor, cx| editor.undo(cx));
+            }),
+            cx,
+        );
+    }
+
+    /// Shows a refused structural edit as a toast, so a keypress or click is
+    /// never lost silently.
+    pub(super) fn notify_refusal<T>(&mut self, result: Result<T, String>, cx: &mut Context<Self>) {
+        if let (Err(copy), Some(overlays)) = (result, self.lyrics.overlays.clone()) {
+            self.lyrics.last_toast = Some(copy.clone().into());
+            overlays.notify(Toast::failure(copy), cx);
+        }
+    }
+
     /// The typed text changed: write it into the shown section.
     fn area_changed(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_last_toast(cx);
         let (Some(area), Some(id), Some(session)) = (
             self.lyrics.area.clone(),
             self.lyrics.shown,
@@ -184,6 +239,7 @@ impl ArrangementEditor {
         let Some(session) = self.session().cloned() else {
             return Err(GENERIC_REFUSAL.to_owned());
         };
+        self.dismiss_last_toast(cx);
         // Typed text joins the session before the structural edit starts
         // from it.
         self.sync_text(cx);
@@ -199,19 +255,11 @@ impl ArrangementEditor {
             )
         });
         if !applied {
-            return Err(GENERIC_REFUSAL.to_owned());
+            return Err(self.refusal(cx).to_owned());
         }
         self.lyrics.reload = true;
         self.lyrics.reload_slide = Some(then_slide);
-        if let Some(overlays) = self.lyrics.overlays.clone() {
-            let editor = cx.weak_entity();
-            overlays.notify(
-                Toast::confirmation(message).undo("Undo", move |_, cx| {
-                    let _ = editor.update(cx, |editor, cx| editor.undo(cx));
-                }),
-                cx,
-            );
-        }
+        self.notify_undoable(message, cx);
         cx.notify();
         Ok(())
     }
@@ -412,7 +460,8 @@ pub(super) fn main_pane(
                         .availability(split)
                         .on_activate(move |_, cx| {
                             let _ = split_editor.update(cx, |editor, cx| {
-                                let _ = editor.split_selected_slide(cx);
+                                let result = editor.split_selected_slide(cx);
+                                editor.notify_refusal(result, cx);
                             });
                         }),
                 )
@@ -422,7 +471,8 @@ pub(super) fn main_pane(
                         .availability(join)
                         .on_activate(move |_, cx| {
                             let _ = join_editor.update(cx, |editor, cx| {
-                                let _ = editor.join_selected_slide(cx);
+                                let result = editor.join_selected_slide(cx);
+                                editor.notify_refusal(result, cx);
                             });
                         }),
                 ),
