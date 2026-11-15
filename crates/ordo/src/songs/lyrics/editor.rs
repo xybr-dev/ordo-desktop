@@ -28,7 +28,10 @@ use super::{
 };
 use crate::{
     edit_session::{EditSession, EditSessionEvent, NavigationGuard, RevisionPort, SaveState},
-    songs::{LibraryStore, sequence::SequenceSelection},
+    songs::{
+        LibraryStore,
+        sequence::{SequenceSelection, SequenceView},
+    },
 };
 
 /// The Arrangement editor's task tabs. Metadata is not a task: it lives in
@@ -37,7 +40,7 @@ use crate::{
 pub enum TaskTab {
     /// Writing the sections (the default).
     Lyrics,
-    /// The performance order, read-only until a later task.
+    /// The performance order.
     Sequence,
 }
 
@@ -70,6 +73,8 @@ pub struct ArrangementEditor {
     pub(crate) expanded: BTreeSet<OccurrenceId>,
     /// Sections whose slides failed to compose, fed from `lyrics.frames`.
     pub(crate) unrenderable: BTreeSet<SectionId>,
+    /// Focus handles and focus requests of the Sequence task.
+    pub(crate) sequence: SequenceView,
     /// The content as of the last session event or render, so a replacement
     /// can say what it replaced.
     replaced_from: Option<ArrangementLyrics>,
@@ -136,6 +141,7 @@ impl ArrangementEditor {
             sequence_selection: None,
             expanded: BTreeSet::new(),
             unrenderable: BTreeSet::new(),
+            sequence: SequenceView::new(cx),
             replaced_from,
             _session_events: events,
         }
@@ -240,6 +246,12 @@ impl ArrangementEditor {
             .frames
             .insert(key, Err(rendering::UnavailableReason::DecodeFailed));
         self.refresh_unrenderable(content);
+    }
+
+    /// Whether the slide with this key has been composed (successfully or not).
+    #[cfg(test)]
+    pub(crate) fn has_frame(&mut self, key: &super::navigator::FrameKey) -> bool {
+        self.lyrics.frames.peek(key).is_some()
     }
 
     /// Re-reads which sections' slides failed to compose from the frames the

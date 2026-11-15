@@ -438,7 +438,6 @@ fn ac1_lyrics_and_sequence_are_the_only_task_tabs(cx: &mut TestAppContext) {
         ][at];
         assert!(present(vcx, selector), "{selector}");
     }
-    assert!(present(vcx, "arrangement-sequence-note"));
     assert!(!present(vcx, "arrangement-sections"));
     click(vcx, "tab-0");
     assert_eq!(

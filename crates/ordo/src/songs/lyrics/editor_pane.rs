@@ -85,7 +85,7 @@ impl ArrangementEditor {
 
     /// Why the session refused a structural edit: after a failed save, to
     /// retry it; otherwise there was simply nothing to change.
-    pub(super) fn refusal(&self, cx: &App) -> &'static str {
+    pub(crate) fn refusal(&self, cx: &App) -> &'static str {
         match self.save_state(cx) {
             Some(SaveState::CouldntSave) => RETRY_TO_KEEP_EDITING,
             _ => GENERIC_REFUSAL,
@@ -94,7 +94,7 @@ impl ArrangementEditor {
 
     /// Takes back the last toast this visit posted. A toast's Undo undoes the
     /// latest point, so it must not outlive the edit that follows it.
-    pub(super) fn dismiss_last_toast(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn dismiss_last_toast(&mut self, cx: &mut Context<Self>) {
         self.dismiss_last_toast_app(cx);
     }
 
@@ -109,7 +109,7 @@ impl ArrangementEditor {
     }
 
     /// Posts a confirmation with an Undo button for the edit just made.
-    pub(super) fn notify_undoable(&mut self, message: String, cx: &mut Context<Self>) {
+    pub(crate) fn notify_undoable(&mut self, message: String, cx: &mut Context<Self>) {
         let Some(overlays) = self.lyrics.overlays.clone() else {
             return;
         };
@@ -125,7 +125,7 @@ impl ArrangementEditor {
 
     /// Shows a refused structural edit as a toast, so a keypress or click is
     /// never lost silently.
-    pub(super) fn notify_refusal<T>(&mut self, result: Result<T, String>, cx: &mut Context<Self>) {
+    pub(crate) fn notify_refusal<T>(&mut self, result: Result<T, String>, cx: &mut Context<Self>) {
         if let (Err(copy), Some(overlays)) = (result, self.lyrics.overlays.clone()) {
             self.lyrics.last_toast = Some(copy.clone().into());
             overlays.notify(Toast::failure(copy), cx);
@@ -270,7 +270,7 @@ impl ArrangementEditor {
     }
 
     /// Writes the editor's text into the session when they differ.
-    fn sync_text(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_text(&mut self, cx: &mut Context<Self>) {
         let (Some(area), Some(id), Some(session)) = (
             self.lyrics.area.clone(),
             self.lyrics.shown,

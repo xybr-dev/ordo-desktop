@@ -103,6 +103,17 @@ pub(super) fn request_frames(
         return;
     };
     let wanted: HashSet<FrameKey> = (0..chosen.count).map(|slide| chosen.key(slide)).collect();
+    compose_frames(editor, wanted, cx);
+}
+
+/// Starts composing the wanted frames that nothing holds yet and drops the
+/// requests nobody waits for any more. Composition runs off the GPUI thread;
+/// both tasks share the one cache.
+pub(crate) fn compose_frames(
+    editor: &mut ArrangementEditor,
+    wanted: HashSet<FrameKey>,
+    cx: &mut Context<ArrangementEditor>,
+) {
     editor.lyrics.pending.retain(|key, _| wanted.contains(key));
     for key in wanted {
         if editor.lyrics.frames.peek(&key).is_some() || editor.lyrics.pending.contains_key(&key) {
@@ -136,7 +147,7 @@ pub(super) fn request_frames(
 
 /// A frame box of `width`: the composed frame when it is ready, else an empty
 /// box of the same size.
-fn picture(
+pub(crate) fn picture(
     editor: &ArrangementEditor,
     key: &FrameKey,
     width: f32,
@@ -326,7 +337,7 @@ pub(super) fn inspector_pane(
 }
 
 /// The button of a narrow window that opens the Inspector as a slideover.
-pub(super) fn inspector_button(
+pub(crate) fn inspector_button(
     weak: &WeakEntity<ArrangementEditor>,
     environment: UiEnvironment,
 ) -> Button {
@@ -356,6 +367,9 @@ fn open_inspector(weak: &WeakEntity<ArrangementEditor>, window: &mut Window, cx:
             };
             let editor = editor.read(cx);
             match editor.content(cx) {
+                Some(content) if editor.tab(cx) == super::editor::TaskTab::Sequence => {
+                    crate::songs::sequence::inspector::body(editor, &content, environment)
+                }
                 Some(content) => inspector_body(editor, &content, environment, cx),
                 None => div().into_any_element(),
             }
