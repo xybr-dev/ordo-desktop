@@ -848,7 +848,11 @@ pub(crate) fn area_value(
 
 /// Gives the lyric editor focus and replaces its text with `text` as typing
 /// would (reports `Changed`).
-fn type_into_area(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
+pub(crate) fn type_into_area(
+    editor: &Entity<ArrangementEditor>,
+    text: &str,
+    vcx: &mut VisualTestContext,
+) {
     let area = editor
         .read_with(vcx, |editor, _| editor.lyric_area())
         .expect("the lyric editor exists");
@@ -1377,7 +1381,7 @@ fn undo_after_a_structural_section_edit_restores_the_list_and_selection_stays_va
     finish(vcx, &slot, &dir);
 }
 
-fn region_now(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> String {
+pub(crate) fn region_now(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> String {
     vcx.update(|window, cx| {
         shell
             .read(cx)
@@ -1476,7 +1480,7 @@ fn a_failed_flush_blocks_rail_navigation(cx: &mut TestAppContext) {
 }
 
 /// Fails the save, so the session is in `CouldntSave`.
-fn fail_the_save(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
+pub(crate) fn fail_the_save(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
     type_lyrics(editor, "Unsaved words", vcx);
     editor.update(vcx, |editor, cx| editor.request_navigation(cx).detach());
     vcx.run_until_parked();
@@ -2089,5 +2093,77 @@ fn approve_pagination_clears_the_notice_and_undo_brings_it_back(cx: &mut TestApp
     );
     assert_eq!(stored_lyrics(&store, id, vcx), "Ave Maria, gratia plena");
     assert!(present(vcx, "arrangement-review-notice"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn approve_writes_one_revision_and_the_notice_words_are_the_plan(cx: &mut TestAppContext) {
+    assert_eq!(super::review::DRAFT_LEAD, "Pagination not approved yet.");
+    assert_eq!(
+        super::review::DRAFT_BODY,
+        "Check each slide in the Inspector, then approve."
+    );
+    assert_eq!(super::review::REVIEW_LEAD, "Pagination needs review.");
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-approve-revision");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    type_into_area(&editor, "Ave Maria, gratia plena", vcx);
+    saved(&editor, vcx);
+    settle(vcx);
+    assert!(present(vcx, "arrangement-review-notice"));
+    let count = |vcx: &mut VisualTestContext| {
+        let future = slot
+            .with(|storage| storage.revisions(domain::revisions::RevisionEntity::Arrangement(id)))
+            .expect("storage is open");
+        vcx.foreground_executor()
+            .block_test(future)
+            .expect("revisions")
+            .len()
+    };
+    let before = count(vcx);
+    click(vcx, "button-Approve pagination");
+    saved(&editor, vcx);
+    assert_eq!(count(vcx), before + 1, "one Approve is one revision");
+    // Focus returns to the lyric area, not to the vanished button.
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    let focused = vcx.update(|window, cx| area.focus_handle(cx).is_focused(window));
+    assert!(focused, "the lyric area has focus after Approve");
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn an_archived_arrangement_shows_no_review_notice(cx: &mut TestAppContext) {
+    let (_shell, _editor, _id, vcx) = in_memory(cx, false);
+    assert!(
+        present(vcx, "arrangement-review-notice"),
+        "editable shows it"
+    );
+    let (_shell, _editor, _id, vcx) = in_memory(cx, true);
+    assert!(
+        !present(vcx, "arrangement-review-notice"),
+        "an archived Arrangement cannot approve"
+    );
+}
+
+#[gpui::test]
+fn add_to_sequence_from_lyrics_lands_focus_on_the_new_row(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-lyrics-add-focus");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    click(vcx, "arrangement-add-to-sequence");
+    settle(vcx);
+    let ids = sequence_ids(&editor, vcx);
+    let new = *ids.last().expect("new occurrence");
+    let handle = editor
+        .read_with(vcx, |editor, _| editor.sequence.rows.get(&new).cloned())
+        .expect("row handle");
+    assert!(vcx.update(|window, _| handle.is_focused(window)));
+    saved(&editor, vcx);
     finish(vcx, &slot, &dir);
 }

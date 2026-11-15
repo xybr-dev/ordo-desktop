@@ -273,11 +273,7 @@ impl State {
     /// since the old handles are dropped.
     fn set_choices(&mut self, choices: Vec<Choice>, window: &mut Window, cx: &mut Context<Self>) {
         let same = self.choices.len() == choices.len()
-            && self
-                .choices
-                .iter()
-                .zip(&choices)
-                .all(|(a, b)| {
+            && self.choices.iter().zip(&choices).all(|(a, b)| {
                 a.label == b.label && a.availability == b.availability && a.marker == b.marker
             });
         if same {

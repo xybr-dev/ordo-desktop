@@ -270,6 +270,33 @@ impl ArrangementEditor {
         self.refresh_unrenderable(content);
     }
 
+    /// Whether a compose of this key failed and has not succeeded since.
+    #[cfg(test)]
+    pub(crate) fn is_failed(&self, key: &super::navigator::FrameKey) -> bool {
+        self.lyrics.failed.contains(key)
+    }
+
+    /// Whether any compose is in flight or has failed.
+    #[cfg(test)]
+    pub(crate) fn composing_or_failed(&self) -> (bool, bool) {
+        (
+            !self.lyrics.pending.is_empty(),
+            !self.lyrics.failed.is_empty(),
+        )
+    }
+
+    /// The composed frame of this key, when it is held and composed.
+    #[cfg(test)]
+    pub(crate) fn frame_of(
+        &mut self,
+        key: &super::navigator::FrameKey,
+    ) -> Option<std::sync::Arc<rendering::Frame>> {
+        match self.lyrics.frames.peek(key) {
+            Some(rendering::FrameEntry::Ready(frame)) => Some(frame.clone()),
+            _ => None,
+        }
+    }
+
     /// Whether the slide with this key has been composed (successfully or not).
     #[cfg(test)]
     pub(crate) fn has_frame(&mut self, key: &super::navigator::FrameKey) -> bool {

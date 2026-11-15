@@ -66,10 +66,7 @@ pub(super) fn pane(
             .id(("sequence-available-row", at))
             .debug_selector(move || format!("sequence-available-{at}"))
             .role(Role::ListItem)
-            .aria_label(format!(
-                "{name}, {}",
-                meta(content, &section.lyrics, id)
-            ))
+            .aria_label(format!("{name}, {}", meta(content, &section.lyrics, id)))
             .flex()
             .items_center()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))

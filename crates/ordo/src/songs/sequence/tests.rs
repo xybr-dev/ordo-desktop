@@ -8,6 +8,11 @@ use domain::{
     revisions::EditPoint,
     song_library::{ArrangementLyrics, PaginationState, ReadinessState, readiness as rate},
 };
+use domain::{
+    identity::SectionId,
+    revisions::RevisionEntity,
+    song_library::{SectionDraft, flatten},
+};
 use gpui::{Entity, KeyBindingContextPredicate, KeyContext, TestAppContext, VisualTestContext};
 
 use super::{SequenceSelection, available, occurrence_name, occurrences, readiness};
@@ -19,7 +24,8 @@ use crate::{
         lyrics::{
             ArrangementEditor,
             tests::{
-                entity, in_memory, open_editor, parish_editor, parish_full, save_state, sections_of,
+                entity, fail_the_save, in_memory, open_editor, parish_editor, parish_full,
+                region_now, save_state, sections_of, type_into_area,
             },
         },
         new_song::tests::{finish, settle},
@@ -186,10 +192,7 @@ fn ac6_header_shows_incomplete_and_the_tab_marker_for_an_empty_sequence(cx: &mut
         Some("No performance sequence yet")
     );
     assert!(present(vcx, "editor-readiness"));
-    assert!(
-        present(vcx, "choice-marker"),
-        "the Sequence tab is marked"
-    );
+    assert!(present(vcx, "choice-marker"), "the Sequence tab is marked");
     let label = vcx.debug_bounds("editor-readiness").expect("label");
     let saved = vcx.debug_bounds("editor-save-state").expect("save state");
     assert!(label.right() <= saved.left(), "{label:?} before {saved:?}");
@@ -254,9 +257,13 @@ fn a_compose_failure_makes_the_section_unrenderable(cx: &mut TestAppContext) {
     let source = slides(&verse.lyrics).remove(0);
     let key = (verse.label.clone(), slide_body(&verse.lyrics, &source));
     editor.update(vcx, |editor, cx| {
-        editor.fail_frame(key, &content);
+        editor.fail_frame(key.clone(), &content);
         cx.notify();
     });
+    assert!(
+        editor.read_with(vcx, |editor, _| editor.is_failed(&key)),
+        "a failure is remembered apart from the cache"
+    );
     let verdict = editor
         .read_with(vcx, |editor, cx| editor.readiness(cx))
         .expect("verdict");
@@ -560,7 +567,7 @@ fn ac6_empty_sequence_focuses_add_first_occurrence_and_survives_reload(cx: &mut 
 
 #[gpui::test]
 fn ac6_unused_sections_show_no_warning(cx: &mut TestAppContext) {
-    let (_dir, _slot, _store, shell, id, vcx) = parish_full(cx, "t28-unused");
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-unused");
     let editor = open_editor(&shell, id, vcx);
     settle(vcx);
     let session = editor
@@ -596,6 +603,11 @@ fn ac6_unused_sections_show_no_warning(cx: &mut TestAppContext) {
         "an unused section raises nothing"
     );
     assert!(verdict.findings.is_empty());
+    assert_eq!(readiness::state_label(verdict.state), "Ready");
+    assert!(present(vcx, "editor-readiness"));
+    assert!(!present(vcx, "choice-marker"), "no tab marker");
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
@@ -840,8 +852,17 @@ fn ac5_ctrl_z_restores_the_removed_occurrence_and_selects_it(cx: &mut TestAppCon
         selection_of(&editor, vcx),
         Some(SequenceSelection::occurrence(occurrence(82)))
     );
+    assert_eq!(
+        focused_stop(&editor, vcx),
+        Some((occurrence(82), None)),
+        "focus returns with the restored selection"
+    );
     saved(&editor, vcx);
     assert_eq!(stored_sequence(&store, id, vcx), all);
+    // Delete now acts on the restored, selected and focused row.
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), [occurrence(81), occurrence(83)]);
     finish(vcx, &slot, &dir);
 }
 
@@ -1031,4 +1052,413 @@ fn ac4_dropping_a_dragged_occurrence_moves_it_once(cx: &mut TestAppContext) {
     assert_eq!(sequence_of(&editor, vcx), [middle, first, last]);
     assert_eq!(toasts_of(&shell, vcx), toasts);
     finish(vcx, &slot, &dir);
+}
+
+/// How many revisions the store holds for the Arrangement.
+fn revision_count(
+    slot: &crate::songs::StorageSlot,
+    id: domain::identity::ArrangementId,
+    vcx: &mut VisualTestContext,
+) -> usize {
+    let future = slot
+        .with(|storage| storage.revisions(RevisionEntity::Arrangement(id)))
+        .expect("storage is open");
+    vcx.foreground_executor()
+        .block_test(future)
+        .expect("revisions")
+        .len()
+}
+
+#[gpui::test]
+fn expand_all_on_a_long_sequence_composes_every_slide_and_settles(cx: &mut TestAppContext) {
+    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    let session = editor
+        .read_with(vcx, |editor, _| editor.session().cloned())
+        .expect("session");
+    // Forty distinct one-slide sections, each sung once: more slides than
+    // the old 32-frame cache could hold.
+    let keys: Vec<_> = (0..40)
+        .map(|n| (Some(format!("Part {n}")), format!("Words of part {n}")))
+        .collect();
+    session.update(vcx, |session, cx| {
+        session.structural(
+            EditPoint::Structural,
+            |content| {
+                content.sequence.clear();
+                for (label, body) in &keys {
+                    let section =
+                        SectionId::from_entity(domain::identity::EntityId::from_random_bytes(
+                            *uuid::Uuid::new_v4().as_bytes(),
+                        ));
+                    content.sections.push(SectionDraft::labeled(
+                        section,
+                        label.as_deref().unwrap_or_default(),
+                        body,
+                    ));
+                    let _ = content.insert_occurrence(super::fresh_occurrence(), section, None);
+                }
+            },
+            cx,
+        )
+    });
+    settle(vcx);
+    click(vcx, "tab-1");
+    click(vcx, "button-Expand all");
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.update(vcx, |editor, _| {
+            keys.iter().all(|key| editor.has_frame(key)) && !editor.composing_or_failed().0
+        })
+    });
+    // Nothing is asked for again: the cache holds all forty and stays quiet.
+    for _ in 0..5 {
+        settle(vcx);
+    }
+    editor.update(vcx, |editor, _| {
+        assert_eq!(
+            editor.composing_or_failed(),
+            (false, false),
+            "quiet, nothing failed"
+        );
+        assert!(keys.iter().all(|key| editor.has_frame(key)));
+    });
+}
+
+#[gpui::test]
+fn focus_on_an_unselected_row_selects_it_and_delete_acts_on_the_focused_row(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-focus-select");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "tab-1");
+    assert_eq!(selection_of(&editor, vcx), None);
+    // Tab or F6 lands focus without a click: the selection follows it.
+    focus_row(&editor, occurrence(82), vcx);
+    assert_eq!(
+        selection_of(&editor, vcx),
+        Some(SequenceSelection::occurrence(occurrence(82)))
+    );
+    focus_row(&editor, occurrence(83), vcx);
+    assert_eq!(
+        selection_of(&editor, vcx),
+        Some(SequenceSelection::occurrence(occurrence(83)))
+    );
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), [occurrence(81), occurrence(82)]);
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn repeat_by_keyboard_keeps_focus_on_the_new_row(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-repeat-focus");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "tab-1");
+    focus_row(&editor, occurrence(81), vcx);
+    let repeat = vcx.debug_bounds("sequence-row-buttons").is_some();
+    assert!(repeat, "the focused row shows its actions");
+    // Tab walks from the row to its first action, Repeat; Enter presses it.
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focused_stop(&editor, vcx), None, "focus is on the action");
+    let keystroke = gpui::Keystroke::parse("enter").expect("key");
+    vcx.simulate_event(gpui::KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    vcx.simulate_event(gpui::KeyUpEvent { keystroke });
+    settle(vcx);
+    let ids = sequence_of(&editor, vcx);
+    assert_eq!(ids.len(), 4);
+    assert_eq!(names_of(&editor, vcx)[..2], ["Verse 1", "Verse 1"]);
+    assert_eq!(focused_stop(&editor, vcx), Some((ids[1], None)));
+    assert_eq!(
+        selection_of(&editor, vcx),
+        Some(SequenceSelection::occurrence(ids[1]))
+    );
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn collapsing_with_a_focused_tile_focuses_its_row(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-collapse-focus");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    two_slide_verse(&editor, vcx);
+    click(vcx, "tab-1");
+    editor.update(vcx, |editor, cx| editor.toggle_expanded(occurrence(81), cx));
+    settle(vcx);
+    let tile = editor
+        .read_with(vcx, |editor, _| {
+            editor.sequence.kids.get(&(occurrence(81), 1)).cloned()
+        })
+        .expect("tile handle");
+    vcx.update(|window, cx| window.focus(&tile, cx));
+    settle(vcx);
+    assert_eq!(focused_stop(&editor, vcx), Some((occurrence(81), Some(1))));
+    // The keyboard collapses without moving focus first.
+    editor.update(vcx, |editor, cx| editor.toggle_expanded(occurrence(81), cx));
+    settle(vcx);
+    assert_eq!(focused_stop(&editor, vcx), Some((occurrence(81), None)));
+    // The same for Collapse all.
+    editor.update(vcx, |editor, cx| editor.toggle_all_expanded(cx));
+    settle(vcx);
+    let tile = editor
+        .read_with(vcx, |editor, _| {
+            editor.sequence.kids.get(&(occurrence(82), 0)).cloned()
+        })
+        .expect("tile handle");
+    vcx.update(|window, cx| window.focus(&tile, cx));
+    settle(vcx);
+    assert_eq!(focused_stop(&editor, vcx), Some((occurrence(82), Some(0))));
+    editor.update(vcx, |editor, cx| editor.toggle_all_expanded(cx));
+    settle(vcx);
+    assert_eq!(focused_stop(&editor, vcx), Some((occurrence(82), None)));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn after_a_failed_save_every_sequence_edit_says_retry_and_changes_nothing(cx: &mut TestAppContext) {
+    let retry = "Couldn't save. Retry to keep editing.";
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    settle(vcx);
+    fail_the_save(&editor, vcx);
+    click(vcx, "tab-1");
+    let before = sequence_of(&editor, vcx);
+    let refused = |vcx: &mut VisualTestContext| {
+        assert_eq!(sequence_of(&editor, vcx), before, "nothing changed");
+        let toasts = toasts_of(&shell, vcx);
+        assert!(
+            !toasts.is_empty() && toasts.iter().all(|toast| toast == retry),
+            "{toasts:?}"
+        );
+    };
+    click(vcx, "sequence-add-1");
+    refused(vcx);
+    focus_row(&editor, occurrence(23), vcx);
+    vcx.simulate_keystrokes("alt-down");
+    settle(vcx);
+    refused(vcx);
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    refused(vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.drop_occurrence(occurrence(23), occurrence(25), true, cx)
+    });
+    settle(vcx);
+    refused(vcx);
+    click(vcx, "button-Repeat");
+    refused(vcx);
+}
+
+#[gpui::test]
+fn alt_down_stays_with_the_focused_list_on_both_tabs(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-both-tabs");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    // Lyrics tab, Sections list: the sections move, the Sequence does not.
+    let sequence = sequence_of(&editor, vcx);
+    click(vcx, "arrangement-section-0");
+    vcx.simulate_keystrokes("alt-down");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
+    assert_eq!(sequence_of(&editor, vcx), sequence);
+    saved(&editor, vcx);
+    // Sequence tab, a row: the Sequence moves, the sections do not.
+    click(vcx, "tab-1");
+    focus_row(&editor, occurrence(81), vcx);
+    vcx.simulate_keystrokes("alt-down");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
+    assert_eq!(
+        sequence_of(&editor, vcx),
+        [occurrence(82), occurrence(81), occurrence(83)]
+    );
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn delete_over_a_dialog_a_tile_or_a_row_action_leaves_the_sequence_alone(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-delete-guards");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    two_slide_verse(&editor, vcx);
+    click(vcx, "tab-1");
+    let all = sequence_of(&editor, vcx);
+    // A slide tile: Delete is not an occurrence removal.
+    editor.update(vcx, |editor, cx| editor.toggle_expanded(occurrence(81), cx));
+    settle(vcx);
+    let tile = editor
+        .read_with(vcx, |editor, _| {
+            editor.sequence.kids.get(&(occurrence(81), 0)).cloned()
+        })
+        .expect("tile handle");
+    vcx.update(|window, cx| window.focus(&tile, cx));
+    settle(vcx);
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), all, "tile");
+    // The row's own Repeat button shares the key context.
+    focus_row(&editor, occurrence(82), vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), all, "row action");
+    // A dialog opened from the editor header.
+    focus_row(&editor, occurrence(82), vcx);
+    click(vcx, "button-Arrangement details");
+    settle(vcx);
+    vcx.simulate_keystrokes("delete");
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), all, "dialog");
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn alt_down_moves_an_occurrence_with_all_its_slides(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-move-slides");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    type_into_area(&editor, "Line one\n\nLine two", vcx);
+    crate::songs::lyrics::tests::saved(&editor, vcx);
+    click(vcx, "tab-1");
+    let order = |vcx: &mut VisualTestContext| -> Vec<(OccurrenceId, usize)> {
+        flatten(&content_of(&editor, vcx))
+            .iter()
+            .map(|slide| (slide.occurrence, slide.slide))
+            .collect()
+    };
+    assert_eq!(
+        order(vcx),
+        [
+            (occurrence(81), 0),
+            (occurrence(81), 1),
+            (occurrence(82), 0),
+            (occurrence(83), 0),
+            (occurrence(83), 1),
+        ]
+    );
+    focus_row(&editor, occurrence(81), vcx);
+    vcx.simulate_keystrokes("alt-down");
+    settle(vcx);
+    assert_eq!(
+        order(vcx),
+        [
+            (occurrence(82), 0),
+            (occurrence(81), 0),
+            (occurrence(81), 1),
+            (occurrence(83), 0),
+            (occurrence(83), 1),
+        ],
+        "both slides travel with their occurrence"
+    );
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn an_edit_in_lyrics_shows_one_shared_frame_in_both_occurrences(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-shared-frame");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    type_into_area(&editor, "Typed line", vcx);
+    crate::songs::lyrics::tests::saved(&editor, vcx);
+    click(vcx, "tab-1");
+    click(vcx, "button-Expand all");
+    let key = (Some("Verse 1".to_owned()), "Typed line".to_owned());
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.update(vcx, |editor, _| editor.has_frame(&key))
+    });
+    let content = content_of(&editor, vcx);
+    let keys: Vec<_> = [occurrence(81), occurrence(83)]
+        .iter()
+        .map(|id| {
+            let at = content.occurrence_index(*id).expect("occurrence");
+            let section = content
+                .sections
+                .iter()
+                .find(|section| section.id == content.sequence[at].section)
+                .expect("section");
+            super::slide_keys(section).remove(0)
+        })
+        .collect();
+    assert_eq!(keys[0], keys[1], "both occurrences use the one key");
+    assert_eq!(keys[0], key);
+    assert!(present(vcx, "sequence-child-0-0"));
+    assert!(present(vcx, "sequence-child-2-0"));
+    let frame = editor
+        .update(vcx, |editor, _| editor.frame_of(&key))
+        .expect("composed");
+    let again = editor
+        .update(vcx, |editor, _| editor.frame_of(&key))
+        .expect("composed");
+    assert!(
+        std::sync::Arc::ptr_eq(&frame, &again),
+        "one frame is shared"
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_drop_that_leaves_the_order_alone_writes_nothing(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-drop-noop");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "tab-1");
+    saved(&editor, vcx);
+    let (first, second) = (occurrence(81), occurrence(82));
+    let (revisions, toasts, order) = (
+        revision_count(&slot, id, vcx),
+        toasts_of(&shell, vcx),
+        sequence_of(&editor, vcx),
+    );
+    // The upper half of the next row is where the row already is.
+    editor.update(vcx, |editor, cx| {
+        editor.drop_occurrence(first, second, false, cx)
+    });
+    settle(vcx);
+    saved(&editor, vcx);
+    assert_eq!(sequence_of(&editor, vcx), order);
+    assert_eq!(toasts_of(&shell, vcx), toasts, "no toast");
+    assert_eq!(revision_count(&slot, id, vcx), revisions, "no new revision");
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn f6_on_the_sequence_tab_visits_available_sequence_and_inspector(cx: &mut TestAppContext) {
+    let (shell, _editor, _id, vcx) = in_memory(cx, false);
+    click(vcx, "tab-1");
+    let mut visited = Vec::new();
+    for _ in 0..4 {
+        vcx.simulate_keystrokes("f6");
+        settle(vcx);
+        visited.push(region_now(&shell, vcx));
+    }
+    let order = [
+        "Workspace actions",
+        "Primary list",
+        "Main editor",
+        "Inspector",
+    ];
+    let start = order
+        .iter()
+        .position(|name| *name == visited[0])
+        .expect("a known region");
+    let expected: Vec<_> = (0..4).map(|step| order[(start + step) % 4]).collect();
+    assert_eq!(visited, expected);
+    assert!(
+        present(vcx, "sequence-available"),
+        "Primary list is Available"
+    );
+    assert!(present(vcx, "sequence-pane"), "Main editor is the Sequence");
+    assert!(present(vcx, "arrangement-inspector"));
 }
