@@ -13,9 +13,11 @@
 //! - Commits are serialized: at most one is in flight. Typing during a commit
 //!   stays pending and commits after it settles; it is never dropped.
 //! - A commit whose content equals the last committed content is skipped.
-//! - While a save is in flight, or after one failed, Undo, Redo and
-//!   structural changes are refused (they return `false`). Typing is still
-//!   accepted and stays pending. A failed save is not retried automatically;
+//! - While a save is in flight, or after one failed, Undo and Redo are
+//!   refused (they return `false`). A structural change is queued behind a
+//!   save in flight and lands as its own revision, in order; it is refused
+//!   only after a failed save or while an Undo or Redo is queued. Typing is
+//!   still accepted and stays pending. A failed save is not retried automatically;
 //!   [`EditSession::retry_save`] retries it.
 //! - Undo and Redo are `Edit` revisions in the current History session. If
 //!   text is pending when Undo is asked for, that text is committed first and
@@ -219,7 +221,8 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
     /// A structural add, remove or reorder, or a semantic replacement.
     /// Pending text is flushed first as its own point, then this commits as
     /// another. Returns `true` when the change was accepted; `false` when it
-    /// was refused (a save is in flight or failed) or changed nothing.
+    /// was refused (a save failed, or an Undo or Redo is queued) or changed
+    /// nothing. A save in flight does not refuse it: the change is queued.
     /// [`EditPoint::TextSession`] is treated as `Structural`.
     pub fn structural(
         &mut self,
@@ -227,7 +230,16 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
         apply: impl FnOnce(&mut C),
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.busy() {
+        // A save in flight is no reason to refuse: the queue serializes the
+        // commits and `apply` works on the latest working copy. A failed save
+        // refuses (Retry save first), and so does a queued Undo or Redo,
+        // whose result the working copy does not hold yet.
+        if self.failed
+            || self
+                .queue
+                .iter()
+                .any(|queued| matches!(queued, Queued::Undo | Queued::Redo))
+        {
             return false;
         }
         self.queue_pending_text();
@@ -349,6 +361,12 @@ impl<C: Clone + Eq + 'static> EditSession<C> {
         let Some(generation) = self.coalescer.generation() else {
             return;
         };
+        let already_queued = self.queue.iter().any(|queued| {
+            matches!(queued, Queued::Text { generation: queued, .. } if *queued == generation)
+        });
+        if already_queued {
+            return;
+        }
         if self.content == self.committed {
             self.coalescer.settle(generation);
         } else {
