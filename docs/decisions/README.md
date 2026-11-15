@@ -47,7 +47,7 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0015](0015-emergency-powerpoint-export.md) | Emergency PowerPoint export | accepted | 2026-08-29 | transfer |
 | [0016](0016-structured-song-import-boundary.md) | Structured song import boundary | accepted | 2026-08-29 | songs, transfer |
 | [0017](0017-local-storage-and-portable-transfer.md) | Local storage and portable transfer | accepted, amended by [0180](0180-celebration-scoped-portable-transfer.md), [0268](0268-make-ordo-windows-only-for-the-mvp-and-defer-linux.md) | 2026-08-29 | storage, transfer |
-| [0018](0018-lyric-pagination.md) | Lyric pagination | accepted, amended by [0255](0255-use-fixed-semantic-congregation-slide-layouts.md) | 2026-08-29 | songs, rendering |
+| [0018](0018-lyric-pagination.md) | Lyric pagination | accepted, amended by [0255](0255-use-fixed-semantic-congregation-slide-layouts.md), [0315](0315-lyric-pagination-approval-is-per-section.md) | 2026-08-29 | songs, rendering |
 | [0019](0019-projector-safe-area.md) | Projector-safe area | accepted, amended by [0255](0255-use-fixed-semantic-congregation-slide-layouts.md) | 2026-08-29 | presenter |
 | [0020](0020-theme-inheritance.md) | Theme inheritance | accepted | 2026-08-29 | themes |
 | [0021](0021-song-identification-slides.md) | Song identification slides | accepted | 2026-08-29 | songs, rendering |
@@ -344,5 +344,6 @@ interview record are kept, not normative, in [`../decision-ledger-archive.md`](.
 | [0312](0312-allow-a-second-audited-unsafe-module-for-monitor-identity.md) | Allow a second audited unsafe module for monitor identity | accepted | 2026-11-07 | platform, display |
 | [0313](0313-hide-the-pointer-over-the-congregation-window.md) | Hide the pointer over the congregation window | accepted | 2026-11-07 | display, gpui, presenter |
 | [0314](0314-compact-recovery-journal-v2.md) | Compact recovery journal v2 | accepted | 2026-11-07 | presenter, storage, contracts |
+| [0315](0315-lyric-pagination-approval-is-per-section.md) | Lyric pagination approval is per section | proposed | 2026-11-16 | songs, rendering |
 
 <!-- adr-index:end -->
