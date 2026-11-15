@@ -101,7 +101,7 @@ pub fn section_name(sections: &[SectionDraft], index: usize) -> String {
     sections
         .get(index)
         .and_then(|section| section.label.clone())
-        .unwrap_or_else(|| format!("Section {}", index + 1))
+        .unwrap_or_else(|| "Unnamed section".to_owned())
 }
 
 fn missing(environment: UiEnvironment) -> AnyElement {
@@ -116,7 +116,7 @@ fn missing(environment: UiEnvironment) -> AnyElement {
             div()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(palette.text))
-                .child("This Arrangement is no longer in the library"),
+                .child("This Arrangement is no longer in the library."),
         )
         .child(
             div()
@@ -177,7 +177,7 @@ fn lyrics_pane(
             window.defer(cx, move |window, cx| handle.focus(window, cx));
         }
         return column(environment)
-            .debug_selector(|| "arrangement-overview".into())
+            .debug_selector(|| "arrangement-lyrics-empty".into())
             .child(
                 div()
                     .debug_selector(|| "arrangement-no-sections".into())

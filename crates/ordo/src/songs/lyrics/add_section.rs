@@ -59,11 +59,16 @@ pub(super) fn fresh_section() -> SectionId {
 
 /// What is wrong with adding `name` to `content`, if anything.
 fn problem(content: &ArrangementLyrics, name: &str) -> Option<Problem> {
+    // A fixed probe identity: only the name is being tested, and a fresh
+    // identity per frame would be wasted work.
     let mut probe = content.clone();
-    match probe.add_section(fresh_section(), name) {
+    match probe.add_section(
+        SectionId::from_entity(EntityId::from_random_bytes([0; 16])),
+        name,
+    ) {
         Ok(_) => None,
         Err(_) if name.trim().is_empty() => Some(Problem::Blank),
-        Err(error) => Some(Problem::Taken(refusal_copy(&error, name.trim()))),
+        Err(error) => Some(Problem::Taken(refusal_copy(&error, content, name.trim()))),
     }
 }
 

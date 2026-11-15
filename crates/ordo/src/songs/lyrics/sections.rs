@@ -4,13 +4,18 @@
 use domain::{
     identity::SectionId,
     pagination::slides,
-    song_library::{ArrangementLyrics, SongLibraryError},
+    song_library::{ArrangementLyrics, SongLibraryError, Step, match_key},
 };
 use gpui::{
-    AnyElement, App, Div, FontWeight, IntoElement, ParentElement, Styled, WeakEntity, Window,
+    AnyElement, App, Div, FontWeight, IntoElement, ParentElement, Role, Styled, WeakEntity, Window,
     canvas, div, prelude::*, px, rgb,
 };
-use ui::{environment::UiEnvironment, primitives::button::Button, tokens};
+use ui::{
+    assets::icon,
+    environment::UiEnvironment,
+    primitives::{Availability, button::Button},
+    tokens,
+};
 
 use crate::commands::registry::{LYRICS_SECTIONS_CONTEXT, MoveDown, MoveUp};
 
@@ -18,7 +23,6 @@ use super::{
     add_section::{ADD_SECTION, open_add_section},
     editor::ArrangementEditor,
     panes::section_name,
-    section_actions::section_buttons,
     view::Anchor,
 };
 
@@ -26,12 +30,27 @@ use super::{
 /// no better words for. A raw domain or storage message is never shown.
 pub const GENERIC_REFUSAL: &str = "Couldn't save.";
 
+/// The name of the section that already holds `typed`, as it is spelled
+/// there, so the message names what is on the page and not what was typed.
+pub fn taken_name(content: &ArrangementLyrics, typed: &str) -> String {
+    let key = match_key(typed);
+    content
+        .sections
+        .iter()
+        .filter_map(|section| section.label.as_deref())
+        .find(|label| match_key(label) == key)
+        .map_or_else(|| typed.trim().to_owned(), str::to_owned)
+}
+
 /// The operator's wording for a refusal of a section name.
-pub fn refusal_copy(error: &SongLibraryError, name: &str) -> String {
+pub fn refusal_copy(error: &SongLibraryError, content: &ArrangementLyrics, typed: &str) -> String {
     match error {
         SongLibraryError::BlankField(_) => "A section needs a name.".to_owned(),
         SongLibraryError::DuplicateField(_) => {
-            format!("Another section is already called {name}.")
+            format!(
+                "Another section is already called {}.",
+                taken_name(content, typed)
+            )
         }
         _ => GENERIC_REFUSAL.to_owned(),
     }
@@ -120,56 +139,71 @@ pub(super) fn sections_pane(
             .clone();
         let choose = weak.clone();
         let (up, down) = (weak.clone(), weak.clone());
+        let name = section_name(&content.sections, at);
+        let last = content.sections.len() - 1;
+        let current = selected == Some(id);
         div()
             .id(("arrangement-section-row", at))
             .debug_selector(move || format!("arrangement-section-{at}"))
             .track_focus(&focus)
             .key_context(LYRICS_SECTIONS_CONTEXT)
+            .role(Role::ListItem)
+            .aria_label(name.clone())
+            .aria_selected(current)
             .on_action(move |_: &MoveUp, _, cx| {
                 let _ = up.update(cx, |editor, cx| {
                     editor.select_section(id, cx);
-                    let result = editor.move_section(id, domain::song_library::Step::Up, cx);
+                    let result = editor.move_section(id, Step::Up, cx);
                     editor.notify_refusal(result, cx);
                 });
             })
             .on_action(move |_: &MoveDown, _, cx| {
                 let _ = down.update(cx, |editor, cx| {
                     editor.select_section(id, cx);
-                    let result = editor.move_section(id, domain::song_library::Step::Down, cx);
+                    let result = editor.move_section(id, Step::Down, cx);
                     editor.notify_refusal(result, cx);
                 });
             })
             .flex()
-            .flex_col()
+            .items_center()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
-            .when(selected == Some(id), |row| {
-                row.bg(rgb(palette.surface_secondary))
-            })
+            .when(current, |row| row.bg(rgb(palette.surface_secondary)))
             .on_click(move |_, _, cx| {
                 let _ = choose.update(cx, |editor, cx| editor.select_section(id, cx));
             })
             .child(
                 div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
                     .min_w_0()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(palette.text))
-                    .child(section_name(&content.sections, at)),
+                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(palette.text))
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(scale.apply(tokens::typography::META.size)))
+                            .text_color(rgb(palette.text_muted))
+                            .child(row_meta(content, id, &section.lyrics)),
+                    )
+                    .when(section.lyrics.trim().is_empty(), |row| {
+                        row.child(
+                            div()
+                                .text_size(px(scale.apply(tokens::typography::META.size)))
+                                .text_color(rgb(palette.text_muted))
+                                .child("Empty"),
+                        )
+                    }),
             )
-            .child(
-                div()
-                    .text_size(px(scale.apply(tokens::typography::META.size)))
-                    .text_color(rgb(palette.text_muted))
-                    .child(row_meta(content, id, &section.lyrics)),
-            )
-            .when(section.lyrics.trim().is_empty(), |row| {
-                row.child(
-                    div()
-                        .text_size(px(scale.apply(tokens::typography::META.size)))
-                        .text_color(rgb(palette.text_muted))
-                        .child("Empty"),
-                )
+            .when(current && !read_only, |row| {
+                row.child(move_buttons(weak, at, last, environment))
             })
     });
     div()
@@ -193,13 +227,6 @@ pub(super) fn sections_pane(
                 .children(add),
         )
         .children(rows)
-        .child(section_buttons(
-            weak,
-            content,
-            selected,
-            read_only,
-            environment,
-        ))
         .child(
             div()
                 .text_size(px(scale.apply(tokens::typography::META.size)))
@@ -207,4 +234,63 @@ pub(super) fn sections_pane(
                 .child("Lyrics order is for writing only; the Sequence sets what\u{2019}s sung."),
         )
         .into_any_element()
+}
+
+/// The Move up and Move down icon buttons of the selected row.
+fn move_buttons(
+    weak: &WeakEntity<ArrangementEditor>,
+    at: usize,
+    last: usize,
+    environment: UiEnvironment,
+) -> Div {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    let mover = |id: &'static str,
+                 label: &'static str,
+                 tip: &'static str,
+                 glyph: &'static str,
+                 step: Step,
+                 applies: bool| {
+        let weak = weak.clone();
+        Button::new(id, label, environment)
+            .icon(glyph)
+            .icon_only()
+            .quiet()
+            .tooltip(tip)
+            .on_surface(palette.surface_secondary)
+            .availability(if applies {
+                Availability::Available
+            } else {
+                Availability::Disabled
+            })
+            .on_activate(move |_, cx| {
+                let _ = weak.update(cx, |editor, cx| {
+                    if let Some(id) = editor.lyrics.selected {
+                        let result = editor.move_section(id, step, cx);
+                        editor.notify_refusal(result, cx);
+                    }
+                });
+            })
+    };
+    div()
+        .debug_selector(|| "arrangement-section-buttons".into())
+        .flex()
+        .flex_none()
+        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .child(mover(
+            "arrangement-move-up",
+            "Move up",
+            "Move up (Alt+Up)",
+            icon::ARROW_UP,
+            Step::Up,
+            at > 0,
+        ))
+        .child(mover(
+            "arrangement-move-down",
+            "Move down",
+            "Move down (Alt+Down)",
+            icon::ARROW_DOWN,
+            Step::Down,
+            at < last,
+        ))
 }

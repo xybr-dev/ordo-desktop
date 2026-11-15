@@ -13,7 +13,7 @@ use domain::{
     song_library::{ArrangementLyrics, PaginationState},
 };
 use gpui::{
-    AnyElement, App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb,
 };
 use rendering::{TemplateContent, TemplateKind};
@@ -37,11 +37,15 @@ pub const INSPECTOR: &str = "Inspector";
 
 /// What a composed frame is cached under: the section name and the slide's
 /// rendered body.
-pub type FrameKey = (String, String);
+pub type FrameKey = (Option<String>, String);
 
 /// What the navigator and the Inspector say about the selected slide.
 struct Selected {
     section: String,
+    /// The section's own label: a section without one has no header on its
+    /// frame, and its placeholder name is never composed into a slide.
+    label: Option<String>,
+    first_lines: Vec<String>,
     slide: usize,
     count: usize,
     bodies: Vec<String>,
@@ -49,7 +53,7 @@ struct Selected {
 
 impl Selected {
     fn key(&self, slide: usize) -> FrameKey {
-        (self.section.clone(), self.bodies[slide].clone())
+        (self.label.clone(), self.bodies[slide].clone())
     }
 }
 
@@ -70,8 +74,14 @@ fn selected(editor: &ArrangementEditor, content: &ArrangementLyrics, cx: &App) -
         .iter()
         .map(|source| slide_body(&text, source))
         .collect();
+    let first_lines = bodies
+        .iter()
+        .map(|body| body.lines().next().unwrap_or_default().trim().to_owned())
+        .collect();
     Some(Selected {
         section: section_name(&content.sections, at),
+        label: content.sections[at].label.clone(),
+        first_lines,
         slide: editor.lyrics.slide.min(generated.len().saturating_sub(1)),
         count: generated.len(),
         bodies,
@@ -97,7 +107,7 @@ pub(super) fn request_frames(
         }
         let content = TemplateContent {
             kind: TemplateKind::Lyrics,
-            header: Some(key.0.clone()),
+            header: key.0.clone(),
             body: key.1.clone(),
             footer: None,
             image: None,
@@ -156,24 +166,51 @@ pub(super) fn thumbnails(
         let choose = weak.clone();
         let current = slide == chosen.slide;
         let key = chosen.key(slide);
+        let caption = format!("{} {}", slide + 1, chosen.first_lines[slide]);
         div()
             .id(("arrangement-thumbnail", slide))
-            .debug_selector(move || format!("thumb-{slide}"))
+            .flex()
+            .flex_col()
             .flex_none()
             .w(px(width))
-            .h(px(width * 9.0 / 16.0))
+            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
             .cursor_pointer()
-            .rounded(px(tokens::radius::SLIDE_VIEWPORT))
-            .border(px(tokens::border::SEPARATOR))
-            .border_color(rgb(if current {
-                tokens::color::PRIMARY
-            } else {
-                palette.border
-            }))
+            .focusable()
+            .tab_stop(true)
+            .role(Role::ListItem)
+            .aria_label(format!("Slide {}", slide + 1))
+            .aria_selected(current)
             .on_click(move |_, window, cx| {
                 let _ = choose.update(cx, |editor, cx| editor.select_slide(slide, window, cx));
             })
-            .child(picture(editor, &key, width, environment))
+            .child(
+                div()
+                    .debug_selector(move || format!("thumb-{slide}"))
+                    .flex_none()
+                    .w(px(width))
+                    .h(px(width * 9.0 / 16.0))
+                    .rounded(px(tokens::radius::SLIDE_VIEWPORT))
+                    .border(px(tokens::border::SEPARATOR))
+                    .border_color(rgb(if current {
+                        tokens::color::PRIMARY
+                    } else {
+                        palette.border
+                    }))
+                    // The frame sits inside the border, not over it.
+                    .child(picture(
+                        editor,
+                        &key,
+                        width - 2.0 * tokens::border::SEPARATOR,
+                        environment,
+                    )),
+            )
+            .child(
+                div()
+                    .truncate()
+                    .text_size(px(scale.apply(tokens::typography::META.size)))
+                    .text_color(rgb(palette.text_muted))
+                    .child(caption),
+            )
     });
     Some(
         div()
@@ -222,13 +259,6 @@ pub(super) fn inspector_body(
     column(environment)
         .child(
             div()
-                .debug_selector(|| "inspector-slide".into())
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(palette.text))
-                .child(format!("Slide {} of {}", chosen.slide + 1, chosen.count)),
-        )
-        .child(
-            div()
                 .debug_selector(|| "inspector-preview".into())
                 .child(picture(
                     editor,
@@ -246,7 +276,7 @@ pub(super) fn inspector_body(
                 .child(row("Section", chosen.section.clone()))
                 .child(row(
                     "Position",
-                    format!("{} of {}", chosen.slide + 1, chosen.count),
+                    format!("Slide {} of {}", chosen.slide + 1, chosen.count),
                 ))
                 .child(row(
                     "Pagination",
@@ -263,9 +293,28 @@ pub(super) fn inspector_pane(
     environment: UiEnvironment,
     cx: &App,
 ) -> AnyElement {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
     column(environment)
         .debug_selector(|| "arrangement-inspector".into())
-        .child(head(INSPECTOR, environment))
+        .child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(head(INSPECTOR, environment))
+                .children(
+                    selected(editor, content, cx)
+                        .filter(|chosen| chosen.count > 0)
+                        .map(|chosen| {
+                            div()
+                                .debug_selector(|| "inspector-slide".into())
+                                .text_size(px(scale.apply(tokens::typography::META.size)))
+                                .text_color(rgb(palette.text_muted))
+                                .child(format!("Slide {} of {}", chosen.slide + 1, chosen.count))
+                        }),
+                ),
+        )
         .child(inspector_body(editor, content, environment, cx))
         .into_any_element()
 }

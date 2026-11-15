@@ -7,16 +7,15 @@
 
 use domain::{identity::SectionId, song_library::Step};
 use gpui::{
-    AnyElement, App, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    ParentElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
+    AnyElement, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use ui::{
     environment::UiEnvironment,
     overlay::Overlay,
     primitives::{
-        Availability,
-        button::Button,
         field::{Field, FieldState},
+        tooltip,
     },
     tokens,
 };
@@ -25,11 +24,17 @@ use super::{
     editor::ArrangementEditor,
     editor_pane::RETRY_TO_KEEP_EDITING,
     panes::section_name,
-    sections::{GENERIC_REFUSAL, refusal_copy},
+    sections::{GENERIC_REFUSAL, refusal_copy, taken_name},
 };
 
-/// The rename field's label.
+/// The refusal copy for an empty name.
+const BLANK_NAME: &str = "A section needs a name.";
+
+/// The rename field's accessible name.
 const NAME_LABEL: &str = "Section name";
+
+/// The rename field's tooltip.
+const NAME_TOOLTIP: &str = "Section name \u{b7} Enter renames, Esc cancels";
 
 /// The label of the remove action and of the dialog's primary.
 pub const REMOVE_SECTION: &str = "Remove section";
@@ -67,12 +72,12 @@ impl ArrangementEditor {
         match probe.move_section(id, step) {
             Ok(true) => {}
             Ok(false) => return Ok(false),
-            Err(error) => return Err(refusal_copy(&error, &name)),
+            Err(error) => return Err(refusal_copy(&error, &content, &name)),
         }
         self.structural_lyrics(
             |content| content.move_section(id, step).is_ok(),
             format!("Moved {name} in Lyrics. The Sequence is unchanged."),
-            0,
+            None,
             cx,
         )?;
         self.lyrics.focus_row = Some(id);
@@ -94,15 +99,15 @@ impl ArrangementEditor {
         let old = named(&content, id);
         let mut probe = content.clone();
         if let Err(error) = probe.rename_section(id, &name) {
-            return Err(refusal_copy(&error, &name));
+            return Err(refusal_copy(&error, &content, &name));
         }
         if name == old {
             return Ok(());
         }
         self.structural_lyrics(
             |content| content.rename_section(id, &name).is_ok(),
-            format!("Renamed {old} to {name}."),
-            self.lyrics.slide,
+            format!("Renamed {old} to {name}. Every Sequence occurrence shows the new name."),
+            None,
             cx,
         )
     }
@@ -116,7 +121,7 @@ impl ArrangementEditor {
         self.structural_lyrics(
             |content| content.remove_section(id).is_ok(),
             format!("Removed {name}."),
-            0,
+            Some(0),
             cx,
         )
     }
@@ -182,9 +187,9 @@ impl ArrangementEditor {
         };
         let typed = field.value(cx).to_string();
         let result = self.rename_section(id, &typed, cx);
-        let current = self
+        let (current, taken) = self
             .content(cx)
-            .map(|content| named(&content, id))
+            .map(|content| (named(&content, id), taken_name(&content, &typed)))
             .unwrap_or_default();
         match result {
             Ok(()) => {
@@ -199,7 +204,15 @@ impl ArrangementEditor {
                     rename.error = Some(copy);
                 }
             }
-            Err(_) if blur => {
+            Err(copy) if blur => {
+                // The old name comes back; say so, since nothing else shows
+                // that the typed one was not kept.
+                let message = if copy == BLANK_NAME {
+                    format!("A section needs a name. Kept {current}.")
+                } else {
+                    format!("Another section is already called {taken}. Kept {current}.")
+                };
+                self.notify_refusal::<()>(Err(message), cx);
                 field.set_value(current, window, cx);
                 if let Some(rename) = self.lyrics.rename.as_mut() {
                     rename.error = None;
@@ -322,15 +335,20 @@ pub(super) fn rename_control(
                     _ => {}
                 }
             })
-            .child(
-                Field::new(
-                    "arrangement-rename-field",
-                    NAME_LABEL,
-                    &rename.field,
-                    environment,
-                )
-                .on_surface(palette.background),
-            )
+            .child(tooltip(
+                div().id("arrangement-rename-tip").child(
+                    Field::new(
+                        "arrangement-rename-field",
+                        NAME_LABEL,
+                        &rename.field,
+                        environment,
+                    )
+                    .label_hidden()
+                    .on_surface(palette.background),
+                ),
+                NAME_TOOLTIP,
+                environment,
+            ))
             .children(rename.error.clone().map(|copy| {
                 div()
                     .debug_selector(|| "arrangement-rename-error".into())
@@ -339,70 +357,4 @@ pub(super) fn rename_control(
             }))
             .into_any_element(),
     )
-}
-
-/// The Move up, Move down and Remove section buttons under the list.
-pub(super) fn section_buttons(
-    weak: &WeakEntity<ArrangementEditor>,
-    content: &domain::song_library::ArrangementLyrics,
-    selected: Option<SectionId>,
-    read_only: bool,
-    environment: UiEnvironment,
-) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    let at = selected.and_then(|id| content.sections.iter().position(|s| s.id == id));
-    let last = content.sections.len().saturating_sub(1);
-    let gate = |applicable: bool| {
-        if read_only || at.is_none() || !applicable {
-            Availability::Disabled
-        } else {
-            Availability::Available
-        }
-    };
-    let mover = |id: &'static str, label: &'static str, tip: &'static str, step: Step, on: bool| {
-        let weak = weak.clone();
-        Button::new(id, label, environment)
-            .tooltip(tip)
-            .on_surface(palette.background)
-            .availability(gate(on))
-            .on_activate(move |_, cx| {
-                let _ = weak.update(cx, |editor, cx| {
-                    if let Some(id) = editor.lyrics.selected {
-                        let result = editor.move_section(id, step, cx);
-                        editor.notify_refusal(result, cx);
-                    }
-                });
-            })
-    };
-    let remove = {
-        let weak = weak.clone();
-        Button::new("arrangement-remove-section", REMOVE_SECTION, environment)
-            .on_surface(palette.background)
-            .availability(gate(true))
-            .on_activate(move |window: &mut Window, cx: &mut App| {
-                let _ = weak.update(cx, |editor, cx| editor.request_remove(window, cx));
-            })
-    };
-    div()
-        .debug_selector(|| "arrangement-section-buttons".into())
-        .flex()
-        .flex_wrap()
-        .gap(px(scale.apply(tokens::spacing::RELATED)))
-        .child(mover(
-            "arrangement-move-up",
-            "Move up",
-            "Move up (Alt+Up)",
-            Step::Up,
-            at.is_some_and(|at| at > 0),
-        ))
-        .child(mover(
-            "arrangement-move-down",
-            "Move down",
-            "Move down (Alt+Down)",
-            Step::Down,
-            at.is_some_and(|at| at < last),
-        ))
-        .child(remove)
-        .into_any_element()
 }

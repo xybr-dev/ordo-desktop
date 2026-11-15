@@ -102,10 +102,15 @@ enum PageChange {
 const MAIN_EDITOR: &str = "Main editor";
 /// The save dialog's title and description. The store's own message is never
 /// shown, only this.
-const SAVE_GUARD_TITLE: &str = "Couldn't save.";
-const SAVE_GUARD_DESCRIPTION: &str = "Your latest changes are not saved yet.";
+const SAVE_GUARD_TITLE: &str = "Couldn\u{2019}t save";
+const SAVE_GUARD_DESCRIPTION: &str = "Leaving now would lose the changes that aren\u{2019}t saved.";
 /// The Arrangement editor's Inspector pane.
 const INSPECTOR: &str = "Inspector";
+/// The narrowest main editor, before the Interface scale, that still reads as
+/// an editor beside the sections list and the Inspector.
+const MAIN_EDITOR_MIN_WIDTH: f32 = 520.0;
+/// The Inspector pane's width, before the Interface scale.
+const INSPECTOR_WIDTH: f32 = 300.0;
 
 /// What a guarded navigation does once the editor's content is durable (or the
 /// operator chose to leave without saving).
@@ -1645,7 +1650,14 @@ impl ShellView {
                 .border_color(rgb(palette.border))
                 .bg(rgb(palette.surface_secondary))
                 .text_color(rgb(palette.text))
-                .child("Archived \u{2014} inspect only until it is restored")
+                .flex()
+                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child("Archived."),
+                )
+                .child("Inspect only until restored.")
         });
         let header = div()
             .flex_none()
@@ -1713,7 +1725,11 @@ impl ShellView {
             .region(WORKSPACE_ACTIONS, window, cx)
             .flex_none()
             .child(header);
-        let compact = f32::from(window.viewport_size().width) < NARROW_WORKSPACE;
+        // Three panes fit when the sections list, a usable main editor and
+        // the Inspector each get their minimum, with a gutter on both sides
+        // of the two outer ones.
+        let compact = f32::from(window.viewport_size().width)
+            < scale.apply(LIST_WIDTH + MAIN_EDITOR_MIN_WIDTH + INSPECTOR_WIDTH) + 4.0 * gutter;
         let panes = editor
             .as_ref()
             .map(|editor| editor.update(cx, |e, cx| e.panes(compact, environment, window, cx)));
@@ -1763,7 +1779,7 @@ impl ShellView {
             self.registry
                 .region(INSPECTOR, window, cx)
                 .flex_none()
-                .w(side_width)
+                .w(px(scale.apply(INSPECTOR_WIDTH)))
                 .h_full()
                 .overflow_hidden()
                 .p(px(gutter))

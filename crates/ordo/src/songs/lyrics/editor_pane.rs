@@ -14,9 +14,10 @@ use domain::{
 };
 use gpui::{
     AnyElement, App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
-    WeakEntity, Window, div, prelude::FluentBuilder as _, px, rgb,
+    WeakEntity, Window, div, prelude::FluentBuilder as _, px, rgb, svg,
 };
 use ui::{
+    assets::icon,
     environment::UiEnvironment,
     overlay::Toast,
     primitives::{
@@ -30,19 +31,23 @@ use ui::{
 use super::{
     editor::ArrangementEditor,
     navigator::{inspector_button, thumbnails},
-    panes::{column, section_name},
-    section_actions::rename_control,
+    panes::{column, head, section_name},
+    section_actions::{REMOVE_SECTION, rename_control},
     sections::GENERIC_REFUSAL,
 };
 
 /// Why the lyric editor cannot be typed in.
-const READ_ONLY_REASON: &str = "Archived Arrangements can\u{2019}t be edited.";
+const READ_ONLY_REASON: &str = "Inspect only until restored.";
 
 /// The lyric editor's accessible name.
 const AREA_LABEL: &str = "Lyrics";
 
+/// What a blank line does, beside Split and Join.
+const BOUNDARY_HINT: &str = "A blank line starts a new slide.";
+
 /// The hint while the section has no words yet.
-const AREA_PLACEHOLDER: &str = "Type the words. Leave a blank line between slides.";
+const AREA_PLACEHOLDER: &str =
+    "Type or paste the words. Leave a blank line where the next slide should start.";
 
 /// Why Split is unavailable on a slide with one line.
 const SPLIT_ONE_LINE: &str = "A slide needs two lines to split.";
@@ -199,7 +204,7 @@ impl ArrangementEditor {
         self.structural_lyrics(
             move |content| content.split_slide(id, slide).unwrap_or(false),
             format!("Split slide {} after line {line}.", slide + 1),
-            slide,
+            Some(slide + 1),
             cx,
         )
     }
@@ -215,7 +220,7 @@ impl ArrangementEditor {
         self.structural_lyrics(
             move |content| content.join_slide(id, slide).unwrap_or(false),
             format!("Joined slide {} with slide {}.", slide + 1, slide),
-            slide - 1,
+            Some(slide - 1),
             cx,
         )
     }
@@ -233,7 +238,7 @@ impl ArrangementEditor {
         &mut self,
         change: impl FnOnce(&mut ArrangementLyrics) -> bool,
         message: String,
-        then_slide: usize,
+        then_slide: Option<usize>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let Some(session) = self.session().cloned() else {
@@ -258,7 +263,7 @@ impl ArrangementEditor {
             return Err(self.refusal(cx).to_owned());
         }
         self.lyrics.reload = true;
-        self.lyrics.reload_slide = Some(then_slide);
+        self.lyrics.reload_slide = then_slide;
         self.notify_undoable(message, cx);
         cx.notify();
         Ok(())
@@ -368,15 +373,14 @@ pub(super) fn main_pane(
     let text = area.value(cx);
     let generated = slides(&text);
     let slide = editor.lyrics.slide.min(generated.len().saturating_sub(1));
-    let caption = if generated.is_empty() {
-        "No slides yet".to_owned()
-    } else {
-        format!("Slide {} of {}", slide + 1, generated.len())
+    let selected_id = content.sections.get(at).map(|section| section.id);
+    let sung = match selected_id.map_or(0, |id| content.occurrences_of(id)) {
+        0 => "Not in the Sequence yet".to_owned(),
+        1 => "Sung 1 time in the Sequence".to_owned(),
+        times => format!("Sung {times} times in the Sequence"),
     };
     let middle = generated.get(slide).and_then(split_point);
-    let split = if read_only {
-        Availability::unavailable(READ_ONLY_REASON)
-    } else if generated.is_empty() {
+    let split = if generated.is_empty() {
         Availability::unavailable(NO_SLIDE)
     } else if middle.is_none() {
         Availability::unavailable(SPLIT_ONE_LINE)
@@ -384,9 +388,7 @@ pub(super) fn main_pane(
         Availability::Available
     };
     let split_text = middle.map_or_else(|| "Split slide".to_owned(), split_label);
-    let join = if read_only {
-        Availability::unavailable(READ_ONLY_REASON)
-    } else if generated.is_empty() {
+    let join = if generated.is_empty() {
         Availability::unavailable(NO_SLIDE)
     } else if slide == 0 {
         Availability::unavailable(JOIN_FIRST)
@@ -394,11 +396,15 @@ pub(super) fn main_pane(
         Availability::Available
     };
     let join_text = if slide == 0 {
-        "Join with previous".to_owned()
+        "Join with previous slide".to_owned()
     } else {
         join_label(slide)
     };
-    let (split_editor, join_editor) = (weak.clone(), weak.clone());
+    let slide_count = match generated.len() {
+        1 => "1 slide".to_owned(),
+        count => format!("{count} slides"),
+    };
+    let (split_editor, join_editor, remove_editor) = (weak.clone(), weak.clone(), weak.clone());
     let mut text_area = TextArea::new("arrangement-lyrics-area", AREA_LABEL, &area, environment)
         .placeholder(AREA_PLACEHOLDER)
         .rows(8, 24)
@@ -406,44 +412,50 @@ pub(super) fn main_pane(
     if read_only {
         text_area = text_area.read_only(READ_ONLY_REASON);
     }
+    let name = if read_only {
+        div()
+            .debug_selector(|| "arrangement-lyrics-title".into())
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(palette.text))
+            .child(section_name(&content.sections, at))
+            .into_any_element()
+    } else {
+        rename_control(editor, weak, environment).unwrap_or_else(|| div().into_any_element())
+    };
+    let meta = |size: f32| {
+        div()
+            .text_size(px(scale.apply(size)))
+            .text_color(rgb(palette.text_muted))
+    };
     column(environment)
-        .debug_selector(|| "arrangement-overview".into())
+        .debug_selector(|| "arrangement-lyrics".into())
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .items_center()
-                .justify_between()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(div().flex_1().min_w(px(scale.apply(160.0))).child(name))
                 .child(
-                    div()
-                        .debug_selector(|| "arrangement-lyrics-title".into())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_size(px(scale.apply(tokens::typography::HEADING.size)))
-                        .text_color(rgb(palette.text))
-                        .child(section_name(&content.sections, at)),
+                    meta(tokens::typography::META.size)
+                        .debug_selector(|| "arrangement-section-sung".into())
+                        .child(sung),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(scale.apply(tokens::spacing::RELATED)))
-                        .child(
-                            div()
-                                .debug_selector(|| "arrangement-slide-caption".into())
-                                .text_color(rgb(palette.text_muted))
-                                .child(caption),
-                        )
-                        .when(compact, |group| {
-                            group.child(inspector_button(weak, environment))
-                        }),
-                ),
+                .when(!read_only, |row| {
+                    row.child(
+                        Button::new("arrangement-remove-section", REMOVE_SECTION, environment)
+                            .quiet()
+                            .on_surface(palette.background)
+                            .on_activate(move |window: &mut Window, cx: &mut App| {
+                                let _ = remove_editor
+                                    .update(cx, |editor, cx| editor.request_remove(window, cx));
+                            }),
+                    )
+                })
+                .when(compact, |row| {
+                    row.child(inspector_button(weak, environment))
+                }),
         )
-        .children(
-            (!read_only)
-                .then(|| rename_control(editor, weak, environment))
-                .flatten(),
-        )
-        .children(thumbnails(editor, weak, content, environment, cx))
         .child(
             div()
                 .debug_selector(move || format!("arrangement-lyrics-{at}"))
@@ -453,29 +465,65 @@ pub(super) fn main_pane(
             div()
                 .flex()
                 .flex_wrap()
+                .items_center()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .child(
-                    Button::new("arrangement-split", split_text, environment)
-                        .on_surface(palette.background)
-                        .availability(split)
-                        .on_activate(move |_, cx| {
-                            let _ = split_editor.update(cx, |editor, cx| {
-                                let result = editor.split_selected_slide(cx);
-                                editor.notify_refusal(result, cx);
-                            });
-                        }),
+                    meta(tokens::typography::META.size)
+                        .debug_selector(|| "arrangement-boundary-hint".into())
+                        .flex()
+                        .items_center()
+                        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                        .flex_1()
+                        .child(
+                            svg()
+                                .flex_none()
+                                .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                                .text_color(rgb(palette.text_muted))
+                                .data(icon::CORNER_DOWN_LEFT.as_bytes()),
+                        )
+                        .child(BOUNDARY_HINT),
                 )
+                .when(!read_only, |row| {
+                    row.child(
+                        Button::new("arrangement-split", split_text, environment)
+                            .on_surface(palette.background)
+                            .availability(split)
+                            .on_activate(move |_, cx| {
+                                let _ = split_editor.update(cx, |editor, cx| {
+                                    let result = editor.split_selected_slide(cx);
+                                    editor.notify_refusal(result, cx);
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new("arrangement-join", join_text, environment)
+                            .on_surface(palette.background)
+                            .availability(join)
+                            .on_activate(move |_, cx| {
+                                let _ = join_editor.update(cx, |editor, cx| {
+                                    let result = editor.join_selected_slide(cx);
+                                    editor.notify_refusal(result, cx);
+                                });
+                            }),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .debug_selector(|| "arrangement-generated-head".into())
+                .flex()
+                .flex_wrap()
+                .items_baseline()
+                .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(head("Generated slides", environment))
                 .child(
-                    Button::new("arrangement-join", join_text, environment)
-                        .on_surface(palette.background)
-                        .availability(join)
-                        .on_activate(move |_, cx| {
-                            let _ = join_editor.update(cx, |editor, cx| {
-                                let result = editor.join_selected_slide(cx);
-                                editor.notify_refusal(result, cx);
-                            });
-                        }),
+                    meta(tokens::typography::META.size).child(if generated.is_empty() {
+                        "No slides yet: this section has no lyrics.".to_owned()
+                    } else {
+                        format!("{slide_count} \u{b7} select one to inspect")
+                    }),
                 ),
         )
+        .children(thumbnails(editor, weak, content, environment, cx))
         .into_any_element()
 }
