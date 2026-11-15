@@ -99,6 +99,8 @@ pub enum SongLibraryError {
     UnknownArrangement(ArrangementId),
     /// No section has this identity.
     UnknownSection(SectionId),
+    /// No occurrence has this identity.
+    UnknownOccurrence(OccurrenceId),
     /// No Choir has this identity.
     UnknownChoir(ChoirId),
     /// A Song work already has this identity.
@@ -152,6 +154,7 @@ impl fmt::Display for SongLibraryError {
             Self::UnknownSong(id) => write!(f, "no Song work has identity {id}"),
             Self::UnknownArrangement(id) => write!(f, "no Arrangement has identity {id}"),
             Self::UnknownSection(id) => write!(f, "no section has identity {id}"),
+            Self::UnknownOccurrence(id) => write!(f, "no occurrence has identity {id}"),
             Self::UnknownChoir(id) => write!(f, "no Choir has identity {id}"),
             Self::DuplicateSong(id) => write!(f, "a Song work with identity {id} already exists"),
             Self::DuplicateArrangement(id) => {

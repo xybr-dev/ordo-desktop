@@ -29,6 +29,7 @@ mod languages;
 mod model;
 mod search;
 mod sections;
+mod sequence;
 
 pub use duplicate_evidence::{
     DuplicateEvidence, IdentityEvidence, MatchStrength, MatchedOn, PossibleSong, identity_key,
@@ -47,3 +48,4 @@ pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
 pub use sections::{ArrangementLyrics, Step, section_name_suggestions};
+pub use sequence::{FlatSlide, flatten, position_label, selection_after_replace};
