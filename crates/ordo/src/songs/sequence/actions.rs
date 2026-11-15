@@ -168,6 +168,32 @@ impl ArrangementEditor {
         self.moved(id, &probe, cx);
     }
 
+    /// Drops a dragged occurrence on `target`: before it on the upper half,
+    /// after it on the lower half. Dropping on itself writes nothing.
+    pub fn drop_occurrence(
+        &mut self,
+        dragged: OccurrenceId,
+        target: OccurrenceId,
+        lower_half: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if dragged == target {
+            return;
+        }
+        let Some(content) = self.content(cx) else {
+            return;
+        };
+        let (Some(from), Some(over)) = (
+            content.occurrence_index(dragged),
+            content.occurrence_index(target),
+        ) else {
+            return;
+        };
+        // The target's place in the list once the dragged row has left it.
+        let without = over - usize::from(from < over);
+        self.move_occurrence_to(dragged, without + usize::from(lower_half), cx);
+    }
+
     /// Selects, focuses and announces a moved occurrence; `after` is the
     /// content as the move left it.
     fn moved(&mut self, id: OccurrenceId, after: &ArrangementLyrics, cx: &mut Context<Self>) {

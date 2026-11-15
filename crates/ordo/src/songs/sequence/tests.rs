@@ -982,3 +982,53 @@ fn ac8_arrow_keys_walk_the_flattened_order(cx: &mut TestAppContext) {
     assert_eq!(focused_stop(&editor, vcx), Some((occurrence(82), None)));
     finish(vcx, &slot, &dir);
 }
+
+#[gpui::test]
+fn ac4_dropping_a_dragged_occurrence_moves_it_once(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-drag");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "tab-1");
+    let (first, middle, last) = (occurrence(81), occurrence(82), occurrence(83));
+    // The mouse: grab the first row's grip and let go on the lower half of
+    // the last row.
+    let grip = vcx.debug_bounds("sequence-grip-0").expect("grip").center();
+    let target = vcx.debug_bounds("arrangement-sequence-2").expect("row");
+    let drop_at = gpui::point(target.center().x, target.bottom() - gpui::px(2.0));
+    vcx.simulate_mouse_down(grip, gpui::MouseButton::Left, gpui::Modifiers::default());
+    for step in 1..=4 {
+        let t = step as f32 / 4.0;
+        let at = gpui::point(
+            grip.x + (drop_at.x - grip.x) * t,
+            grip.y + (drop_at.y - grip.y) * t,
+        );
+        vcx.simulate_mouse_move(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    }
+    vcx.simulate_mouse_up(drop_at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), [middle, last, first]);
+    assert_eq!(toasts_of(&shell, vcx), ["Moved Verse 1 to 03."]);
+    saved(&editor, vcx);
+    assert_eq!(stored_sequence(&store, id, vcx), [middle, last, first]);
+    // One drop is one edit: a single Undo restores the order.
+    vcx.simulate_keystrokes("ctrl-z");
+    wait(vcx, |vcx| {
+        settle(vcx);
+        sequence_of(&editor, vcx) == [first, middle, last]
+    });
+    // The halves: the upper half of the last row puts the row before it.
+    editor.update(vcx, |editor, cx| {
+        editor.drop_occurrence(first, last, false, cx)
+    });
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), [middle, first, last]);
+    // A drop on itself writes nothing.
+    let toasts = toasts_of(&shell, vcx);
+    editor.update(vcx, |editor, cx| {
+        editor.drop_occurrence(first, first, true, cx)
+    });
+    settle(vcx);
+    assert_eq!(sequence_of(&editor, vcx), [middle, first, last]);
+    assert_eq!(toasts_of(&shell, vcx), toasts);
+    finish(vcx, &slot, &dir);
+}

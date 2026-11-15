@@ -15,18 +15,14 @@ pub mod readiness;
 #[cfg(test)]
 mod tests;
 
-use std::{
-    cell::Cell,
-    collections::{BTreeSet, HashMap, HashSet},
-    rc::Rc,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use domain::{
     identity::{OccurrenceId, SectionId},
     pagination::{slide_body, slides},
     song_library::{ArrangementLyrics, SectionDraft},
 };
-use gpui::{App, Bounds, Context, FocusHandle, Pixels, WeakEntity, Window};
+use gpui::{App, Context, FocusHandle, WeakEntity, Window};
 use ui::environment::UiEnvironment;
 
 use crate::songs::lyrics::{
@@ -194,9 +190,6 @@ pub struct SequenceView {
     /// Whether the Sequence task was the one shown at the last render, so
     /// arriving on an empty Sequence can focus its action once.
     pub shown: bool,
-    /// Where each row was last painted, so a drop can tell which half of a
-    /// row it landed on.
-    pub bounds: HashMap<OccurrenceId, Rc<Cell<Bounds<Pixels>>>>,
 }
 
 impl SequenceView {
@@ -209,7 +202,6 @@ impl SequenceView {
             focus_add_first: false,
             focus_item: None,
             shown: false,
-            bounds: HashMap::new(),
         }
     }
 }

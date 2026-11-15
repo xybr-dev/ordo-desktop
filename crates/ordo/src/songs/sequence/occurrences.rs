@@ -38,6 +38,32 @@ use crate::{
     },
 };
 
+/// What a drag of an occurrence row carries.
+#[derive(Clone)]
+pub struct DraggedOccurrence {
+    /// The occurrence being moved.
+    pub id: OccurrenceId,
+    /// What the drag preview says.
+    pub label: String,
+    text: u32,
+    surface: u32,
+    border: u32,
+}
+
+impl gpui::Render for DraggedOccurrence {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(tokens::spacing::RELATED))
+            .py(px(tokens::spacing::RELATED_TIGHT))
+            .rounded(px(tokens::radius::CONTROL))
+            .border(px(tokens::border::SEPARATOR))
+            .border_color(rgb(self.border))
+            .bg(rgb(self.surface))
+            .text_color(rgb(self.text))
+            .child(self.label.clone())
+    }
+}
+
 /// The pane's heading.
 pub const HEAD: &str = "Sequence";
 
@@ -456,6 +482,35 @@ fn occurrence_row(
                 }),
             )
     });
+    // Where this row is painted, so a drop can tell its upper half from its
+    // lower half.
+    let area = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<gpui::Pixels>::default()));
+    let measured = area.clone();
+    let dropped = weak.clone();
+    let grip = (!read_only).then(|| {
+        let carried = DraggedOccurrence {
+            id,
+            label: format!("{pos} {name}"),
+            text: palette.text,
+            surface: palette.surface_secondary,
+            border: palette.border,
+        };
+        div()
+            .id(("sequence-grip", at))
+            .debug_selector(move || format!("sequence-grip-{at}"))
+            .flex()
+            .flex_none()
+            .items_center()
+            .cursor_grab()
+            .on_drag(carried, |carried, _, _, cx| cx.new(|_| carried.clone()))
+            .child(
+                svg()
+                    .flex_none()
+                    .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                    .text_color(rgb(palette.text_muted))
+                    .data(icon::GRIP_VERTICAL.as_bytes()),
+            )
+    });
     let row = div()
         .id(("sequence-row", at))
         .debug_selector(move || format!("arrangement-sequence-{at}"))
@@ -489,6 +544,23 @@ fn occurrence_row(
         .p(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
         .rounded(px(scale.apply(tokens::radius::CONTROL)))
         .when(current, |row| row.bg(rgb(palette.surface_secondary)))
+        .when(!read_only, |row| {
+            row.drag_over::<DraggedOccurrence>(move |style, _, _, _| {
+                style.bg(rgb(palette.surface_secondary))
+            })
+            .on_drop(move |carried: &DraggedOccurrence, window, cx| {
+                let lower = window.mouse_position().y > area.get().center().y;
+                let _ = dropped.update(cx, |editor, cx| {
+                    editor.drop_occurrence(carried.id, id, lower, cx);
+                });
+            })
+        })
+        .child(
+            gpui::canvas(move |bounds, _, _| measured.set(bounds), |_, _, _, _| {})
+                .absolute()
+                .size_full(),
+        )
+        .children(grip)
         .child(expander)
         .child(label)
         .children(actions);
