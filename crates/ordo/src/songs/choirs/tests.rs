@@ -549,7 +549,7 @@ fn ac8_repertoire_rows_open_the_overview_and_back_keeps_the_selection(cx: &mut T
     assert!(present(vcx, "choir-repertoire-table"));
 
     click(vcx, "arrangement-open-0");
-    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-lyrics"));
     click(vcx, "button-Back to Choirs");
     assert!(!present(vcx, "focused-editor") && present(vcx, "choirs-detail"));
     ws.read_with(vcx, |ws, _| assert_eq!(ws.selected(), Some(memory.koro)));

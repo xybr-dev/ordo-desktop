@@ -426,7 +426,7 @@ fn ac7_arrangement_round_trip_restores_query_filters_selection_and_scroll(cx: &m
         .expect("selected row painted");
 
     click(cx, "arrangement-open-0");
-    assert!(present(cx, "focused-editor") && present(cx, "arrangement-overview"));
+    assert!(present(cx, "focused-editor") && present(cx, "arrangement-lyrics"));
     assert!(present(cx, "arrangement-section-0") && present(cx, "arrangement-section-1"));
     click(cx, "tab-1");
     assert!(present(cx, "arrangement-sequence-2"));

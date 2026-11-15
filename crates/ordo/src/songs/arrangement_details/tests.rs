@@ -460,7 +460,7 @@ fn ac5_a_created_arrangement_opens_in_its_focused_view(cx: &mut TestAppContext) 
     let focused = focused.expect("the new Arrangement is open");
     assert!(!known.contains(&focused), "the focused view is the new one");
     assert_eq!(label_of(&store, focused, vcx), "Latin");
-    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-lyrics-empty"));
     assert!(present(vcx, "arrangement-no-sections"));
     assert!(present(vcx, "button-Add first section"));
     assert!(

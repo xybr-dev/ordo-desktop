@@ -6,7 +6,9 @@ use domain::{
         ArrangementId, EntityId, HistorySessionId, OccurrenceId, SectionId, SongId, Timestamp,
     },
     revisions::EditPoint,
-    song_library::{ArrangementDraft, OccurrenceDraft, SectionDraft, SongDraft, SongLibrary},
+    song_library::{
+        ArrangementDraft, OccurrenceDraft, PaginationState, SectionDraft, SongDraft, SongLibrary,
+    },
 };
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 
@@ -23,7 +25,7 @@ use crate::{
     },
 };
 
-const SAVE_DIALOG: &str = "Couldn't save.";
+const SAVE_DIALOG: &str = "Couldn\u{2019}t save";
 
 fn entity(n: u8) -> EntityId {
     EntityId::from_random_bytes([n; 16])
@@ -222,6 +224,38 @@ fn parish_editor<'a>(
     ArrangementId,
     &'a mut VisualTestContext,
 ) {
+    parish_with(cx, tag, false)
+}
+
+/// The same Arrangement as [`library`]: Verse 1 and Chorus, a Sequence of
+/// Verse, Chorus, Verse and Approved pagination, written through the real
+/// store.
+fn parish_full<'a>(
+    cx: &'a mut TestAppContext,
+    tag: &str,
+) -> (
+    std::path::PathBuf,
+    crate::songs::StorageSlot,
+    Entity<LibraryStore>,
+    Entity<ShellView>,
+    ArrangementId,
+    &'a mut VisualTestContext,
+) {
+    parish_with(cx, tag, true)
+}
+
+fn parish_with<'a>(
+    cx: &'a mut TestAppContext,
+    tag: &str,
+    full: bool,
+) -> (
+    std::path::PathBuf,
+    crate::songs::StorageSlot,
+    Entity<LibraryStore>,
+    Entity<ShellView>,
+    ArrangementId,
+    &'a mut VisualTestContext,
+) {
     let (dir, slot, store, seeded) = parish(cx, tag);
     let (shell, vcx) = open_store(cx, store.clone());
     let id = store.read_with(vcx, |store, _| {
@@ -234,11 +268,27 @@ fn parish_editor<'a>(
     let mut lyrics = store.read_with(vcx, |store, _| {
         store.library().arrangement(id).expect("stored").lyrics()
     });
-    lyrics.sections.push(SectionDraft::labeled(
-        SectionId::from_entity(entity(77)),
-        "Verse 1",
-        "First words",
-    ));
+    let verse = SectionId::from_entity(entity(77));
+    if full {
+        let chorus = SectionId::from_entity(entity(78));
+        let occurrence =
+            |n: u8, section| OccurrenceDraft::new(OccurrenceId::from_entity(entity(n)), section);
+        lyrics.sections.clear();
+        lyrics.sections.extend([
+            SectionDraft::labeled(verse, "Verse 1", "Ave Maria"),
+            SectionDraft::labeled(chorus, "Chorus", "Refrain line"),
+        ]);
+        lyrics.sequence = vec![
+            occurrence(81, verse),
+            occurrence(82, chorus),
+            occurrence(83, verse),
+        ];
+        lyrics.pagination = PaginationState::Approved;
+    } else {
+        lyrics
+            .sections
+            .push(SectionDraft::labeled(verse, "Verse 1", "First words"));
+    }
     let session = HistorySessionId::from_entity(entity(9));
     write(&store, vcx, |store, cx| {
         store.save_arrangement_lyrics(id, lyrics, session, cx)
@@ -476,7 +526,7 @@ fn a_failed_flush_keeps_arrangement_details_closed_until_the_operator_decides(
 }
 
 #[gpui::test]
-fn an_archived_arrangement_is_a_read_only_frame_without_a_session(cx: &mut TestAppContext) {
+fn an_archived_song_makes_the_editor_read_only(cx: &mut TestAppContext) {
     let (shell, editor, _id, vcx) = in_memory(cx, true);
     assert!(editor.read_with(vcx, |editor, _| editor.is_read_only()
         && editor.session().is_none()));
@@ -487,6 +537,24 @@ fn an_archived_arrangement_is_a_read_only_frame_without_a_session(cx: &mut TestA
     assert!(
         present(vcx, "arrangement-section-0"),
         "the content is still inspectable"
+    );
+    for hidden in [
+        "button-Split here",
+        "button-Join with next slide",
+        "button-Join with previous slide",
+        "button-Remove section",
+        "button-Move up",
+        "button-Move down",
+        "button-Add section",
+    ] {
+        assert!(
+            !present(vcx, hidden),
+            "{hidden} is not offered when read-only"
+        );
+    }
+    assert!(
+        editor.read_with(vcx, |editor, _| editor.lyric_area().is_some()),
+        "the text is still shown"
     );
     click(vcx, "button-Back to Songs");
     settle(vcx);
@@ -601,7 +669,8 @@ fn ac2_leaving_an_empty_arrangement_keeps_it_empty(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn ac3_add_section_needs_a_unique_name_then_focuses_the_lyrics(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-add-unique");
+    let editor = open_editor(&shell, id, vcx);
     let attempt =
         |editor: &Entity<ArrangementEditor>, name: &'static str, vcx: &mut VisualTestContext| {
             editor.update(vcx, |editor, cx| editor.add_section(name, cx))
@@ -612,7 +681,7 @@ fn ac3_add_section_needs_a_unique_name_then_focuses_the_lyrics(cx: &mut TestAppC
     );
     assert_eq!(
         attempt(&editor, "verse 1", vcx),
-        Err("Another section is already called verse 1.".to_owned())
+        Err("Another section is already called Verse 1.".to_owned())
     );
     assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
     // A double Enter inside one update adds once.
@@ -631,6 +700,10 @@ fn ac3_add_section_needs_a_unique_name_then_focuses_the_lyrics(cx: &mut TestAppC
         )
     });
     assert_eq!(selected, Some(last), "the new section is selected");
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
@@ -679,7 +752,7 @@ fn type_into_area(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut Visu
 }
 
 fn caption(vcx: &mut VisualTestContext) -> bool {
-    present(vcx, "arrangement-slide-caption")
+    present(vcx, "arrangement-section-sung")
 }
 
 /// Replaces the first section's lyrics in the session and reloads the field.
@@ -699,8 +772,9 @@ fn slide_counts(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext)
 }
 
 #[gpui::test]
-fn typing_sets_the_lyrics_and_a_blank_line_makes_two_slides(cx: &mut TestAppContext) {
-    let (shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac4_blank_line_starts_a_slide_and_deleting_it_joins(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-typing-sets-the-lyri");
+    let editor = open_editor(&shell, id, vcx);
     let _ = shell;
     type_into_area(
         &editor,
@@ -739,10 +813,11 @@ Niño",
 Niño"
     );
     assert_eq!(slide_counts(&editor, vcx).0, 1);
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
-fn split_and_join_are_structural_edits_with_exact_labels(cx: &mut TestAppContext) {
+fn ac5_split_and_join_labels_name_exact_targets(cx: &mut TestAppContext) {
     let (dir, slot, store, shell, id, vcx) = parish_editor(cx, "t27-split-join");
     let editor = open_editor(&shell, id, vcx);
     seed_lyrics(
@@ -758,7 +833,7 @@ Vida",
         "labelled by its line"
     );
     assert!(
-        present(vcx, "button-Join with previous"),
+        present(vcx, "button-Join with previous slide"),
         "slide 1 cannot join"
     );
     click(vcx, "button-Split after line 2");
@@ -783,7 +858,11 @@ Paz
 Vida",
         "reloaded"
     );
-    assert_eq!(slide_counts(&editor, vcx), (2, 0));
+    assert_eq!(
+        slide_counts(&editor, vcx),
+        (2, 1),
+        "after a split the caret is on the new slide"
+    );
     // A native Ctrl+Z in the field cannot bring back the pre-split text.
     editor.update_in(vcx, |editor, window, cx| {
         editor.select_slide(1, window, cx);
@@ -817,8 +896,9 @@ Vida"
 }
 
 #[gpui::test]
-fn split_is_unavailable_on_a_one_line_slide(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac5_join_is_disabled_on_the_first_slide(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-split-is-unavailable");
+    let editor = open_editor(&shell, id, vcx);
     seed_lyrics(&editor, "Ginoó", vcx);
     assert!(present(vcx, "button-Split slide"));
     let refused = editor.update(vcx, |editor, cx| editor.split_selected_slide(cx));
@@ -827,11 +907,13 @@ fn split_is_unavailable_on_a_one_line_slide(cx: &mut TestAppContext) {
         editor.update(vcx, |editor, cx| editor.join_selected_slide(cx)),
         Err("The first slide has no slide before it.".to_owned())
     );
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
 fn the_selected_slide_follows_the_caret(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-the-selected-slide-f");
+    let editor = open_editor(&shell, id, vcx);
     type_into_area(
         &editor,
         "Ginoó
@@ -844,6 +926,7 @@ Niño",
     vcx.simulate_keystrokes("ctrl-home");
     settle(vcx);
     assert_eq!(slide_counts(&editor, vcx), (2, 0));
+    finish(vcx, &slot, &dir);
 }
 
 fn thumbnail_size(vcx: &mut VisualTestContext, selector: &'static str) -> (f32, f32) {
@@ -859,8 +942,9 @@ fn wait_for_frames(editor: &Entity<ArrangementEditor>, count: usize, vcx: &mut V
 }
 
 #[gpui::test]
-fn thumbnails_have_one_fixed_16_9_size_whether_alone_or_in_a_full_row(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac7_thumbnails_keep_one_size_alone_and_in_a_full_row(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-thumbnails-have-one-");
+    let editor = open_editor(&shell, id, vcx);
     seed_lyrics(&editor, "Ginoó", vcx);
     let alone = thumbnail_size(vcx, "thumb-0");
     seed_lyrics(
@@ -885,11 +969,13 @@ Ave",
         (alone.0 * 9.0 / 16.0 - alone.1).abs() < 1.0,
         "16:9: {alone:?}"
     );
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
 fn slides_are_composed_off_thread_cached_and_shown_in_the_inspector(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-slides-are-composed-");
+    let editor = open_editor(&shell, id, vcx);
     seed_lyrics(
         &editor,
         "Ginoó
@@ -914,11 +1000,13 @@ Vida",
     click(vcx, "arrangement-section-1");
     settle(vcx);
     assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
-fn clicking_a_thumbnail_selects_its_lines_and_the_inspector_follows(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac7_selecting_a_thumbnail_selects_its_lines_and_drives_the_inspector(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-clicking-a-thumbnail");
+    let editor = open_editor(&shell, id, vcx);
     seed_lyrics(
         &editor,
         "Ginoó
@@ -945,21 +1033,24 @@ Vida",
         "the slide's source lines are selected"
     );
     assert!(present(vcx, "inspector-slide"));
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
 fn below_the_pane_minima_only_the_inspector_moves_to_a_slideover(cx: &mut TestAppContext) {
-    let (shell, _editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_editor(cx, "t27-below-the-pane-minim");
+    let _editor = open_editor(&shell, id, vcx);
     vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
     settle(vcx);
     assert!(present(vcx, "arrangement-sections"), "the sections stay");
-    assert!(present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "arrangement-lyrics"));
     assert!(!present(vcx, "arrangement-inspector"), "no Inspector pane");
     assert!(present(vcx, "button-Inspector"));
     click(vcx, "button-Inspector");
     settle(vcx);
     assert_eq!(dialog(&shell, vcx).as_deref(), Some("Inspector"));
-    assert!(present(vcx, "inspector-slide"));
+    assert!(present(vcx, "inspector-meta"));
+    finish(vcx, &slot, &dir);
 }
 
 fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String> {
@@ -991,7 +1082,8 @@ fn type_in_rename(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut Visu
 
 #[gpui::test]
 fn move_buttons_reorder_the_list_only_and_edges_are_unavailable(cx: &mut TestAppContext) {
-    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-move-buttons");
+    let editor = open_editor(&shell, id, vcx);
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
     // Verse 1 is first: Move up does nothing and writes nothing.
@@ -1011,30 +1103,62 @@ fn move_buttons_reorder_the_list_only_and_edges_are_unavailable(cx: &mut TestApp
         toasts(&shell, vcx),
         ["Moved Verse 1 in Lyrics. The Sequence is unchanged."]
     );
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
-fn alt_arrows_move_the_focused_row_and_focus_stays_on_it(cx: &mut TestAppContext) {
-    let (_shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac8_alt_up_moves_the_focused_section_and_undo_returns_it(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t27-alt-up");
+    let editor = open_editor(&shell, id, vcx);
     settle(vcx);
     click(vcx, "arrangement-section-1");
     let chorus = editor
         .read_with(vcx, |editor, _| editor.selected_section())
         .expect("selected");
-    vcx.update(|window, cx| {
-        let handle = editor.read(cx).lyrics.rows[&chorus].clone();
-        window.focus(&handle, cx);
-    });
+    let row = editor.read_with(vcx, |editor, _| editor.lyrics.rows[&chorus].clone());
+    vcx.update(|window, cx| window.focus(&row, cx));
     vcx.simulate_keystrokes("alt-up");
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
-    let focused = vcx.update(|window, cx| editor.read(cx).lyrics.rows[&chorus].is_focused(window));
+    let focused = vcx.update(|window, _| row.is_focused(window));
     assert!(focused, "focus stays on the moved row");
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    let stored = |vcx: &mut VisualTestContext| -> Vec<String> {
+        store.read_with(vcx, |store, _| {
+            store
+                .library()
+                .arrangement(id)
+                .expect("stored")
+                .lyrics()
+                .sections
+                .iter()
+                .map(|section| section.label.clone().unwrap_or_default())
+                .collect()
+        })
+    };
+    assert_eq!(stored(vcx), ["Chorus", "Verse 1"], "saved in the new order");
+    // Undo outside a text field is the editor's own.
+    vcx.simulate_keystrokes("ctrl-z");
+    wait(vcx, |vcx| {
+        settle(vcx);
+        sections_of(&editor, vcx) == ["Verse 1", "Chorus"]
+    });
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    assert_eq!(stored(vcx), ["Verse 1", "Chorus"]);
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
 fn rename_commits_on_enter_restores_on_escape_and_explains_a_taken_name(cx: &mut TestAppContext) {
-    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-rename-enter");
+    let editor = open_editor(&shell, id, vcx);
     settle(vcx);
     type_in_rename(&editor, "chorus", vcx);
     vcx.simulate_keystrokes("enter");
@@ -1055,14 +1179,20 @@ fn rename_commits_on_enter_restores_on_escape_and_explains_a_taken_name(cx: &mut
     vcx.simulate_keystrokes("enter");
     settle(vcx);
     assert_eq!(sections_of(&editor, vcx), ["Verse One", "Chorus"]);
-    assert_eq!(toasts(&shell, vcx), ["Renamed Verse 1 to Verse One."]);
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["Renamed Verse 1 to Verse One. Every Sequence occurrence shows the new name."]
+    );
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
-fn removing_a_used_section_asks_first_and_removes_its_occurrences_in_one_edit(
-    cx: &mut TestAppContext,
-) {
-    let (shell, editor, _id, vcx) = in_memory(cx, false);
+fn ac9_removing_a_used_section_confirms_with_the_count(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-remove-used");
+    let editor = open_editor(&shell, id, vcx);
     settle(vcx);
     click(vcx, "arrangement-section-1");
     click(vcx, "button-Remove section");
@@ -1084,6 +1214,10 @@ fn removing_a_used_section_asks_first_and_removes_its_occurrences_in_one_edit(
     assert_eq!(toasts(&shell, vcx), ["Removed Chorus."]);
     // Selection falls back onto an existing section.
     assert!(editor.read_with(vcx, |editor, _| editor.selected_section().is_some()));
+    wait(vcx, |vcx| {
+        save_state(&editor, vcx) == Some(SaveState::Saved)
+    });
+    finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
@@ -1361,6 +1495,236 @@ fn ctrl_z_in_a_text_field_is_the_fields_own_and_outside_it_is_the_editors(cx: &m
         settle(vcx);
         sections_of(&editor, vcx).len() < with_bridge.len()
     });
+    finish(vcx, &slot, &dir);
+}
+
+fn stored_pagination(
+    store: &Entity<LibraryStore>,
+    id: ArrangementId,
+    vcx: &mut VisualTestContext,
+) -> PaginationState {
+    store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangement(id)
+            .expect("stored")
+            .lyrics()
+            .pagination
+    })
+}
+
+/// Lets a debounced text edit come due, then waits for the write.
+fn saved(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
+    vcx.executor()
+        .advance_clock(std::time::Duration::from_secs(10));
+    wait(vcx, |vcx| save_state(editor, vcx) == Some(SaveState::Saved));
+    settle(vcx);
+}
+
+#[gpui::test]
+fn removing_an_unused_section_is_immediate_with_an_undo_toast(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-remove-unused");
+    let editor = open_editor(&shell, id, vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    assert_eq!(
+        dialog(&shell, vcx),
+        None,
+        "an unused section needs no question"
+    );
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    assert_eq!(toasts(&shell, vcx), ["Removed Bridge."]);
+    assert!(present(vcx, "button-Undo"));
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac9_undo_restores_the_removed_section_and_its_occurrences(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t27-undo-restores");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "arrangement-section-1");
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    click(vcx, "button-Remove section");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
+    assert_eq!(sequence_len(&editor, vcx), 2);
+    click(vcx, "button-Undo");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    assert_eq!(sequence_len(&editor, vcx), 3, "the occurrence came back");
+    saved(&editor, vcx);
+    let stored = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("stored").lyrics()
+    });
+    assert_eq!(stored.sections.len(), 2);
+    assert_eq!(stored.sequence.len(), 3);
+    assert_eq!(stored.pagination, PaginationState::Approved);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn a_toast_undo_is_dismissed_by_a_later_edit_through_the_real_store(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-toast-later");
+    let editor = open_editor(&shell, id, vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    type_into_area(&editor, "Bridge words", vcx);
+    saved(&editor, vcx);
+    assert!(
+        toasts(&shell, vcx).is_empty(),
+        "the Undo toast would undo the typing"
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn typing_on_an_approved_arrangement_needs_review_and_undo_restores_approved(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t27-needs-review");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        PaginationState::Approved
+    );
+    type_into_area(&editor, "Ave Maria, gratia plena", vcx);
+    saved(&editor, vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        PaginationState::NeedsReview
+    );
+    // Focus outside a text field: Undo is the editor's own.
+    click(vcx, "arrangement-section-0");
+    vcx.simulate_keystrokes("ctrl-z");
+    settle(vcx);
+    saved(&editor, vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        PaginationState::Approved
+    );
+    assert_eq!(stored_lyrics(&store, id, vcx), "Ave Maria");
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn rename_commits_on_blur_and_on_section_switch(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-rename-blur");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    // A blank name is refused on blur and the old one is kept.
+    type_in_rename(&editor, "  ", vcx);
+    vcx.update(|window, cx| area.focus(window, cx));
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    assert_eq!(
+        toasts(&shell, vcx),
+        ["A section needs a name. Kept Verse 1."]
+    );
+    // A good name is committed by leaving the field.
+    type_in_rename(&editor, "Verse One", vcx);
+    vcx.update(|window, cx| area.focus(window, cx));
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse One", "Chorus"]);
+    saved(&editor, vcx);
+    // And by choosing another section.
+    type_in_rename(&editor, "Verse Uno", vcx);
+    click(vcx, "arrangement-section-1");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse Uno", "Chorus"]);
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn add_section_popover_enter_adds_and_focuses_the_lyrics(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-popover-enter");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    click(vcx, "button-Add section");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Add section"));
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    let names = sections_of(&editor, vcx);
+    assert_eq!(names.len(), 3, "the suggested name was added: {names:?}");
+    assert_eq!(names[..2], ["Verse 1", "Chorus"]);
+    assert!(!editor.read_with(vcx, |editor, _| editor.add_section_open()));
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    assert!(
+        vcx.update(|window, cx| area.focus_handle(cx).is_focused(window)),
+        "the lyric editor has focus"
+    );
+    saved(&editor, vcx);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn crlf_paste_splits_slides_and_keeps_bytes(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t27-crlf-paste");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    vcx.update(|window, cx| {
+        area.set_value("", window, cx);
+        area.focus(window, cx);
+    });
+    vcx.write_to_clipboard(gpui::ClipboardItem::new_string(
+        "Ave\r\nMaria\r\n\r\nGratia".into(),
+    ));
+    vcx.simulate_keystrokes("ctrl-v");
+    settle(vcx);
+    saved(&editor, vcx);
+    let shown = area_value(&editor, vcx);
+    let kept = stored_lyrics(&store, id, vcx);
+    assert_eq!(kept, shown, "what is stored is what the field holds");
+    assert_eq!(
+        domain::pagination::slides(&kept).len(),
+        2,
+        "a CRLF blank line starts a slide: {kept:?}"
+    );
+    assert!(kept.contains("Ave") && kept.contains("Gratia"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn panes_switch_to_compact_by_scaled_minima(cx: &mut TestAppContext) {
+    use gpui::{px, size};
+    use ui::environment::{EnvironmentChange, InterfaceScale};
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t27-compact-scale");
+    let _editor = open_editor(&shell, id, vcx);
+    vcx.simulate_resize(size(px(1400.0), px(900.0)));
+    settle(vcx);
+    assert!(
+        present(vcx, "arrangement-inspector"),
+        "100% fits all three panes"
+    );
+    assert!(!present(vcx, "button-Inspector"));
+    shell.update(vcx, |shell, cx| {
+        shell.change_from_settings(EnvironmentChange::SetScale(InterfaceScale::Percent125), cx);
+    });
+    settle(vcx);
+    assert!(
+        !present(vcx, "arrangement-inspector"),
+        "the same window is too narrow once the minima are scaled"
+    );
+    assert!(present(vcx, "button-Inspector"));
     finish(vcx, &slot, &dir);
 }
 
