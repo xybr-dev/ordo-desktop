@@ -58,6 +58,7 @@ pub fn build(
         };
     };
     let weak = cx.weak_entity();
+    editor.refresh_unrenderable(&content);
     match tab {
         TaskTab::Lyrics => {
             editor.lyrics.resolve_selection(&content);

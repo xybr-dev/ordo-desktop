@@ -12,6 +12,7 @@ mod e2e;
 pub mod library;
 pub mod lyrics;
 pub mod new_song;
+pub mod sequence;
 pub mod store;
 
 pub use arrangement_details::ArrangementDetailsPanel;

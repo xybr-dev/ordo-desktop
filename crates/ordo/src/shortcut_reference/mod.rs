@@ -76,6 +76,8 @@ pub struct ReferenceRow {
     pub id: CommandId,
     pub keycaps: &'static str,
     pub label: &'static str,
+    /// A second line under the label, or empty.
+    pub description: &'static str,
 }
 
 /// A titled group of rows.
@@ -107,6 +109,7 @@ pub fn model(current: Group) -> ReferenceModel {
                     id: entry.id,
                     keycaps: entry.keycaps,
                     label: entry.label,
+                    description: entry.description,
                 })
                 .collect();
             (!rows.is_empty()).then_some(ReferenceGroup {
@@ -327,7 +330,17 @@ fn row_element(row: &ReferenceRow, environment: UiEnvironment) -> AnyElement {
         .gap(px(scale.apply(tokens::spacing::CONTROL_INSET)))
         .border_b(px(tokens::border::SEPARATOR))
         .border_color(rgb(palette.border))
-        .child(div().min_w_0().child(row.label))
+        .child(div().min_w_0().flex().flex_col().child(row.label).when(
+            !row.description.is_empty(),
+            |label| {
+                label.child(
+                    div()
+                        .text_color(rgb(palette.text_muted))
+                        .text_size(px(scale.apply(tokens::typography::CAPTION.size)))
+                        .child(row.description),
+                )
+            },
+        ))
         .child(
             div()
                 .flex_none()
@@ -380,6 +393,7 @@ mod tests {
                     assert_eq!(entry.group, group.group, "{:?}", row.id);
                     assert_eq!(entry.keycaps, row.keycaps, "{:?}", row.id);
                     assert_eq!(entry.label, row.label, "{:?}", row.id);
+                    assert_eq!(entry.description, row.description, "{:?}", row.id);
                 }
             }
         }

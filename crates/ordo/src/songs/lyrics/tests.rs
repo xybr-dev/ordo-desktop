@@ -99,7 +99,7 @@ fn build(archived: bool, empty: bool) -> (SongLibrary, ArrangementId) {
 }
 
 /// The shell over the in-memory library with the editor open.
-fn in_memory(
+pub(crate) fn in_memory(
     cx: &mut TestAppContext,
     archived: bool,
 ) -> (
@@ -216,7 +216,7 @@ fn wait_for_dialog(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) {
 
 /// An Arrangement with one section, written through the real store, and the
 /// shell over it.
-fn parish_editor<'a>(
+pub(crate) fn parish_editor<'a>(
     cx: &'a mut TestAppContext,
     tag: &str,
 ) -> (
@@ -233,7 +233,7 @@ fn parish_editor<'a>(
 /// The same Arrangement as [`library`]: Verse 1 and Chorus, a Sequence of
 /// Verse, Chorus, Verse and Approved pagination, written through the real
 /// store.
-fn parish_full<'a>(
+pub(crate) fn parish_full<'a>(
     cx: &'a mut TestAppContext,
     tag: &str,
 ) -> (

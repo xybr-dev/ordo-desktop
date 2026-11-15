@@ -124,6 +124,9 @@ pub(super) fn request_frames(
             let _ = editor.update(cx, |editor, cx| {
                 editor.lyrics.pending.remove(&stored);
                 editor.lyrics.frames.insert(stored, composed.map(Arc::new));
+                if let Some(content) = editor.content(cx) {
+                    editor.refresh_unrenderable(&content);
+                }
                 cx.notify();
             });
         });
