@@ -14,8 +14,7 @@ use domain::{
     song_library::{
         ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
         ChoirDraft, Field, HydrateArrangement, HydrateChoir, HydrateSong, OccurrenceDraft,
-        PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError,
-        match_key,
+        RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError, match_key,
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
@@ -293,9 +292,7 @@ fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
                 id: section.id,
                 label: section.label.clone(),
                 lyrics: section.lyrics.clone(),
-                // T2.8 WP3 replaces this bridge: migration 0007 stores each
-                // section's state, so the record will carry it here.
-                pagination: record.pagination,
+                pagination: section.pagination,
             })
             .collect(),
         sequence: record
@@ -303,36 +300,6 @@ fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
             .iter()
             .map(|occurrence| OccurrenceDraft::new(occurrence.id, occurrence.section))
             .collect(),
-    }
-}
-
-/// The one Arrangement-wide state storage still holds, derived from the
-/// sections until migration 0007 gives each section its own.
-///
-/// T2.8 WP3 replaces this bridge. A section needing review makes the whole
-/// Arrangement need review; otherwise the Arrangement is Approved when every
-/// non-empty section is Approved, and Draft when there is nothing to approve.
-fn bridge_pagination_state(sections: &[SectionDraft]) -> PaginationState {
-    if sections
-        .iter()
-        .any(|section| section.pagination == PaginationState::NeedsReview)
-    {
-        return PaginationState::NeedsReview;
-    }
-    let mut approved = false;
-    for section in sections
-        .iter()
-        .filter(|section| !domain::pagination::slides(&section.lyrics).is_empty())
-    {
-        if section.pagination != PaginationState::Approved {
-            return PaginationState::Draft;
-        }
-        approved = true;
-    }
-    if approved {
-        PaginationState::Approved
-    } else {
-        PaginationState::Draft
     }
 }
 
@@ -696,16 +663,13 @@ impl LibraryStore {
                 }
                 Prepared::SaveLyrics(id, lyrics, session) => {
                     let ArrangementLyrics { sections, sequence } = *lyrics;
-                    // T2.8 WP3 replaces this bridge: migration 0007 stores each
-                    // section's state, so the commit will take them from the
-                    // sections instead of deriving one Arrangement state.
-                    let pagination = bridge_pagination_state(&sections);
                     let sections = sections
                         .into_iter()
                         .map(|section| SectionContent {
                             id: section.id,
                             label: section.label,
                             lyrics: section.lyrics,
+                            pagination: section.pagination,
                         })
                         .collect();
                     let sequence = sequence
@@ -715,8 +679,7 @@ impl LibraryStore {
                             section: occurrence.section,
                         })
                         .collect();
-                    let commit = storage
-                        .commit_arrangement_lyrics(id, sections, sequence, pagination, session);
+                    let commit = storage.commit_arrangement_lyrics(id, sections, sequence, session);
                     boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
                 }
             });

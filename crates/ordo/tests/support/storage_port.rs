@@ -128,6 +128,8 @@ impl StoragePort {
                 id: section,
                 label: Some(item.clone()),
                 lyrics: item.clone(),
+                // The harness runs no pagination rule; sections stay Draft.
+                pagination: PaginationState::Draft,
             });
             sequence.push(OccurrenceContent {
                 id: occurrence,
@@ -189,8 +191,6 @@ impl RevisionPort<HarnessContent> for StoragePort {
             storage.commit_arrangement_edit(
                 self.arrangement,
                 content,
-                // The harness runs no pagination rule; keep the default state.
-                PaginationState::Draft,
                 point.kind,
                 point.session,
                 self.expected_parent.get(),

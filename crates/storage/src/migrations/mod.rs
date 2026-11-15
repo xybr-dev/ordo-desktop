@@ -67,6 +67,11 @@ pub(crate) fn bundled() -> Vec<Migration> {
             name: "0006_arrangement_details",
             sql: include_str!("../../../../migrations/0006_arrangement_details.sql"),
         },
+        Migration {
+            id: 7,
+            name: "0007_section_pagination",
+            sql: include_str!("../../../../migrations/0007_section_pagination.sql"),
+        },
     ];
     debug_assert!(
         migrations.windows(2).all(|pair| pair[0].id < pair[1].id),
@@ -271,8 +276,8 @@ mod tests {
         assert!(status.is_ok());
         let status = status.unwrap_or_else(|_| unreachable!());
 
-        assert_eq!(status.version, 6);
-        assert_eq!(status.applied.len(), 6);
+        assert_eq!(status.version, 7);
+        assert_eq!(status.applied.len(), 7);
         assert_eq!(status.applied[0].id, 1);
         assert_eq!(status.applied[0].name, "0001_parish_profile");
         assert_eq!(status.applied[1].id, 2);
@@ -285,6 +290,8 @@ mod tests {
         assert_eq!(status.applied[4].name, "0005_library_details");
         assert_eq!(status.applied[5].id, 6);
         assert_eq!(status.applied[5].name, "0006_arrangement_details");
+        assert_eq!(status.applied[6].id, 7);
+        assert_eq!(status.applied[6].name, "0007_section_pagination");
         let bundled = bundled();
         assert_eq!(status.applied[0].checksum, checksum(bundled[0].sql));
         assert_eq!(status.applied[1].checksum, checksum(bundled[1].sql));
@@ -292,10 +299,11 @@ mod tests {
         assert_eq!(status.applied[3].checksum, checksum(bundled[3].sql));
         assert_eq!(status.applied[4].checksum, checksum(bundled[4].sql));
         assert_eq!(status.applied[5].checksum, checksum(bundled[5].sql));
+        assert_eq!(status.applied[6].checksum, checksum(bundled[6].sql));
         assert_eq!(status.applied[0].checksum.len(), 64);
         assert_eq!(status.journal_mode, "wal");
         assert!(status.foreign_keys);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 6);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
     }
 
     #[test]
@@ -334,13 +342,13 @@ mod tests {
 
         let mut broken = bundled();
         broken.push(Migration {
-            id: 7,
-            name: "0007_broken",
+            id: 8,
+            name: "0008_broken",
             sql: "CREATE TABLE extra_table (x INTEGER); INSERT INTO missing_table VALUES (1);",
         });
         let result = open_and_migrate(&mut conn, &broken);
         assert!(
-            matches!(result, Err(StorageError::MigrationFailed { id: 7, .. })),
+            matches!(result, Err(StorageError::MigrationFailed { id: 8, .. })),
             "unexpected result: {result:?}"
         );
 
@@ -349,8 +357,8 @@ mod tests {
             "SELECT COUNT(*) FROM sqlite_master WHERE name = 'extra_table'",
         );
         assert_eq!(extra, 0);
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 6);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 6);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 7);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
         assert_eq!(
             scalar_i64(
                 &conn,
@@ -380,11 +388,11 @@ mod tests {
             result,
             Err(StorageError::NewerSchema {
                 found: 999,
-                supported: 6
+                supported: 7
             })
         );
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 7);
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 6);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 8);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
         assert_eq!(
             scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
             tables_before
@@ -396,18 +404,18 @@ mod tests {
         let dir = TempDir::new("user-version-newer");
         let mut conn = open(&dir);
         assert!(open_and_migrate(&mut conn, &bundled()).is_ok());
-        assert!(conn.pragma_update(None, "user_version", 7).is_ok());
+        assert!(conn.pragma_update(None, "user_version", 8).is_ok());
         let tables_before = scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master");
 
         assert_eq!(
             open_and_migrate(&mut conn, &bundled()),
             Err(StorageError::NewerSchema {
-                found: 7,
-                supported: 6
+                found: 8,
+                supported: 7
             })
         );
-        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 7);
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 6);
+        assert_eq!(scalar_i64(&conn, "PRAGMA user_version"), 8);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 7);
         assert_eq!(
             scalar_i64(&conn, "SELECT COUNT(*) FROM sqlite_master"),
             tables_before
@@ -429,7 +437,7 @@ mod tests {
             open_and_migrate(&mut conn, &bundled()),
             Err(StorageError::UnknownMigrationLedger { id: 2 })
         );
-        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 5);
+        assert_eq!(scalar_i64(&conn, "SELECT COUNT(*) FROM ordo_migrations"), 6);
     }
 
     #[test]

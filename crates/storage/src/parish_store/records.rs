@@ -167,6 +167,8 @@ pub struct SectionRecord {
     pub label: Option<String>,
     /// Lyrics exactly as authored.
     pub lyrics: String,
+    /// Whether this section's pagination is a draft, approved, or needs review.
+    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
 }
@@ -205,8 +207,6 @@ pub struct ArrangementRecord {
     pub sections: Vec<SectionRecord>,
     /// Sequence occurrences by performance position.
     pub sequence: Vec<OccurrenceRecord>,
-    /// Whether the pagination is a draft, approved, or needs review.
-    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Arrangement was archived, if it has been.
@@ -269,9 +269,6 @@ impl From<SongRecord> for HydrateSong {
 
 impl From<ArrangementRecord> for HydrateArrangement {
     fn from(record: ArrangementRecord) -> Self {
-        // T2.8 WP3 replaces this bridge: migration 0007 stores each section's
-        // state, so hydration will read it from the section row.
-        let pagination = record.pagination;
         Self {
             id: record.id,
             song: record.song,
@@ -291,7 +288,7 @@ impl From<ArrangementRecord> for HydrateArrangement {
                         id: section.id,
                         label: section.label,
                         lyrics: section.lyrics,
-                        pagination,
+                        pagination: section.pagination,
                     })
                     .collect(),
                 sequence: record

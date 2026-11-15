@@ -148,13 +148,13 @@ pub(crate) fn load_content(
     if content::hash_of(&text) != stored {
         return Err(damaged());
     }
-    let (entity, decoded, current) = match (song, arrangement) {
+    let (entity, decoded, legacy) = match (song, arrangement) {
         (Some(song), None) => {
             let song = song.parse::<SongId>().map_err(|_| damaged())?;
             (
                 RevisionEntity::Song(song),
                 RevisionContent::Song(content::decode_song(&text, id)?),
-                true,
+                None,
             )
         }
         (None, Some(arrangement)) => {
@@ -162,10 +162,11 @@ pub(crate) fn load_content(
                 .parse::<ArrangementId>()
                 .map_err(|_| damaged())?;
             let decoded = content::decode_arrangement(&text, id)?;
+            let legacy = (!decoded.current()).then_some(decoded.format);
             (
                 RevisionEntity::Arrangement(arrangement),
                 RevisionContent::Arrangement(decoded.content),
-                decoded.current,
+                legacy,
             )
         }
         _ => return Err(damaged()),
@@ -173,17 +174,14 @@ pub(crate) fn load_content(
     // Strict decoding: current-format bytes must be exactly what this build
     // writes for the decoded content. serde alone accepts a missing optional
     // key, reordered keys, whitespace and unsorted sets; none of those is
-    // canonical. A format-1 Arrangement is compared with its format-1
-    // re-encoding in memory; it is never written back.
-    let canonical = if current {
-        Some(content::encode(&decoded)?.text)
-    } else {
-        match &decoded {
-            RevisionContent::Arrangement(arrangement) => {
-                content::legacy_arrangement_text(arrangement)
-            }
-            RevisionContent::Song(_) => None,
+    // canonical. A legacy (format 1 or 2) Arrangement is compared with its
+    // own format's re-encoding in memory; it is never written back.
+    let canonical = match (legacy, &decoded) {
+        (Some(format), RevisionContent::Arrangement(arrangement)) => {
+            content::legacy_arrangement_text(arrangement, format)
         }
+        (Some(_), RevisionContent::Song(_)) => None,
+        (None, _) => Some(content::encode(&decoded)?.text),
     };
     if canonical.as_deref() != Some(text.as_str()) {
         return Err(damaged());

@@ -174,6 +174,7 @@ fn contents(record: &ArrangementRecord) -> (Vec<SectionContent>, Vec<OccurrenceC
                 id: section.id,
                 label: section.label.clone(),
                 lyrics: section.lyrics.clone(),
+                pagination: section.pagination,
             })
             .collect(),
         record
@@ -185,6 +186,17 @@ fn contents(record: &ArrangementRecord) -> (Vec<SectionContent>, Vec<OccurrenceC
             })
             .collect(),
     )
+}
+
+/// Commits every section of `record` as Approved and returns the stored result.
+fn approve_all(storage: &Storage, record: &ArrangementRecord, byte: u8) -> ArrangementRecord {
+    let (mut sections, sequence) = contents(record);
+    for section in &mut sections {
+        section.pagination = PaginationState::Approved;
+    }
+    bounded(storage.commit_arrangement_lyrics(record.id, sections, sequence, session(byte)))
+        .expect("approve every section")
+        .0
 }
 
 fn table_names(conn: &Connection) -> Vec<String> {
@@ -255,9 +267,13 @@ fn ac8_lyrics_commit_keeps_metadata_and_writes_one_revision() {
     let dir = TempDir::new("metadata");
     let storage = open(&dir);
     let (_song, _choir, created) = seeded(&storage);
-    let approved = bounded(storage.set_pagination_state(created.id, PaginationState::Approved))
-        .expect("approve");
-    assert_eq!(approved.pagination, PaginationState::Approved);
+    let approved = approve_all(&storage, &created, 0x20);
+    assert!(
+        approved
+            .sections
+            .iter()
+            .all(|section| section.pagination == PaginationState::Approved)
+    );
     let entity = RevisionEntity::Arrangement(created.id);
     let creation = bounded(storage.latest_revision(entity)).expect("creation");
     let (mut sections, sequence) = contents(&approved);
@@ -267,6 +283,7 @@ fn ac8_lyrics_commit_keeps_metadata_and_writes_one_revision() {
     // Sequence, every identity and the metadata stay as stored.
     sections.swap(0, 1);
     sections[1].lyrics = "Tinapay sa langit\n\nDayandayan ang gugma".to_owned();
+    sections[1].pagination = PaginationState::NeedsReview;
     let expected_sections = sections.clone();
 
     let shared_before = {
@@ -288,7 +305,6 @@ fn ac8_lyrics_commit_keeps_metadata_and_writes_one_revision() {
         created.id,
         sections,
         sequence.clone(),
-        PaginationState::NeedsReview,
         session(0x21),
     ))
     .expect("lyrics commit");
@@ -304,11 +320,21 @@ fn ac8_lyrics_commit_keeps_metadata_and_writes_one_revision() {
         stored
             .sections
             .iter()
-            .map(|section| (section.id, section.label.clone(), section.lyrics.clone()))
+            .map(|section| (
+                section.id,
+                section.label.clone(),
+                section.lyrics.clone(),
+                section.pagination
+            ))
             .collect::<Vec<_>>(),
         expected_sections
             .iter()
-            .map(|section| (section.id, section.label.clone(), section.lyrics.clone()))
+            .map(|section| (
+                section.id,
+                section.label.clone(),
+                section.lyrics.clone(),
+                section.pagination
+            ))
             .collect::<Vec<_>>()
     );
     assert_eq!(
@@ -323,7 +349,6 @@ fn ac8_lyrics_commit_keeps_metadata_and_writes_one_revision() {
             .collect::<Vec<_>>(),
         "the Sequence keeps its order and identities"
     );
-    assert_eq!(stored.pagination, PaginationState::NeedsReview);
     assert_eq!(revision.parent, Some(creation));
     assert_eq!(revision.kind, RevisionKind::Edit);
     assert_eq!(revision.session, Some(session(0x21)));
@@ -367,9 +392,9 @@ fn ac9_lyrics_commit_removes_occurrences_and_restoring_readds_them_with_approval
     let dir = TempDir::new("remove-restore");
     let storage = open(&dir);
     let (_song, _choir, created) = seeded(&storage);
-    let approved = bounded(storage.set_pagination_state(created.id, PaginationState::Approved))
-        .expect("approve");
     let entity = RevisionEntity::Arrangement(created.id);
+    let creation_revision = bounded(storage.latest_revision(entity)).expect("creation");
+    let approved = approve_all(&storage, &created, 0x30);
     let (sections, sequence) = contents(&approved);
     let removed = sections[0].id;
     assert!(
@@ -391,13 +416,16 @@ fn ac9_lyrics_commit_removes_occurrences_and_restoring_readds_them_with_approval
         created.id,
         kept_sections,
         kept_sequence,
-        PaginationState::NeedsReview,
         session(0x31),
     ))
     .expect("remove section");
     assert_eq!(removed_record.sections.len(), 1);
     assert_eq!(removed_record.sequence.len(), 1);
-    assert_eq!(removed_record.pagination, PaginationState::NeedsReview);
+    assert_eq!(
+        removed_record.sections[0].pagination,
+        PaginationState::Approved,
+        "the kept section keeps its approval"
+    );
 
     let conn = raw(&dir);
     let sections_left: i64 = conn
@@ -427,7 +455,6 @@ fn ac9_lyrics_commit_removes_occurrences_and_restoring_readds_them_with_approval
         created.id,
         sections.clone(),
         sequence.clone(),
-        PaginationState::Approved,
         session(0x31),
     ))
     .expect("restore earlier lyrics");
@@ -437,7 +464,12 @@ fn ac9_lyrics_commit_removes_occurrences_and_restoring_readds_them_with_approval
     let (restored_sections, restored_sequence) = contents(&restored);
     assert_eq!(restored_sections, sections);
     assert_eq!(restored_sequence, sequence);
-    assert_eq!(restored.pagination, PaginationState::Approved);
+    assert!(
+        restored
+            .sections
+            .iter()
+            .all(|section| section.pagination == PaginationState::Approved)
+    );
     assert_eq!(undo.parent, Some(removal.id));
     assert_eq!(
         bounded(storage.revisions(entity))
@@ -445,7 +477,12 @@ fn ac9_lyrics_commit_removes_occurrences_and_restoring_readds_them_with_approval
             .iter()
             .map(|record| record.id)
             .collect::<Vec<_>>(),
-        vec![removal.parent.expect("creation"), removal.id, undo.id]
+        vec![
+            creation_revision,
+            removal.parent.expect("approval"),
+            removal.id,
+            undo.id
+        ]
     );
     shutdown(storage);
 }
@@ -474,7 +511,6 @@ fn lyrics_commit_keeps_metadata_committed_before_it() {
         created.id,
         edited.clone(),
         sequence,
-        PaginationState::Draft,
         session(0x42),
     ))
     .expect("lyrics commit");
@@ -498,16 +534,13 @@ fn metadata_commit_keeps_lyrics_committed_before_it() {
     let (_song, choir, created) = seeded(&storage);
     let (mut sections, sequence) = contents(&created);
     sections[0].lyrics = "Tinapay sa langit\n\nDayandayan".to_owned();
+    sections[0].pagination = PaginationState::NeedsReview;
+    sections[1].pagination = PaginationState::Approved;
     let edited = sections.clone();
 
-    let (_, lyrics) = bounded(storage.commit_arrangement_lyrics(
-        created.id,
-        sections,
-        sequence,
-        PaginationState::NeedsReview,
-        session(0x51),
-    ))
-    .expect("lyrics commit");
+    let (_, lyrics) =
+        bounded(storage.commit_arrangement_lyrics(created.id, sections, sequence, session(0x51)))
+            .expect("lyrics commit");
     let metadata = ArrangementMetadata {
         title: Some("Details after lyrics".to_owned()),
         languages: vec!["Cebuano".to_owned(), "English".to_owned()],
@@ -526,7 +559,15 @@ fn metadata_commit_keeps_lyrics_committed_before_it() {
     assert_eq!(stored.languages, metadata.languages);
     assert_eq!(stored.sections.len(), edited.len());
     assert_eq!(stored.sections[0].lyrics, "Tinapay sa langit\n\nDayandayan");
-    assert_eq!(stored.pagination, PaginationState::NeedsReview);
+    assert_eq!(
+        stored
+            .sections
+            .iter()
+            .map(|section| section.pagination)
+            .collect::<Vec<_>>(),
+        vec![PaginationState::NeedsReview, PaginationState::Approved],
+        "a details commit keeps every section's approval"
+    );
     shutdown(storage);
 }
 
@@ -539,7 +580,7 @@ fn lyrics_commit_write_steps_are_exact_and_atomic() {
     let entity = RevisionEntity::Arrangement(created.id);
 
     // 1 update + 5 deletes + languages + Choirs + occasions + sections +
-    // occurrences + 1 revision + 1 pagination.
+    // occurrences + 1 revision (section states ride in the section rows).
     let steps = 1
         + 5
         + created.languages.len()
@@ -547,18 +588,17 @@ fn lyrics_commit_write_steps_are_exact_and_atomic() {
         + created.occasions.len()
         + created.sections.len()
         + created.sequence.len()
-        + 1
         + 1;
 
     // A failure scripted one past the last statement never fires: the edit
     // succeeds, which proves the step count is exact.
     sections[0].lyrics = "Committed".to_owned();
+    sections[0].pagination = PaginationState::Approved;
     bounded(storage.inject_write_failure(steps + 1)).expect("arm");
     let (committed, _) = bounded(storage.commit_arrangement_lyrics(
         created.id,
         sections.clone(),
         sequence.clone(),
-        PaginationState::NeedsReview,
         session(0x61),
     ))
     .expect("edit succeeds");
@@ -570,6 +610,8 @@ fn lyrics_commit_write_steps_are_exact_and_atomic() {
 
     let mut failing = sections;
     failing[0].lyrics = "Failing".to_owned();
+    failing[0].pagination = PaginationState::NeedsReview;
+    failing[1].pagination = PaginationState::Approved;
     for step in 1..=steps {
         bounded(storage.inject_write_failure(step)).expect("arm");
         assert_eq!(
@@ -577,7 +619,6 @@ fn lyrics_commit_write_steps_are_exact_and_atomic() {
                 created.id,
                 failing.clone(),
                 sequence.clone(),
-                PaginationState::NeedsReview,
                 session(0x61),
             ))
             .map(|_| ()),
@@ -587,7 +628,7 @@ fn lyrics_commit_write_steps_are_exact_and_atomic() {
         assert_eq!(
             bounded(storage.arrangement(created.id)),
             Ok(content_before.clone()),
-            "sections, Sequence and pagination after failure at step {step}"
+            "sections, section states and Sequence after failure at step {step}"
         );
         assert_eq!(
             bounded(storage.revisions(entity)),
@@ -614,13 +655,13 @@ fn a_section_or_occurrence_id_owned_by_another_arrangement_is_refused() {
         id: other.sections[0].id,
         label: Some("Borrowed".to_owned()),
         lyrics: String::new(),
+        pagination: PaginationState::Draft,
     });
     assert_eq!(
         bounded(storage.commit_arrangement_lyrics(
             created.id,
             borrowed_section,
             sequence.clone(),
-            PaginationState::Draft,
             session(0x71),
         ))
         .map(|_| ()),
@@ -637,7 +678,6 @@ fn a_section_or_occurrence_id_owned_by_another_arrangement_is_refused() {
             created.id,
             sections,
             borrowed_occurrence,
-            PaginationState::Draft,
             session(0x72),
         ))
         .map(|_| ()),
@@ -718,12 +758,12 @@ fn lyrics_commit_backfills_a_missing_creation_revision() {
             id: section,
             label: Some("Verse 1".to_owned()),
             lyrics: "New words".to_owned(),
+            pagination: PaginationState::Draft,
         }],
         vec![OccurrenceContent {
             id: domain::identity::OccurrenceId::from_entity(entity_id(0x84)),
             section,
         }],
-        PaginationState::Draft,
         session(0x85),
     ))
     .expect("lyrics commit on a row with no history");
@@ -759,7 +799,6 @@ fn lyrics_commit_refuses_repeated_and_unknown_identities_before_writing() {
             created.id,
             repeated_sections,
             sequence.clone(),
-            PaginationState::Draft,
             session(0x91),
         ))
         .map(|_| ()),
@@ -773,7 +812,6 @@ fn lyrics_commit_refuses_repeated_and_unknown_identities_before_writing() {
             created.id,
             sections.clone(),
             repeated_occurrences,
-            PaginationState::Draft,
             session(0x92),
         ))
         .map(|_| ()),
@@ -789,7 +827,6 @@ fn lyrics_commit_refuses_repeated_and_unknown_identities_before_writing() {
                 id: domain::identity::OccurrenceId::from_entity(entity_id(0x94)),
                 section: unknown,
             }],
-            PaginationState::Draft,
             session(0x95),
         ))
         .map(|_| ()),
@@ -827,12 +864,12 @@ fn b1_lyrics_commit_on_an_arrangement_with_no_language_succeeds_and_keeps_metada
             id: section,
             label: Some("Verse 1".to_owned()),
             lyrics: "Typed with no language".to_owned(),
+            pagination: PaginationState::Draft,
         }],
         vec![OccurrenceContent {
             id: occurrence,
             section,
         }],
-        PaginationState::Draft,
         session(0x86),
     ))
     .expect("the lyrics commit does not require a language");

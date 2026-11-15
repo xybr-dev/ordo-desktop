@@ -4,7 +4,7 @@
      Do not edit by hand: run `ORDO_BLESS_ERD=1 cargo test -p storage erd`
      and commit the result. Domain meaning lives in CONTEXT.md. -->
 
-Schema version: 6 (`0006_arrangement_details`).
+Schema version: 7 (`0007_section_pagination`).
 
 ## Overview
 
@@ -18,7 +18,6 @@ erDiagram
         text rendition_attribution
         text created_at
         text archived_at
-        text pagination_state
     }
     arrangement_choir {
         text arrangement_id PK, FK
@@ -40,6 +39,7 @@ erDiagram
         text label
         text lyrics
         text created_at
+        text pagination_state
     }
     celebration_package {
         text id PK
@@ -187,7 +187,6 @@ erDiagram
 | rendition_attribution | text | yes | — | — | — |
 | created_at | text | no | — | — | `canonical UTC time` |
 | archived_at | text | yes | — | — | `NULL or canonical UTC time` |
-| pagination_state | text | no | 'draft' | — | `pagination_state IN ('draft', 'approved', 'needs_review')` |
 
 Indexes:
 - `arrangement_by_song` on (song_id)
@@ -256,7 +255,7 @@ Foreign keys:
 
 ## arrangement_section
 
-**Owner:** Song Library. **Lifecycle:** Owned by its arrangement; ordered by position; a blank line in lyrics is a slide boundary.
+**Owner:** Song Library. **Lifecycle:** Owned by its arrangement; ordered by position; a blank line in lyrics is a slide boundary; pagination_state is the section's own review state (draft, approved, needs_review).
 
 | Column | Type | Null | Default | Key | Check |
 |---|---|---|---|---|---|
@@ -266,6 +265,7 @@ Foreign keys:
 | label | text | yes | — | — | `label IS NULL OR length(trim(label)) > 0` |
 | lyrics | text | no | — | — | — |
 | created_at | text | no | — | — | `canonical UTC time` |
+| pagination_state | text | no | 'draft' | — | `pagination_state IN ('draft', 'approved', 'needs_review')` |
 
 Indexes:
 - `sqlite_autoindex_arrangement_section_1` on (id), unique (constraint)

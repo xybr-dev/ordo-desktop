@@ -46,21 +46,21 @@ const FORMAT_1_CONTENT: &str = concat!(
 /// fixture verifies stored bytes rather than a re-serialization.
 const FORMAT_1_SHA256: &str = "c1727ace61b9cfb312daf88688f0cb659f8eb2c00d24ebaa95ddee14745042ee";
 
-/// The canonical format-2 payload this build writes when the format-1 fixture
-/// is restored: title kept, absent notes omitted.
-const FORMAT_2_CONTENT: &str = concat!(
-    r#"{"format":2,"entity":"arrangement","title":"Legacy SATB","#,
+/// The canonical format-3 payload this build writes when the format-1 fixture
+/// is restored: title kept, absent notes omitted, the section decoded as Draft.
+const FORMAT_3_CONTENT: &str = concat!(
+    r#"{"format":3,"entity":"arrangement","title":"Legacy SATB","#,
     r#""languages":["Cebuano","English"],"#,
     r#""choirs":["73737373-7373-4373-b373-737373737373"],"#,
     r#""rendition_attribution":"Arr. Cruz","occasions":["Christmas"],"#,
     r#""sections":[{"id":"74747474-7474-4474-b474-747474747474","#,
-    r#""label":"Verse 1","lyrics":"Tinapay sa langit"}],"#,
+    r#""label":"Verse 1","lyrics":"Tinapay sa langit","pagination":"draft"}],"#,
     r#""sequence":[{"id":"75757575-7575-4575-b575-757575757575","#,
     r#""section":"74747474-7474-4474-b474-747474747474"}]}"#,
 );
 
-/// SHA-256 of exactly [`FORMAT_2_CONTENT`].
-const FORMAT_2_SHA256: &str = "e62100b812dfcd1e2c2e58cb5f3f020d5a07f23ed2f7ecc6fddd114f91ab8aee";
+/// SHA-256 of exactly [`FORMAT_3_CONTENT`].
+const FORMAT_3_SHA256: &str = "97e473d09d9e6a6b52f684e9a4a6e512c1b538643100ff4168e6fe316b50005e";
 
 /// Runs `work` on its own thread; returns a receiver so the caller can bound the wait.
 fn spawn_bounded<T: Send + 'static>(
@@ -261,18 +261,19 @@ fn snapshot(conn: &Connection, excluded: &[&str]) -> BTreeMap<String, Vec<Vec<Va
     tables
 }
 
-/// The pre-0006 Arrangement columns, so a row snapshot is comparable across
-/// the rebuild even though the table gains a `notes` column.
+/// The pre-0006 Arrangement columns (minus the pagination state, which 0007
+/// moves to the sections), so a row snapshot is comparable across the later
+/// migrations even though the table gains `notes` and loses a column.
 fn arrangement_rows(conn: &Connection) -> Vec<Vec<Value>> {
     let mut statement = conn
         .prepare(
             "SELECT id, song_id, title, rendition_attribution, created_at, \
-             archived_at, pagination_state FROM arrangement ORDER BY id",
+             archived_at FROM arrangement ORDER BY id",
         )
         .expect("arrangement rows");
     statement
         .query_map([], |row| {
-            (0..7)
+            (0..6)
                 .map(|index| row.get::<_, Value>(index))
                 .collect::<rusqlite::Result<Vec<_>>>()
         })
@@ -548,13 +549,16 @@ fn t2_6_migrates_populated_v5_parish() {
         )
         .expect("revision");
 
-        (snapshot(&conn, &["arrangement"]), arrangement_rows(&conn))
+        (
+            snapshot(&conn, &["arrangement", "arrangement_section"]),
+            arrangement_rows(&conn),
+        )
     };
 
     let storage = open(&dir);
     let status = bounded(storage.schema_status()).expect("status");
-    assert_eq!(status.version, 6);
-    assert_eq!(status.applied.last().map(|migration| migration.id), Some(6));
+    assert_eq!(status.version, 7);
+    assert_eq!(status.applied.last().map(|migration| migration.id), Some(7));
 
     let record = bounded(storage.arrangement(arrangement)).expect("arrangement");
     assert_eq!(record.title.as_deref(), Some("Cebuano SATB"));
@@ -562,7 +566,15 @@ fn t2_6_migrates_populated_v5_parish() {
     assert_eq!(record.languages, vec!["Cebuano", "English"]);
     assert_eq!(record.choirs, vec![choir]);
     assert_eq!(record.occasions, vec!["Christmas"]);
-    assert_eq!(record.pagination, PaginationState::Approved);
+    assert_eq!(
+        record
+            .sections
+            .iter()
+            .map(|s| s.pagination)
+            .collect::<Vec<_>>(),
+        vec![PaginationState::Approved; 2],
+        "migration 0007 copies the Arrangement's approval to its sections"
+    );
     assert_eq!(
         record.sections.iter().map(|s| s.id).collect::<Vec<_>>(),
         vec![first_section, second_section]
@@ -606,7 +618,7 @@ fn t2_6_migrates_populated_v5_parish() {
         "every pre-0006 Arrangement column is preserved"
     );
     assert_eq!(
-        snapshot(&conn, &["arrangement"]),
+        snapshot(&conn, &["arrangement", "arrangement_section"]),
         before_tables,
         "no other table changes"
     );
@@ -654,29 +666,16 @@ fn t2_6_migrates_populated_v5_parish() {
     // The hand-copied CHECKs still hold after the rebuild.
     let good_id = entity_id(0x5b).to_string();
     let song_key = song.to_string();
-    for (label, id, title, notes, pagination) in [
-        ("a blank title", good_id.as_str(), Some("  "), None, "draft"),
-        (
-            "blank notes",
-            good_id.as_str(),
-            Some("T"),
-            Some("  "),
-            "draft",
-        ),
-        (
-            "a bogus pagination state",
-            good_id.as_str(),
-            Some("T"),
-            None,
-            "bogus",
-        ),
-        ("a malformed id", "not-an-id", Some("T"), None, "draft"),
+    for (label, id, title, notes) in [
+        ("a blank title", good_id.as_str(), Some("  "), None),
+        ("blank notes", good_id.as_str(), Some("T"), Some("  ")),
+        ("a malformed id", "not-an-id", Some("T"), None),
     ] {
         let refused = conn
             .execute(
-                "INSERT INTO arrangement (id, song_id, title, notes, created_at, pagination_state) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, song_key, title, notes, STAMP, pagination],
+                "INSERT INTO arrangement (id, song_id, title, notes, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, song_key, title, notes, STAMP],
             )
             .expect_err(label);
         assert!(
@@ -684,18 +683,18 @@ fn t2_6_migrates_populated_v5_parish() {
             "{label} is refused by a CHECK, got: {refused}"
         );
     }
-    let kept: (Option<String>, Option<String>, String) = conn
+    let kept: (Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT rendition_attribution, archived_at, pagination_state FROM arrangement \
+            "SELECT rendition_attribution, archived_at FROM arrangement \
              WHERE id = ?1",
             params![entity_id(0x5a).to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("the bare Arrangement");
     assert_eq!(
         kept,
-        (None, Some(STAMP.to_owned()), "needs_review".to_owned()),
-        "NULL attribution, archive state and pagination state survive the copy"
+        (None, Some(STAMP.to_owned())),
+        "NULL attribution and archive state survive the copy"
     );
 }
 
@@ -774,7 +773,6 @@ fn t2_6_creates_arrangement_without_title() {
         bounded(storage.commit_arrangement_edit(
             created.id,
             commit_blank_title,
-            PaginationState::Draft,
             RevisionKind::Edit,
             Some(session(0x41)),
             latest,
@@ -788,7 +786,6 @@ fn t2_6_creates_arrangement_without_title() {
         bounded(storage.commit_arrangement_edit(
             created.id,
             commit_blank_notes,
-            PaginationState::Draft,
             RevisionKind::Edit,
             Some(session(0x42)),
             latest,
@@ -802,7 +799,6 @@ fn t2_6_creates_arrangement_without_title() {
         bounded(storage.commit_arrangement_edit(
             created.id,
             commit_no_language,
-            PaginationState::Draft,
             RevisionKind::Edit,
             Some(session(0x43)),
             latest,
@@ -831,16 +827,23 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
     // First make the pagination state non-default through the normal edit path.
     let mut approved_content = ArrangementContent::of(&created);
     approved_content.title = Some("Cebuano SATB, approved".to_owned());
+    for section in &mut approved_content.sections {
+        section.pagination = PaginationState::Approved;
+    }
     let (approved, approved_revision) = bounded(storage.commit_arrangement_edit(
         created.id,
         approved_content,
-        PaginationState::Approved,
         RevisionKind::Edit,
         Some(session(0x44)),
         creation,
     ))
     .expect("approve");
-    assert_eq!(approved.pagination, PaginationState::Approved);
+    assert!(
+        approved
+            .sections
+            .iter()
+            .all(|section| section.pagination == PaginationState::Approved)
+    );
 
     let conn = raw(&dir);
     let before_tables = snapshot(
@@ -860,7 +863,7 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
     ) = conn
         .query_row(
             "SELECT id, song_id, rendition_attribution, created_at, archived_at, \
-             pagination_state FROM arrangement WHERE id = ?1",
+             'x' FROM arrangement WHERE id = ?1",
             params![created.id.to_string()],
             |row| {
                 Ok((
@@ -893,7 +896,6 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
     let (updated, revision) = bounded(storage.commit_arrangement_edit(
         created.id,
         metadata.clone(),
-        PaginationState::Approved,
         RevisionKind::Edit,
         Some(session(0x45)),
         approved_revision.id,
@@ -914,7 +916,13 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
     assert_eq!(updated.occasions, approved.occasions);
     assert_eq!(updated.sections, approved.sections);
     assert_eq!(updated.sequence, approved.sequence);
-    assert_eq!(updated.pagination, PaginationState::Approved);
+    assert!(
+        updated
+            .sections
+            .iter()
+            .all(|section| section.pagination == PaginationState::Approved),
+        "a metadata commit keeps the section approvals"
+    );
     assert_eq!(revision.parent, Some(approved_revision.id));
     assert_eq!(revision.kind, RevisionKind::Edit);
     assert_eq!(revision.session, Some(session(0x45)));
@@ -950,7 +958,7 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
     ) = conn
         .query_row(
             "SELECT id, song_id, rendition_attribution, created_at, archived_at, \
-             pagination_state FROM arrangement WHERE id = ?1",
+             'x' FROM arrangement WHERE id = ?1",
             params![created.id.to_string()],
             |row| {
                 Ok((
@@ -973,16 +981,23 @@ fn ac6_metadata_commit_adds_exactly_one_revision() {
         vec![(0, "Cebuano".to_owned()), (1, "Latin".to_owned())],
         "the language rows change as asked"
     );
-    let (title, notes, pagination): (Option<String>, Option<String>, String) = conn
+    let (title, notes): (Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT title, notes, pagination_state FROM arrangement WHERE id = ?1",
+            "SELECT title, notes FROM arrangement WHERE id = ?1",
             params![created.id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("stored arrangement");
     assert_eq!(title, None);
     assert_eq!(notes.as_deref(), Some("Source: revised"));
-    assert_eq!(pagination, "approved");
+    let states: Vec<String> = conn
+        .prepare("SELECT pagination_state FROM arrangement_section WHERE arrangement_id = ?1")
+        .expect("states")
+        .query_map(params![created.id.to_string()], |row| row.get(0))
+        .expect("states query")
+        .map(|row| row.expect("state"))
+        .collect();
+    assert!(states.iter().all(|state| state == "approved"));
     drop(conn);
     shutdown(storage);
 }
@@ -1087,6 +1102,7 @@ fn t2_6_format_1_revision_still_reads_and_verifies() {
             id: section,
             label: Some("Verse 1".to_owned()),
             lyrics: "Tinapay sa langit".to_owned(),
+            pagination: PaginationState::Draft,
         }],
         sequence: vec![OccurrenceContent {
             id: occurrence,
@@ -1116,10 +1132,9 @@ fn t2_6_format_1_revision_still_reads_and_verifies() {
     assert_eq!(stored_hash, FORMAT_1_SHA256);
     drop(conn);
 
-    // Restoring the legacy revision writes a canonical format-2 payload.
+    // Restoring the legacy revision writes a canonical format-3 payload.
     let (restored, restored_revision) =
-        bounded(storage.restore_revision(revision, revision, PaginationState::Draft))
-            .expect("restore legacy");
+        bounded(storage.restore_revision(revision, revision)).expect("restore legacy");
     assert_eq!(restored, RevisionContent::Arrangement(expected));
     assert_eq!(restored_revision.kind, RevisionKind::Restoration);
     assert_eq!(restored_revision.parent, Some(revision));
@@ -1141,8 +1156,8 @@ fn t2_6_format_1_revision_still_reads_and_verifies() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("restoration revision");
-    assert_eq!(written, FORMAT_2_CONTENT);
-    assert_eq!(written_hash, FORMAT_2_SHA256);
+    assert_eq!(written, FORMAT_3_CONTENT);
+    assert_eq!(written_hash, FORMAT_3_SHA256);
     assert!(!written.contains("\"notes\""), "absent notes are omitted");
     assert_eq!(foreign_key_violations(&conn), Vec::new());
     drop(conn);
@@ -1170,7 +1185,6 @@ fn t2_6_restores_older_revision() {
     let (edited, edit_revision) = bounded(storage.commit_arrangement_edit(
         created.id,
         edited_content,
-        PaginationState::Draft,
         RevisionKind::Edit,
         Some(session(0x46)),
         creation,
@@ -1183,8 +1197,7 @@ fn t2_6_restores_older_revision() {
     assert_eq!(edited.occasions, vec!["Christmas", "Lent"]);
 
     let (restored, restored_revision) =
-        bounded(storage.restore_revision(creation, edit_revision.id, PaginationState::Draft))
-            .expect("restore creation");
+        bounded(storage.restore_revision(creation, edit_revision.id)).expect("restore creation");
     assert_eq!(
         restored,
         RevisionContent::Arrangement(original_content.clone())
@@ -1202,7 +1215,6 @@ fn t2_6_restores_older_revision() {
     assert_eq!(current.occasions, original.occasions);
     assert_eq!(current.sections, original.sections);
     assert_eq!(current.sequence, original.sequence);
-    assert_eq!(current.pagination, original.pagination);
     let chain = bounded(storage.revisions(entity)).expect("chain");
     assert_eq!(
         chain.iter().map(|record| record.id).collect::<Vec<_>>(),
@@ -1277,9 +1289,8 @@ fn t2_6_restoring_a_legacy_revision_without_a_language_succeeds() {
     let (_, arrangement) = plant_legacy_arrangement(&dir, &[], Some((revision, legacy)));
 
     let storage = open(&dir);
-    let (restored, record) =
-        bounded(storage.restore_revision(revision, revision, PaginationState::Draft))
-            .expect("a legacy revision without a language restores");
+    let (restored, record) = bounded(storage.restore_revision(revision, revision))
+        .expect("a legacy revision without a language restores");
     assert_eq!(record.kind, RevisionKind::Restoration);
     let RevisionContent::Arrangement(content) = restored else {
         panic!("an Arrangement revision holds Arrangement content");
@@ -1292,7 +1303,6 @@ fn t2_6_restoring_a_legacy_revision_without_a_language_succeeds() {
         bounded(storage.commit_arrangement_edit(
             arrangement,
             ArrangementContent::of(&stored),
-            PaginationState::Draft,
             RevisionKind::Edit,
             Some(session(0x84)),
             record.id,
@@ -1313,15 +1323,15 @@ fn t2_6_a_metadata_commit_keeps_sections_committed_behind_its_back() {
     let entity = RevisionEntity::Arrangement(created.id);
     let creation = bounded(storage.latest_revision(entity)).expect("creation");
 
-    // Another writer changes the sections, the Sequence and the pagination
-    // state after the caller last looked.
+    // Another writer changes the sections, the Sequence and a section's
+    // pagination state after the caller last looked.
     let mut newer = ArrangementContent::of(&created);
     newer.sections[0].lyrics = "Newer lyrics".to_owned();
+    newer.sections[0].pagination = PaginationState::NeedsReview;
     newer.sequence.truncate(1);
     let (_, newer_revision) = bounded(storage.commit_arrangement_edit(
         created.id,
         newer.clone(),
-        PaginationState::NeedsReview,
         RevisionKind::Edit,
         Some(session(0x90)),
         creation,
@@ -1363,7 +1373,6 @@ fn t2_6_a_metadata_commit_keeps_sections_committed_behind_its_back() {
     sorted_choirs.sort();
     assert_eq!(record.choirs, sorted_choirs);
     assert_eq!(record.occasions, vec!["Alpha", "Zeta"]);
-    assert_eq!(record.pagination, PaginationState::NeedsReview);
     let stored = ArrangementContent::of(&record);
     assert_eq!(stored.sections, newer.sections, "the newer sections stay");
     assert_eq!(stored.sequence, newer.sequence, "the newer Sequence stays");

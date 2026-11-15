@@ -11,7 +11,6 @@ use domain::identity::{
     ArrangementId, HistorySessionId, OccurrenceId, RevisionId, SectionId, SongId, Timestamp,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
-use domain::song_library::PaginationState;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::parish_store::write::{
@@ -364,7 +363,7 @@ fn commit_arrangement_in(
     steps: &mut WriteSteps,
     at: Timestamp,
     arrangement: ArrangementId,
-    (revision, pagination): (&ArrangementContent, PaginationState),
+    revision: &ArrangementContent,
     link: &Link,
 ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
     let entity = RevisionEntity::Arrangement(arrangement);
@@ -491,13 +490,14 @@ fn commit_arrangement_in(
             tx,
             steps,
             "INSERT INTO arrangement_section (id, arrangement_id, position, label, lyrics, \
-             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             pagination_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 id,
                 key,
                 position as i64,
                 section.label.as_deref(),
                 section.lyrics,
+                pagination_text(section.pagination),
                 created
             ],
         )?;
@@ -529,14 +529,6 @@ fn commit_arrangement_in(
         entity,
         link,
         &RevisionContent::Arrangement(revision.clone()),
-    )?;
-    // The caller's pagination rule result lands in the same transaction as the
-    // content and the revision, so the three can never disagree.
-    write(
-        tx,
-        steps,
-        "UPDATE arrangement SET pagination_state = ?2 WHERE id = ?1",
-        params![key, pagination_text(pagination)],
     )?;
     let stored = read_arrangement(tx, arrangement)?.ok_or(StorageError::NotFound {
         kind: RecordKind::Arrangement,
@@ -618,7 +610,6 @@ impl Core {
         &mut self,
         arrangement: ArrangementId,
         revision: ArrangementContent,
-        pagination: PaginationState,
         kind: RevisionKind,
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
@@ -641,22 +632,14 @@ impl Core {
             session,
             restored_from: None,
         };
-        let done = commit_arrangement_in(
-            &tx,
-            ids,
-            &mut steps,
-            at,
-            arrangement,
-            (&revision, pagination),
-            &link,
-        )?;
+        let done = commit_arrangement_in(&tx, ids, &mut steps, at, arrangement, &revision, &link)?;
         tx.commit().map_err(map_error)?;
         Ok(done)
     }
 
     /// Replaces only an Arrangement's metadata and appends one Edit revision,
-    /// reading the head revision, sections, Sequence and pagination state in
-    /// the same immediate transaction. A row with no history first gets its
+    /// reading the head revision, sections (with their pagination
+    /// states) and Sequence in the same immediate transaction. A row with no history first gets its
     /// `creation` revision in that transaction.
     pub(crate) fn commit_arrangement_metadata(
         &mut self,
@@ -676,27 +659,25 @@ impl Core {
             metadata.notes.as_deref(),
             std::iter::empty(),
         )?;
-        self.commit_arrangement_partial(arrangement, session, true, |content, stored| {
+        self.commit_arrangement_partial(arrangement, session, true, |content| {
             content.title = metadata.title;
             content.languages = metadata.languages;
             content.choirs = metadata.choirs;
             content.rendition_attribution = metadata.rendition_attribution;
             content.occasions = metadata.occasions;
             content.notes = metadata.notes;
-            stored.pagination
         })
     }
 
-    /// Replaces only an Arrangement's sections, Sequence and pagination state
-    /// and appends one Edit revision, reading the head revision and the stored
-    /// metadata in the same immediate transaction. A row with no history first
+    /// Replaces only an Arrangement's sections (each carrying its pagination
+    /// state) and Sequence and appends one Edit revision, reading the head
+    /// revision and the stored metadata in the same immediate transaction. A row with no history first
     /// gets its `creation` revision in that transaction.
     pub(crate) fn commit_arrangement_lyrics(
         &mut self,
         arrangement: ArrangementId,
         sections: Vec<SectionContent>,
         sequence: Vec<OccurrenceContent>,
-        pagination: PaginationState,
         session: HistorySessionId,
     ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
         // Refuse the shapes that need no stored data before opening the
@@ -717,24 +698,22 @@ impl Core {
         }
         // The lyrics commit does not author the metadata, so it does not
         // require a language the details commit owns.
-        self.commit_arrangement_partial(arrangement, session, false, |content, _| {
+        self.commit_arrangement_partial(arrangement, session, false, |content| {
             content.sections = sections;
             content.sequence = sequence;
-            pagination
         })
     }
 
     /// The shared skeleton of the partial Arrangement commits: one immediate
     /// transaction reads the head revision (backfilling a `creation` revision
     /// for a row with no history) and the stored Arrangement, `apply` changes
-    /// the part this commit owns and returns the pagination state to store,
-    /// and one Edit revision is appended.
+    /// the part this commit owns, and one Edit revision is appended.
     fn commit_arrangement_partial(
         &mut self,
         arrangement: ArrangementId,
         session: HistorySessionId,
         require_language_now: bool,
-        apply: impl FnOnce(&mut ArrangementContent, &ArrangementRecord) -> PaginationState,
+        apply: impl FnOnce(&mut ArrangementContent),
     ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
         let at = self.timestamp();
         timestamp_text(at)?;
@@ -754,7 +733,7 @@ impl Core {
             id: arrangement.entity(),
         })?;
         let mut content = ArrangementContent::of(&stored);
-        let pagination = apply(&mut content, &stored);
+        apply(&mut content);
         validate_arrangement_content(&content, require_language_now)?;
         let link = Link {
             parent: Some(head),
@@ -762,15 +741,7 @@ impl Core {
             session: Some(session),
             restored_from: None,
         };
-        let done = commit_arrangement_in(
-            &tx,
-            ids,
-            &mut steps,
-            at,
-            arrangement,
-            (&content, pagination),
-            &link,
-        )?;
+        let done = commit_arrangement_in(&tx, ids, &mut steps, at, arrangement, &content, &link)?;
         tx.commit().map_err(map_error)?;
         Ok(done)
     }
@@ -780,7 +751,6 @@ impl Core {
         &mut self,
         revision: RevisionId,
         expected_parent: RevisionId,
-        pagination: PaginationState,
     ) -> Result<(RevisionContent, RevisionRecord), StorageError> {
         let (entity, restored) = {
             let conn = self.connection_mut()?;
@@ -818,8 +788,7 @@ impl Core {
                 commit_song_in(&tx, ids, &mut steps, at, id, song, &link)?.1
             }
             (RevisionContent::Arrangement(arrangement), RevisionEntity::Arrangement(id)) => {
-                let edit = (arrangement, pagination);
-                commit_arrangement_in(&tx, ids, &mut steps, at, id, edit, &link)?.1
+                commit_arrangement_in(&tx, ids, &mut steps, at, id, arrangement, &link)?.1
             }
             _ => return Err(StorageError::RevisionIntegrity { id: revision }),
         };

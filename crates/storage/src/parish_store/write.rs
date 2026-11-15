@@ -530,37 +530,6 @@ pub(crate) fn pagination_text(state: PaginationState) -> &'static str {
     }
 }
 
-/// Sets one Arrangement's pagination state in one transaction.
-fn change_pagination(
-    conn: &mut Connection,
-    fault: &mut Option<usize>,
-    id: ArrangementId,
-    state: PaginationState,
-) -> Result<ArrangementRecord, StorageError> {
-    let tx = conn
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    let mut steps = WriteSteps::new(fault);
-    let changed = write(
-        &tx,
-        &mut steps,
-        "UPDATE arrangement SET pagination_state = ?2 WHERE id = ?1",
-        params![id.to_string(), pagination_text(state)],
-    )?;
-    if changed == 0 {
-        return Err(StorageError::NotFound {
-            kind: RecordKind::Arrangement,
-            id: id.entity(),
-        });
-    }
-    let record = read_arrangement(&tx, id)?.ok_or(StorageError::NotFound {
-        kind: RecordKind::Arrangement,
-        id: id.entity(),
-    })?;
-    tx.commit().map_err(map_error)?;
-    Ok(record)
-}
-
 fn insert_song(
     conn: &mut Connection,
     ids: &mut Sources,
@@ -751,7 +720,7 @@ fn insert_arrangement(
                 &tx,
                 steps,
                 "INSERT INTO arrangement_section (id, arrangement_id, position, label, lyrics, \
-                 created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 pagination_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'draft', ?6)",
                 params![
                     id.to_string(),
                     arrangement_text,
@@ -806,6 +775,7 @@ fn insert_arrangement(
                     id: *id,
                     label: section.label.clone(),
                     lyrics: section.lyrics.clone(),
+                    pagination: PaginationState::Draft,
                 })
                 .collect(),
             sequence: arrangement
@@ -839,6 +809,7 @@ fn insert_arrangement(
             id,
             label: section.label,
             lyrics: section.lyrics,
+            pagination: PaginationState::Draft,
             created_at: at,
         })
         .collect();
@@ -858,7 +829,6 @@ fn insert_arrangement(
         notes: arrangement.notes,
         sections,
         sequence,
-        pagination: PaginationState::Draft,
         created_at: at,
         archived_at: None,
     })
@@ -1166,16 +1136,6 @@ impl Core {
             None,
             |tx| read_arrangement(tx, id),
         )
-    }
-
-    /// Sets one Arrangement's pagination state.
-    pub(crate) fn set_pagination_state(
-        &mut self,
-        id: ArrangementId,
-        state: PaginationState,
-    ) -> Result<ArrangementRecord, StorageError> {
-        let (conn, _ids, fault) = self.write_parts()?;
-        change_pagination(conn, fault, id, state)
     }
 
     /// Creates one Song with its aliases, moments, and occasions.

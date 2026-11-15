@@ -1733,9 +1733,8 @@ fn typing_on_an_approved_arrangement_needs_review_and_undo_restores_approved(
     saved(&editor, vcx);
     assert_eq!(
         stored_pagination(&store, id, vcx),
-        vec![PaginationState::NeedsReview, PaginationState::NeedsReview],
-        "T2.8 WP3 replaces this bridge: storage still holds one Arrangement \
-         state, so every section loads as Needs review"
+        vec![PaginationState::NeedsReview, PaginationState::Approved],
+        "only the edited section needs review; the other keeps its approval"
     );
     // Focus outside a text field: Undo is the editor's own.
     click(vcx, "arrangement-section-0");

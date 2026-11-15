@@ -265,10 +265,10 @@ fn creation_appends_the_first_revision() {
         .expect("arrangement revision row");
     assert_eq!(stored_hash, hex_sha256(&content));
     let expected_start = format!(
-        "{{\"format\":2,\"entity\":\"arrangement\",\"title\":\"SATB\",\"languages\":[\"en\"],\
+        "{{\"format\":3,\"entity\":\"arrangement\",\"title\":\"SATB\",\"languages\":[\"en\"],\
          \"choirs\":[\"{}\"],\"rendition_attribution\":null,\"occasions\":[\"Lent\"],\
          \"notes\":\"Public domain\",\"sections\":[{{\"id\":\"{}\",\"label\":\"A\",\
-         \"lyrics\":\"a\\nb\"}},",
+         \"lyrics\":\"a\\nb\",\"pagination\":\"draft\"}},",
         choir.id, arrangement.sections[0].id
     );
     assert!(content.starts_with(&expected_start), "{content}");
@@ -368,6 +368,7 @@ fn arrangement_edit_reorders_sections_and_sequence_keeping_ids() {
             id: section_id(0x51),
             label: Some("D".to_owned()),
             lyrics: "d".to_owned(),
+            pagination: PaginationState::NeedsReview,
         },
     ];
     content.sequence = vec![
@@ -387,7 +388,6 @@ fn arrangement_edit_reorders_sections_and_sequence_keeping_ids() {
     let (record, revision) = bounded(storage.commit_arrangement_edit(
         created.id,
         content.clone(),
-        PaginationState::Draft,
         RevisionKind::Edit,
         Some(session(2)),
         head,
@@ -447,11 +447,11 @@ fn restoration_appends_a_later_revision() {
     let original = bounded(fixture.storage.song(fixture.song)).expect("song");
     let edited = edit_song(&fixture, "Kyrie 2", session(1), fixture.creation).expect("edit");
 
-    let (content, restoration) = bounded(fixture.storage.restore_revision(
-        fixture.creation,
-        edited.1.id,
-        PaginationState::Draft,
-    ))
+    let (content, restoration) = bounded(
+        fixture
+            .storage
+            .restore_revision(fixture.creation, edited.1.id),
+    )
     .expect("restore");
     assert_eq!(content, RevisionContent::Song(SongContent::of(&original)));
     assert_eq!(restoration.kind, RevisionKind::Restoration);
@@ -502,8 +502,9 @@ fn failed_commit_changes_nothing() {
     let mut head = bounded(storage.revisions(entity)).expect("chain")[0].id;
 
     // Write steps of one arrangement edit: 1 update + 5 deletes + 1 language +
-    // 1 choir + 1 occasion + 2 sections + 3 occurrences + 1 revision + 1 pagination.
-    let steps = 1 + 5 + 1 + 1 + 1 + 2 + 3 + 1 + 1;
+    // 1 choir + 1 occasion + 2 sections + 3 occurrences + 1 revision (section
+    // states are columns of the section rows).
+    let steps = 1 + 5 + 1 + 1 + 1 + 2 + 3 + 1;
     let edited = |title: &str| {
         let mut content = ArrangementContent::of(&created);
         content.title = Some(title.to_owned());
@@ -517,7 +518,6 @@ fn failed_commit_changes_nothing() {
     let (_, committed) = bounded(storage.commit_arrangement_edit(
         created.id,
         edited("Committed"),
-        PaginationState::Approved,
         RevisionKind::Edit,
         Some(session(3)),
         head,
@@ -534,7 +534,6 @@ fn failed_commit_changes_nothing() {
             bounded(storage.commit_arrangement_edit(
                 created.id,
                 edited("Failing"),
-                PaginationState::NeedsReview,
                 RevisionKind::Edit,
                 Some(session(3)),
                 head,
@@ -621,12 +620,8 @@ fn invalid_commits_are_refused() {
     );
     // Restoring a revision id that does not exist is NotFound.
     assert_eq!(
-        bounded(storage.restore_revision(
-            RevisionId::from_entity(entity_id(0x78)),
-            head,
-            PaginationState::Draft
-        ))
-        .map(|_| ()),
+        bounded(storage.restore_revision(RevisionId::from_entity(entity_id(0x78)), head,))
+            .map(|_| ()),
         Err(StorageError::NotFound {
             kind: RecordKind::Revision,
             id: entity_id(0x78)
@@ -667,7 +662,6 @@ fn invalid_commits_are_refused() {
         bounded(storage.commit_arrangement_edit(
             created.id,
             content,
-            PaginationState::Draft,
             RevisionKind::Import,
             None,
             arrangement_head,
@@ -748,11 +742,11 @@ fn history_survives_restart() {
     let dir = TempDir::new("restart");
     let fixture = song_fixture(&dir);
     let first = edit_song(&fixture, "Kyrie 2", session(1), fixture.creation).expect("edit");
-    let (_, restoration) = bounded(fixture.storage.restore_revision(
-        fixture.creation,
-        first.1.id,
-        PaginationState::Draft,
-    ))
+    let (_, restoration) = bounded(
+        fixture
+            .storage
+            .restore_revision(fixture.creation, first.1.id),
+    )
     .expect("restore");
     let song = fixture.song;
     let before = bounded(fixture.storage.revisions(RevisionEntity::Song(song))).expect("chain");
@@ -890,8 +884,7 @@ fn damaged_revision_content_is_reported() {
     // Restoring damaged content is refused and changes nothing.
     let before = bounded(storage.song(song)).expect("song");
     assert_eq!(
-        bounded(storage.restore_revision(edited.1.id, other.1.id, PaginationState::Draft))
-            .map(|_| ()),
+        bounded(storage.restore_revision(edited.1.id, other.1.id)).map(|_| ()),
         Err(StorageError::RevisionIntegrity { id: edited.1.id })
     );
     assert_eq!(bounded(storage.song(song)), Ok(before));
@@ -924,11 +917,11 @@ fn stale_parent_is_refused() {
 
     // A restore based on an old head is stale too.
     assert_eq!(
-        bounded(fixture.storage.restore_revision(
-            fixture.creation,
-            fixture.creation,
-            PaginationState::Draft
-        ))
+        bounded(
+            fixture
+                .storage
+                .restore_revision(fixture.creation, fixture.creation,)
+        )
         .map(|_| ()),
         Err(StorageError::StaleRevision {
             entity_latest: first.1.id
@@ -960,7 +953,6 @@ fn stale_parent_is_refused() {
         bounded(fixture.storage.commit_arrangement_edit(
             arrangement.id,
             ArrangementContent::of(&arrangement),
-            PaginationState::Draft,
             RevisionKind::Import,
             None,
             first.1.id,
@@ -1206,10 +1198,10 @@ fn v3_database_with_t2_1_data_upgrades_to_v4() {
         }
     }
 
-    // Opening migrates 3 -> head (6) and the T2.1 records read back unchanged.
+    // Opening migrates 3 -> head (7) and the T2.1 records read back unchanged.
     let storage = open(&dir);
     let status = bounded(storage.schema_status()).expect("status");
-    assert_eq!(status.version, 6);
+    assert_eq!(status.version, 7);
     let read_song = bounded(storage.song(song)).expect("song");
     assert_eq!(read_song.title, "Legacy");
     assert_eq!(read_song.aliases, vec!["Old".to_owned()]);
