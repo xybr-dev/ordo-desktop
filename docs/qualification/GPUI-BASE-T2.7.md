@@ -36,7 +36,10 @@ them only when they changed (the same render-loop rule as `Field`).
 | Large Interface scale (200%) wraps within its column | automated test | `wrapping_holds_at_the_largest_interface_scale` |
 | Read-only: not editable, focusable, selectable, reason shown | automated test | `a_read_only_text_area_stays_focusable_selectable_and_says_why` |
 | High Contrast focus ring | source read | the ring comes from `focus_rings(environment, surface)` as in `Field`; no test renders it under Windows High Contrast |
-| IME composition | NOT checked | no test drives an IME; the base implements `EntityInputHandler` but composition was not exercised |
+| IME composition | NOT checked | no test drives an IME; the base implements `EntityInputHandler` but composition was not exercised. `InputEvent::Change` is read to fire while text is still being composed, so the lyrics autosave can save uncommitted composition text; whether a composition is later replaced cleanly is unchecked |
+| Grapheme clusters | known limit | the base moves the caret one character at a time, so a letter plus a combining mark has a caret stop between them (`combining_marks_are_a_separate_caret_stop_in_the_pinned_base`); offsets stay on char boundaries |
+| Observer notifications | automated test | `observe_fires_for_caret_moves_that_report_no_event` (the callback also fires on caret moves and blinks) |
+| Popover anchor after the anchor moves | known limit | an open popover keeps the bounds it was opened with; if the invoker moves or the window resizes, it stays where it was until closed (the height now keeps a 120px floor when neither side has room) |
 | Real screen reader announcement | NOT checked | only the AccessKit node is tested |
 | OS clipboard | NOT checked | tests use the test platform clipboard |
 | Packaged build on a church PC | NOT checked | needs the manual gate |

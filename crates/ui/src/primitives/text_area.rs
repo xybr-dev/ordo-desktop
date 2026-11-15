@@ -135,6 +135,12 @@ impl TextAreaState {
     /// Calls `on` whenever the value, caret or selection may have changed,
     /// including moves that report no [`TextAreaEvent`], until the returned
     /// subscription is dropped. It also fires for [`Self::set_value`].
+    ///
+    /// It fires on every notify of the input, caret blinks included, so `on`
+    /// must be cheap and must not notify its own view unconditionally (compare
+    /// first, as a caret-driven slide follow does). The returned
+    /// [`Subscription`] must be held for as long as the callback is wanted;
+    /// dropping it ends the observation.
     pub fn observe(&self, cx: &mut App, mut on: impl FnMut(&mut App) + 'static) -> Subscription {
         cx.observe(&self.input, move |_, cx| on(cx))
     }
@@ -570,6 +576,35 @@ mod tests {
         cx.simulate_keystrokes("ctrl-y");
         assert_eq!(count(&log, TextAreaEvent::Changed), 5, "native Redo");
         assert_eq!(value(&state, cx), "Pater\nnoster");
+    }
+
+    #[gpui::test]
+    fn combining_marks_are_a_separate_caret_stop_in_the_pinned_base(cx: &mut TestAppContext) {
+        let (state, _log, cx) = open(cx);
+        // "n" plus a combining tilde is one grapheme cluster of three bytes,
+        // but the pinned base steps over it one character at a time: the
+        // caret lands between the letter and its mark (byte 1), on a char
+        // boundary. Recorded as a known limit in GPUI-BASE-T2.7.md.
+        seed(&state, "n\u{0303}a", cx);
+        cx.update(|_, cx| state.set_selected_range(0..0, cx));
+        cx.simulate_keystrokes("right");
+        assert_eq!(cx.update(|_, cx| state.cursor(cx)), 1);
+    }
+
+    #[gpui::test]
+    fn observe_fires_for_caret_moves_that_report_no_event(cx: &mut TestAppContext) {
+        let (state, log, cx) = open(cx);
+        seed(&state, "Ave Maria", cx);
+        let seen = Rc::new(RefCell::new(0usize));
+        let _held = cx.update(|_, cx| {
+            let seen = seen.clone();
+            state.observe(cx, move |_| *seen.borrow_mut() += 1)
+        });
+        let events = log.borrow().len();
+        cx.update(|_, cx| state.set_selected_range(2..2, cx));
+        cx.run_until_parked();
+        assert!(*seen.borrow() > 0, "a caret move notifies the observer");
+        assert_eq!(log.borrow().len(), events, "and reports no TextAreaEvent");
     }
 
     #[gpui::test]

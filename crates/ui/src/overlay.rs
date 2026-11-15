@@ -48,6 +48,9 @@ const DIALOG_WIDTH: f32 = 480.0;
 const SLIDEOVER_WIDTH: f32 = 360.0;
 /// A popover's width, before the Interface scale.
 const POPOVER_WIDTH: f32 = 320.0;
+/// The least height a popover keeps when neither side of its anchor has room,
+/// before the scale.
+const POPOVER_MIN_HEIGHT: f32 = 120.0;
 /// The tallest a popover grows before its body scrolls, before the scale.
 const POPOVER_MAX_HEIGHT: f32 = 360.0;
 /// The gap kept between a popover and its anchor, and the window edge.
@@ -767,7 +770,10 @@ impl OverlayHost {
                 let above = f32::from(bounds.top()) - 2.0 * gap;
                 let wanted = scale.apply(POPOVER_MAX_HEIGHT);
                 let flip = below < wanted && above > below;
-                height = (if flip { above } else { below }).clamp(0.0, wanted);
+                // Never squeezed below a usable height, even when neither side
+                // has room: the card then overlaps the window edge and snaps.
+                let floor = scale.apply(POPOVER_MIN_HEIGHT).min(wanted);
+                height = (if flip { above } else { below }).clamp(floor, wanted);
                 (bounds, flip)
             });
 
