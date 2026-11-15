@@ -167,13 +167,16 @@ impl ArrangementLyrics {
         Ok(true)
     }
 
-    /// Applies the review rule against `baseline`.
+    /// Applies the lyric-change review rule against `baseline`.
     ///
-    /// An Approved section whose lyrics differ by identity becomes
-    /// [`PaginationState::NeedsReview`]. A section identity that is new starts
-    /// Draft. Renaming a section, reordering the Lyrics list, and every
-    /// Sequence edit leave every approval as it is, and Draft and
-    /// already-needs-review states pass through unchanged.
+    /// A section that was Approved in `baseline` and whose lyrics differ by
+    /// identity becomes [`PaginationState::NeedsReview`]. Every other section
+    /// keeps the state it has in `self`, so an approval made with
+    /// [`Self::approve_section`] survives this call; a section identity that
+    /// is not in `baseline` keeps its own state (Draft by construction).
+    /// Renaming a section, reordering the Lyrics list, and every Sequence edit
+    /// leave every approval as it is. Unlike whole-content edits, which ignore
+    /// caller-supplied states, editor edits keep `self`'s states.
     #[must_use]
     pub fn reviewed_against(mut self, baseline: &Self) -> Self {
         let previous: BTreeMap<SectionId, (&str, PaginationState)> = baseline
@@ -182,13 +185,11 @@ impl ArrangementLyrics {
             .map(|section| (section.id, (section.lyrics.as_str(), section.pagination)))
             .collect();
         for section in &mut self.sections {
-            section.pagination = match previous.get(&section.id) {
-                None => PaginationState::Draft,
-                Some((lyrics, PaginationState::Approved)) if *lyrics != section.lyrics => {
-                    PaginationState::NeedsReview
-                }
-                Some((_, state)) => *state,
-            };
+            if let Some((lyrics, PaginationState::Approved)) = previous.get(&section.id)
+                && *lyrics != section.lyrics
+            {
+                section.pagination = PaginationState::NeedsReview;
+            }
         }
         self
     }

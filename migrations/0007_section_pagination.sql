@@ -6,8 +6,9 @@
 
 ALTER TABLE arrangement_section ADD COLUMN pagination_state TEXT NOT NULL DEFAULT 'draft' CHECK (pagination_state IN ('draft', 'approved', 'needs_review'));
 
-UPDATE arrangement_section SET pagination_state = (
-    SELECT arrangement.pagination_state FROM arrangement WHERE arrangement.id = arrangement_section.arrangement_id
+UPDATE arrangement_section SET pagination_state = COALESCE(
+    (SELECT arrangement.pagination_state FROM arrangement WHERE arrangement.id = arrangement_section.arrangement_id),
+    'draft'
 );
 
 ALTER TABLE arrangement DROP COLUMN pagination_state;

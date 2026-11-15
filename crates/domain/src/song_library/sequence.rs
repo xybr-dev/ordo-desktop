@@ -337,14 +337,25 @@ pub fn readiness(
 
 /// The occurrence to select after content is replaced, such as on Undo.
 ///
-/// An occurrence that reappears is selected, which restores an undone removal;
-/// otherwise the current selection is kept while it still exists, then the
-/// occurrence now at its old position, then the one before it, then none.
+/// In order: (1) an occurrence that reappears (in `after`, not in `before`)
+/// is selected, first in `after`'s order, which restores an undone removal and
+/// selects the reinserted occurrence on Redo of an insertion; (2) otherwise the
+/// current selection is kept while it still exists; (3) otherwise the
+/// occurrence now at its old position; (4) then the one before it; (5) then
+/// none. Accepted side effect: a Lyrics Undo that restores a removed section
+/// together with its occurrences selects the first restored occurrence.
 pub fn selection_after_replace(
     before: &ArrangementLyrics,
     after: &ArrangementLyrics,
     selected: Option<OccurrenceId>,
 ) -> Option<OccurrenceId> {
+    if let Some(back) = after
+        .sequence
+        .iter()
+        .find(|occurrence| before.occurrence_index(occurrence.id).is_none())
+    {
+        return Some(back.id);
+    }
     let selected = selected?;
     if after.occurrence_index(selected).is_some() {
         return Some(selected);

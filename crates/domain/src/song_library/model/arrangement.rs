@@ -682,6 +682,10 @@ fn section_states(content: &ArrangementContent) -> BTreeMap<SectionId, (String, 
 
 /// Applies Decision 4 to replacement sections.
 ///
+/// Unlike `ArrangementLyrics::reviewed_against`, which keeps the states of the
+/// editor's own content, a whole-content edit ignores caller-supplied states
+/// and uses the stored ones by id.
+///
 /// A section identity that was not stored before starts Draft. A stored
 /// section keeps its state unless it was Approved and its lyrics changed.
 fn apply_review_rule(
