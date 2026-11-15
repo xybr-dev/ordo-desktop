@@ -693,7 +693,11 @@ fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
             assert_eq!(got.id(), want.id);
             assert_eq!(got.section(), want.section);
         }
-        assert_eq!(a.pagination_state(), record.pagination);
+        // T2.8 WP3 replaces this bridge: until migration 0007 every section
+        // takes the Arrangement-wide state storage still holds.
+        for section in a.sections() {
+            assert_eq!(section.pagination(), record.pagination);
+        }
         assert_eq!(a.created_at(), record.created_at);
         assert_eq!(a.archive_state(), archive_of(record.archived_at));
     }
@@ -736,6 +740,9 @@ fn draft_of(record: &ArrangementRecord) -> ArrangementDraft {
                 id: s.id,
                 label: s.label.clone(),
                 lyrics: s.lyrics.clone(),
+                // T2.8 WP3 replaces this bridge: the record will carry each
+                // section's state once migration 0007 exists.
+                pagination: record.pagination,
             })
             .collect(),
         sequence: record

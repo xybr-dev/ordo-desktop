@@ -103,6 +103,8 @@ pub enum SongLibraryError {
     UnknownOccurrence(OccurrenceId),
     /// No Choir has this identity.
     UnknownChoir(ChoirId),
+    /// The section generates no slides, so it has no pagination to approve.
+    SectionWithoutSlides(SectionId),
     /// A Song work already has this identity.
     DuplicateSong(SongId),
     /// An Arrangement already has this identity.
@@ -156,6 +158,9 @@ impl fmt::Display for SongLibraryError {
             Self::UnknownSection(id) => write!(f, "no section has identity {id}"),
             Self::UnknownOccurrence(id) => write!(f, "no occurrence has identity {id}"),
             Self::UnknownChoir(id) => write!(f, "no Choir has identity {id}"),
+            Self::SectionWithoutSlides(id) => {
+                write!(f, "section {id} has no slides to approve")
+            }
             Self::DuplicateSong(id) => write!(f, "a Song work with identity {id} already exists"),
             Self::DuplicateArrangement(id) => {
                 write!(f, "an Arrangement with identity {id} already exists")
@@ -494,6 +499,9 @@ impl SongLibrary {
         }
         let mut draft = draft;
         draft.languages = require_listed_languages(draft.languages, &[])?;
+        for section in &mut draft.sections {
+            section.pagination = super::PaginationState::Draft;
+        }
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
@@ -558,17 +566,18 @@ impl SongLibrary {
         Ok(arrangement)
     }
 
-    /// Replaces the sections, Sequence, and pagination review state of one
-    /// Arrangement as one unit.
+    /// Replaces the sections, Sequence, and each section's pagination review
+    /// state of one Arrangement as one unit.
     ///
     /// This is the Lyrics editor's commit: it keeps the metadata, Choir
     /// associations, owning Song, creation time, and archive state exactly as
-    /// stored. The pagination state is taken as given rather than recomputed,
-    /// because the editor applies the review rule to forward edits and commits
-    /// an earlier snapshot, state included, when it undoes. Callers must pass
-    /// only a state computed by [`ArrangementLyrics::reviewed_against`] or
-    /// taken from a snapshot that was committed before; never construct
-    /// [`super::PaginationState::Approved`] to skip review.
+    /// stored. Each section's pagination state is taken as given rather than
+    /// recomputed, because the editor applies the review rule to forward edits
+    /// and commits an earlier snapshot, states included, when it undoes.
+    /// Callers must pass only states computed by
+    /// [`ArrangementLyrics::reviewed_against`] or taken from a snapshot that was
+    /// committed before; never construct [`super::PaginationState::Approved`] to
+    /// skip review.
     ///
     /// The checks are those of [`Self::check_arrangement_lyrics`]. The edit is
     /// all or nothing: any refusal changes nothing.
@@ -582,7 +591,7 @@ impl SongLibrary {
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
-        arrangement.replace_lyrics(lyrics.sections, lyrics.sequence, lyrics.pagination)?;
+        arrangement.replace_lyrics(lyrics.sections, lyrics.sequence)?;
         self.section_ids
             .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
         self.occurrence_ids
@@ -624,19 +633,19 @@ impl SongLibrary {
     }
 
     /// Takes an Arrangement as storage returned it after a commit: content,
-    /// Choir associations and pagination state, exactly as stored.
+    /// Choir associations and each section's pagination state, exactly as
+    /// stored.
     ///
     /// This is hydration for one existing Arrangement, not an edit: no
-    /// built-in-language rule applies, no review rule moves the pagination
-    /// state, and the Song and Arrangement may be archived. Choirs are taken
-    /// as given. It is all or nothing: a refused value, or a section or
-    /// occurrence identity another Arrangement holds, changes nothing.
+    /// built-in-language rule applies, no review rule moves any pagination
+    /// state, and the Song and Arrangement may be archived. Choirs and states
+    /// are taken as given. It is all or nothing: a refused value, or a section
+    /// or occurrence identity another Arrangement holds, changes nothing.
     pub fn refresh_arrangement(
         &mut self,
         id: ArrangementId,
         draft: ArrangementDraft,
         choirs: Vec<ChoirId>,
-        pagination_state: super::PaginationState,
     ) -> Result<&Arrangement, SongLibraryError> {
         let arrangement = self
             .arrangements
@@ -649,7 +658,7 @@ impl SongLibrary {
             &draft.sequence,
             id,
         )?;
-        arrangement.refresh(draft, choirs, pagination_state)?;
+        arrangement.refresh(draft, choirs)?;
         self.section_ids
             .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
         self.occurrence_ids
@@ -828,6 +837,7 @@ impl SongLibrary {
                     id: *id,
                     label: section.label().map(str::to_owned),
                     lyrics: section.lyrics().to_owned(),
+                    pagination: crate::song_library::PaginationState::Draft,
                 })
                 .collect(),
             sequence,
@@ -1000,19 +1010,6 @@ impl SongLibrary {
             .values()
             .filter(|song| songs.contains(&song.id()))
             .collect())
-    }
-
-    /// Approves the current pagination of one Arrangement.
-    ///
-    /// Approving an already-approved Arrangement succeeds without a change.
-    pub fn approve_pagination(&mut self, id: ArrangementId) -> Result<(), SongLibraryError> {
-        let arrangement = self
-            .arrangements
-            .get_mut(&id)
-            .ok_or(SongLibraryError::UnknownArrangement(id))?;
-        Self::require_editable(&self.songs, arrangement)?;
-        arrangement.approve_pagination();
-        Ok(())
     }
 
     /// Archives one Song work at `at`. Reversible; never touches its
@@ -1672,7 +1669,13 @@ mod tests {
             created.sections()[0].id(),
             "a section may repeat in the Sequence"
         );
-        assert_eq!(created.pagination_state(), PaginationState::Draft);
+        assert!(
+            created
+                .sections()
+                .iter()
+                .all(|section| section.pagination() == PaginationState::Draft),
+            "a new Arrangement starts every section in Draft"
+        );
         assert_eq!(created.created_at(), created_at);
         assert_eq!(created.archive_state(), ArchiveState::Active);
 
@@ -1686,7 +1689,11 @@ mod tests {
         assert_eq!(edited.song(), song_id);
         assert_eq!(edited.title(), Some("Cebuano (Lent)"));
         assert_eq!(edited.created_at(), created_at);
-        assert_eq!(edited.pagination_state(), PaginationState::Draft);
+        assert_eq!(
+            edited.sections()[0].pagination(),
+            PaginationState::Draft,
+            "an unapproved section stays Draft through a content edit"
+        );
         assert_eq!(
             edited.choirs().len(),
             2,
@@ -1966,17 +1973,35 @@ mod tests {
         (library, song_id, id, base, youth)
     }
 
-    /// Edits one Arrangement and returns its pagination state after the edit.
+    /// The pagination state of every section, in authored order.
+    fn section_states(library: &SongLibrary, id: ArrangementId) -> Vec<PaginationState> {
+        library
+            .arrangement(id)
+            .expect("arrangement")
+            .sections()
+            .iter()
+            .map(|section| section.pagination())
+            .collect()
+    }
+
+    /// Edits one Arrangement and returns each section's pagination state after
+    /// the edit.
     fn edit_pagination(
         library: &mut SongLibrary,
         id: ArrangementId,
         draft: ArrangementDraft,
-    ) -> PaginationState {
+    ) -> Vec<PaginationState> {
         library.edit_arrangement(id, draft).expect("edit");
+        section_states(library, id)
+    }
+
+    /// Approves one section as the Lyrics editor does and commits it.
+    fn approve_section_in(library: &mut SongLibrary, id: ArrangementId, section: SectionId) {
+        let mut lyrics = library.arrangement(id).expect("arrangement").lyrics();
+        lyrics.approve_section(section).expect("approved");
         library
-            .arrangement(id)
-            .expect("arrangement")
-            .pagination_state()
+            .edit_arrangement_lyrics(id, lyrics)
+            .expect("committed approval");
     }
 
     #[test]
@@ -2044,26 +2069,26 @@ mod tests {
     #[test]
     fn approved_pagination_follows_the_review_rule() {
         let (mut library, song_id, id, base, youth) = pagination_fixture();
+        let first = base.sections[0].id;
+        let second = base.sections[1].id;
         assert_eq!(
             edit_pagination(&mut library, id, base.clone()),
-            PaginationState::Draft
+            vec![PaginationState::Draft, PaginationState::Draft]
         );
 
         let mut content = base;
         content.sections[0].lyrics = "Unang bersikulo, giusab".to_owned();
         assert_eq!(
             edit_pagination(&mut library, id, content.clone()),
-            PaginationState::Draft,
-            "an unapproved Arrangement stays Draft when its content changes"
+            vec![PaginationState::Draft, PaginationState::Draft],
+            "an unapproved section stays Draft when its content changes"
         );
 
-        library.approve_pagination(id).expect("approved");
+        approve_section_in(&mut library, id, first);
         assert_eq!(
-            library
-                .arrangement(id)
-                .expect("arrangement")
-                .pagination_state(),
-            PaginationState::Approved
+            section_states(&library, id),
+            vec![PaginationState::Approved, PaginationState::Draft],
+            "approving one section leaves the other sections alone"
         );
 
         let mut metadata = content.clone();
@@ -2073,7 +2098,7 @@ mod tests {
         metadata.occasions = vec!["Lent".to_owned()];
         assert_eq!(
             edit_pagination(&mut library, id, metadata),
-            PaginationState::Approved,
+            vec![PaginationState::Approved, PaginationState::Draft],
             "title, language, attribution, and occasion changes do not affect pagination"
         );
         assert!(
@@ -2089,70 +2114,72 @@ mod tests {
         lyrics.sections[0].lyrics = "Bag-ong bersikulo".to_owned();
         assert_eq!(
             edit_pagination(&mut library, id, lyrics.clone()),
-            PaginationState::NeedsReview
+            vec![PaginationState::NeedsReview, PaginationState::Draft],
+            "only the approved section whose lyrics changed needs review"
         );
 
-        library.approve_pagination(id).expect("approved again");
+        approve_section_in(&mut library, id, first);
         let mut label = lyrics;
         label.sections[1].label = Some("Refrain".to_owned());
         assert_eq!(
             edit_pagination(&mut library, id, label.clone()),
-            PaginationState::Approved,
+            vec![PaginationState::Approved, PaginationState::Draft],
             "renaming a section does not affect pagination (Decision 5)"
         );
 
-        library.approve_pagination(id).expect("approved again");
+        approve_section_in(&mut library, id, second);
         let mut reordered_sequence = label;
         reordered_sequence.sequence.swap(0, 2);
         assert_eq!(
             edit_pagination(&mut library, id, reordered_sequence.clone()),
-            PaginationState::NeedsReview
+            vec![PaginationState::Approved, PaginationState::Approved],
+            "every Sequence edit keeps each section's approval (Decision 4)"
         );
 
-        library.approve_pagination(id).expect("approved again");
         let mut reordered_sections = reordered_sequence;
         reordered_sections.sections.swap(0, 1);
         assert_eq!(
             edit_pagination(&mut library, id, reordered_sections.clone()),
-            PaginationState::Approved,
+            vec![PaginationState::Approved, PaginationState::Approved],
             "reordering the section list alone keeps approval"
         );
 
-        library.approve_pagination(id).expect("approved again");
         let mut added = reordered_sections.clone();
         added
             .sections
             .push(SectionDraft::new(section(19), "Bridge"));
         assert_eq!(
             edit_pagination(&mut library, id, added),
-            PaginationState::NeedsReview
+            vec![
+                PaginationState::Approved,
+                PaginationState::Approved,
+                PaginationState::Draft
+            ],
+            "a new section starts Draft and keeps the stored approvals"
         );
 
-        library.approve_pagination(id).expect("approved again");
         let mut removed = reordered_sections.clone();
-        removed
-            .sections
-            .retain(|candidate| candidate.id != section(11));
+        removed.sections.retain(|candidate| candidate.id != second);
         removed
             .sequence
-            .retain(|occurrence| occurrence.section != section(11));
+            .retain(|occurrence| occurrence.section != second);
         let unchanged = removed.clone();
         assert_eq!(
             edit_pagination(&mut library, id, removed),
-            PaginationState::NeedsReview
+            vec![PaginationState::Approved],
+            "removing another section keeps this section's approval"
         );
 
-        library.approve_pagination(id).expect("approved again");
         assert_eq!(
             edit_pagination(&mut library, id, unchanged),
-            PaginationState::Approved,
+            vec![PaginationState::Approved],
             "an edit that changes no pagination content keeps approval"
         );
 
-        let second = arrangement(2);
+        let second_arrangement = arrangement(2);
         library
             .create_arrangement(
-                second,
+                second_arrangement,
                 song_id,
                 at(),
                 arrangement_draft("English", 20),
@@ -2160,12 +2187,9 @@ mod tests {
             )
             .expect("second arrangement");
         assert_eq!(
-            library
-                .arrangement(second)
-                .expect("second arrangement")
-                .pagination_state(),
-            PaginationState::Draft,
-            "a new Arrangement always starts in Draft"
+            section_states(&library, second_arrangement),
+            vec![PaginationState::Draft, PaginationState::Draft],
+            "a new Arrangement always starts every section in Draft"
         );
     }
 
@@ -2382,7 +2406,11 @@ mod tests {
         assert_refused!(
             library,
             SongLibraryError::UnknownArrangement(unknown_arrangement),
-            library.approve_pagination(unknown_arrangement)
+            library.refresh_arrangement(
+                unknown_arrangement,
+                ArrangementDraft::default(),
+                Vec::new()
+            )
         );
         assert_refused!(
             library,

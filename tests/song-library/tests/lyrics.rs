@@ -82,6 +82,28 @@ fn lyrics_of(library: &SongLibrary, id: ArrangementId) -> ArrangementLyrics {
     library.arrangement(id).expect("arrangement").lyrics()
 }
 
+/// Each section's pagination state, in authored order.
+fn section_states(lyrics: &ArrangementLyrics) -> Vec<PaginationState> {
+    lyrics
+        .sections
+        .iter()
+        .map(|section| section.pagination)
+        .collect()
+}
+
+/// Approves every section that has slides, as the Lyrics editor does, and
+/// commits the states.
+fn approve_all(library: &mut SongLibrary, id: ArrangementId) {
+    let mut lyrics = lyrics_of(library, id);
+    let ids: Vec<SectionId> = lyrics.sections.iter().map(|section| section.id).collect();
+    for section in ids {
+        lyrics.approve_section(section).expect("approved");
+    }
+    library
+        .edit_arrangement_lyrics(id, lyrics)
+        .expect("save the approvals");
+}
+
 fn assert_refused_lyrics(
     library: &mut SongLibrary,
     id: ArrangementId,
@@ -239,7 +261,6 @@ fn ac2_an_arrangement_with_no_sections_is_valid_and_gets_nothing_added() {
     let lyrics = lyrics_of(&library, id);
     assert!(lyrics.sections.is_empty());
     assert!(lyrics.sequence.is_empty());
-    assert_eq!(lyrics.pagination, PaginationState::Draft);
 
     library
         .edit_arrangement_lyrics(id, lyrics.clone())
@@ -325,7 +346,6 @@ fn ac3_suggestions_number_the_next_verse_and_skip_taken_names() {
     let empty = ArrangementLyrics {
         sections: Vec::new(),
         sequence: Vec::new(),
-        pagination: PaginationState::Draft,
     };
     let (prefill, suggestions) = section_name_suggestions(&["English".to_owned()], &empty);
     assert_eq!(prefill, "Verse 1");
@@ -419,7 +439,7 @@ fn ac8_moving_a_section_keeps_the_sequence_and_the_review_state() {
         ),
         Vec::new(),
     );
-    library.approve_pagination(id).expect("approved");
+    approve_all(&mut library, id);
     let baseline = lyrics_of(&library, id);
 
     let mut moved = baseline.clone();
@@ -428,11 +448,15 @@ fn ac8_moving_a_section_keeps_the_sequence_and_the_review_state() {
         moved.sequence, baseline.sequence,
         "moving never edits the Sequence"
     );
-    assert_eq!(moved.pagination, PaginationState::Approved);
+    assert_eq!(
+        section_states(&moved),
+        section_states(&baseline),
+        "moving a section keeps its state"
+    );
     let moved = moved.reviewed_against(&baseline);
     assert_eq!(
-        moved.pagination,
-        PaginationState::Approved,
+        section_states(&moved),
+        vec![PaginationState::Approved, PaginationState::Approved],
         "reordering the Lyrics list alone keeps approval"
     );
     library.edit_arrangement_lyrics(id, moved).expect("reorder");
@@ -443,7 +467,10 @@ fn ac8_moving_a_section_keeps_the_sequence_and_the_review_state() {
         vec![section_id(101), section_id(100)]
     );
     assert_eq!(stored.sequence, baseline.sequence);
-    assert_eq!(stored.pagination, PaginationState::Approved);
+    assert_eq!(
+        section_states(&stored),
+        vec![PaginationState::Approved, PaginationState::Approved]
+    );
 
     assert_eq!(
         stored.clone().move_section(section_id(101), Step::Up),
@@ -481,7 +508,7 @@ fn ac9_removing_a_used_section_removes_its_occurrences_atomically() {
         ),
         Vec::new(),
     );
-    library.approve_pagination(id).expect("approved");
+    approve_all(&mut library, id);
     let baseline = lyrics_of(&library, id);
 
     let mut removed = baseline.clone();
@@ -497,7 +524,11 @@ fn ac9_removing_a_used_section_removes_its_occurrences_atomically() {
     );
     assert_eq!(removed.occurrences_of(section_id(101)), 0);
     let removed = removed.reviewed_against(&baseline);
-    assert_eq!(removed.pagination, PaginationState::NeedsReview);
+    assert_eq!(
+        section_states(&removed),
+        vec![PaginationState::Approved, PaginationState::Approved],
+        "removing another section keeps the remaining approvals"
+    );
     library
         .edit_arrangement_lyrics(id, removed)
         .expect("remove");
@@ -542,7 +573,7 @@ fn ac9_restoring_the_previous_lyrics_restores_approval_and_positions() {
         ),
         Vec::new(),
     );
-    library.approve_pagination(id).expect("approved");
+    approve_all(&mut library, id);
     let before = lyrics_of(&library, id);
 
     let mut forward = before.clone();
@@ -551,13 +582,17 @@ fn ac9_restoring_the_previous_lyrics_restores_approval_and_positions() {
         .expect("lyrics");
     assert_eq!(forward.remove_section(section_id(101)), Ok(1));
     let forward = forward.reviewed_against(&before);
-    assert_eq!(forward.pagination, PaginationState::NeedsReview);
+    assert_eq!(
+        section_states(&forward),
+        vec![PaginationState::NeedsReview],
+        "the section whose lyrics changed needs review"
+    );
     library
         .edit_arrangement_lyrics(id, forward)
         .expect("forward edit");
 
     let changed = lyrics_of(&library, id);
-    assert_eq!(changed.pagination, PaginationState::NeedsReview);
+    assert_eq!(section_states(&changed), vec![PaginationState::NeedsReview]);
     assert_eq!(changed.sections.len(), 1);
     assert_eq!(changed.sequence.len(), 2);
 
@@ -589,7 +624,7 @@ fn rename_keeps_approval() {
         ),
         Vec::new(),
     );
-    library.approve_pagination(id).expect("approved");
+    approve_all(&mut library, id);
     let baseline = lyrics_of(&library, id);
 
     let mut renamed = baseline.clone();
@@ -598,19 +633,16 @@ fn rename_keeps_approval() {
         .expect("rename");
     let renamed = renamed.reviewed_against(&baseline);
     assert_eq!(
-        renamed.pagination,
-        PaginationState::Approved,
+        section_states(&renamed),
+        vec![PaginationState::Approved, PaginationState::Approved],
         "rename alone does not trigger review"
     );
     library
         .edit_arrangement_lyrics(id, renamed)
         .expect("rename");
     assert_eq!(
-        library
-            .arrangement(id)
-            .expect("arrangement")
-            .pagination_state(),
-        PaginationState::Approved
+        section_states(&lyrics_of(&library, id)),
+        vec![PaginationState::Approved, PaginationState::Approved]
     );
 
     let arrangement = library.arrangement(id).expect("arrangement");
@@ -627,6 +659,7 @@ fn rename_keeps_approval() {
                 id: section.id(),
                 label: section.label().map(str::to_owned),
                 lyrics: section.lyrics().to_owned(),
+                pagination: section.pagination(),
             })
             .collect(),
         sequence: arrangement
@@ -640,11 +673,8 @@ fn rename_keeps_approval() {
         .edit_arrangement(id, whole.clone())
         .expect("whole-content rename");
     assert_eq!(
-        library
-            .arrangement(id)
-            .expect("arrangement")
-            .pagination_state(),
-        PaginationState::Approved,
+        section_states(&lyrics_of(&library, id)),
+        vec![PaginationState::Approved, PaginationState::Approved],
         "the whole-content edit path follows the same label rule"
     );
 
@@ -653,12 +683,9 @@ fn rename_keeps_approval() {
         .edit_arrangement(id, whole)
         .expect("whole-content lyrics change");
     assert_eq!(
-        library
-            .arrangement(id)
-            .expect("arrangement")
-            .pagination_state(),
-        PaginationState::NeedsReview,
-        "a lyric change still triggers review"
+        section_states(&lyrics_of(&library, id)),
+        vec![PaginationState::NeedsReview, PaginationState::Approved],
+        "a lyric change still triggers review, and only for that section"
     );
 }
 
@@ -822,7 +849,7 @@ fn duplicate_names_library() -> (SongLibrary, ArrangementId) {
         ),
         Vec::new(),
     );
-    library.approve_pagination(id).expect("approved");
+    approve_all(&mut library, id);
     (library, id)
 }
 
@@ -903,7 +930,6 @@ fn n2_a_huge_verse_number_neither_panics_nor_wraps() {
             "",
         )],
         sequence: Vec::new(),
-        pagination: PaginationState::Draft,
     };
     let languages = vec!["English".to_owned()];
     assert_eq!(
@@ -1025,7 +1051,6 @@ fn b1_lyrics_of_an_arrangement_with_no_language_can_be_edited() {
                 ..ArrangementDraft::default()
             },
             choirs: Vec::new(),
-            pagination_state: PaginationState::Draft,
             archive_state: ArchiveState::Active,
         }],
         Vec::new(),
@@ -1062,19 +1087,41 @@ fn n8_split_and_join_keep_crlf_line_ends() {
 }
 
 #[test]
-fn n8_reviewed_against_passes_other_states_and_catches_a_sequence_only_change() {
+fn n8_reviewed_against_only_catches_a_section_whose_lyrics_changed() {
     let (library, id) = duplicate_names_library();
     let baseline = lyrics_of(&library, id);
-    assert_eq!(baseline.pagination, PaginationState::Approved);
+    assert_eq!(
+        section_states(&baseline),
+        vec![
+            PaginationState::Approved,
+            PaginationState::Approved,
+            PaginationState::Approved
+        ]
+    );
+
+    let mut changed = baseline.clone();
+    changed
+        .set_section_lyrics(section_id(100), "other".to_owned())
+        .expect("lyrics");
+    assert_eq!(
+        section_states(&changed.reviewed_against(&baseline)),
+        vec![
+            PaginationState::NeedsReview,
+            PaginationState::Approved,
+            PaginationState::Approved
+        ],
+        "only the section whose lyrics changed moves"
+    );
 
     for state in [PaginationState::Draft, PaginationState::NeedsReview] {
+        let mut baseline = baseline.clone();
+        baseline.sections[0].pagination = state;
         let mut changed = baseline.clone();
-        changed.pagination = state;
         changed
             .set_section_lyrics(section_id(100), "other".to_owned())
             .expect("lyrics");
         assert_eq!(
-            changed.reviewed_against(&baseline).pagination,
+            changed.reviewed_against(&baseline).sections[0].pagination,
             state,
             "only Approved moves"
         );
@@ -1085,9 +1132,9 @@ fn n8_reviewed_against_passes_other_states_and_catches_a_sequence_only_change() 
         .sequence
         .push(OccurrenceDraft::new(occurrence_id(210), section_id(100)));
     assert_eq!(
-        sequence_only.reviewed_against(&baseline).pagination,
-        PaginationState::NeedsReview,
-        "a Sequence-only change needs review"
+        section_states(&sequence_only.reviewed_against(&baseline)),
+        section_states(&baseline),
+        "a Sequence-only change keeps every approval (Decision 4)"
     );
 }
 
@@ -1111,7 +1158,14 @@ fn n8_undo_of_a_reorder_restores_the_order() {
     let mut moved = before.clone();
     assert_eq!(moved.move_section(section_id(102), Step::Up), Ok(true));
     let moved = moved.reviewed_against(&before);
-    assert_eq!(moved.pagination, PaginationState::Approved);
+    assert_eq!(
+        section_states(&moved),
+        vec![
+            PaginationState::Approved,
+            PaginationState::Approved,
+            PaginationState::Approved
+        ]
+    );
     library.edit_arrangement_lyrics(id, moved).expect("reorder");
     assert_eq!(
         lyrics_of(&library, id)

@@ -1,12 +1,16 @@
-//! T2.8 acceptance tests for Sequence operations and flattening.
+//! T2.8 acceptance tests for Sequence operations, flattening, per-section
+//! pagination approval, and readiness.
 //!
 //! Every test goes through the public Interface only. Test names start with the
 //! acceptance criterion they cover.
 
+use std::collections::BTreeSet;
+
 use domain::identity::{ArrangementId, EntityId, OccurrenceId, SectionId, SongId, Timestamp};
 use domain::song_library::{
-    ArrangementDraft, ArrangementLyrics, OccurrenceDraft, SectionDraft, SongDraft, SongLibrary,
-    SongLibraryError, Step, flatten, position_label, selection_after_replace,
+    ArrangementDraft, ArrangementLyrics, Finding, FindingKind, OccurrenceDraft, PaginationState,
+    ReadinessState, SectionDraft, SongDraft, SongLibrary, SongLibraryError, Step, flatten,
+    position_label, readiness, selection_after_replace,
 };
 
 fn entity(n: u8) -> EntityId {
@@ -70,6 +74,26 @@ fn use_of(n: u8, section: u8) -> OccurrenceDraft {
     OccurrenceDraft::new(occurrence_id(n), section_id(section))
 }
 
+/// Approves one section through the Lyrics editor, as the operator does.
+fn approve(library: &mut SongLibrary, id: ArrangementId, section: u8) {
+    let mut lyrics = lyrics_of(library, id);
+    lyrics
+        .approve_section(section_id(section))
+        .expect("approved");
+    library
+        .edit_arrangement_lyrics(id, lyrics)
+        .expect("save the approval");
+}
+
+/// Each section's pagination state, in authored order.
+fn section_states(lyrics: &ArrangementLyrics) -> Vec<PaginationState> {
+    lyrics
+        .sections
+        .iter()
+        .map(|section| section.pagination)
+        .collect()
+}
+
 #[test]
 fn ac2_adding_a_section_never_adds_an_occurrence() {
     let (mut library, id) = library_with(
@@ -101,16 +125,16 @@ fn ac2_insert_goes_after_the_selected_occurrence() {
             section(100, "Verse 1", "first words"),
             section(101, "Chorus", "chorus words"),
         ],
-        vec![
-            use_of(200, 100),
-            use_of(201, 101),
-            use_of(202, 100),
-        ],
+        vec![use_of(200, 100), use_of(201, 101), use_of(202, 100)],
     );
     let mut lyrics = lyrics_of(&library, id);
 
     let index = lyrics
-        .insert_occurrence(occurrence_id(203), section_id(100), Some(occurrence_id(201)))
+        .insert_occurrence(
+            occurrence_id(203),
+            section_id(100),
+            Some(occurrence_id(201)),
+        )
         .expect("insert after the selected occurrence");
 
     assert_eq!(index, 2);
@@ -152,10 +176,8 @@ fn ac2_insert_appends_when_nothing_is_selected_and_is_first_in_an_empty_sequence
         Some(occurrence_id(202))
     );
 
-    let (empty_library, empty_id) = library_with(
-        vec![section(100, "Verse 1", "first words")],
-        Vec::new(),
-    );
+    let (empty_library, empty_id) =
+        library_with(vec![section(100, "Verse 1", "first words")], Vec::new());
     let mut empty = lyrics_of(&empty_library, empty_id);
     assert_eq!(
         empty.insert_occurrence(occurrence_id(200), section_id(100), None),
@@ -198,14 +220,11 @@ fn ac3_repeat_references_the_same_section_right_after_and_copies_no_lyrics() {
     assert_eq!(index, 1);
     assert_eq!(
         lyrics.sequence.iter().map(|o| o.id).collect::<Vec<_>>(),
-        vec![
-            occurrence_id(200),
-            occurrence_id(202),
-            occurrence_id(201)
-        ]
+        vec![occurrence_id(200), occurrence_id(202), occurrence_id(201)]
     );
     assert_eq!(
-        lyrics.sequence[1].section, section_id(100),
+        lyrics.sequence[1].section,
+        section_id(100),
         "the repeat references the source's section"
     );
     assert_eq!(lyrics.sections.len(), 2, "no section was copied");
@@ -338,11 +357,7 @@ fn ac5_remove_keeps_the_section_and_picks_next_then_previous() {
             section(100, "Verse 1", "first words"),
             section(101, "Chorus", "chorus words"),
         ],
-        vec![
-            use_of(200, 100),
-            use_of(201, 101),
-            use_of(202, 100),
-        ],
+        vec![use_of(200, 100), use_of(201, 101), use_of(202, 100)],
     );
     let mut lyrics = lyrics_of(&library, id);
 
@@ -372,11 +387,7 @@ fn ac5_remove_keeps_the_section_and_picks_next_then_previous() {
         "the last occurrence leaves nothing selected"
     );
     assert!(lyrics.sequence.is_empty());
-    assert_eq!(
-        lyrics.sections.len(),
-        2,
-        "every section stays in Lyrics"
-    );
+    assert_eq!(lyrics.sections.len(), 2, "every section stays in Lyrics");
 
     assert_eq!(
         lyrics.remove_occurrence(occurrence_id(200)),
@@ -399,11 +410,7 @@ fn ac5_restoring_the_previous_content_returns_the_occurrence_to_its_position() {
             section(100, "Verse 1", "first words"),
             section(101, "Chorus", "chorus words"),
         ],
-        vec![
-            use_of(200, 100),
-            use_of(201, 101),
-            use_of(202, 100),
-        ],
+        vec![use_of(200, 100), use_of(201, 101), use_of(202, 100)],
     );
     let before = lyrics_of(&library, id);
 
@@ -499,8 +506,11 @@ fn position_labels_are_two_digit_and_recompute_after_edits() {
     );
     let mut lyrics = lyrics_of(&library, id);
     assert_eq!(
-        lyrics
-            .insert_occurrence(occurrence_id(202), section_id(100), Some(occurrence_id(200))),
+        lyrics.insert_occurrence(
+            occurrence_id(202),
+            section_id(100),
+            Some(occurrence_id(200))
+        ),
         Ok(1)
     );
     let labels: Vec<String> = lyrics
@@ -521,11 +531,7 @@ fn position_labels_are_two_digit_and_recompute_after_edits() {
 fn selection_after_undo_selects_the_restored_occurrence() {
     let (library, id) = library_with(
         vec![section(100, "Verse 1", "words")],
-        vec![
-            use_of(200, 100),
-            use_of(201, 100),
-            use_of(202, 100),
-        ],
+        vec![use_of(200, 100), use_of(201, 100), use_of(202, 100)],
     );
     let before = lyrics_of(&library, id);
     let mut after = before.clone();
@@ -566,5 +572,330 @@ fn selection_after_undo_selects_the_restored_occurrence() {
     assert_eq!(
         selection_after_replace(&before, &all_removed, Some(occurrence_id(201))),
         None
+    );
+}
+
+#[test]
+fn ac6_an_empty_sequence_with_sections_is_incomplete() {
+    let (library, id) = library_with(vec![section(100, "Verse 1", "words")], Vec::new());
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::Incomplete);
+    assert_eq!(
+        judged.findings,
+        vec![Finding {
+            kind: FindingKind::EmptySequence,
+            section: None,
+            occurrences: 0,
+        }],
+        "an empty Sequence reports itself rather than every waiting section"
+    );
+}
+
+#[test]
+fn ac6_unused_sections_raise_no_finding() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Bridge", ""),
+        ],
+        vec![use_of(200, 100)],
+    );
+    approve(&mut library, id, 100);
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::Ready);
+    assert!(
+        judged.findings.is_empty(),
+        "a blank section the Sequence never places raises no finding"
+    );
+}
+
+#[test]
+fn ac7_only_referenced_sections_are_examined() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+            section(102, "Bridge", ""),
+        ],
+        vec![use_of(200, 100)],
+    );
+    approve(&mut library, id, 100);
+    let unrenderable = BTreeSet::from([section_id(101), section_id(102)]);
+    let judged = readiness(&lyrics_of(&library, id), &unrenderable);
+
+    assert_eq!(judged.state, ReadinessState::Ready);
+    assert!(
+        judged.findings.is_empty(),
+        "unreferenced sections are never examined, even when unrenderable or blank"
+    );
+}
+
+#[test]
+fn ac7_a_repeated_blank_section_is_one_finding_with_its_occurrence_count() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", ""),
+            section(101, "Chorus", "chorus words"),
+        ],
+        vec![use_of(200, 100), use_of(201, 101), use_of(202, 100)],
+    );
+    approve(&mut library, id, 101);
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::Incomplete);
+    assert_eq!(
+        judged.findings,
+        vec![Finding {
+            kind: FindingKind::NoLyrics,
+            section: Some(section_id(100)),
+            occurrences: 2,
+        }],
+        "a repeated section is reported once with every occurrence counted"
+    );
+}
+
+#[test]
+fn ac7_an_unapproved_referenced_section_is_needs_review_not_incomplete() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+        ],
+        vec![use_of(200, 100), use_of(201, 101)],
+    );
+    approve(&mut library, id, 100);
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::NeedsReview);
+    assert_eq!(
+        judged.findings,
+        vec![Finding {
+            kind: FindingKind::NotApproved(PaginationState::Draft),
+            section: Some(section_id(101)),
+            occurrences: 1,
+        }],
+        "a section that has slides but is not approved is a review item"
+    );
+}
+
+#[test]
+fn ac7_unrenderable_input_makes_a_referenced_section_incomplete() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+        ],
+        vec![use_of(200, 100), use_of(201, 101)],
+    );
+    approve(&mut library, id, 100);
+    approve(&mut library, id, 101);
+    let lyrics = lyrics_of(&library, id);
+    assert_eq!(
+        readiness(&lyrics, &BTreeSet::new()).state,
+        ReadinessState::Ready
+    );
+
+    let judged = readiness(&lyrics, &BTreeSet::from([section_id(101)]));
+    assert_eq!(judged.state, ReadinessState::Incomplete);
+    assert_eq!(
+        judged.findings,
+        vec![Finding {
+            kind: FindingKind::Unrenderable,
+            section: Some(section_id(101)),
+            occurrences: 1,
+        }],
+        "approved slides that cannot be composed still make the Arrangement incomplete"
+    );
+}
+
+#[test]
+fn no_sections_is_its_own_state() {
+    let (library, id) = library_with(Vec::new(), Vec::new());
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+
+    assert_eq!(judged.state, ReadinessState::NoSections);
+    assert!(
+        judged.findings.is_empty(),
+        "without sections there is no reason to report beyond the state"
+    );
+}
+
+#[test]
+fn editing_one_section_marks_only_that_section_for_review() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+        ],
+        vec![use_of(200, 100), use_of(201, 101)],
+    );
+    approve(&mut library, id, 100);
+    approve(&mut library, id, 101);
+    let committed = lyrics_of(&library, id);
+    assert_eq!(
+        section_states(&committed),
+        vec![PaginationState::Approved, PaginationState::Approved]
+    );
+
+    let mut edited = committed.clone();
+    edited
+        .set_section_lyrics(section_id(101), "new chorus words".to_owned())
+        .expect("edit the chorus");
+    let reviewed = edited.reviewed_against(&committed);
+    assert_eq!(
+        section_states(&reviewed),
+        vec![PaginationState::Approved, PaginationState::NeedsReview],
+        "only the section whose lyrics changed needs review"
+    );
+    library
+        .edit_arrangement_lyrics(id, reviewed.clone())
+        .expect("save the edit");
+    assert_eq!(lyrics_of(&library, id), reviewed);
+
+    let judged = readiness(&lyrics_of(&library, id), &BTreeSet::new());
+    assert_eq!(judged.state, ReadinessState::NeedsReview);
+    assert_eq!(
+        judged.findings,
+        vec![Finding {
+            kind: FindingKind::NotApproved(PaginationState::NeedsReview),
+            section: Some(section_id(101)),
+            occurrences: 1,
+        }]
+    );
+}
+
+#[test]
+fn sequence_edits_and_renames_keep_every_approval() {
+    let (mut library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Chorus", "chorus words"),
+        ],
+        vec![use_of(200, 100), use_of(201, 101)],
+    );
+    approve(&mut library, id, 100);
+    approve(&mut library, id, 101);
+    let approved = vec![PaginationState::Approved, PaginationState::Approved];
+
+    let mut lyrics = lyrics_of(&library, id);
+    lyrics
+        .rename_section(section_id(101), "Refrain")
+        .expect("rename");
+    lyrics
+        .insert_occurrence(occurrence_id(202), section_id(100), None)
+        .expect("insert");
+    lyrics
+        .repeat_occurrence(occurrence_id(203), occurrence_id(201))
+        .expect("repeat");
+    lyrics
+        .move_occurrence(occurrence_id(200), Step::Down)
+        .expect("move");
+    lyrics
+        .remove_occurrence(occurrence_id(201))
+        .expect("remove");
+    let reviewed = lyrics.reviewed_against(&lyrics_of(&library, id));
+
+    assert_eq!(
+        section_states(&reviewed),
+        approved,
+        "rename and every Sequence edit leave each section's approval alone"
+    );
+    library.edit_arrangement_lyrics(id, reviewed).expect("save");
+    let stored = lyrics_of(&library, id);
+    assert_eq!(section_states(&stored), approved);
+    assert_eq!(
+        readiness(&stored, &BTreeSet::new()).state,
+        ReadinessState::Ready
+    );
+}
+
+#[test]
+fn approve_refuses_a_section_without_slides() {
+    let (library, id) = library_with(
+        vec![
+            section(100, "Verse 1", "first words"),
+            section(101, "Bridge", "  \n\n "),
+        ],
+        vec![use_of(200, 100), use_of(201, 101)],
+    );
+    let mut lyrics = lyrics_of(&library, id);
+    let refused = lyrics.clone();
+
+    assert_eq!(
+        lyrics.approve_section(section_id(101)),
+        Err(SongLibraryError::SectionWithoutSlides(section_id(101)))
+    );
+    assert_eq!(lyrics, refused, "a refused approval changes no section");
+    assert_eq!(
+        lyrics.approve_section(section_id(99)),
+        Err(SongLibraryError::UnknownSection(section_id(99)))
+    );
+    assert_eq!(
+        lyrics.approve_section(section_id(100)),
+        Ok(true),
+        "a section with slides is approved"
+    );
+    assert_eq!(
+        lyrics.approve_section(section_id(100)),
+        Ok(false),
+        "an already approved section is left as it is"
+    );
+}
+
+#[test]
+fn undo_restores_section_approval() {
+    let (mut library, id) = library_with(
+        vec![section(100, "Verse 1", "first words")],
+        vec![use_of(200, 100)],
+    );
+    let draft = lyrics_of(&library, id);
+    assert_eq!(
+        section_states(&draft),
+        vec![PaginationState::Draft],
+        "a new section starts Draft"
+    );
+
+    let mut approved = draft.clone();
+    assert_eq!(approved.approve_section(section_id(100)), Ok(true));
+    library
+        .edit_arrangement_lyrics(id, approved.clone())
+        .expect("approve");
+    assert_eq!(lyrics_of(&library, id), approved);
+
+    let mut edited = approved.clone();
+    edited
+        .set_section_lyrics(section_id(100), "second words".to_owned())
+        .expect("edit the lyrics");
+    let reviewed = edited.reviewed_against(&approved);
+    assert_eq!(
+        section_states(&reviewed),
+        vec![PaginationState::NeedsReview]
+    );
+    library
+        .edit_arrangement_lyrics(id, reviewed.clone())
+        .expect("edit");
+
+    library
+        .edit_arrangement_lyrics(id, approved.clone())
+        .expect("undo");
+    assert_eq!(
+        lyrics_of(&library, id),
+        approved,
+        "Undo restores the snapshot with its approval intact"
+    );
+    assert_eq!(
+        readiness(&lyrics_of(&library, id), &BTreeSet::new()).state,
+        ReadinessState::Ready
+    );
+
+    library
+        .edit_arrangement_lyrics(id, reviewed.clone())
+        .expect("redo");
+    assert_eq!(
+        lyrics_of(&library, id),
+        reviewed,
+        "Redo puts the review state back"
     );
 }

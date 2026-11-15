@@ -751,7 +751,11 @@ fn t2_7_e2e_keyboard_sections_split_join_reorder_remove_undo_then_reload(cx: &mu
     let (verse_use, chorus_use) = (entity(91), entity(90));
     let mut seeded_lyrics = stored(vcx);
     seeded_lyrics.sequence = vec![occurrence(91, verse_id), occurrence(90, chorus_id)];
-    let pagination = seeded_lyrics.pagination;
+    let states: Vec<_> = seeded_lyrics
+        .sections
+        .iter()
+        .map(|section| section.pagination)
+        .collect();
     super::arrangement_details::tests::write(&store, vcx, |store, cx| {
         store.save_arrangement_lyrics(
             id,
@@ -808,7 +812,15 @@ fn t2_7_e2e_keyboard_sections_split_join_reorder_remove_undo_then_reload(cx: &mu
         reordered,
         "Undo restored lyrics, positions and approval"
     );
-    assert_eq!(stored(vcx).pagination, pagination);
+    assert_eq!(
+        stored(vcx)
+            .sections
+            .iter()
+            .map(|section| section.pagination)
+            .collect::<Vec<_>>(),
+        states,
+        "Undo restored every section's approval"
+    );
 
     // And once more, undone with Ctrl+Z from the sections list.
     press(vcx, "arrangement-section-0");
@@ -862,7 +874,15 @@ fn t2_7_e2e_keyboard_sections_split_join_reorder_remove_undo_then_reload(cx: &mu
         ],
         "Sequence order and occurrence ids are the seeded ones"
     );
-    assert_eq!(reloaded.pagination, pagination);
+    assert_eq!(
+        reloaded
+            .sections
+            .iter()
+            .map(|section| section.pagination)
+            .collect::<Vec<_>>(),
+        states,
+        "each section's approval persisted"
+    );
     let editor = open_editor(&shell, id, vcx);
     let pinned = |name: &str, frame: &str| {
         assert_eq!(

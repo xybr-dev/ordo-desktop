@@ -269,11 +269,13 @@ impl From<SongRecord> for HydrateSong {
 
 impl From<ArrangementRecord> for HydrateArrangement {
     fn from(record: ArrangementRecord) -> Self {
+        // T2.8 WP3 replaces this bridge: migration 0007 stores each section's
+        // state, so hydration will read it from the section row.
+        let pagination = record.pagination;
         Self {
             id: record.id,
             song: record.song,
             created_at: record.created_at,
-            pagination_state: record.pagination,
             archive_state: archive_state(record.archived_at),
             choirs: record.choirs,
             draft: ArrangementDraft {
@@ -289,6 +291,7 @@ impl From<ArrangementRecord> for HydrateArrangement {
                         id: section.id,
                         label: section.label,
                         lyrics: section.lyrics,
+                        pagination,
                     })
                     .collect(),
                 sequence: record

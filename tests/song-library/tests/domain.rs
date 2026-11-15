@@ -63,6 +63,18 @@ fn draft(title: &str, language: &str, base: u8) -> ArrangementDraft {
     }
 }
 
+/// Approves every section that has slides, as the Lyrics editor does, and
+/// commits the states.
+fn approve_all(library: &mut SongLibrary, arrangement: u8) {
+    let id = arrangement_id(arrangement);
+    let mut lyrics = library.arrangement(id).unwrap().lyrics();
+    let ids: Vec<SectionId> = lyrics.sections.iter().map(|section| section.id).collect();
+    for id in ids {
+        lyrics.approve_section(id).unwrap();
+    }
+    library.edit_arrangement_lyrics(id, lyrics).unwrap();
+}
+
 /// The Song identities `library` lists for `filter`.
 fn song_ids(library: &SongLibrary, filter: StatusFilter) -> Vec<SongId> {
     library
@@ -198,7 +210,13 @@ fn ac2_arrangement_belongs_to_one_song_and_independently_owns_its_content() {
     assert!(english.occasions().contains("Christmas"));
     assert_eq!(english.sections().len(), 2);
     assert_eq!(english.sequence().len(), 2);
-    assert_eq!(cebuano.pagination_state(), PaginationState::Draft);
+    assert!(
+        cebuano
+            .sections()
+            .iter()
+            .all(|section| section.pagination() == PaginationState::Draft),
+        "a new Arrangement starts every section in Draft"
+    );
 
     // Archiving one Arrangement leaves its sibling untouched.
     library
@@ -598,10 +616,11 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
         SongLibraryError::Archived(song),
         library.remove_arrangement_choir(arrangement_id(10), choir_id(20))
     );
+    let archived_lyrics = library.arrangement(arrangement_id(10)).unwrap().lyrics();
     assert_refused!(
         library,
         SongLibraryError::Archived(song),
-        library.approve_pagination(arrangement_id(10))
+        library.edit_arrangement_lyrics(arrangement_id(10), archived_lyrics)
     );
     assert_refused!(
         library,
@@ -620,7 +639,7 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
     library
         .edit_song(song_id(1), SongDraft::titled("Changed"))
         .unwrap();
-    library.approve_pagination(arrangement_id(10)).unwrap();
+    approve_all(&mut library, 10);
 
     // An archived Arrangement is inspect-only on its own.
     library
@@ -632,10 +651,11 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
         SongLibraryError::Archived(arrangement),
         library.edit_arrangement(arrangement_id(10), draft("Changed", "English", 100))
     );
+    let arrangement_lyrics = library.arrangement(arrangement_id(10)).unwrap().lyrics();
     assert_refused!(
         library,
         SongLibraryError::Archived(arrangement),
-        library.approve_pagination(arrangement_id(10))
+        library.edit_arrangement_lyrics(arrangement_id(10), arrangement_lyrics)
     );
     assert_refused!(
         library,
@@ -1172,7 +1192,7 @@ fn rich_library() -> SongLibrary {
             Vec::new(),
         )
         .unwrap();
-    library.approve_pagination(arrangement_id(10)).unwrap();
+    approve_all(&mut library, 10);
     library
         .archive_arrangement(arrangement_id(11), at(6))
         .unwrap();
@@ -1221,6 +1241,7 @@ fn export(library: &SongLibrary) -> Exported {
                         id: section.id(),
                         label: section.label().map(str::to_owned),
                         lyrics: section.lyrics().to_owned(),
+                        pagination: section.pagination(),
                     })
                     .collect(),
                 sequence: arrangement
@@ -1230,7 +1251,6 @@ fn export(library: &SongLibrary) -> Exported {
                     .collect(),
             },
             choirs: arrangement.choirs().iter().copied().collect(),
-            pagination_state: arrangement.pagination_state(),
             archive_state: arrangement.archive_state(),
         })
         .collect();
@@ -1259,12 +1279,14 @@ fn t24_hydrate_round_trips_a_library_built_through_the_interface() {
     let rebuilt = SongLibrary::hydrate(songs, arrangements, choirs, Vec::new()).unwrap();
 
     assert_eq!(rebuilt, library);
-    assert_eq!(
+    assert!(
         rebuilt
             .arrangement(arrangement_id(10))
             .unwrap()
-            .pagination_state(),
-        PaginationState::Approved
+            .sections()
+            .iter()
+            .all(|section| section.pagination() == PaginationState::Approved),
+        "hydration takes each stored section's approval exactly"
     );
     assert!(rebuilt.choir(choir_id(21)).unwrap().is_archived());
     assert_eq!(

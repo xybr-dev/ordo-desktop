@@ -82,6 +82,31 @@ fn create(library: &mut SongLibrary, n: u8, draft: ArrangementDraft, choirs: Vec
         .expect("arrangement");
 }
 
+/// Approves every section that has slides, as the Lyrics editor does, and
+/// commits the states.
+fn approve_all(library: &mut SongLibrary, n: u8) {
+    let id = arrangement_id(n);
+    let mut lyrics = library.arrangement(id).expect("arrangement").lyrics();
+    let ids: Vec<SectionId> = lyrics.sections.iter().map(|section| section.id).collect();
+    for section in ids {
+        lyrics.approve_section(section).expect("approved");
+    }
+    library
+        .edit_arrangement_lyrics(id, lyrics)
+        .expect("save the approvals");
+}
+
+/// Each stored section's pagination state, in authored order.
+fn section_states(library: &SongLibrary, n: u8) -> Vec<PaginationState> {
+    library
+        .arrangement(arrangement_id(n))
+        .expect("arrangement")
+        .sections()
+        .iter()
+        .map(|section| section.pagination())
+        .collect()
+}
+
 fn details_of(library: &SongLibrary, n: u8) -> ArrangementDetails {
     library.arrangement(arrangement_id(n)).expect("a").details()
 }
@@ -319,9 +344,7 @@ fn ac2_a_blank_title_derives_the_label_from_languages_and_choirs() {
 fn ac6_a_details_edit_keeps_sections_sequence_and_approved_pagination() {
     let mut library = library();
     create(&mut library, 5, draft("Cebuano", 100), vec![choir_id(20)]);
-    library
-        .approve_pagination(arrangement_id(5))
-        .expect("approve");
+    approve_all(&mut library, 5);
     let before = library.arrangement(arrangement_id(5)).expect("a").clone();
 
     let details = ArrangementDetails {
@@ -355,7 +378,11 @@ fn ac6_a_details_edit_keeps_sections_sequence_and_approved_pagination() {
     assert_eq!(after.notes(), Some("Scanned from the 2019 booklet"));
     assert_eq!(after.sections(), before.sections());
     assert_eq!(after.sequence(), before.sequence());
-    assert_eq!(after.pagination_state(), PaginationState::Approved);
+    assert_eq!(
+        section_states(&library, 5),
+        vec![PaginationState::Approved, PaginationState::Approved],
+        "a details edit keeps every section's approval"
+    );
     assert_eq!(after.created_at(), before.created_at());
     assert_eq!(after.song(), before.song());
     assert_eq!(after.archive_state(), ArchiveState::Active);
@@ -450,9 +477,7 @@ fn ac6_duplicate_branches_an_independent_copy_with_new_identities() {
     source.occasions = vec!["Lent".to_owned()];
     source.notes = Some("Rights: parish".to_owned());
     create(&mut library, 5, source, vec![choir_id(20), choir_id(21)]);
-    library
-        .approve_pagination(arrangement_id(5))
-        .expect("approve");
+    approve_all(&mut library, 5);
     library
         .archive_choir(choir_id(21), at(50))
         .expect("archive choir");
@@ -477,7 +502,14 @@ fn ac6_duplicate_branches_an_independent_copy_with_new_identities() {
     assert_eq!(copy.rendition_attribution(), Some("R. Villanueva"));
     assert_eq!(copy.occasions(), original.occasions());
     assert_eq!(copy.notes(), Some("Rights: parish"));
-    assert_eq!(copy.pagination_state(), PaginationState::Draft);
+    assert_eq!(
+        copy.sections()
+            .iter()
+            .map(|section| section.pagination())
+            .collect::<Vec<_>>(),
+        vec![PaginationState::Draft, PaginationState::Draft],
+        "a duplicated Arrangement starts every section in Draft"
+    );
     assert_eq!(copy.archive_state(), ArchiveState::Active);
     // The archived Choir is dropped.
     assert_eq!(
@@ -652,7 +684,6 @@ fn legacy_library() -> SongLibrary {
             created_at: at(10),
             draft,
             choirs,
-            pagination_state: PaginationState::Draft,
             archive_state: ArchiveState::Active,
         }
     };
@@ -769,25 +800,28 @@ fn ac6_refresh_takes_stored_content_and_pagination_exactly() {
     let mut library = legacy_library();
     let mut draft = ArrangementDraft::titled("Stored");
     draft.languages = vec!["xx".to_owned()];
-    // Stored data keeps an unlisted language, and the pagination state is
-    // exactly the stored one, whatever the review rule would derive.
+    draft.sections = vec![
+        SectionDraft::labeled(section_id(200), "Verse 1", "a\r\n\r\nb")
+            .with_pagination(PaginationState::Approved),
+    ];
+    // Stored data keeps an unlisted language, and each section's pagination
+    // state is exactly the stored one, whatever the review rule would derive.
     let refreshed = library
-        .refresh_arrangement(
-            arrangement_id(8),
-            draft.clone(),
-            Vec::new(),
-            PaginationState::Approved,
-        )
+        .refresh_arrangement(arrangement_id(8), draft.clone(), Vec::new())
         .expect("refresh");
     assert_eq!(refreshed.languages(), ["xx"]);
-    assert_eq!(refreshed.pagination_state(), PaginationState::Approved);
+    assert_eq!(
+        refreshed.sections()[0].pagination(),
+        PaginationState::Approved,
+        "the stored state is taken exactly"
+    );
 
     // Refused wholesale: a blank title changes nothing.
     let before = library.arrangement(arrangement_id(8)).expect("a").clone();
     draft.title = Some("  ".to_owned());
     assert!(
         library
-            .refresh_arrangement(arrangement_id(8), draft, Vec::new(), PaginationState::Draft)
+            .refresh_arrangement(arrangement_id(8), draft, Vec::new())
             .is_err()
     );
     assert_eq!(library.arrangement(arrangement_id(8)).expect("a"), &before);

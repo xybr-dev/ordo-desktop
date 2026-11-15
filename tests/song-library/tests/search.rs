@@ -244,9 +244,7 @@ fn ac4_lyric_evidence_is_per_line_capped_at_three_per_song() {
 /// Arrangement (11); Song 2 has one Cebuano/Adult Arrangement (20); Song 3
 /// has no Arrangement; Song 4 has one Arrangement with no language, no Choir.
 fn filter_library() -> SongLibrary {
-    use domain::song_library::{
-        ArchiveState, HydrateArrangement, HydrateChoir, HydrateSong, PaginationState,
-    };
+    use domain::song_library::{ArchiveState, HydrateArrangement, HydrateChoir, HydrateSong};
     let choirs = [(900, "Youth"), (901, "Adult")]
         .into_iter()
         .map(|(n, name)| HydrateChoir {
@@ -272,7 +270,6 @@ fn filter_library() -> SongLibrary {
             created_at: at(i64::from(n)),
             draft,
             choirs,
-            pagination_state: PaginationState::Draft,
             archive_state: ArchiveState::Active,
         };
     let mut english = draft("English", Some("English"), &["y"], 110);

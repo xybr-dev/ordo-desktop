@@ -286,7 +286,9 @@ fn parish_with<'a>(
             occurrence(82, chorus),
             occurrence(83, verse),
         ];
-        lyrics.pagination = PaginationState::Approved;
+        for section in &mut lyrics.sections {
+            section.pagination = PaginationState::Approved;
+        }
     } else {
         lyrics
             .sections
@@ -1623,14 +1625,17 @@ pub(crate) fn stored_pagination(
     store: &Entity<LibraryStore>,
     id: ArrangementId,
     vcx: &mut VisualTestContext,
-) -> PaginationState {
+) -> Vec<PaginationState> {
     store.read_with(vcx, |store, _| {
         store
             .library()
             .arrangement(id)
             .expect("stored")
             .lyrics()
-            .pagination
+            .sections
+            .iter()
+            .map(|section| section.pagination)
+            .collect()
     })
 }
 
@@ -1686,7 +1691,13 @@ fn ac9_undo_restores_the_removed_section_and_its_occurrences(cx: &mut TestAppCon
     });
     assert_eq!(stored.sections.len(), 2);
     assert_eq!(stored.sequence.len(), 3);
-    assert_eq!(stored.pagination, PaginationState::Approved);
+    assert!(
+        stored
+            .sections
+            .iter()
+            .all(|section| section.pagination == PaginationState::Approved),
+        "Undo restored every section's approval"
+    );
     finish(vcx, &slot, &dir);
 }
 
@@ -1716,13 +1727,15 @@ fn typing_on_an_approved_arrangement_needs_review_and_undo_restores_approved(
     settle(vcx);
     assert_eq!(
         stored_pagination(&store, id, vcx),
-        PaginationState::Approved
+        vec![PaginationState::Approved, PaginationState::Approved]
     );
     type_into_area(&editor, "Ave Maria, gratia plena", vcx);
     saved(&editor, vcx);
     assert_eq!(
         stored_pagination(&store, id, vcx),
-        PaginationState::NeedsReview
+        vec![PaginationState::NeedsReview, PaginationState::NeedsReview],
+        "T2.8 WP3 replaces this bridge: storage still holds one Arrangement \
+         state, so every section loads as Needs review"
     );
     // Focus outside a text field: Undo is the editor's own.
     click(vcx, "arrangement-section-0");
@@ -1731,7 +1744,7 @@ fn typing_on_an_approved_arrangement_needs_review_and_undo_restores_approved(
     saved(&editor, vcx);
     assert_eq!(
         stored_pagination(&store, id, vcx),
-        PaginationState::Approved
+        vec![PaginationState::Approved, PaginationState::Approved]
     );
     assert_eq!(stored_lyrics(&store, id, vcx), "Ave Maria");
     finish(vcx, &slot, &dir);

@@ -9,12 +9,12 @@
 //! Selection is view state, but its maintenance after a content replacement is
 //! a pure content question, so [`selection_after_replace`] lives here too.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{OccurrenceId, SectionId};
 use crate::pagination::slides;
 use crate::song_library::interface::SongLibraryError;
-use crate::song_library::model::{OccurrenceDraft, SectionDraft};
+use crate::song_library::model::{OccurrenceDraft, PaginationState, SectionDraft};
 
 use super::sections::{ArrangementLyrics, Step};
 
@@ -48,7 +48,11 @@ impl ArrangementLyrics {
         section: SectionId,
         after: Option<OccurrenceId>,
     ) -> Result<usize, SongLibraryError> {
-        if !self.sections.iter().any(|candidate| candidate.id == section) {
+        if !self
+            .sections
+            .iter()
+            .any(|candidate| candidate.id == section)
+        {
             return Err(SongLibraryError::UnknownSection(section));
         }
         let after = match after {
@@ -209,6 +213,126 @@ pub fn flatten(lyrics: &ArrangementLyrics) -> Vec<FlatSlide> {
 /// one-based and always at least two digits wide.
 pub fn position_label(index: usize) -> String {
     format!("{:02}", index + 1)
+}
+
+/// How ready an Arrangement is to be sung from its Sequence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadinessState {
+    /// The Arrangement has no sections at all.
+    NoSections,
+    /// The Sequence is empty, or a referenced section cannot produce slides.
+    Incomplete,
+    /// Every referenced section has slides, but at least one is not approved.
+    NeedsReview,
+    /// Every referenced section has approved, renderable slides.
+    Ready,
+}
+
+/// Why one referenced section keeps an Arrangement from being ready.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FindingKind {
+    /// The Sequence has sections to place but no occurrences.
+    EmptySequence,
+    /// The section's lyrics generate no slides.
+    NoLyrics,
+    /// The section's slides could not be composed.
+    Unrenderable,
+    /// The section's pagination is not approved; carries its current state.
+    NotApproved(PaginationState),
+}
+
+/// One reason an Arrangement is not ready, and the section it concerns.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Finding {
+    /// What is wrong.
+    pub kind: FindingKind,
+    /// The section it concerns, or `None` for the empty Sequence itself.
+    pub section: Option<SectionId>,
+    /// How many occurrences of that section the Sequence places.
+    pub occurrences: usize,
+}
+
+/// What the Sequence editor's header says about readiness, with the reasons.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArrangementReadiness {
+    /// The summary state.
+    pub state: ReadinessState,
+    /// One finding per referenced section with a problem, ordered by the
+    /// section's first occurrence; the empty Sequence is one more finding.
+    pub findings: Vec<Finding>,
+}
+
+/// Judges an Arrangement's readiness to be sung.
+///
+/// Only sections the Sequence references are examined: unused sections never
+/// produce a finding, and a section used several times is reported once with
+/// its occurrence count. `unrenderable` names the referenced sections the
+/// renderer could not compose; `domain` cannot render, so the editor supplies
+/// that input. The states are ordered NoSections, then Incomplete (empty
+/// Sequence, or a referenced section with no slides or unrenderable), then
+/// NeedsReview (a referenced section not approved), then Ready.
+pub fn readiness(
+    lyrics: &ArrangementLyrics,
+    unrenderable: &BTreeSet<SectionId>,
+) -> ArrangementReadiness {
+    if lyrics.sections.is_empty() {
+        return ArrangementReadiness {
+            state: ReadinessState::NoSections,
+            findings: Vec::new(),
+        };
+    }
+    let mut findings = Vec::new();
+    if lyrics.sequence.is_empty() {
+        findings.push(Finding {
+            kind: FindingKind::EmptySequence,
+            section: None,
+            occurrences: 0,
+        });
+    }
+    let mut examined = BTreeSet::new();
+    for occurrence in &lyrics.sequence {
+        if !examined.insert(occurrence.section) {
+            continue;
+        }
+        let Some(section) = lyrics
+            .sections
+            .iter()
+            .find(|section| section.id == occurrence.section)
+        else {
+            continue;
+        };
+        let kind = if slides(&section.lyrics).is_empty() {
+            FindingKind::NoLyrics
+        } else if unrenderable.contains(&occurrence.section) {
+            FindingKind::Unrenderable
+        } else if section.pagination != PaginationState::Approved {
+            FindingKind::NotApproved(section.pagination)
+        } else {
+            continue;
+        };
+        findings.push(Finding {
+            kind,
+            section: Some(occurrence.section),
+            occurrences: lyrics.occurrences_of(occurrence.section),
+        });
+    }
+    let state = if lyrics.sequence.is_empty()
+        || findings.iter().any(|finding| {
+            matches!(
+                finding.kind,
+                FindingKind::NoLyrics | FindingKind::Unrenderable
+            )
+        }) {
+        ReadinessState::Incomplete
+    } else if findings
+        .iter()
+        .any(|finding| matches!(finding.kind, FindingKind::NotApproved(_)))
+    {
+        ReadinessState::NeedsReview
+    } else {
+        ReadinessState::Ready
+    };
+    ArrangementReadiness { state, findings }
 }
 
 /// The occurrence to select after content is replaced, such as on Undo.
