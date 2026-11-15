@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse 1
+body-lines:2
+Ginoó, among tabang sa buntag
+Niño sa among kasingkasing
+footer-absent
+image-absent
