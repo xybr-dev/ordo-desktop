@@ -2137,6 +2137,8 @@ const STALE: &str = "This changed since you opened History. Reopen it to restore
 const ALREADY: &str = "It’s already archived.";
 const ARCHIVE_FIRST: &str = "Archive it first.";
 const RESTORE_FIRST: &str = "Restore it before restoring a revision.";
+const ISNT_ARCHIVED: &str = "It isn’t archived.";
+const COULDNT_SAVE: &str = "Couldn't save.";
 
 fn library_of(cx: &mut TestAppContext, store: &Entity<LibraryStore>) -> SongLibrary {
     store.read_with(cx, |store, _| store.library().clone())
@@ -2275,12 +2277,18 @@ fn ac4_archive_and_restore_through_the_store_update_memory_after_storage(cx: &mu
     );
     assert_eq!(
         restore_song_of(cx, &store, song),
-        Err(SharedString::from(ARCHIVE_FIRST))
+        Err(SharedString::from(ISNT_ARCHIVED))
     );
     assert_eq!(library_of(cx, &store), before);
     assert_eq!(*changes.borrow(), 1);
 
     assert_eq!(restore_arr(cx, &store, id), Ok(id));
+    assert_eq!(
+        restore_arr(cx, &store, id),
+        Err(SharedString::from(ISNT_ARCHIVED)),
+        "restoring what is active is refused, not told to archive it first"
+    );
+    assert_eq!(*changes.borrow(), 2);
     assert!(!arrangement_of(cx, &store, id).is_archived());
     assert_eq!(archive_song_of(cx, &store, song), Ok(song));
     assert!(store.read_with(cx, |store, _| {
@@ -2557,18 +2565,113 @@ fn ac3_restore_over_a_stale_head_is_refused_with_operator_copy(cx: &mut TestAppC
     // An archived Arrangement, or one under an archived Song, is inspect-only.
     assert_eq!(archive_arr(cx, &store, id), Ok(id));
     let before = library_of(cx, &store);
+    let seen = *changes.borrow();
     assert_eq!(
         restore_rev(cx, &store, first, head),
         Err(SharedString::from(RESTORE_FIRST))
     );
+    assert_eq!(library_of(cx, &store), before);
+    assert_eq!(*changes.borrow(), seen, "a refusal emits nothing");
     assert_eq!(restore_arr(cx, &store, id), Ok(id));
     assert_eq!(archive_song_of(cx, &store, song), Ok(song));
+    let before = library_of(cx, &store);
+    let seen = *changes.borrow();
     assert_eq!(
         restore_rev(cx, &store, first, head),
         Err(SharedString::from(RESTORE_FIRST))
     );
-    assert_ne!(library_of(cx, &store), before, "only the archives changed");
+    assert_eq!(library_of(cx, &store), before);
+    assert_eq!(*changes.borrow(), seen, "a refusal emits nothing");
     assert_eq!(history(cx, &slot, id).len(), list.len());
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac4_a_failed_archive_write_leaves_memory_and_storage_unchanged(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, id) = seeded(cx, "store-archive-fails");
+    let before = library_of(cx, &store);
+    let changes = count_changes(cx, &store);
+    let armed = slot
+        .with(|storage| storage.inject_write_failure(1))
+        .expect("storage is open");
+    cx.foreground_executor().block_test(armed).expect("armed");
+
+    assert_eq!(
+        archive_arr(cx, &store, id),
+        Err(SharedString::from(COULDNT_SAVE))
+    );
+    assert_eq!(
+        library_of(cx, &store),
+        before,
+        "memory changes only after storage"
+    );
+    assert_eq!(*changes.borrow(), 0, "a failed write emits nothing");
+    let stored = slot
+        .with(|storage| storage.arrangement(id))
+        .expect("storage is open");
+    assert_eq!(
+        cx.foreground_executor()
+            .block_test(stored)
+            .expect("stored")
+            .archived_at,
+        None,
+        "the stored archive stamp is still empty"
+    );
+    assert_eq!(archive_arr(cx, &store, id), Ok(id), "the hook cleared");
+    finish(cx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac3_restoring_a_song_revision_refreshes_the_song_in_memory(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, _id) = seeded(cx, "store-restore-song-revision");
+    let entity = RevisionEntity::Song(song);
+    let list = history_of(cx, &store, entity).expect("history");
+    let creation = list.last().expect("creation").record.id;
+    let edited = slot
+        .with(|storage| {
+            storage.commit_song_edit(
+                song,
+                storage::SongContent {
+                    title: "Other Title".into(),
+                    aliases: Vec::new(),
+                    original_attribution: None,
+                    provenance: None,
+                    rights_notes: None,
+                    liturgical_moments: Vec::new(),
+                    occasions: Vec::new(),
+                },
+                RevisionKind::Edit,
+                Some(HistorySessionId::from_entity(EntityId::from_random_bytes(
+                    [7; 16],
+                ))),
+                creation,
+            )
+        })
+        .expect("storage is open");
+    let (_, head) = cx
+        .foreground_executor()
+        .block_test(edited)
+        .expect("song edit");
+    // A fresh open so memory holds the edited title.
+    let (slot, store) = reopen(cx, &slot, &dir);
+    let title = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        store.read_with(cx, |store, _| {
+            store.library().song(song).expect("song").title().to_owned()
+        })
+    };
+    assert_eq!(title(cx, &store), "Other Title");
+    let changes = count_changes(cx, &store);
+
+    let new_head = restore_rev(cx, &store, creation, head.id).expect("restored");
+    assert_ne!(new_head, head.id);
+    assert_eq!(title(cx, &store), "Panis Angelicus");
+    assert_eq!(*changes.borrow(), 1, "one Changed for the restoration");
+    let list = history_of(cx, &store, entity).expect("history");
+    let last = list.last().expect("new head");
+    assert_eq!(last.record.id, new_head);
+    assert_eq!(last.record.kind, RevisionKind::Restoration);
     finish(cx, &slot, &dir);
 }
 

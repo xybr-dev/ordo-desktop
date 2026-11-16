@@ -411,6 +411,17 @@ fn ac9_lifecycle_actions_are_archive_restore_and_delete_only() {
 }
 
 #[test]
+fn an_active_arrangement_under_an_archived_song_offers_only_archive() {
+    let mut library = small_library();
+    library.archive_song(song_id(1), at(5)).unwrap();
+    assert_eq!(
+        arrangement_lifecycle_actions(library.arrangement(arrangement_id(10)).unwrap()),
+        [LifecycleAction::Archive].as_slice(),
+        "an Arrangement's actions follow its own archive state only"
+    );
+}
+
+#[test]
 fn archived_entities_cannot_restore_a_revision() {
     let mut library = small_library();
     assert!(can_restore_song_revision(library.song(song_id(1)).unwrap()));

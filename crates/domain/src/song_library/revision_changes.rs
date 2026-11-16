@@ -188,7 +188,11 @@ pub fn arrangement_change(
         }
         if old.lyrics != new.lyrics {
             if same_non_blank_lines(&old.lyrics, &new.lyrics) {
-                changes.push(ArrangementChange::SlideBoundary { section: old.id });
+                // A trailing newline or a whitespace-only line moves no slide
+                // boundary, so it is no change worth naming.
+                if slide_breaks(&old.lyrics) != slide_breaks(&new.lyrics) {
+                    changes.push(ArrangementChange::SlideBoundary { section: old.id });
+                }
             } else {
                 changes.push(ArrangementChange::Wording { section: old.id });
             }
@@ -556,7 +560,7 @@ pub fn compare_arrangements(
 ///
 /// Moving one occurrence by one place is also explained by moving its
 /// neighbour the other way; the occurrence that travelled furthest wins, and
-/// on a tie the one that landed later.
+/// on a tie the one that moved toward the start (a "Move up" of it).
 fn single_move(
     before: &[&OccurrenceDraft],
     after: &[&OccurrenceDraft],
@@ -564,7 +568,7 @@ fn single_move(
     if before.len() != after.len() {
         return None;
     }
-    let mut best: Option<(usize, usize, SectionId)> = None;
+    let mut best: Option<(usize, bool, SectionId, usize)> = None;
     for (position, occurrence) in after.iter().enumerate() {
         let from = before
             .iter()
@@ -580,13 +584,13 @@ fn single_move(
                 .collect()
         };
         if rest(before) == rest(after) {
-            let key = (from.abs_diff(position), position, occurrence.section);
+            let key = (from.abs_diff(position), position < from, occurrence.section);
             if best.is_none_or(|current| (key.0, key.1) > (current.0, current.1)) {
-                best = Some(key);
+                best = Some((key.0, key.1, key.2, position));
             }
         }
     }
-    best.map(|(_, to, section)| (section, to))
+    best.map(|(_, _, section, to)| (section, to))
 }
 
 /// One recorded state change, or `None` when no state differs.
@@ -624,19 +628,15 @@ fn recorded_state_change(
     }
 }
 
-/// Whether a section's state changed in a way its own edit did not cause: an
-/// Approved section whose words changed returning to NeedsReview, and a new
-/// section starting Draft, are automatic.
+/// Whether a section's state changed in a way no edit explains. Any state
+/// change on a section whose own words changed, and any state on an added
+/// section, belongs to that edit (an Undo writes the old words with the old
+/// approval); only state changes on untouched sections count.
 fn has_unexplained_state_change(before: &ArrangementLyrics, after: &ArrangementLyrics) -> bool {
     after.sections.iter().any(
         |new| match before.sections.iter().find(|old| old.id == new.id) {
-            Some(old) => {
-                old.pagination != new.pagination
-                    && !(old.pagination == PaginationState::Approved
-                        && new.pagination == PaginationState::NeedsReview
-                        && old.lyrics != new.lyrics)
-            }
-            None => new.pagination != PaginationState::Draft,
+            Some(old) => old.pagination != new.pagination && old.lyrics == new.lyrics,
+            None => false,
         },
     )
 }

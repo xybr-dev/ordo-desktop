@@ -159,6 +159,9 @@ impl Core {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_error)?;
+        // Taken before any re-check so a refused delete still consumes an
+        // armed write failure instead of leaving it for the next write.
+        let mut steps = WriteSteps::new(fault);
         if !archived(&tx, target)? {
             return Err(StorageError::NotArchived {
                 kind: RecordKind::Arrangement,
@@ -172,7 +175,6 @@ impl Core {
             });
         }
         let revisions = arrangement_revision_count(&tx, id)?;
-        let mut steps = WriteSteps::new(fault);
         // Children first, then the revisions (their self-references resolve at
         // the end of the one statement), then the row itself.
         for sql in [
@@ -198,6 +200,9 @@ impl Core {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_error)?;
+        // Taken before any re-check so a refused delete still consumes an
+        // armed write failure instead of leaving it for the next write.
+        let mut steps = WriteSteps::new(fault);
         if !archived(&tx, target)? {
             return Err(StorageError::NotArchived {
                 kind: RecordKind::Song,
@@ -212,7 +217,6 @@ impl Core {
             });
         }
         let revisions = song_revision_count(&tx, id)?;
-        let mut steps = WriteSteps::new(fault);
         for sql in [
             "DELETE FROM song_alias WHERE song_id = ?1",
             "DELETE FROM song_liturgical_moment WHERE song_id = ?1",

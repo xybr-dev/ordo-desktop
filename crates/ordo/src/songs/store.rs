@@ -22,9 +22,10 @@ use domain::{
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
 use storage::{
-    ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord, DeletionFacts,
-    HistoryRevision, NewArrangement, NewChoir, NewSection, NewSong, OccurrenceContent,
-    SectionContent, ShutdownOutcome, SongRecord, Storage, StorageConfig, StorageError,
+    ArrangementContent, ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord,
+    DeletionFacts, HistoryRevision, NewArrangement, NewChoir, NewSection, NewSong,
+    OccurrenceContent, RevisionContent, SectionContent, ShutdownOutcome, SongContent, SongRecord,
+    Storage, StorageConfig, StorageError,
 };
 
 /// Where the parish library is in its life.
@@ -135,12 +136,18 @@ const DELETION_BLOCKED: &str = "Something now uses it, so it can’t be deleted.
 const STALE_REVISION: &str = "This changed since you opened History. Reopen it to restore.";
 /// The refusal for archiving what is already archived.
 const ALREADY_ARCHIVED: &str = "It’s already archived.";
-/// The refusal for restoring or deleting what is not archived.
+/// The refusal for deleting what is not archived.
 const NOT_ARCHIVED: &str = "Archive it first.";
+/// The refusal for restoring what is not archived.
+const NOT_ARCHIVED_TO_RESTORE: &str = "It isn’t archived.";
 /// The refusal for restoring a revision of an archived entity.
 const RESTORE_FIRST: &str = "Restore it before restoring a revision.";
 /// Every other storage failure of a lifecycle or History write.
 const COULDNT_SAVE: &str = "Couldn't save.";
+/// A failed History read.
+const COULDNT_OPEN_HISTORY: &str = "Couldn't open History.";
+/// A failed read of what still uses an entity.
+const COULDNT_CHECK_USES: &str = "Couldn't check what uses it.";
 
 /// One change the store can make. Choir and Song writes share one queue, so
 /// the order they were submitted in is the order they run in.
@@ -203,14 +210,16 @@ enum Stored {
     Arrangement(ArrangementRecord),
     /// A permanent deletion: how many revisions went with it.
     Deleted(usize),
-    /// A restored revision: the new head and the entity as stored afterwards.
+    /// A restored revision: the new head and the content storage wrote.
     Restored(RevisionId, Restored),
 }
 
-/// The entity a revision restore rewrote, as stored afterwards.
+/// The entity a revision restore rewrote, as the restoration wrote it. Memory
+/// is built from this, not from a second read, so a failing read cannot hide a
+/// restoration that committed.
 enum Restored {
-    Song(SongRecord),
-    Arrangement(ArrangementRecord),
+    Song(SongContent),
+    Arrangement(ArrangementContent),
 }
 
 /// What validation decided for a write.
@@ -245,7 +254,7 @@ enum Prepared {
     RestoreArrangement(ArrangementId),
     DeleteSong(SongId),
     DeleteArrangement(ArrangementId),
-    RestoreRevision(RevisionId, RevisionId, RevisionEntity),
+    RestoreRevision(RevisionId, RevisionId),
 }
 
 /// What a reference-safety review found, for the deletion dialog.
@@ -313,7 +322,7 @@ fn refusal(error: SongLibraryError) -> SharedString {
 fn lifecycle_refusal(error: SongLibraryError) -> SharedString {
     match error {
         SongLibraryError::AlreadyArchived(_) => ALREADY_ARCHIVED.into(),
-        SongLibraryError::NotArchived(_) => NOT_ARCHIVED.into(),
+        SongLibraryError::NotArchived(_) => NOT_ARCHIVED_TO_RESTORE.into(),
         SongLibraryError::DeletionBlocked(blockers) => blocked_copy(&blockers),
         other => refusal(other),
     }
@@ -330,14 +339,15 @@ fn blocked_copy(blockers: &[DeletionBlocker]) -> SharedString {
 }
 
 /// The operator copy for a storage failure of a lifecycle, deletion or
-/// History call.
-fn storage_copy(error: &StorageError) -> String {
+/// History call; `fallback` is the text for a failure the Interface does not
+/// name, which differs for a write and for a read.
+fn storage_copy(error: &StorageError, fallback: &str) -> String {
     match error {
         StorageError::DeletionBlocked { .. } => DELETION_BLOCKED,
         StorageError::StaleRevision { .. } => STALE_REVISION,
         StorageError::AlreadyArchived { .. } => ALREADY_ARCHIVED,
         StorageError::NotArchived { .. } => NOT_ARCHIVED,
-        _ => COULDNT_SAVE,
+        _ => fallback,
     }
     .to_owned()
 }
@@ -504,6 +514,45 @@ fn song_draft_of(record: &SongRecord) -> SongDraft {
         rights_notes: record.rights_notes.clone(),
         liturgical_moments: record.liturgical_moments.clone(),
         occasions: record.occasions.clone(),
+    }
+}
+
+/// The Song draft a restoration wrote.
+fn song_draft_from_content(content: &SongContent) -> SongDraft {
+    SongDraft {
+        title: content.title.clone(),
+        aliases: content.aliases.clone(),
+        original_attribution: content.original_attribution.clone(),
+        provenance: content.provenance.clone(),
+        rights_notes: content.rights_notes.clone(),
+        liturgical_moments: content.liturgical_moments.clone(),
+        occasions: content.occasions.clone(),
+    }
+}
+
+/// The Arrangement draft a restoration wrote.
+fn arrangement_draft_from_content(content: &ArrangementContent) -> ArrangementDraft {
+    ArrangementDraft {
+        title: content.title.clone(),
+        languages: content.languages.clone(),
+        rendition_attribution: content.rendition_attribution.clone(),
+        occasions: content.occasions.clone(),
+        notes: content.notes.clone(),
+        sections: content
+            .sections
+            .iter()
+            .map(|section| SectionDraft {
+                id: section.id,
+                label: section.label.clone(),
+                lyrics: section.lyrics.clone(),
+                pagination: section.pagination,
+            })
+            .collect(),
+        sequence: content
+            .sequence
+            .iter()
+            .map(|occurrence| OccurrenceDraft::new(occurrence.id, occurrence.section))
+            .collect(),
     }
 }
 
@@ -835,8 +884,9 @@ impl LibraryStore {
         cx.spawn(async move |this, cx| {
             let facts = cx
                 .background_spawn(async move {
-                    read.await
-                        .map_err(|error| SharedString::from(storage_copy(&error)))
+                    read.await.map_err(|error| {
+                        SharedString::from(storage_copy(&error, COULDNT_CHECK_USES))
+                    })
                 })
                 .await?;
             this.update(cx, |this, _| this.review(target, facts))
@@ -890,10 +940,10 @@ impl LibraryStore {
             let (backfill, history) = reads;
             backfill
                 .await
-                .map_err(|error| SharedString::from(storage_copy(&error)))?;
+                .map_err(|error| SharedString::from(storage_copy(&error, COULDNT_OPEN_HISTORY)))?;
             history
                 .await
-                .map_err(|error| SharedString::from(storage_copy(&error)))
+                .map_err(|error| SharedString::from(storage_copy(&error, COULDNT_OPEN_HISTORY)))
         })
     }
 
@@ -919,9 +969,9 @@ impl LibraryStore {
         cx.spawn(async move |this, cx| {
             let entity = cx
                 .background_spawn(async move {
-                    lookup
-                        .await
-                        .map_err(|error| SharedString::from(storage_copy(&error)))
+                    lookup.await.map_err(|error| {
+                        SharedString::from(storage_copy(&error, COULDNT_OPEN_HISTORY))
+                    })
                 })
                 .await?;
             let write = LibraryWrite::RestoreRevision {
@@ -1026,31 +1076,19 @@ impl LibraryStore {
                             .map(|deleted| Stored::Deleted(deleted.revisions))
                     })
                 }
-                Prepared::RestoreRevision(revision, head, entity) => {
+                Prepared::RestoreRevision(revision, head) => {
                     let restore = storage.restore_revision(revision, head);
-                    match entity {
-                        RevisionEntity::Song(id) => {
-                            let read = storage.song(id);
-                            let write: StoredWrite = Box::pin(async move {
-                                let (_, record) = restore.await?;
-                                let song = read.await?;
-                                Ok(Stored::Restored(record.id, Restored::Song(song)))
-                            });
-                            write
-                        }
-                        RevisionEntity::Arrangement(id) => {
-                            let read = storage.arrangement(id);
-                            let write: StoredWrite = Box::pin(async move {
-                                let (_, record) = restore.await?;
-                                let arrangement = read.await?;
-                                Ok(Stored::Restored(
-                                    record.id,
-                                    Restored::Arrangement(arrangement),
-                                ))
-                            });
-                            write
-                        }
-                    }
+                    let write: StoredWrite = Box::pin(async move {
+                        let (content, record) = restore.await?;
+                        let restored = match content {
+                            RevisionContent::Song(song) => Restored::Song(song),
+                            RevisionContent::Arrangement(arrangement) => {
+                                Restored::Arrangement(arrangement)
+                            }
+                        };
+                        Ok(Stored::Restored(record.id, restored))
+                    });
+                    write
                 }
                 Prepared::SaveMetadata(id, metadata) => {
                     let commit =
@@ -1085,12 +1123,20 @@ impl LibraryStore {
             };
             self.writing = true;
             let operator_copy = write.has_operator_copy();
+            let restoring = matches!(
+                write,
+                LibraryWrite::Restore(_)
+                    | LibraryWrite::RestoreSong(_)
+                    | LibraryWrite::RestoreArrangement(_)
+            );
             cx.spawn(async move |this, cx| {
                 let stored = cx
                     .background_spawn(async move {
                         started.await.map_err(|error| {
-                            if operator_copy {
-                                storage_copy(&error)
+                            if restoring && matches!(error, StorageError::NotArchived { .. }) {
+                                NOT_ARCHIVED_TO_RESTORE.to_owned()
+                            } else if operator_copy {
+                                storage_copy(&error, COULDNT_SAVE)
                             } else {
                                 error.to_string()
                             }
@@ -1324,7 +1370,7 @@ impl LibraryStore {
                 if !restorable {
                     return Err(RESTORE_FIRST.into());
                 }
-                Ok(Prepared::RestoreRevision(*revision, *head, *entity))
+                Ok(Prepared::RestoreRevision(*revision, *head))
             }
             _ => Err(SharedString::from(WRONG_KIND)),
         }
@@ -1404,22 +1450,36 @@ impl LibraryStore {
             }
             (
                 LibraryWrite::RestoreRevision { .. },
-                Stored::Restored(head, Restored::Song(record)),
+                Stored::Restored(head, Restored::Song(content)),
             ) => {
+                let LibraryWrite::RestoreRevision {
+                    entity: RevisionEntity::Song(id),
+                    ..
+                } = write
+                else {
+                    return Err(WRONG_KIND.into());
+                };
                 self.library
-                    .edit_song(record.id, song_draft_of(record))
+                    .edit_song(*id, song_draft_from_content(content))
                     .map_err(refusal)?;
                 Ok(Done::Id(head.entity()))
             }
             (
                 LibraryWrite::RestoreRevision { .. },
-                Stored::Restored(head, Restored::Arrangement(record)),
+                Stored::Restored(head, Restored::Arrangement(content)),
             ) => {
+                let LibraryWrite::RestoreRevision {
+                    entity: RevisionEntity::Arrangement(id),
+                    ..
+                } = write
+                else {
+                    return Err(WRONG_KIND.into());
+                };
                 self.library
                     .refresh_arrangement(
-                        record.id,
-                        arrangement_draft_of(record),
-                        record.choirs.clone(),
+                        *id,
+                        arrangement_draft_from_content(content),
+                        content.choirs.clone(),
                     )
                     .map_err(refusal)?;
                 Ok(Done::Id(head.entity()))

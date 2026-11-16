@@ -637,6 +637,99 @@ fn ac3_restoring_a_format_2_revision_carries_matching_section_states() {
 }
 
 #[test]
+fn ac3_restoring_a_legacy_revision_over_a_newer_head_carries_the_heads_states() {
+    let dir = TempDir::new("carry-over-newer-head");
+    bootstrap(&dir);
+    let song = SongId::from_entity(entity_id(0x55));
+    let arrangement = ArrangementId::from_entity(entity_id(0x56));
+    let legacy = RevisionId::from_entity(entity_id(0x54));
+    {
+        let conn = raw(&dir);
+        insert_song(&conn, song, "Legacy Song");
+        insert_arrangement(&conn, arrangement, song);
+        insert_section(
+            &conn,
+            arrangement,
+            section_id(0x51),
+            0,
+            "Verse",
+            "Alpha",
+            "approved",
+        );
+        insert_section(
+            &conn,
+            arrangement,
+            section_id(0x52),
+            1,
+            "Refrain",
+            "Bravo",
+            "needs_review",
+        );
+        insert_occurrence(&conn, arrangement, occurrence_id(0x53), section_id(0x51), 0);
+        insert_revision(
+            &conn,
+            legacy,
+            arrangement,
+            None,
+            None,
+            &carry_format_2_content(),
+        );
+    }
+
+    let storage = open(&dir);
+    // A format-3 head whose states differ from the rows the legacy document
+    // was written against: the Verse is withdrawn, the Refrain approved.
+    let section = |byte: u8, label: &str, lyrics: &str, pagination| storage::SectionContent {
+        id: section_id(byte),
+        label: Some(label.to_owned()),
+        lyrics: lyrics.to_owned(),
+        pagination,
+    };
+    let (_, head) = bounded(storage.commit_arrangement_edit(
+        arrangement,
+        ArrangementContent {
+            title: Some("Legacy SATB".to_owned()),
+            languages: vec!["Cebuano".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: None,
+            sections: vec![
+                section(0x51, "Verse", "Alpha", PaginationState::NeedsReview),
+                section(0x52, "Refrain", "Bravo", PaginationState::Approved),
+            ],
+            sequence: vec![storage::OccurrenceContent {
+                id: occurrence_id(0x53),
+                section: section_id(0x51),
+            }],
+        },
+        RevisionKind::Edit,
+        Some(session(1)),
+        legacy,
+    ))
+    .expect("format-3 edit");
+
+    let (content, _) = bounded(storage.restore_revision(legacy, head.id)).expect("restore");
+    let RevisionContent::Arrangement(content) = content else {
+        panic!("a legacy Arrangement restores as Arrangement content");
+    };
+    assert_eq!(
+        content
+            .sections
+            .iter()
+            .map(|section| section.pagination)
+            .collect::<Vec<_>>(),
+        vec![PaginationState::NeedsReview, PaginationState::Approved],
+        "the carried states come from the format-3 head, not the legacy rows"
+    );
+    assert_eq!(
+        states(&bounded(storage.arrangement(arrangement)).expect("arrangement")),
+        vec![PaginationState::NeedsReview, PaginationState::Approved]
+    );
+    shutdown(storage);
+}
+
+#[test]
 fn ac3_restoring_a_format_1_revision_returns_changed_approved_sections_to_review() {
     let dir = TempDir::new("carry-format-1");
     bootstrap(&dir);

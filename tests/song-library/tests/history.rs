@@ -299,6 +299,7 @@ fn ac2_compare_marks_changed_lines_by_position_within_a_section() {
         ]
     );
     assert_eq!(marks.state, Some(PaginationState::Approved));
+    assert!(marks.state_differs);
 
     // A slide break the other side does not have at that position is marked.
     let no_break = lyrics(
@@ -318,7 +319,6 @@ fn ac2_compare_marks_changed_lines_by_position_within_a_section() {
             LineMark::Same
         ]
     );
-    assert!(marks.state_differs);
 
     // A section the other side no longer has is wholly Changed.
     let gone = lyrics(Vec::new(), Vec::new());
@@ -720,11 +720,12 @@ fn structure_and_sequence_changes_each_get_one_kind() {
     );
     let mut moved = base.clone();
     moved.sequence.reverse();
+    // An adjacent swap reads as the occurrence that moved toward the start.
     assert_eq!(
         classify(&moved),
         ArrangementChange::OccurrenceMoved {
-            section: section_id(1),
-            to: 1
+            section: section_id(2),
+            to: 0
         }
     );
     let mut shorter = base.clone();
@@ -752,6 +753,144 @@ fn structure_and_sequence_changes_each_get_one_kind() {
             &state(&other_details, &base, true),
         ),
         ArrangementChange::Details
+    );
+}
+
+#[test]
+fn undo_of_a_wording_edit_is_one_wording_change() {
+    let details = details();
+    // The edit returned Approved to NeedsReview; its Undo writes the old words
+    // together with the old approval.
+    let edited = lyrics(
+        vec![section(1, "Una!", PaginationState::NeedsReview)],
+        vec![(1, 1)],
+    );
+    let undone = lyrics(
+        vec![section(1, "Una", PaginationState::Approved)],
+        vec![(1, 1)],
+    );
+    assert_eq!(
+        arrangement_change(
+            &state(&details, &edited, true),
+            &state(&details, &undone, true)
+        ),
+        ArrangementChange::Wording {
+            section: section_id(1)
+        }
+    );
+}
+
+#[test]
+fn undo_of_a_section_removal_is_section_added() {
+    let details = details();
+    let removed = lyrics(
+        vec![section(1, "Una", PaginationState::Draft)],
+        vec![(1, 1)],
+    );
+    let undone = lyrics(
+        vec![
+            section(1, "Una", PaginationState::Draft),
+            section(2, "Koro", PaginationState::Approved),
+        ],
+        vec![(1, 1), (2, 2)],
+    );
+    assert_eq!(
+        arrangement_change(
+            &state(&details, &removed, true),
+            &state(&details, &undone, true)
+        ),
+        ArrangementChange::SectionAdded {
+            section: section_id(2)
+        }
+    );
+}
+
+#[test]
+fn a_state_change_on_an_untouched_section_beside_an_edit_is_still_several() {
+    let details = details();
+    let before = lyrics(
+        vec![
+            section(1, "Una", PaginationState::Draft),
+            section(2, "Koro", PaginationState::Draft),
+        ],
+        vec![(1, 1), (2, 2)],
+    );
+    let after = lyrics(
+        vec![
+            section(1, "Una!", PaginationState::Draft),
+            section(2, "Koro", PaginationState::Approved),
+        ],
+        vec![(1, 1), (2, 2)],
+    );
+    assert_eq!(
+        arrangement_change(
+            &state(&details, &before, true),
+            &state(&details, &after, true)
+        ),
+        ArrangementChange::Several
+    );
+}
+
+#[test]
+fn a_trailing_newline_alone_is_not_a_slide_boundary() {
+    let details = details();
+    let before = lyrics(
+        vec![section(1, "Una\nIkaduha", PaginationState::Draft)],
+        vec![(1, 1)],
+    );
+    let after = lyrics(
+        vec![section(1, "Una\nIkaduha\n", PaginationState::Draft)],
+        vec![(1, 1)],
+    );
+    assert_eq!(
+        arrangement_change(
+            &state(&details, &before, true),
+            &state(&details, &after, true)
+        ),
+        ArrangementChange::Unchanged
+    );
+}
+
+#[test]
+fn adjacent_swaps_name_the_occurrence_that_moved_toward_the_start() {
+    let details = details();
+    let base = lyrics(
+        vec![
+            section(1, "Una", PaginationState::Draft),
+            section(2, "Koro", PaginationState::Draft),
+            section(3, "Wakas", PaginationState::Draft),
+        ],
+        vec![(1, 1), (2, 2), (3, 3)],
+    );
+    let classify = |sequence: Vec<(u8, u8)>| {
+        let after = lyrics(base.sections.clone(), sequence);
+        arrangement_change(
+            &state(&details, &base, true),
+            &state(&details, &after, true),
+        )
+    };
+    // Move up of the second occurrence, and of the third.
+    assert_eq!(
+        classify(vec![(2, 2), (1, 1), (3, 3)]),
+        ArrangementChange::OccurrenceMoved {
+            section: section_id(2),
+            to: 0
+        }
+    );
+    assert_eq!(
+        classify(vec![(1, 1), (3, 3), (2, 2)]),
+        ArrangementChange::OccurrenceMoved {
+            section: section_id(3),
+            to: 1
+        }
+    );
+    // A longer move down is still the one that travelled furthest.
+    assert_eq!(
+        classify(vec![(2, 2), (3, 3), (1, 1)]),
+        ArrangementChange::OccurrenceMoved {
+            section: section_id(1),
+            to: 2
+        }
     );
 }
 

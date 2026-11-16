@@ -167,7 +167,7 @@ pub(crate) fn load_content(
                 .map_err(|_| damaged())?;
             let decoded = content::decode_arrangement(&text, id)?;
             let legacy = (!decoded.current()).then_some(decoded.format);
-            let current = decoded.current();
+            let current = decoded.records_states();
             (
                 RevisionEntity::Arrangement(arrangement),
                 RevisionContent::Arrangement(decoded.content),

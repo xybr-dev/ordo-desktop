@@ -379,6 +379,12 @@ impl DecodedArrangement {
     pub(crate) fn current(&self) -> bool {
         self.format == ARRANGEMENT_FORMAT
     }
+
+    /// True when the format records per-section approval states (3 and any
+    /// later format).
+    pub(crate) fn records_states(&self) -> bool {
+        self.format >= ARRANGEMENT_FORMAT
+    }
 }
 
 /// Canonical text of one revision's content and its hash.

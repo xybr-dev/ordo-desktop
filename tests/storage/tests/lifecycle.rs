@@ -361,6 +361,27 @@ fn ac6_delete_arrangement_refuses_an_active_arrangement() {
 }
 
 #[test]
+fn ac6_delete_arrangement_refuses_an_active_arrangement_under_an_archived_song() {
+    let dir = TempDir::new("active-under-archived");
+    let storage = open(&dir);
+    let (song, first, _) = seeded(&storage);
+    archive_song(&storage, song);
+
+    assert_eq!(
+        bounded(storage.delete_arrangement(first.id)),
+        Err(StorageError::NotArchived {
+            kind: RecordKind::Arrangement,
+        }),
+        "the Arrangement's own archive state decides, not its Song's"
+    );
+    assert_eq!(
+        bounded(storage.arrangement(first.id)).map(|record| record.id),
+        Ok(first.id)
+    );
+    shutdown(storage);
+}
+
+#[test]
 fn ac6_delete_song_refuses_while_any_arrangement_remains() {
     let dir = TempDir::new("song-children");
     let storage = open(&dir);
@@ -731,6 +752,58 @@ fn ac6_removing_a_planted_reference_unblocks_deletion() {
     assert_eq!(
         bounded(storage.delete_song(lone)),
         Ok(Deleted { revisions: 1 })
+    );
+    shutdown(storage);
+}
+
+#[test]
+fn ac6_planting_is_idempotent_and_removing_an_absent_reference_is_ok() {
+    let dir = TempDir::new("plant-idempotent");
+    let storage = open(&dir);
+    let (_, first, _) = seeded(&storage);
+    archive_arrangement(&storage, &first);
+    let target = RecordRef::Arrangement(first.id);
+    let mass = DurableReference::MassPlan(entity_id(0x90));
+
+    bounded(storage.plant_reference(target, mass.clone())).expect("plant");
+    bounded(storage.plant_reference(target, mass.clone())).expect("plant again");
+    assert_eq!(
+        bounded(storage.delete_arrangement(first.id)),
+        Err(StorageError::DeletionBlocked {
+            references: vec![mass.clone()],
+            children: Vec::new(),
+        }),
+        "the same pair planted twice is one reference"
+    );
+
+    let absent = DurableReference::PresentationSnapshot(entity_id(0x91));
+    assert_eq!(bounded(storage.remove_reference(target, absent)), Ok(()));
+    assert_eq!(bounded(storage.remove_reference(target, mass)), Ok(()));
+    assert_eq!(
+        bounded(storage.delete_arrangement(first.id)),
+        Ok(Deleted { revisions: 1 })
+    );
+    shutdown(storage);
+}
+
+#[test]
+fn ac6_planted_references_vanish_after_reopen() {
+    let dir = TempDir::new("plant-reopen");
+    let storage = open(&dir);
+    let (_, first, _) = seeded(&storage);
+    archive_arrangement(&storage, &first);
+    bounded(storage.plant_reference(
+        RecordRef::Arrangement(first.id),
+        DurableReference::MassPlan(entity_id(0x90)),
+    ))
+    .expect("plant");
+    shutdown(storage);
+
+    let storage = open(&dir);
+    assert_eq!(
+        bounded(storage.delete_arrangement(first.id)),
+        Ok(Deleted { revisions: 1 }),
+        "nothing planted persists"
     );
     shutdown(storage);
 }
