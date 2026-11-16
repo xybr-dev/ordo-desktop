@@ -11,6 +11,7 @@ use domain::identity::{
     ArrangementId, HistorySessionId, OccurrenceId, RevisionId, SectionId, SongId, Timestamp,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
+use domain::song_library::carry_review_states;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::parish_store::write::{
@@ -752,7 +753,7 @@ impl Core {
         revision: RevisionId,
         expected_parent: RevisionId,
     ) -> Result<(RevisionContent, RevisionRecord), StorageError> {
-        let (entity, restored) = {
+        let (entity, mut restored, pagination_recorded) = {
             let conn = self.connection_mut()?;
             let tx = conn.transaction().map_err(map_error)?;
             load_content(&tx, revision)?
@@ -777,6 +778,23 @@ impl Core {
         let mut steps = WriteSteps::new(fault);
         require_entity(&tx, entity)?;
         require_current(&tx, entity, expected_parent)?;
+        // A legacy document recorded no section states. Take each restored
+        // section's state from the current section with the same identity,
+        // then apply the ordinary review rule (Decision 5). The rows are read
+        // in the same transaction that writes, so the carry sees exactly the
+        // content the restoration replaces.
+        if !pagination_recorded
+            && let (RevisionContent::Arrangement(content), RevisionEntity::Arrangement(id)) =
+                (&mut restored, entity)
+        {
+            let current = read_arrangement(&tx, id)?.ok_or(StorageError::NotFound {
+                kind: RecordKind::Arrangement,
+                id: id.entity(),
+            })?;
+            let carried =
+                carry_review_states(&ArrangementContent::of(&current).lyrics(), content.lyrics());
+            content.replace_lyrics(&carried);
+        }
         let link = Link {
             parent: Some(expected_parent),
             kind: RevisionKind::Restoration,

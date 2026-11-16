@@ -20,6 +20,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::assets::{self, AssetLayout};
 use crate::migrations::{self, Migration};
+use crate::song_references::PlantedReferences;
 use crate::{SchemaStatus, StorageConfig, StorageError, map_error};
 
 /// Work sent to the worker.
@@ -129,6 +130,8 @@ pub(crate) struct Core {
     pub(crate) cache_dir: std::path::PathBuf,
     /// Armed by the fault hook: the next asset file write fails midway.
     asset_fault: bool,
+    /// Durable references planted by the fault-injection hooks.
+    planted: PlantedReferences,
 }
 
 /// Borrowed parts of the worker for one asset-writing transaction.
@@ -259,6 +262,7 @@ impl Core {
             assets: AssetLayout::new(&config.assets_dir),
             cache_dir: config.cache_dir.clone(),
             asset_fault: false,
+            planted: PlantedReferences::default(),
         };
         match Self::connect(config, migrations) {
             Ok((mut conn, status)) => {
@@ -293,6 +297,21 @@ impl Core {
     ) -> Result<(&mut Connection, &mut Sources, &mut Option<usize>), StorageError> {
         let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
         Ok((conn, &mut self.sources, &mut self.fault))
+    }
+
+    /// Everything one deletion transaction needs: the connection, its write
+    /// steps and the planted references, read under the same lock.
+    pub(crate) fn deletion_parts(
+        &mut self,
+    ) -> Result<(&mut Connection, &mut Option<usize>, &PlantedReferences), StorageError> {
+        let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
+        Ok((conn, &mut self.fault, &self.planted))
+    }
+
+    /// The planted references, for the fault-injection hooks.
+    #[cfg(feature = "fault-injection")]
+    pub(crate) fn planted_mut(&mut self) -> &mut PlantedReferences {
+        &mut self.planted
     }
 
     /// Everything one asset-writing transaction needs. The caller clears

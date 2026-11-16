@@ -15,6 +15,7 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use crate::worker::Core;
 use crate::{RecordKind, StorageError, map_error};
 
+use super::HistoryRevision;
 use super::RevisionRecord;
 use super::content::{self, RevisionContent};
 
@@ -116,11 +117,13 @@ pub(crate) fn latest_in(
     }
 }
 
-/// Reads, hashes and decodes one revision's content.
+/// Reads, hashes and decodes one revision's content, and reports whether the
+/// document recorded per-section pagination states (format 3 or later for an
+/// Arrangement; always for a Song).
 pub(crate) fn load_content(
     tx: &Transaction<'_>,
     id: RevisionId,
-) -> Result<(RevisionEntity, RevisionContent), StorageError> {
+) -> Result<(RevisionEntity, RevisionContent, bool), StorageError> {
     let row = tx
         .query_row(
             "SELECT song_id, arrangement_id, content, content_sha256 FROM edit_revision \
@@ -148,13 +151,14 @@ pub(crate) fn load_content(
     if content::hash_of(&text) != stored {
         return Err(damaged());
     }
-    let (entity, decoded, legacy) = match (song, arrangement) {
+    let (entity, decoded, legacy, pagination_recorded) = match (song, arrangement) {
         (Some(song), None) => {
             let song = song.parse::<SongId>().map_err(|_| damaged())?;
             (
                 RevisionEntity::Song(song),
                 RevisionContent::Song(content::decode_song(&text, id)?),
                 None,
+                true,
             )
         }
         (None, Some(arrangement)) => {
@@ -163,10 +167,12 @@ pub(crate) fn load_content(
                 .map_err(|_| damaged())?;
             let decoded = content::decode_arrangement(&text, id)?;
             let legacy = (!decoded.current()).then_some(decoded.format);
+            let current = decoded.current();
             (
                 RevisionEntity::Arrangement(arrangement),
                 RevisionContent::Arrangement(decoded.content),
                 legacy,
+                current,
             )
         }
         _ => return Err(damaged()),
@@ -186,7 +192,7 @@ pub(crate) fn load_content(
     if canonical.as_deref() != Some(text.as_str()) {
         return Err(damaged());
     }
-    Ok((entity, decoded))
+    Ok((entity, decoded, pagination_recorded))
 }
 
 /// Every section and occurrence identity any stored revision of the
@@ -312,6 +318,30 @@ impl Core {
         chain(&tx, entity)
     }
 
+    /// Reads one entity's chain with every revision's verified content, oldest
+    /// first. An entity with no revision yields an empty list.
+    pub(crate) fn history(
+        &mut self,
+        entity: RevisionEntity,
+    ) -> Result<Vec<HistoryRevision>, StorageError> {
+        let conn = self.connection_mut()?;
+        let tx = conn.transaction().map_err(map_error)?;
+        let records = chain(&tx, entity)?;
+        let mut history = Vec::with_capacity(records.len());
+        for record in records {
+            let (stored_entity, content, pagination_recorded) = load_content(&tx, record.id)?;
+            if stored_entity != record.entity {
+                return Err(StorageError::RevisionIntegrity { id: record.id });
+            }
+            history.push(HistoryRevision {
+                record,
+                content,
+                pagination_recorded,
+            });
+        }
+        Ok(history)
+    }
+
     /// Reads one revision's content after re-hashing it.
     pub(crate) fn revision_content(
         &mut self,
@@ -319,6 +349,6 @@ impl Core {
     ) -> Result<RevisionContent, StorageError> {
         let conn = self.connection_mut()?;
         let tx = conn.transaction().map_err(map_error)?;
-        load_content(&tx, revision).map(|(_, content)| content)
+        load_content(&tx, revision).map(|(_, content, _)| content)
     }
 }
