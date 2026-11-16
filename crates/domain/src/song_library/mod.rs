@@ -28,6 +28,7 @@ mod languages;
 mod lifecycle;
 mod model;
 mod reference_safety;
+mod revision_changes;
 mod search;
 mod sections;
 mod sequence;
@@ -51,10 +52,15 @@ pub use model::{
 pub use reference_safety::{
     BlockerGroup, DeletionBlocker, DeletionVerdict, DurableReference, blocker_groups,
 };
+pub use revision_changes::{
+    ArrangementChange, ArrangementComparison, ArrangementState, LineMark, OverviewMarks,
+    SectionMarks, SessionTopic, SongField, arrangement_change, compare_arrangements, session_topic,
+    song_changed_fields,
+};
 pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
-pub use sections::{ArrangementLyrics, Step, section_name_suggestions};
+pub use sections::{ArrangementLyrics, Step, carry_review_states, section_name_suggestions};
 pub use sequence::{
     ArrangementReadiness, Finding, FindingKind, FlatSlide, ReadinessState, flatten, position_label,
     readiness, selection_after_replace,

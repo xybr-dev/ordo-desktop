@@ -222,6 +222,33 @@ impl ArrangementLyrics {
     }
 }
 
+/// The state a restored section takes when the restored revision recorded none
+/// (Decision 5).
+///
+/// Each restored section takes the pagination state of the current section with
+/// the same identity, then the ordinary review rule (
+/// [`ArrangementLyrics::reviewed_against`]) runs against `current`: a section
+/// that was Approved and whose lyrics differ returns to NeedsReview, and an
+/// identity `current` no longer has stays Draft. Nothing is ever falsely
+/// approved.
+pub fn carry_review_states(
+    current: &ArrangementLyrics,
+    mut restored: ArrangementLyrics,
+) -> ArrangementLyrics {
+    let states: BTreeMap<SectionId, PaginationState> = current
+        .sections
+        .iter()
+        .map(|section| (section.id, section.pagination))
+        .collect();
+    for section in &mut restored.sections {
+        section.pagination = states
+            .get(&section.id)
+            .copied()
+            .unwrap_or(PaginationState::Draft);
+    }
+    restored.reviewed_against(current)
+}
+
 /// The next numbered verse and the still-free name suggestions for a new
 /// section.
 ///
