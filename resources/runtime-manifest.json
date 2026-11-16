@@ -7,6 +7,7 @@
     "assets/fonts/noto-sans/NotoSans[wdth,wght].ttf",
     "crates/ui/assets/icons/lucide/activity.svg",
     "crates/ui/assets/icons/lucide/arrow-down.svg",
+    "crates/ui/assets/icons/lucide/arrow-left.svg",
     "crates/ui/assets/icons/lucide/arrow-up.svg",
     "crates/ui/assets/icons/lucide/calendar-days.svg",
     "crates/ui/assets/icons/lucide/check.svg",

@@ -32,6 +32,31 @@ pub enum Tone {
     /// An action that is also a standing warning, such as the backup reminder:
     /// warning-colored label, icon, and edge.
     Warning,
+    /// An irreversible action, such as permanent deletion: danger-colored
+    /// label, icon, and edge, in the same quiet-fill treatment as Warning.
+    Danger,
+}
+
+impl Tone {
+    /// The label and icon color of an available button in this tone.
+    pub(crate) fn ink(self, palette: &tokens::Palette) -> u32 {
+        match self {
+            Tone::Standard => palette.text,
+            Tone::Primary => tokens::color::ON_PRIMARY,
+            Tone::Warning => palette.warning,
+            Tone::Danger => palette.danger,
+        }
+    }
+
+    /// The edge and fill of an available, non-quiet button in this tone.
+    pub(crate) fn edge_and_fill(self, palette: &tokens::Palette) -> (u32, u32) {
+        match self {
+            Tone::Standard => (palette.border, palette.surface_secondary),
+            Tone::Primary => (tokens::color::PRIMARY, tokens::color::PRIMARY),
+            Tone::Warning => (palette.warning, palette.surface),
+            Tone::Danger => (palette.danger, palette.surface),
+        }
+    }
 }
 
 /// A labeled action.
@@ -232,11 +257,10 @@ impl Button {
         let icon_only = self.icon_only && self.icon.is_some();
         let height = scale.apply(self.control_height);
         let tone = if disabled { Tone::Standard } else { self.tone };
-        let ink = match tone {
-            _ if disabled => palette.text_muted,
-            Tone::Standard => palette.text,
-            Tone::Primary => tokens::color::ON_PRIMARY,
-            Tone::Warning => palette.warning,
+        let ink = if disabled {
+            palette.text_muted
+        } else {
+            tone.ink(&palette)
         };
         let icon_size = scale.apply(tokens::icon::CONTROL_SIZE);
         let label = self.label.clone();
@@ -369,11 +393,7 @@ impl Button {
             })
             .rounded(px(scale.apply(tokens::radius::CONTROL)))
             .when(!self.quiet, |control| {
-                let (edge, fill) = match tone {
-                    Tone::Standard => (palette.border, palette.surface_secondary),
-                    Tone::Primary => (tokens::color::PRIMARY, tokens::color::PRIMARY),
-                    Tone::Warning => (palette.warning, palette.surface),
-                };
+                let (edge, fill) = tone.edge_and_fill(&palette);
                 control
                     .border(px(tokens::border::SEPARATOR))
                     .border_color(rgb(edge))
@@ -398,13 +418,13 @@ impl Button {
                         // A filled or colored edge has nothing stronger to
                         // step to, so the fill answers instead.
                         Tone::Primary => style.opacity(0.9),
-                        Tone::Warning => style.bg(rgb(palette.surface_secondary)),
+                        Tone::Warning | Tone::Danger => style.bg(rgb(palette.surface_secondary)),
                         Tone::Standard if quiet => style.bg(rgb(palette.surface_secondary)),
                         Tone::Standard => style.border_color(rgb(palette.border_strong)),
                     })
                     .active(move |style| match tone {
                         Tone::Primary => style.opacity(0.8),
-                        Tone::Warning => style.bg(rgb(palette.border)),
+                        Tone::Warning | Tone::Danger => style.bg(rgb(palette.border)),
                         Tone::Standard => {
                             let style = style.bg(rgb(palette.border));
                             if quiet {

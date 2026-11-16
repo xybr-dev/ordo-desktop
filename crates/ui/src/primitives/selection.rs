@@ -510,6 +510,8 @@ struct Control {
     /// The trigger takes the whole width of its slot instead of its content
     /// width (capped at 320 px).
     fill: bool,
+    /// A Menu's icon-only trigger glyph; see [`Menu::icon`].
+    icon: Option<&'static str>,
     on_select: Option<OnSelect>,
 }
 
@@ -534,6 +536,7 @@ macro_rules! control {
                     kind: Kind::$kind,
                     clearable: true,
                     fill: false,
+                    icon: None,
                     on_select: None,
                 })
             }
@@ -579,6 +582,17 @@ control!(
     Menu,
     "A popup collection of actions; selection invokes an action and returns focus."
 );
+impl Menu {
+    /// An icon-only trigger, for a Menu that is an overflow ("more actions")
+    /// rather than a labelled command. The label stays the accessible name and
+    /// becomes the tooltip; the Menu and MenuItem roles and the keyboard
+    /// behaviour do not change.
+    pub fn icon(mut self, icon: &'static str) -> Self {
+        self.0.icon = Some(icon);
+        self
+    }
+}
+
 control!(
     Select,
     Select,
@@ -920,8 +934,14 @@ impl Control {
         } else {
             self.label.to_string()
         };
+        let icon_only = self.kind == Kind::Menu && self.icon.is_some();
         Button::new("trigger", text, self.environment)
             .name(self.label.clone())
+            .when_some(self.icon.filter(|_| icon_only), |button, glyph| {
+                // The label is the name and, with nothing else on screen to
+                // spell it, the tooltip.
+                button.icon(glyph).icon_only().tooltip(self.label.clone())
+            })
             // ponytail: `debug_bounds` measures the box, not the glyphs, so no
             // test here can see a label painting outside it — the box was 320px
             // wide while the text ran past both edges. The visible half stays
@@ -930,8 +950,11 @@ impl Control {
             .on_surface(self.surface)
             // The chevron says a popup opens below, so it points at where the
             // popup appears rather than leading the label.
-            .icon(crate::assets::icon::CHEVRON_DOWN)
-            .icon_trailing()
+            .when(!icon_only, |button| {
+                button
+                    .icon(crate::assets::icon::CHEVRON_DOWN)
+                    .icon_trailing()
+            })
             .on_activate({
                 let state = self.state.clone();
                 move |w, cx| {
@@ -1402,6 +1425,7 @@ mod tests {
                         kind: self.kind,
                         clearable: true,
                         fill: false,
+                        icon: None,
                         on_select: Some({
                             let activations = self.activations.clone();
                             let cleared = self.cleared.clone();
@@ -1640,6 +1664,7 @@ mod tests {
                 kind: Kind::Menu,
                 clearable: true,
                 fill: false,
+                icon: None,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -2104,6 +2129,7 @@ mod tests {
                 kind: Kind::Combobox,
                 clearable: true,
                 fill: false,
+                icon: None,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -2183,6 +2209,7 @@ mod tests {
                 kind: Kind::Combobox,
                 clearable: true,
                 fill: false,
+                icon: None,
                 on_select: None,
                 environment: UiEnvironment::new(
                     UiPreferences::default(),
@@ -2257,5 +2284,44 @@ mod tests {
                 assert_eq!(v.activations.get(), 0);
             });
         }
+    }
+
+    #[gpui::test]
+    fn icon_menu_trigger_is_named_and_lists_menu_items(cx: &mut TestAppContext) {
+        use gpui::{Element, accesskit};
+        fn node(element: impl Element) -> accesskit::Node {
+            let mut node = accesskit::Node::new(element.a11y_role().expect("semantic element"));
+            element.write_a11y_info(&mut node);
+            node
+        }
+        let (view, cx) = open(cx, Kind::Menu);
+        cx.update(|w, cx| {
+            let control = Control {
+                id: "overflow".into(),
+                label: "More actions".into(),
+                state: view.read(cx).state.clone(),
+                kind: Kind::Menu,
+                clearable: false,
+                fill: false,
+                icon: Some(crate::assets::icon::ELLIPSIS),
+                on_select: None,
+                environment: UiEnvironment::new(
+                    UiPreferences::default(),
+                    ResolvedAppearance::Light,
+                ),
+                surface: 0,
+            };
+            let trigger = node(control.trigger(w, cx).render(w, cx).into_element());
+            assert_eq!(
+                trigger.label(),
+                Some("More actions"),
+                "an icon-only trigger is still named by its label"
+            );
+            let frame = control.state.0.read(cx).frame(cx);
+            for i in [0, 3] {
+                let item = node(control.item(i, &frame, cx));
+                assert_eq!(item.role(), Role::MenuItem);
+            }
+        });
     }
 }

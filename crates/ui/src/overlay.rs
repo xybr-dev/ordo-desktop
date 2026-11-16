@@ -29,7 +29,11 @@ use gpui_base::{
 
 use crate::{FocusNext, FocusPrevious, assets::icon, environment::UiEnvironment, scroll::Scroll};
 use crate::{
-    primitives::{Availability, button::Button},
+    primitives::{
+        Availability,
+        button::{Button, Tone},
+        note,
+    },
     tokens,
 };
 
@@ -46,6 +50,11 @@ const TOAST_PRIORITY: usize = 50;
 /// These are the first ones; give the caller a builder when one needs another.
 const DIALOG_WIDTH: f32 = 480.0;
 const SLIDEOVER_WIDTH: f32 = 360.0;
+/// A wide surface (the two-column comparison), before the Interface scale.
+const WIDE_WIDTH: f32 = 720.0;
+/// How much of the warning color tints the second stage of a two-stage
+/// footer, over the surface it sits on (the mockup's 12%).
+const CONFIRMATION_TINT: f32 = 0.12;
 /// A popover's width, before the Interface scale.
 const POPOVER_WIDTH: f32 = 320.0;
 /// The least height a popover keeps when neither side of its anchor has room,
@@ -124,6 +133,15 @@ pub struct Overlay {
     leading: Option<(SharedString, Gate, Activate)>,
     on_close: Option<Activate>,
     primary_focus: Option<FocusHandle>,
+    /// Set by [`Overlay::wide`].
+    wide: bool,
+    /// Set by [`Overlay::back`]: the accessible name of the leading Back
+    /// button, which replaces the close control.
+    back: Option<SharedString>,
+    /// Set by [`Overlay::two_stage`]: replaces the standard footer.
+    two_stage: Option<TwoStage>,
+    /// Set by [`Overlay::primary_tone`].
+    primary_tone: Option<Tone>,
 }
 
 impl Overlay {
@@ -159,7 +177,44 @@ impl Overlay {
             leading: None,
             on_close: None,
             primary_focus: None,
+            wide: false,
+            back: None,
+            two_stage: None,
+            primary_tone: None,
         }
+    }
+
+    /// A wide surface: 720 px before the Interface scale, clamped to the
+    /// viewport exactly as every other surface is. Opened over a default
+    /// slideover it nests the same way, and the parent recedes as before.
+    pub fn wide(mut self) -> Self {
+        self.wide = true;
+        self
+    }
+
+    /// Leads the header with an arrow-left button, named `label` and with the
+    /// tooltip "Back", that closes only this surface and returns focus to where
+    /// it was in the surface underneath. A Back-led surface has no close
+    /// control (Decision 12); Escape still closes it.
+    pub fn back(mut self, label: impl Into<SharedString>) -> Self {
+        self.back = Some(label.into());
+        self
+    }
+
+    /// Replaces the footer with the in-place two-stage footer described on
+    /// [`TwoStage`]. [`Overlay::primary`], [`Overlay::secondary`] and
+    /// [`Overlay::leading_gated`] are not drawn when this is set.
+    pub fn two_stage(mut self, stage: TwoStage) -> Self {
+        self.two_stage = Some(stage);
+        self
+    }
+
+    /// The [`Tone`] of the primary action, for a decision that is not the
+    /// ordinary kind (`Tone::Danger` for permanent deletion). Unset, the
+    /// primary keeps its default look.
+    pub fn primary_tone(mut self, tone: Tone) -> Self {
+        self.primary_tone = Some(tone);
+        self
     }
 
     /// The accessible description, and the line under the title. `DESIGN.md`
@@ -261,6 +316,265 @@ pub fn escape_first<E: gpui::InteractiveElement>(
             cx.stop_propagation();
         }
     })
+}
+
+/// Which half of a [`TwoStage`] footer is showing, and what the caller last
+/// refused.
+struct TwoStageState {
+    /// The second stage (the confirmation) is showing.
+    confirming: bool,
+    /// A refusal sentence shown inside the initial footer.
+    refusal: Option<SharedString>,
+    /// Focus should return to Ask on the next frame (a refusal arrived while
+    /// the confirmation, which held focus, was showing).
+    refocus_ask: bool,
+}
+
+/// The second stage's words and decision.
+#[derive(Clone)]
+struct Confirmation {
+    lead: SharedString,
+    message: SharedString,
+    keep: SharedString,
+    confirm: SharedString,
+    on_confirm: Activate,
+}
+
+/// The in-place two-stage footer for an irreversible decision (Decision 11).
+///
+/// Stage one reads the note, then **Back** (closes the surface, like the
+/// header's Back) and **Ask** (the primary). Ask turns the footer, in place,
+/// into the confirmation: a warning-tinted row with no card border or shadow
+/// (the lead and message beside a warning icon), then **Keep** (focused on
+/// entry) and **Confirm** (the Warning tone). Keep, or Escape, returns to stage
+/// one with focus back on Ask; Escape in stage one closes the surface as usual.
+/// The footer is part of the surface's fixed footer, so it stays reachable
+/// while the body scrolls. Build one with [`TwoStage::new`] and hand it to
+/// [`Overlay::two_stage`]; keep a clone to call [`TwoStage::set_refusal`] or
+/// [`TwoStage::is_confirming`].
+#[derive(Clone)]
+pub struct TwoStage {
+    state: Entity<TwoStageState>,
+    note: SharedString,
+    back: SharedString,
+    ask: SharedString,
+    confirmation: Option<Confirmation>,
+    /// False for [`TwoStage::without_ask`]: stage one is the note and Back.
+    asks: bool,
+    /// Back, Ask, Keep, Confirm, in that order.
+    handles: [FocusHandle; 4],
+}
+
+impl TwoStage {
+    /// Stage one: `note` (a read-only line), the `back` label and the `ask`
+    /// label. Give the confirmation with [`TwoStage::confirmation`]; without
+    /// one, Ask is not drawn.
+    pub fn new(
+        note: impl Into<SharedString>,
+        back: impl Into<SharedString>,
+        ask: impl Into<SharedString>,
+        cx: &mut App,
+    ) -> Self {
+        Self {
+            state: cx.new(|_| TwoStageState {
+                confirming: false,
+                refusal: None,
+                refocus_ask: false,
+            }),
+            note: note.into(),
+            back: back.into(),
+            ask: ask.into(),
+            confirmation: None,
+            asks: true,
+            handles: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
+        }
+    }
+
+    /// Stage two: the `lead` sentence and `message` beside the warning icon,
+    /// the `keep` label (the safe answer, focused on entry) and the `confirm`
+    /// label, whose activation calls `on_confirm`. Confirm does not close the
+    /// surface: the caller closes it once the decision stood, or calls
+    /// [`TwoStage::set_refusal`] when it did not.
+    pub fn confirmation(
+        mut self,
+        lead: impl Into<SharedString>,
+        message: impl Into<SharedString>,
+        keep: impl Into<SharedString>,
+        confirm: impl Into<SharedString>,
+        on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.confirmation = Some(Confirmation {
+            lead: lead.into(),
+            message: message.into(),
+            keep: keep.into(),
+            confirm: confirm.into(),
+            on_confirm: Rc::new(on_confirm),
+        });
+        self
+    }
+
+    /// Stage one shows the note and Back only, for a comparison that cannot be
+    /// restored (an archived Song's History).
+    pub fn without_ask(mut self) -> Self {
+        self.asks = false;
+        self
+    }
+
+    /// Whether the confirmation (stage two) is showing.
+    pub fn is_confirming(&self, cx: &App) -> bool {
+        self.state.read(cx).confirming
+    }
+
+    /// Shows (or, with `None`, clears) a refusal sentence inside the footer and
+    /// returns it to stage one, which is a usable state: the caller's decision
+    /// was refused, so the operator is asked nothing further, may read why, and
+    /// may Ask again. Focus returns to Ask on the next frame.
+    pub fn set_refusal(&self, refusal: Option<SharedString>, cx: &mut App) {
+        self.state.update(cx, |state, cx| {
+            if refusal.is_some() {
+                state.refocus_ask |= state.confirming;
+                state.confirming = false;
+            }
+            state.refusal = refusal;
+            cx.notify();
+        });
+    }
+
+    /// Back to stage one, as a fresh surface starts.
+    fn reset(&self, cx: &mut App) {
+        self.state.update(cx, |state, cx| {
+            state.confirming = false;
+            state.refusal = None;
+            state.refocus_ask = false;
+            cx.notify();
+        });
+    }
+
+    /// Ask: into the confirmation, with focus on Keep.
+    fn enter(&self, window: &mut Window, cx: &mut App) {
+        if self.confirmation.is_none() || !self.asks {
+            return;
+        }
+        self.state.update(cx, |state, cx| {
+            state.confirming = true;
+            state.refusal = None;
+            cx.notify();
+        });
+        self.handles[2].focus(window, cx);
+        window.refresh();
+    }
+
+    /// Keep: back to stage one, with focus on Ask.
+    fn keep(&self, window: &mut Window, cx: &mut App) {
+        self.state.update(cx, |state, cx| {
+            state.confirming = false;
+            cx.notify();
+        });
+        self.handles[1].focus(window, cx);
+        window.refresh();
+    }
+
+    /// Escape in the confirmation acts as Keep; in stage one it is left to
+    /// close the surface. Returns whether it was taken.
+    fn escape(&self, window: &mut Window, cx: &mut App) -> bool {
+        if !self.state.read(cx).confirming {
+            return false;
+        }
+        self.keep(window, cx);
+        true
+    }
+}
+
+/// `over` mixed toward `color` by `amount` (0 to 1), per channel.
+fn mix(color: u32, over: u32, amount: f32) -> u32 {
+    let channel = |shift: u32| {
+        let a = f32::from(((color >> shift) & 0xFF) as u8);
+        let b = f32::from(((over >> shift) & 0xFF) as u8);
+        let mixed = (a * amount + b * (1.0 - amount)).round().clamp(0.0, 255.0);
+        (mixed as u32) << shift
+    };
+    channel(16) | channel(8) | channel(0)
+}
+
+/// The second stage's fill: a little of the warning color over the surface.
+fn confirmation_tint(palette: &tokens::Palette) -> u32 {
+    mix(palette.warning, palette.surface, CONFIRMATION_TINT)
+}
+
+/// The confirmation's icon-and-message row. It is deliberately not a card: no
+/// border, no shadow and no fill of its own, because the footer it sits in is
+/// already the tinted surface.
+fn confirmation_row(
+    confirmation: &Confirmation,
+    palette: &tokens::Palette,
+    environment: UiEnvironment,
+) -> gpui::Div {
+    let scale = environment.preferences().scale;
+    div()
+        .debug_selector(|| "two-stage-message".into())
+        .flex()
+        .items_start()
+        .gap(px(scale.apply(tokens::spacing::RELATED)))
+        .text_color(rgb(palette.warning))
+        .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+        .child(
+            gpui::svg()
+                .flex_none()
+                .size(px(scale.apply(tokens::icon::CONTROL_SIZE)))
+                .text_color(rgb(palette.warning))
+                .data(icon::TRIANGLE_ALERT.as_bytes()),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child(confirmation.lead.clone()),
+                )
+                .child(div().child(confirmation.message.clone())),
+        )
+}
+
+/// The footer container shared by both stages, apart from its fill.
+fn footer_frame(palette: &tokens::Palette, environment: UiEnvironment) -> gpui::Div {
+    let scale = environment.preferences().scale;
+    div()
+        .flex_none()
+        .flex()
+        .gap(px(scale.apply(tokens::spacing::RELATED)))
+        .p(px(scale.apply(tokens::spacing::GROUP)))
+        .border_t(px(tokens::border::SEPARATOR))
+        .border_color(rgb(palette.border))
+}
+
+/// The confirmation stage's footer: the shared frame, stacked, on the warning
+/// tint.
+fn confirmation_footer(palette: &tokens::Palette, environment: UiEnvironment) -> gpui::Div {
+    footer_frame(palette, environment)
+        .flex_col()
+        .bg(rgb(confirmation_tint(palette)))
+}
+
+/// The arrow keys walk a footer's action buttons in order, wrapping; Tab is
+/// untouched.
+fn walk_actions(
+    present: Vec<FocusHandle>,
+) -> impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static {
+    move |event, window, cx| {
+        let step = match event.keystroke.key.as_str() {
+            "left" | "up" => present.len() - 1,
+            "right" | "down" => 1,
+            _ => return,
+        };
+        let Some(at) = present.iter().position(|handle| handle.is_focused(window)) else {
+            return;
+        };
+        present[(at + step) % present.len()].focus(window, cx);
+        cx.stop_propagation();
+    }
 }
 
 /// An operator-only bottom-center message.
@@ -461,6 +775,9 @@ impl OverlayHost {
     /// Opens a surface, nesting it above whatever is already open.
     pub fn open(&self, overlay: Overlay, window: &mut Window, cx: &mut App) {
         let invoker = window.focused(cx);
+        if let Some(stage) = &overlay.two_stage {
+            stage.reset(cx);
+        }
         let focus = cx.focus_handle();
         let initial = overlay.primary_focus.clone();
         let actions = [
@@ -749,7 +1066,20 @@ impl OverlayHost {
             )
         };
 
+        // A refusal that arrived while the confirmation held focus unmounted
+        // that focus; Ask is what the operator is on again, once it is drawn.
+        if let Some(stage) = overlay.two_stage.clone().filter(|_| top) {
+            let refocus = stage
+                .state
+                .update(cx, |state, _| std::mem::take(&mut state.refocus_ask));
+            if refocus {
+                let ask = stage.handles[1].clone();
+                window.on_next_frame(move |window, cx| ask.focus(window, cx));
+            }
+        }
+
         let width = match overlay.kind {
+            _ if overlay.wide && overlay.kind != Surface::Popover => scale.apply(WIDE_WIDTH),
             Surface::Dialog => scale.apply(DIALOG_WIDTH),
             Surface::Slideover => scale.apply(SLIDEOVER_WIDTH),
             Surface::Popover => scale.apply(POPOVER_WIDTH),
@@ -811,7 +1141,14 @@ impl OverlayHost {
         // The card is the only occluding part: a centring wrapper that took
         // presses would be a second, invisible scrim covering the whole
         // viewport, and the real one would never see the press that dismisses.
-        let card = semantics(&overlay, id, !closing)
+        let card = semantics(&overlay, id, !closing);
+        // Escape in the confirmation is Keep, not a close; a further Escape
+        // (now in stage one) closes the surface like any other.
+        let card = match overlay.two_stage.clone() {
+            Some(stage) => escape_first(card, move |window, cx| stage.escape(window, cx)),
+            None => card,
+        };
+        let card = card
             .flex()
             .flex_col()
             .w(px(width))
@@ -1082,10 +1419,22 @@ impl OverlayHost {
                     .text_size(px(scale.apply(tokens::typography::LABEL.size)))
                     .child(text)
             }));
-        let (before, after) = if leads {
-            (Some(close), None)
-        } else {
-            (None, Some(close))
+        // A Back-led surface has no close control (Decision 12): Back, Escape
+        // and the scrim are its ways out.
+        let back = overlay.back.clone().map(|label| {
+            let leave = self.closer(id);
+            Button::new(("overlay-back", id), label, environment)
+                .tooltip("Back")
+                .icon(icon::ARROW_LEFT)
+                .icon_only()
+                .quiet()
+                .on_surface(palette.surface)
+                .on_activate(move |window, cx| leave(window, cx))
+        });
+        let (before, after) = match (back, leads) {
+            (Some(back), _) => (Some(back), None),
+            (None, true) => (Some(close), None),
+            (None, false) => (None, Some(close)),
         };
         div()
             .flex_none()
@@ -1109,7 +1458,10 @@ impl OverlayHost {
         actions: &[FocusHandle; 3],
         environment: UiEnvironment,
         cx: &App,
-    ) -> Option<impl IntoElement + use<>> {
+    ) -> Option<AnyElement> {
+        if let Some(stage) = &overlay.two_stage {
+            return Some(self.two_stage_footer(stage, id, environment, cx));
+        }
         if overlay.primary.is_none() && overlay.secondary.is_none() && overlay.leading.is_none() {
             return None;
         }
@@ -1143,6 +1495,7 @@ impl OverlayHost {
                     environment,
                 )
                 .when(quiet, Button::quiet)
+                .when_some(overlay.primary_tone.filter(|_| !quiet), Button::tone)
                 .availability(availability)
                 .track_focus(&tracked)
                 .on_surface(palette.surface)
@@ -1162,19 +1515,7 @@ impl OverlayHost {
                 .id(("overlay-actions", id))
                 // The arrow keys walk the action buttons, wrapping; Tab is
                 // untouched.
-                .on_key_down(move |event, window, cx| {
-                    let step = match event.keystroke.key.as_str() {
-                        "left" | "up" => present.len() - 1,
-                        "right" | "down" => 1,
-                        _ => return,
-                    };
-                    let Some(at) = present.iter().position(|handle| handle.is_focused(window))
-                    else {
-                        return;
-                    };
-                    present[(at + step) % present.len()].focus(window, cx);
-                    cx.stop_propagation();
-                })
+                .on_key_down(walk_actions(present))
                 .flex_none()
                 .flex()
                 // A leading action takes a row of its own, where its
@@ -1206,8 +1547,155 @@ impl OverlayHost {
                     },
                 )
                 .children(action(overlay.secondary.clone(), true))
-                .children(action(overlay.primary.clone(), false)),
+                .children(action(overlay.primary.clone(), false))
+                .into_any_element(),
         )
+    }
+
+    /// The two-stage footer: stage one (note, Back, Ask) or, in place of it,
+    /// the confirmation (message, Keep, Confirm). See [`TwoStage`].
+    fn two_stage_footer(
+        &self,
+        stage: &TwoStage,
+        id: usize,
+        environment: UiEnvironment,
+        cx: &App,
+    ) -> AnyElement {
+        let palette = tokens::palette(environment.appearance());
+        let scale = environment.preferences().scale;
+        let (confirming, refusal) = {
+            let state = stage.state.read(cx);
+            (state.confirming, state.refusal.clone())
+        };
+        let [back_focus, ask_focus, keep_focus, confirm_focus] = stage.handles.clone();
+        // A control on a card playing its exit is a picture of one.
+        let host = self.clone();
+        let live = move |act: Activate| -> Activate {
+            let host = host.clone();
+            Rc::new(move |window, cx| {
+                if host.holding(id, cx) {
+                    act(window, cx);
+                }
+            })
+        };
+        match stage
+            .confirmation
+            .clone()
+            .filter(|_| confirming && stage.asks)
+        {
+            Some(confirmation) => {
+                let keep = {
+                    let stage = stage.clone();
+                    live(Rc::new(move |window, cx| stage.keep(window, cx)))
+                };
+                let confirm = {
+                    let on_confirm = confirmation.on_confirm.clone();
+                    live(Rc::new(move |window, cx| on_confirm(window, cx)))
+                };
+                confirmation_footer(&palette, environment)
+                    .id(("overlay-actions", id))
+                    .on_key_down(walk_actions(vec![
+                        keep_focus.clone(),
+                        confirm_focus.clone(),
+                    ]))
+                    .child(confirmation_row(&confirmation, &palette, environment))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                            .child(
+                                Button::new(
+                                    ("overlay-keep", id),
+                                    confirmation.keep.clone(),
+                                    environment,
+                                )
+                                .on_surface(confirmation_tint(&palette))
+                                .track_focus(&keep_focus)
+                                .on_activate(move |window, cx| keep(window, cx)),
+                            )
+                            .child(
+                                Button::new(
+                                    ("overlay-confirm", id),
+                                    confirmation.confirm.clone(),
+                                    environment,
+                                )
+                                .tone(Tone::Warning)
+                                .on_surface(confirmation_tint(&palette))
+                                .track_focus(&confirm_focus)
+                                .on_activate(move |window, cx| confirm(window, cx)),
+                            ),
+                    )
+                    .into_any_element()
+            }
+            None => {
+                let leave = {
+                    let close = self.closer(id);
+                    live(Rc::new(move |window, cx| close(window, cx)))
+                };
+                let ask = {
+                    let stage = stage.clone();
+                    live(Rc::new(move |window, cx| stage.enter(window, cx)))
+                };
+                let asks = stage.asks && stage.confirmation.is_some();
+                let mut present = vec![back_focus.clone()];
+                if asks {
+                    present.push(ask_focus.clone());
+                }
+                footer_frame(&palette, environment)
+                    .id(("overlay-actions", id))
+                    .debug_selector(|| "two-stage-footer".into())
+                    .on_key_down(walk_actions(present))
+                    .flex_col()
+                    .children(refusal.map(|text| {
+                        div()
+                            .id(("overlay-refusal", id))
+                            .role(Role::Alert)
+                            .aria_label(text.clone())
+                            .child(note(
+                                icon::TRIANGLE_ALERT,
+                                palette.warning,
+                                text.to_string(),
+                                "two-stage-refusal",
+                                environment,
+                            ))
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .justify_end()
+                            .gap(px(scale.apply(tokens::spacing::RELATED)))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_color(rgb(palette.text_muted))
+                                    .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+                                    .child(stage.note.clone()),
+                            )
+                            .child(
+                                Button::new(
+                                    ("overlay-back-action", id),
+                                    stage.back.clone(),
+                                    environment,
+                                )
+                                .quiet()
+                                .on_surface(palette.surface)
+                                .track_focus(&back_focus)
+                                .on_activate(move |window, cx| leave(window, cx)),
+                            )
+                            .children(asks.then(|| {
+                                Button::new(("overlay-ask", id), stage.ask.clone(), environment)
+                                    .on_surface(palette.surface)
+                                    .track_focus(&ask_focus)
+                                    .on_activate(move |window, cx| ask(window, cx))
+                            })),
+                    )
+                    .into_any_element()
+            }
+        }
     }
 
     fn toast_stack(
@@ -2849,5 +3337,451 @@ mod tests {
                 );
             });
         }
+    }
+
+    /// A tall body, so the footer is only reachable if it does not scroll.
+    fn tall_body(_: UiEnvironment, _: &mut Window, _: &mut App) -> AnyElement {
+        div()
+            .h(px(3000.0))
+            .child("A long comparison")
+            .into_any_element()
+    }
+
+    /// Lets a surface finish entering, so its controls are where a click lands.
+    fn rest(cx: &mut gpui::VisualTestContext) {
+        cx.executor().advance_clock(Duration::from_millis(
+            tokens::motion::OVERLAY_OPEN_DURATION_MS.into(),
+        ));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} renders"));
+        cx.simulate_click(bounds.center(), Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    /// A comparison-shaped surface: wide, Back-led, with the two-stage footer.
+    fn open_two_stage(
+        view: &Entity<Harness>,
+        cx: &mut gpui::VisualTestContext,
+        confirmed: Rc<Cell<usize>>,
+        asks: bool,
+    ) -> TwoStage {
+        let stage = cx.update(|_, cx| {
+            let stage = TwoStage::new("Read-only comparison", "Back", "Restore this revision", cx)
+                .confirmation(
+                    "Restore the whole Arrangement?",
+                    "It becomes a new revision.",
+                    "Keep current",
+                    "Restore entire Arrangement",
+                    move |_, _| confirmed.set(confirmed.get() + 1),
+                );
+            if asks { stage } else { stage.without_ask() }
+        });
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let on_stage = stage.clone();
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Compare revision")
+                    .back("Back to History")
+                    .wide()
+                    .body(tall_body)
+                    .two_stage(on_stage),
+                window,
+                cx,
+            )
+        });
+        rest(cx);
+        stage
+    }
+
+    #[gpui::test]
+    fn two_stage_ask_turns_the_footer_into_the_confirmation_and_focuses_keep(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = open(cx);
+        let confirmed = Rc::new(Cell::new(0));
+        let stage = open_two_stage(&view, cx, confirmed.clone(), true);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let depth = cx.update(|_, cx| host.depth(cx));
+        assert!(cx.debug_bounds("button-Back").is_some());
+        assert!(cx.debug_bounds("button-Restore this revision").is_some());
+        assert!(cx.debug_bounds("two-stage-message").is_none());
+        assert!(!cx.update(|_, cx| stage.is_confirming(cx)));
+
+        click(cx, "button-Restore this revision");
+        assert!(cx.update(|_, cx| stage.is_confirming(cx)));
+        assert!(cx.debug_bounds("two-stage-message").is_some(), "in place");
+        assert!(cx.debug_bounds("button-Keep current").is_some());
+        assert!(
+            cx.debug_bounds("button-Restore entire Arrangement")
+                .is_some()
+        );
+        assert!(
+            cx.debug_bounds("button-Restore this revision").is_none(),
+            "the initial footer is replaced, not stacked"
+        );
+        assert!(cx.debug_bounds("button-Back").is_none());
+        cx.update(|window, _| {
+            assert!(stage.handles[2].is_focused(window), "focus is on Keep");
+        });
+        assert_eq!(confirmed.get(), 0, "asking decides nothing");
+
+        click(cx, "button-Restore entire Arrangement");
+        assert_eq!(confirmed.get(), 1, "Confirm takes the decision once");
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            depth,
+            "Confirm leaves the surface to its caller"
+        );
+    }
+
+    #[gpui::test]
+    fn two_stage_keep_and_escape_return_the_initial_footer(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let stage = open_two_stage(&view, cx, Rc::new(Cell::new(0)), true);
+        let depth = cx.update(|_, cx| host.depth(cx));
+
+        click(cx, "button-Restore this revision");
+        click(cx, "button-Keep current");
+        assert!(!cx.update(|_, cx| stage.is_confirming(cx)));
+        assert!(cx.debug_bounds("button-Restore this revision").is_some());
+        cx.update(|window, _| {
+            assert!(stage.handles[1].is_focused(window), "focus is back on Ask");
+        });
+
+        click(cx, "button-Restore this revision");
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(!cx.update(|_, cx| stage.is_confirming(cx)));
+        assert!(cx.debug_bounds("button-Restore this revision").is_some());
+        cx.update(|window, _| assert!(stage.handles[1].is_focused(window)));
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            depth,
+            "Escape in the confirmation does not close the surface"
+        );
+
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            depth - 1,
+            "Escape in the initial footer closes as usual"
+        );
+    }
+
+    #[gpui::test]
+    fn two_stage_refusal_shows_in_the_footer_and_returns_a_usable_state(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let stage = open_two_stage(&view, cx, Rc::new(Cell::new(0)), true);
+        click(cx, "button-Restore this revision");
+        cx.update(|_, cx| stage.set_refusal(Some("That revision is no longer there.".into()), cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        rest(cx);
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        assert!(!cx.update(|_, cx| stage.is_confirming(cx)));
+        assert!(cx.debug_bounds("two-stage-refusal").is_some());
+        assert!(cx.debug_bounds("button-Restore this revision").is_some());
+        // Focus returns to Ask from a next-frame callback, which the test
+        // platform never delivers, so only the state it leaves is asserted.
+        click(cx, "button-Restore this revision");
+        assert!(
+            cx.update(|_, cx| stage.is_confirming(cx)),
+            "Ask works again"
+        );
+        cx.update(|_, cx| stage.set_refusal(None, cx));
+        click(cx, "button-Keep current");
+        assert!(cx.debug_bounds("two-stage-refusal").is_none());
+    }
+
+    #[gpui::test]
+    fn two_stage_without_ask_shows_the_note_and_back_only(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        open_two_stage(&view, cx, Rc::new(Cell::new(0)), false);
+        assert!(cx.debug_bounds("two-stage-footer").is_some());
+        assert!(cx.debug_bounds("button-Back").is_some());
+        assert!(cx.debug_bounds("button-Restore this revision").is_none());
+    }
+
+    #[gpui::test]
+    fn two_stage_footer_back_closes_the_surface(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        open_two_stage(&view, cx, Rc::new(Cell::new(0)), true);
+        click(cx, "button-Back");
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0);
+    }
+
+    #[gpui::test]
+    fn two_stage_confirmation_is_warning_tinted_without_a_card(cx: &mut TestAppContext) {
+        let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        let palette = tokens::palette(environment.appearance());
+        let tint = confirmation_tint(&palette);
+        assert_ne!(tint, palette.surface, "it is tinted");
+        assert_ne!(tint, palette.warning, "and only tinted");
+        assert_eq!(mix(0xFF0000, 0x000000, 0.5), 0x800000);
+        let confirmation = Confirmation {
+            lead: "Restore the whole Arrangement?".into(),
+            message: "It becomes a new revision.".into(),
+            keep: "Keep current".into(),
+            confirm: "Restore entire Arrangement".into(),
+            on_confirm: Rc::new(|_, _| {}),
+        };
+        let mut row = confirmation_row(&confirmation, &palette, environment);
+        let widths = row.style().border_widths.clone();
+        assert!(
+            widths.top.is_none()
+                && widths.left.is_none()
+                && widths.right.is_none()
+                && widths.bottom.is_none(),
+            "an uncarded row has no border"
+        );
+        assert!(row.style().box_shadow.is_none(), "and no shadow");
+        assert!(row.style().background.is_none(), "and no fill of its own");
+        let mut footer = confirmation_footer(&palette, environment);
+        assert!(
+            footer.style().background.is_some(),
+            "the footer carries the tint"
+        );
+        assert!(footer.style().box_shadow.is_none());
+
+        // And it is what the second stage draws.
+        let (view, cx) = open(cx);
+        open_two_stage(&view, cx, Rc::new(Cell::new(0)), true);
+        click(cx, "button-Restore this revision");
+        assert!(cx.debug_bounds("two-stage-message").is_some());
+    }
+
+    #[gpui::test]
+    fn two_stage_footer_stays_reachable_while_the_body_scrolls(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        open_two_stage(&view, cx, Rc::new(Cell::new(0)), true);
+        let viewport = cx.update(|window, _| window.viewport_size());
+        let before = cx.debug_bounds("button-Restore this revision").unwrap();
+        assert!(
+            before.bottom() <= viewport.height,
+            "the footer is on screen although the body is 3000px tall"
+        );
+        let body = cx.debug_bounds("overlay-body-Compare revision").unwrap();
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: body.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-400.0))),
+            modifiers: Modifiers::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let after = cx.debug_bounds("button-Restore this revision").unwrap();
+        assert_eq!(before, after, "scrolling the body does not move the footer");
+        click(cx, "button-Restore this revision");
+        assert!(cx.debug_bounds("button-Keep current").is_some());
+    }
+
+    #[gpui::test]
+    fn back_led_slideover_names_its_back_button_and_closes_only_itself(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        press_invoker(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let parent = view.read_with(cx, |view, _| view.overlay(Surface::Slideover));
+        cx.update(|window, cx| host.open(parent, window, cx));
+        rest(cx);
+        // Where focus is in the surface underneath when the child opens.
+        let underneath = view.read_with(cx, |view, cx| {
+            view.host.0.read(cx).entries.last().unwrap().focus.clone()
+        });
+        let closed = Rc::new(Cell::new(0));
+        let child_closed = closed.clone();
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Compare revision")
+                    .back("Back to History")
+                    .body(|_, _, _| div().into_any_element())
+                    .on_close(move |_, _| child_closed.set(child_closed.get() + 1)),
+                window,
+                cx,
+            )
+        });
+        rest(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 3);
+
+        let back = cx
+            .debug_bounds("button-Back to History")
+            .expect("the Back button is named for what it goes back to");
+        cx.simulate_mouse_move(back.center(), None, Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_some(),
+            "tooltip \"Back\""
+        );
+        let surface = cx.debug_bounds("overlay-Compare revision").unwrap();
+        assert!(
+            back.center().x < surface.center().x,
+            "Back leads the header"
+        );
+
+        click(cx, "button-Back to History");
+        settle(cx);
+        assert_eq!(closed.get(), 1);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            2,
+            "only this surface closed"
+        );
+        assert_eq!(
+            cx.update(|_, cx| host.top(cx)).as_deref(),
+            Some("Inspector")
+        );
+        cx.update(|window, cx| {
+            assert!(
+                underneath.contains_focused(window, cx),
+                "focus returns to where it was underneath"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn back_led_slideover_has_no_close_control_but_escape_and_the_keyboard_work(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let open_back = |cx: &mut gpui::VisualTestContext| {
+            let host = host.clone();
+            cx.update(|window, cx| {
+                host.open(
+                    Overlay::slideover("Compare revision")
+                        .back("Back to History")
+                        .body(|_, _, _| div().into_any_element()),
+                    window,
+                    cx,
+                )
+            });
+            rest(cx);
+        };
+        open_back(cx);
+        assert!(
+            cx.debug_bounds("button-Close").is_none(),
+            "no ✕ (Decision 12)"
+        );
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "Escape still closes");
+
+        for key in ["enter", "space"] {
+            open_back(cx);
+            cx.simulate_keystrokes("tab");
+            let keystroke = gpui::Keystroke::parse(key).expect("a parseable key");
+            cx.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            cx.simulate_event(gpui::KeyUpEvent { keystroke });
+            settle(cx);
+            assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "{key} activates Back");
+        }
+    }
+
+    #[gpui::test]
+    fn wide_slideover_is_clamped_to_the_viewport(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Compare revision")
+                    .wide()
+                    .body(|_, _, _| div().into_any_element()),
+                window,
+                cx,
+            )
+        });
+        rest(cx);
+        let wide = cx.debug_bounds("overlay-Compare revision").unwrap();
+        assert_eq!(f32::from(wide.size.width), WIDE_WIDTH, "720 before scale");
+
+        // A parent that is still the default width keeps receding under it.
+        cx.update(|window, cx| host.close_top(window, cx));
+        settle(cx);
+        cx.update(|window, cx| host.open(view.read(cx).overlay(Surface::Slideover), window, cx));
+        rest(cx);
+        let narrow = cx.debug_bounds("overlay-Inspector").unwrap();
+        assert_eq!(f32::from(narrow.size.width), SLIDEOVER_WIDTH);
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Compare revision")
+                    .wide()
+                    .body(|_, _, _| div().into_any_element()),
+                window,
+                cx,
+            )
+        });
+        rest(cx);
+        assert!(
+            cx.debug_bounds("overlay-Inspector").is_some(),
+            "the parent stays open"
+        );
+
+        let viewport = gpui::size(px(500.0), px(600.0));
+        cx.simulate_resize(viewport);
+        rest(cx);
+        let clamped = cx.debug_bounds("overlay-Compare revision").unwrap();
+        assert_eq!(
+            f32::from(clamped.size.width),
+            500.0 - 2.0 * tokens::density::WORKSPACE_GUTTER_WIDE,
+            "it never outgrows the viewport"
+        );
+    }
+
+    #[gpui::test]
+    fn danger_primary_has_the_danger_tone_and_an_accessible_name(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let taken = Rc::new(Cell::new(0));
+        let on_primary = taken.clone();
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::dialog("Delete permanently?")
+                    .primary("Delete permanently", move |_, _| {
+                        on_primary.set(on_primary.get() + 1)
+                    })
+                    .primary_tone(Tone::Danger)
+                    .secondary("Cancel", |_, _| {}),
+                window,
+                cx,
+            )
+        });
+        rest(cx);
+        let tone = view.read_with(cx, |view, cx| {
+            view.host
+                .0
+                .read(cx)
+                .entries
+                .last()
+                .unwrap()
+                .overlay
+                .primary_tone
+        });
+        assert_eq!(tone, Some(Tone::Danger));
+        let palette = tokens::palette(ResolvedAppearance::Light);
+        assert_eq!(Tone::Danger.ink(&palette), palette.danger);
+        assert_ne!(Tone::Danger.ink(&palette), Tone::Warning.ink(&palette));
+        click(cx, "button-Delete permanently");
+        assert_eq!(taken.get(), 1, "it is a working, named button");
     }
 }

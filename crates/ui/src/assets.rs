@@ -22,6 +22,7 @@ pub mod icon {
     lucide! {
         ACTIVITY => "activity.svg",
         ARROW_DOWN => "arrow-down.svg",
+        ARROW_LEFT => "arrow-left.svg",
         ARROW_UP => "arrow-up.svg",
         CALENDAR_DAYS => "calendar-days.svg",
         CHECK => "check.svg",
