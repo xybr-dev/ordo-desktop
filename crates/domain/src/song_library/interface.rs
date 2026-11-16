@@ -12,15 +12,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::identity::{
-    ArrangementId, ChoirId, EntityId, OccurrenceId, SectionId, SongId, Timestamp,
-};
+use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
 
 use super::model::text;
 use super::model::{
     Arrangement, ArrangementDetails, ArrangementDraft, Choir, ChoirDraft, OccurrenceDraft, Section,
     SectionDraft, SongDraft, SongWork, require_listed_languages,
 };
+use super::reference_safety::{DeletionBlocker, DeletionVerdict, DurableReference, verdict};
 use super::sections::{ArrangementLyrics, require_present_labels};
 
 mod hydrate;
@@ -255,48 +254,6 @@ impl StatusFilter {
             Self::All => true,
         }
     }
-}
-
-/// A durable record outside the Song Library that names a Song or Arrangement.
-///
-/// The domain cannot see Mass plans or snapshots; callers report them.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum DurableReference {
-    /// A Mass plan.
-    MassPlan(EntityId),
-    /// An immutable Presentation snapshot.
-    PresentationSnapshot(EntityId),
-    /// A Celebration package.
-    CelebrationPackage(EntityId),
-    /// Any other durable record kind.
-    Other {
-        /// The record kind, for display.
-        kind: &'static str,
-        /// The record's identity.
-        id: EntityId,
-    },
-}
-
-/// One reason permanent deletion is refused.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DeletionBlocker {
-    /// The entity is not archived; archive it first.
-    NotArchived,
-    /// The Song still owns Arrangements (active or archived); each needs its
-    /// own review. Deletion never cascades.
-    HasArrangements(Vec<ArrangementId>),
-    /// Durable records still name the entity.
-    Referenced(Vec<DurableReference>),
-}
-
-/// Whether permanent deletion may proceed.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DeletionVerdict {
-    /// No blocker applies.
-    Allowed,
-    /// Every blocker that applies, in the order `NotArchived`,
-    /// `HasArrangements`, `Referenced`.
-    Blocked(Vec<DeletionBlocker>),
 }
 
 /// Case-insensitive match key for duplicate evidence.
@@ -1185,7 +1142,7 @@ impl SongLibrary {
         if !owned.is_empty() {
             blockers.push(DeletionBlocker::HasArrangements(owned));
         }
-        Ok(Self::verdict(blockers, references))
+        Ok(verdict(blockers, references))
     }
 
     /// Reference-safety verdict for permanently deleting an Arrangement.
@@ -1202,7 +1159,7 @@ impl SongLibrary {
         if !arrangement.is_archived() {
             blockers.push(DeletionBlocker::NotArchived);
         }
-        Ok(Self::verdict(blockers, references))
+        Ok(verdict(blockers, references))
     }
 
     /// Permanently deletes one Song when [`Self::song_deletion_verdict`]
@@ -1241,24 +1198,6 @@ impl SongLibrary {
         self.arrangements
             .remove(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))
-    }
-
-    /// Builds a verdict from the structural blockers plus the references.
-    fn verdict(
-        mut blockers: Vec<DeletionBlocker>,
-        references: &[DurableReference],
-    ) -> DeletionVerdict {
-        if !references.is_empty() {
-            let mut sorted = references.to_vec();
-            sorted.sort();
-            sorted.dedup();
-            blockers.push(DeletionBlocker::Referenced(sorted));
-        }
-        if blockers.is_empty() {
-            DeletionVerdict::Allowed
-        } else {
-            DeletionVerdict::Blocked(blockers)
-        }
     }
 
     /// Refuses an Arrangement that is archived, or whose Song is archived.
