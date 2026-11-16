@@ -342,6 +342,17 @@ impl Core {
         Ok(history)
     }
 
+    /// Reads which Song or Arrangement a revision belongs to, after verifying
+    /// the revision through the same path as a restore.
+    pub(crate) fn revision_entity(
+        &mut self,
+        revision: RevisionId,
+    ) -> Result<RevisionEntity, StorageError> {
+        let conn = self.connection_mut()?;
+        let tx = conn.transaction().map_err(map_error)?;
+        load_content(&tx, revision).map(|(entity, _, _)| entity)
+    }
+
     /// Reads one revision's content after re-hashing it.
     pub(crate) fn revision_content(
         &mut self,

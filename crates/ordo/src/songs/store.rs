@@ -10,18 +10,21 @@
 use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 
 use domain::{
-    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, SongId, Timestamp},
+    identity::{ArrangementId, ChoirId, EntityId, HistorySessionId, RevisionId, SongId, Timestamp},
+    revisions::RevisionEntity,
     song_library::{
         ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
-        ChoirDraft, Field, HydrateArrangement, HydrateChoir, HydrateSong, OccurrenceDraft,
-        RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError, match_key,
+        BlockerGroup, ChoirDraft, DeletionBlocker, DeletionVerdict, Field, HydrateArrangement,
+        HydrateChoir, HydrateSong, OccurrenceDraft, RecordRef, SectionDraft, SongDraft,
+        SongLibrary, SongLibraryError, blocker_groups, can_restore_arrangement_revision,
+        can_restore_song_revision, match_key,
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
 use storage::{
-    ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord, NewArrangement, NewChoir,
-    NewSection, NewSong, OccurrenceContent, SectionContent, ShutdownOutcome, SongRecord, Storage,
-    StorageConfig, StorageError,
+    ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord, DeletionFacts,
+    HistoryRevision, NewArrangement, NewChoir, NewSection, NewSong, OccurrenceContent,
+    SectionContent, ShutdownOutcome, SongRecord, Storage, StorageConfig, StorageError,
 };
 
 /// Where the parish library is in its life.
@@ -115,8 +118,29 @@ pub struct LibraryStore {
     writing: bool,
 }
 
-/// The id of the record a write created or changed.
-type Reply = async_channel::Sender<Result<EntityId, SharedString>>;
+/// What a finished write resolves to.
+#[derive(Clone, Copy)]
+enum Done {
+    /// The id of the record the write created or changed.
+    Id(EntityId),
+    /// How many revisions a permanent deletion erased.
+    Count(usize),
+}
+
+type Reply = async_channel::Sender<Result<Done, SharedString>>;
+
+/// The refusal for a permanent deletion that something now blocks.
+const DELETION_BLOCKED: &str = "Something now uses it, so it can’t be deleted.";
+/// The refusal for a restore over a head that moved on.
+const STALE_REVISION: &str = "This changed since you opened History. Reopen it to restore.";
+/// The refusal for archiving what is already archived.
+const ALREADY_ARCHIVED: &str = "It’s already archived.";
+/// The refusal for restoring or deleting what is not archived.
+const NOT_ARCHIVED: &str = "Archive it first.";
+/// The refusal for restoring a revision of an archived entity.
+const RESTORE_FIRST: &str = "Restore it before restoring a revision.";
+/// Every other storage failure of a lifecycle or History write.
+const COULDNT_SAVE: &str = "Couldn't save.";
 
 /// One change the store can make. Choir and Song writes share one queue, so
 /// the order they were submitted in is the order they run in.
@@ -135,11 +159,56 @@ enum LibraryWrite {
     SaveArrangementLyrics(ArrangementId, ArrangementLyrics, HistorySessionId),
     /// Copies the stored Arrangement into a new one under the same Song.
     DuplicateArrangement(ArrangementId),
+    /// Archives a Song without touching its Arrangements.
+    ArchiveSong(SongId),
+    /// Restores an archived Song.
+    RestoreSong(SongId),
+    /// Archives an Arrangement in its own right.
+    ArchiveArrangement(ArrangementId),
+    /// Restores an archived Arrangement.
+    RestoreArrangement(ArrangementId),
+    /// Permanently deletes an archived, unreferenced Song that owns nothing.
+    DeleteSong(SongId),
+    /// Permanently deletes an archived, unreferenced Arrangement.
+    DeleteArrangement(ArrangementId),
+    /// Restores `revision` of `entity` over `head` as one restoration.
+    RestoreRevision {
+        revision: RevisionId,
+        head: RevisionId,
+        entity: RevisionEntity,
+    },
+}
+
+impl LibraryWrite {
+    /// Whether storage failures of this write map to operator copy rather than
+    /// the storage text (the lifecycle, deletion and History writes).
+    fn has_operator_copy(&self) -> bool {
+        matches!(
+            self,
+            Self::ArchiveSong(_)
+                | Self::RestoreSong(_)
+                | Self::ArchiveArrangement(_)
+                | Self::RestoreArrangement(_)
+                | Self::DeleteSong(_)
+                | Self::DeleteArrangement(_)
+                | Self::RestoreRevision { .. }
+        )
+    }
 }
 
 /// What storage returned for a write.
 enum Stored {
     Choir(ChoirRecord),
+    Song(SongRecord),
+    Arrangement(ArrangementRecord),
+    /// A permanent deletion: how many revisions went with it.
+    Deleted(usize),
+    /// A restored revision: the new head and the entity as stored afterwards.
+    Restored(RevisionId, Restored),
+}
+
+/// The entity a revision restore rewrote, as stored afterwards.
+enum Restored {
     Song(SongRecord),
     Arrangement(ArrangementRecord),
 }
@@ -170,6 +239,45 @@ enum Prepared {
     /// transaction, so memory never supplies it.
     SaveLyrics(ArrangementId, Box<ArrangementLyrics>, HistorySessionId),
     Copy(Box<NewArrangement>),
+    ArchiveSong(SongId),
+    RestoreSong(SongId),
+    ArchiveArrangement(ArrangementId),
+    RestoreArrangement(ArrangementId),
+    DeleteSong(SongId),
+    DeleteArrangement(ArrangementId),
+    RestoreRevision(RevisionId, RevisionId, RevisionEntity),
+}
+
+/// What a reference-safety review found, for the deletion dialog.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeletionReview {
+    /// The domain verdict on the current library with the stored references.
+    pub verdict: DeletionVerdict,
+    /// The verdict's blockers grouped for display; empty when allowed.
+    pub groups: Vec<BlockerGroup>,
+    /// What storage read: references, children and the counts the dialog shows.
+    pub facts: DeletionFacts,
+}
+
+/// The text shown when storage returned a record the write cannot use.
+const WRONG_KIND: &str = "The parish store returned a record of the wrong kind.";
+
+/// The stored archive stamp; storage always stamps an archived record, so a
+/// missing one is a storage fault, not something to paper over.
+fn archived_stamp(at: Option<Timestamp>, kind: &str) -> Result<Timestamp, SharedString> {
+    at.ok_or_else(|| {
+        SharedString::from(format!(
+            "The parish store returned an archived {kind} without a date."
+        ))
+    })
+}
+
+/// Reads the erased-revision count a deletion resolved to.
+fn count_of(done: Done) -> Result<usize, SharedString> {
+    match done {
+        Done::Count(revisions) => Ok(revisions),
+        Done::Id(_) => Err(SharedString::from(WRONG_KIND)),
+    }
 }
 
 /// The text shown when a write cannot reach the parish store.
@@ -199,6 +307,43 @@ fn boxed_arrangement(
 fn refusal(error: SongLibraryError) -> SharedString {
     error.to_string().into()
 }
+
+/// The operator copy for a refused lifecycle write: fixed strings for the
+/// refusals the Interface names, the domain's own text otherwise.
+fn lifecycle_refusal(error: SongLibraryError) -> SharedString {
+    match error {
+        SongLibraryError::AlreadyArchived(_) => ALREADY_ARCHIVED.into(),
+        SongLibraryError::NotArchived(_) => NOT_ARCHIVED.into(),
+        SongLibraryError::DeletionBlocked(blockers) => blocked_copy(&blockers),
+        other => refusal(other),
+    }
+}
+
+/// The copy for a deletion the verdict blocks: archive first when that is the
+/// blocker, otherwise something still uses it.
+fn blocked_copy(blockers: &[DeletionBlocker]) -> SharedString {
+    if blockers.contains(&DeletionBlocker::NotArchived) {
+        NOT_ARCHIVED.into()
+    } else {
+        DELETION_BLOCKED.into()
+    }
+}
+
+/// The operator copy for a storage failure of a lifecycle, deletion or
+/// History call.
+fn storage_copy(error: &StorageError) -> String {
+    match error {
+        StorageError::DeletionBlocked { .. } => DELETION_BLOCKED,
+        StorageError::StaleRevision { .. } => STALE_REVISION,
+        StorageError::AlreadyArchived { .. } => ALREADY_ARCHIVED,
+        StorageError::NotArchived { .. } => NOT_ARCHIVED,
+        _ => COULDNT_SAVE,
+    }
+    .to_owned()
+}
+
+/// The text shown when a write's task was dropped before it finished.
+const ABANDONED: &str = "The change was abandoned.";
 
 /// Checks a draft against the domain's own rules without touching the library.
 fn check_draft(draft: &ChoirDraft) -> Result<(), SharedString> {
@@ -609,10 +754,211 @@ impl LibraryStore {
         self.submit(LibraryWrite::Restore(id), ChoirId::from_entity, cx)
     }
 
+    /// Archives a Song work. Its Arrangements keep their own states.
+    pub fn archive_song(
+        &mut self,
+        id: SongId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<SongId, SharedString>> {
+        self.submit(LibraryWrite::ArchiveSong(id), SongId::from_entity, cx)
+    }
+
+    /// Restores an archived Song work.
+    pub fn restore_song(
+        &mut self,
+        id: SongId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<SongId, SharedString>> {
+        self.submit(LibraryWrite::RestoreSong(id), SongId::from_entity, cx)
+    }
+
+    /// Archives an Arrangement in its own right.
+    pub fn archive_arrangement(
+        &mut self,
+        id: ArrangementId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ArrangementId, SharedString>> {
+        self.submit(
+            LibraryWrite::ArchiveArrangement(id),
+            ArrangementId::from_entity,
+            cx,
+        )
+    }
+
+    /// Restores an archived Arrangement.
+    pub fn restore_arrangement(
+        &mut self,
+        id: ArrangementId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ArrangementId, SharedString>> {
+        self.submit(
+            LibraryWrite::RestoreArrangement(id),
+            ArrangementId::from_entity,
+            cx,
+        )
+    }
+
+    /// Permanently deletes an archived, unreferenced Song that owns no
+    /// Arrangement; resolves to how many revisions went with it.
+    pub fn delete_song(
+        &mut self,
+        id: SongId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<usize, SharedString>> {
+        self.submit_done(LibraryWrite::DeleteSong(id), count_of, cx)
+    }
+
+    /// Permanently deletes an archived, unreferenced Arrangement; resolves to
+    /// how many revisions went with it.
+    pub fn delete_arrangement(
+        &mut self,
+        id: ArrangementId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<usize, SharedString>> {
+        self.submit_done(LibraryWrite::DeleteArrangement(id), count_of, cx)
+    }
+
+    /// Reads what still uses `target` off the GPUI thread, then judges it: the
+    /// domain verdict on the current library with the stored references, and
+    /// the blockers grouped for the reference-safety dialog.
+    pub fn deletion_review(
+        &mut self,
+        target: RecordRef,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<DeletionReview, SharedString>> {
+        if self.state != LibraryState::Ready {
+            return Task::ready(Err(NOT_OPEN.into()));
+        }
+        let Some(read) = self.storage.with(|storage| storage.deletion_facts(target)) else {
+            return Task::ready(Err(NOT_OPEN.into()));
+        };
+        cx.spawn(async move |this, cx| {
+            let facts = cx
+                .background_spawn(async move {
+                    read.await
+                        .map_err(|error| SharedString::from(storage_copy(&error)))
+                })
+                .await?;
+            this.update(cx, |this, _| this.review(target, facts))
+                .unwrap_or_else(|_| Err(SharedString::from(ABANDONED)))
+        })
+    }
+
+    /// The domain verdict for `target` with the facts storage just read.
+    fn review(
+        &self,
+        target: RecordRef,
+        facts: DeletionFacts,
+    ) -> Result<DeletionReview, SharedString> {
+        let verdict = match target {
+            RecordRef::Song(id) => self.library.song_deletion_verdict(id, &facts.references),
+            RecordRef::Arrangement(id) => self
+                .library
+                .arrangement_deletion_verdict(id, &facts.references),
+            RecordRef::Choir(_) => return Err(COULDNT_SAVE.into()),
+        }
+        .map_err(refusal)?;
+        let groups = match &verdict {
+            DeletionVerdict::Allowed => Vec::new(),
+            DeletionVerdict::Blocked(blockers) => blocker_groups(blockers),
+        };
+        Ok(DeletionReview {
+            verdict,
+            groups,
+            facts,
+        })
+    }
+
+    /// An entity's History, oldest first, with each revision's verified
+    /// content. A T2.1-era entity with no revision first gets its creation
+    /// revision backfilled, so History is never empty for a stored entity.
+    pub fn history(
+        &mut self,
+        entity: RevisionEntity,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Vec<HistoryRevision>, SharedString>> {
+        if self.state != LibraryState::Ready {
+            return Task::ready(Err(NOT_OPEN.into()));
+        }
+        let Some(reads) = self
+            .storage
+            .with(|storage| (storage.latest_revision(entity), storage.history(entity)))
+        else {
+            return Task::ready(Err(NOT_OPEN.into()));
+        };
+        cx.background_spawn(async move {
+            let (backfill, history) = reads;
+            backfill
+                .await
+                .map_err(|error| SharedString::from(storage_copy(&error)))?;
+            history
+                .await
+                .map_err(|error| SharedString::from(storage_copy(&error)))
+        })
+    }
+
+    /// Restores `revision` over `head` as one restoration revision and
+    /// refreshes the entity in memory from what storage then holds. Resolves
+    /// to the new head. Refused when the entity is archived (restore it
+    /// first) or `head` is no longer the entity's latest revision.
+    pub fn restore_revision(
+        &mut self,
+        revision: RevisionId,
+        head: RevisionId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<RevisionId, SharedString>> {
+        if self.state != LibraryState::Ready {
+            return Task::ready(Err(NOT_OPEN.into()));
+        }
+        let Some(lookup) = self
+            .storage
+            .with(|storage| storage.revision_entity(revision))
+        else {
+            return Task::ready(Err(NOT_OPEN.into()));
+        };
+        cx.spawn(async move |this, cx| {
+            let entity = cx
+                .background_spawn(async move {
+                    lookup
+                        .await
+                        .map_err(|error| SharedString::from(storage_copy(&error)))
+                })
+                .await?;
+            let write = LibraryWrite::RestoreRevision {
+                revision,
+                head,
+                entity,
+            };
+            let task = this
+                .update(cx, |this, cx| {
+                    this.submit(write, RevisionId::from_entity, cx)
+                })
+                .map_err(|_| SharedString::from(ABANDONED))?;
+            task.await
+        })
+    }
+
     fn submit<T: 'static>(
         &mut self,
         write: LibraryWrite,
         convert: fn(EntityId) -> T,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<T, SharedString>> {
+        self.submit_done(
+            write,
+            move |done| match done {
+                Done::Id(id) => Ok(convert(id)),
+                Done::Count(_) => Err(SharedString::from(WRONG_KIND)),
+            },
+            cx,
+        )
+    }
+
+    /// Queues a write and converts what it resolves to.
+    fn submit_done<T: 'static>(
+        &mut self,
+        write: LibraryWrite,
+        convert: impl FnOnce(Done) -> Result<T, SharedString> + 'static,
         cx: &mut Context<Self>,
     ) -> Task<Result<T, SharedString>> {
         let (reply, result) = async_channel::bounded(1);
@@ -621,8 +967,8 @@ impl LibraryStore {
         cx.spawn(async move |_, _| {
             let outcome = result.recv().await;
             outcome
-                .unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
-                .map(convert)
+                .unwrap_or_else(|_| Err(SharedString::from(ABANDONED)))
+                .and_then(convert)
         })
     }
 
@@ -639,7 +985,7 @@ impl LibraryStore {
             let prepared = match self.validate(&mut write) {
                 Ok(Verdict::Write(prepared)) => prepared,
                 Ok(Verdict::Unchanged(id)) => {
-                    let _ = reply.try_send(Ok(id));
+                    let _ = reply.try_send(Ok(Done::Id(id)));
                     continue;
                 }
                 Err(message) => {
@@ -655,6 +1001,56 @@ impl LibraryStore {
                 Prepared::RestoreChoir(id) => boxed(storage.restore_choir(id)),
                 Prepared::CreateArrangement(new) | Prepared::Copy(new) => {
                     boxed_arrangement(storage.create_arrangement(*new))
+                }
+                Prepared::ArchiveSong(id) => boxed_song(storage.archive_song(id)),
+                Prepared::RestoreSong(id) => boxed_song(storage.restore_song(id)),
+                Prepared::ArchiveArrangement(id) => {
+                    boxed_arrangement(storage.archive_arrangement(id))
+                }
+                Prepared::RestoreArrangement(id) => {
+                    boxed_arrangement(storage.restore_arrangement(id))
+                }
+                Prepared::DeleteSong(id) => {
+                    let delete = storage.delete_song(id);
+                    Box::pin(async move {
+                        delete
+                            .await
+                            .map(|deleted| Stored::Deleted(deleted.revisions))
+                    })
+                }
+                Prepared::DeleteArrangement(id) => {
+                    let delete = storage.delete_arrangement(id);
+                    Box::pin(async move {
+                        delete
+                            .await
+                            .map(|deleted| Stored::Deleted(deleted.revisions))
+                    })
+                }
+                Prepared::RestoreRevision(revision, head, entity) => {
+                    let restore = storage.restore_revision(revision, head);
+                    match entity {
+                        RevisionEntity::Song(id) => {
+                            let read = storage.song(id);
+                            let write: StoredWrite = Box::pin(async move {
+                                let (_, record) = restore.await?;
+                                let song = read.await?;
+                                Ok(Stored::Restored(record.id, Restored::Song(song)))
+                            });
+                            write
+                        }
+                        RevisionEntity::Arrangement(id) => {
+                            let read = storage.arrangement(id);
+                            let write: StoredWrite = Box::pin(async move {
+                                let (_, record) = restore.await?;
+                                let arrangement = read.await?;
+                                Ok(Stored::Restored(
+                                    record.id,
+                                    Restored::Arrangement(arrangement),
+                                ))
+                            });
+                            write
+                        }
+                    }
                 }
                 Prepared::SaveMetadata(id, metadata) => {
                     let commit =
@@ -688,11 +1084,18 @@ impl LibraryStore {
                 continue;
             };
             self.writing = true;
+            let operator_copy = write.has_operator_copy();
             cx.spawn(async move |this, cx| {
                 let stored = cx
-                    .background_spawn(
-                        async move { started.await.map_err(|error| error.to_string()) },
-                    )
+                    .background_spawn(async move {
+                        started.await.map_err(|error| {
+                            if operator_copy {
+                                storage_copy(&error)
+                            } else {
+                                error.to_string()
+                            }
+                        })
+                    })
                     .await;
                 let _ = this.update(cx, |this, cx| {
                     let outcome = match stored {
@@ -845,8 +1248,86 @@ impl LibraryStore {
                 }
                 Prepared::RestoreChoir(*id)
             }
+            lifecycle => self.validate_lifecycle(lifecycle)?,
         };
         Ok(Verdict::Write(prepared))
+    }
+
+    /// The domain checks for one lifecycle or History write, on a clone where a
+    /// mutator is the rule, so memory is never touched before storage succeeds.
+    fn validate_lifecycle(&self, write: &LibraryWrite) -> Result<Prepared, SharedString> {
+        // Only the check runs here, so the stamp is a placeholder.
+        let probe = Timestamp::from_millis(0);
+        match write {
+            LibraryWrite::ArchiveSong(id) => {
+                self.library
+                    .clone()
+                    .archive_song(*id, probe)
+                    .map_err(lifecycle_refusal)?;
+                Ok(Prepared::ArchiveSong(*id))
+            }
+            LibraryWrite::RestoreSong(id) => {
+                self.library
+                    .clone()
+                    .restore_song(*id)
+                    .map_err(lifecycle_refusal)?;
+                Ok(Prepared::RestoreSong(*id))
+            }
+            LibraryWrite::ArchiveArrangement(id) => {
+                self.library
+                    .clone()
+                    .archive_arrangement(*id, probe)
+                    .map_err(lifecycle_refusal)?;
+                Ok(Prepared::ArchiveArrangement(*id))
+            }
+            LibraryWrite::RestoreArrangement(id) => {
+                self.library
+                    .clone()
+                    .restore_arrangement(*id)
+                    .map_err(lifecycle_refusal)?;
+                Ok(Prepared::RestoreArrangement(*id))
+            }
+            LibraryWrite::DeleteSong(id) => {
+                // Storage re-checks references; the domain judges the rest.
+                match self
+                    .library
+                    .song_deletion_verdict(*id, &[])
+                    .map_err(refusal)?
+                {
+                    DeletionVerdict::Allowed => Ok(Prepared::DeleteSong(*id)),
+                    DeletionVerdict::Blocked(blockers) => Err(blocked_copy(&blockers)),
+                }
+            }
+            LibraryWrite::DeleteArrangement(id) => {
+                match self
+                    .library
+                    .arrangement_deletion_verdict(*id, &[])
+                    .map_err(refusal)?
+                {
+                    DeletionVerdict::Allowed => Ok(Prepared::DeleteArrangement(*id)),
+                    DeletionVerdict::Blocked(blockers) => Err(blocked_copy(&blockers)),
+                }
+            }
+            LibraryWrite::RestoreRevision {
+                revision,
+                head,
+                entity,
+            } => {
+                let restorable = match entity {
+                    RevisionEntity::Song(id) => {
+                        can_restore_song_revision(self.library.song(*id).map_err(refusal)?)
+                    }
+                    RevisionEntity::Arrangement(id) => can_restore_arrangement_revision(
+                        self.library.arrangement_visibility(*id).map_err(refusal)?,
+                    ),
+                };
+                if !restorable {
+                    return Err(RESTORE_FIRST.into());
+                }
+                Ok(Prepared::RestoreRevision(*revision, *head, *entity))
+            }
+            _ => Err(SharedString::from(WRONG_KIND)),
+        }
     }
 
     /// The Song must exist and be active.
@@ -893,7 +1374,67 @@ impl LibraryStore {
     /// example an archive stamp is missing): the operator sees the failure
     /// while the database is ahead of memory until the next open re-hydrates
     /// it.
-    fn apply(&mut self, write: &LibraryWrite, stored: &Stored) -> Result<EntityId, SharedString> {
+    fn apply(&mut self, write: &LibraryWrite, stored: &Stored) -> Result<Done, SharedString> {
+        match (write, stored) {
+            (LibraryWrite::ArchiveSong(id), Stored::Song(record)) => {
+                let at = archived_stamp(record.archived_at, "Song")?;
+                self.library.archive_song(*id, at).map_err(refusal)?;
+                Ok(Done::Id(record.id.entity()))
+            }
+            (LibraryWrite::RestoreSong(id), Stored::Song(record)) => {
+                self.library.restore_song(*id).map_err(refusal)?;
+                Ok(Done::Id(record.id.entity()))
+            }
+            (LibraryWrite::ArchiveArrangement(id), Stored::Arrangement(record)) => {
+                let at = archived_stamp(record.archived_at, "Arrangement")?;
+                self.library.archive_arrangement(*id, at).map_err(refusal)?;
+                Ok(Done::Id(record.id.entity()))
+            }
+            (LibraryWrite::RestoreArrangement(id), Stored::Arrangement(record)) => {
+                self.library.restore_arrangement(*id).map_err(refusal)?;
+                Ok(Done::Id(record.id.entity()))
+            }
+            (LibraryWrite::DeleteSong(id), Stored::Deleted(revisions)) => {
+                self.library.delete_song(*id, &[]).map_err(refusal)?;
+                Ok(Done::Count(*revisions))
+            }
+            (LibraryWrite::DeleteArrangement(id), Stored::Deleted(revisions)) => {
+                self.library.delete_arrangement(*id, &[]).map_err(refusal)?;
+                Ok(Done::Count(*revisions))
+            }
+            (
+                LibraryWrite::RestoreRevision { .. },
+                Stored::Restored(head, Restored::Song(record)),
+            ) => {
+                self.library
+                    .edit_song(record.id, song_draft_of(record))
+                    .map_err(refusal)?;
+                Ok(Done::Id(head.entity()))
+            }
+            (
+                LibraryWrite::RestoreRevision { .. },
+                Stored::Restored(head, Restored::Arrangement(record)),
+            ) => {
+                self.library
+                    .refresh_arrangement(
+                        record.id,
+                        arrangement_draft_of(record),
+                        record.choirs.clone(),
+                    )
+                    .map_err(refusal)?;
+                Ok(Done::Id(head.entity()))
+            }
+            _ => self.apply_record(write, stored).map(Done::Id),
+        }
+    }
+
+    /// Applies a stored Choir, Song or Arrangement record that a create, edit,
+    /// save or copy returned.
+    fn apply_record(
+        &mut self,
+        write: &LibraryWrite,
+        stored: &Stored,
+    ) -> Result<EntityId, SharedString> {
         match (write, stored) {
             (LibraryWrite::Create(_), Stored::Choir(record)) => {
                 self.library

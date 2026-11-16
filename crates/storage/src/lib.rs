@@ -661,6 +661,17 @@ impl Storage {
         })
     }
 
+    /// The Song or Arrangement a revision belongs to; the revision is verified
+    /// first, as a restore would.
+    pub fn revision_entity(
+        &self,
+        revision: RevisionId,
+    ) -> impl Future<Output = Result<RevisionEntity, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.revision_entity(revision)
+        })
+    }
+
     /// One revision's content, verified against its recorded hash.
     pub fn revision_content(
         &self,
