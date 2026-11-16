@@ -31,6 +31,7 @@ pub mod canonical_views;
 pub mod commands;
 pub mod diagnostics;
 pub mod edit_session;
+pub mod history;
 pub mod output;
 pub mod performance;
 pub mod presenter;
