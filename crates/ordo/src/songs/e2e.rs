@@ -1069,13 +1069,25 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     // The Arrangement opens on Lyrics with focus in the header actions: Tab
     // past Back and History to the task tabs, Right to Sequence, Enter to open it.
     region("Workspace actions", vcx);
+    let (back, details, history) = shell.read_with(vcx, |shell, _| {
+        (
+            shell.back_focus().clone(),
+            shell.details_focus().clone(),
+            shell.history_focus().clone(),
+        )
+    });
+    known.push(("Back to Songs", back));
+    known.push(("Arrangement details", details));
+    known.push(("History", history));
+    // The real header order is Back, Arrangement details, History, then the
+    // task tabs; each Tab moves one control.
+    assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
-    learn(&mut known, "Back to Songs", vcx);
-    // The header's History button sits between Back and the tabs in Tab order.
+    assert_eq!(focus(&known, vcx), Owner::Named("Arrangement details"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
-    learn(&mut known, "History", vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("History"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(
@@ -1166,15 +1178,20 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     );
     assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus", "Verse 2"]);
 
-    // Edit the Chorus once, in Lyrics: F6 to the header actions (focus lands on
-    // the active tab), Left, Enter; F6 to the sections, Tab to the Chorus row,
+    // Edit the Chorus once, in Lyrics: F6 to the header actions (focus enters on
+    // Back; Tab past details and History reaches the active tab), Left, Enter; F6 to the sections, Tab to the Chorus row,
     // Enter to choose it; F6 and Tab to the lyric area; Ctrl+A and type.
     vcx.simulate_keystrokes("shift-f6");
     settle(vcx);
     region("Workspace actions", vcx);
+    assert_eq!(
+        focus(&known, vcx),
+        Owner::Named("Back to Songs"),
+        "F6 enters the header on its first control"
+    );
     vcx.simulate_keystrokes("tab");
     settle(vcx);
-    assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
+    assert_eq!(focus(&known, vcx), Owner::Named("Arrangement details"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(focus(&known, vcx), Owner::Named("History"));

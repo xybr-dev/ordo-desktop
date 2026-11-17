@@ -2324,4 +2324,58 @@ mod tests {
             }
         });
     }
+
+    struct IconMenu {
+        state: SelectionState,
+    }
+    impl Render for IconMenu {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                Menu::new(
+                    "menu",
+                    "More actions",
+                    &self.state,
+                    UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light),
+                )
+                .icon(crate::assets::icon::ELLIPSIS),
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn icon_menu_opens_from_the_keyboard_and_names_itself_on_hover(cx: &mut TestAppContext) {
+        cx.update(crate::init).unwrap();
+        let (view, cx) = cx.add_window_view(|w, cx| {
+            let state = SelectionState::new(
+                vec![Choice::new("Archive"), Choice::new("Delete")],
+                None,
+                cx,
+            );
+            state.focus(w, cx);
+            IconMenu { state }
+        });
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+
+        press(cx, "enter");
+        view.read_with(cx, |v, cx| {
+            assert!(v.state.is_open(cx), "Enter opens the Menu")
+        });
+        press(cx, "escape");
+        view.read_with(cx, |v, cx| {
+            assert!(!v.state.is_open(cx), "Escape closes it")
+        });
+
+        assert!(cx.debug_bounds("control-tooltip").is_none());
+        let bounds = cx
+            .debug_bounds("button-More actions")
+            .expect("the icon trigger renders under its label");
+        cx.simulate_mouse_move(bounds.center(), None, gpui::Modifiers::default());
+        cx.executor()
+            .advance_clock(crate::primitives::button::TOOLTIP_SHOW_DELAY);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("control-tooltip").is_some(),
+            "the label becomes the tooltip"
+        );
+    }
 }

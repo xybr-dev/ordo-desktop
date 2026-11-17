@@ -120,16 +120,64 @@ pub(crate) fn compose_frames(
     wanted: Vec<FrameKey>,
     cx: &mut Context<ArrangementEditor>,
 ) {
+    compose_missing(
+        &mut editor.lyrics.frames,
+        &mut editor.lyrics.pending,
+        wanted,
+        EDITOR_FRAME_CAPACITY,
+        true,
+        |stored, content| {
+            cx.spawn(async move |editor, cx| {
+                let composed = cx
+                    .background_executor()
+                    .spawn(async move { rendering::compose(&content) })
+                    .await;
+                let _ = editor.update(cx, |editor, cx| {
+                    editor.lyrics.pending.remove(&stored);
+                    if composed.is_err() {
+                        editor.lyrics.failed.insert(stored.clone());
+                    } else {
+                        editor.lyrics.failed.remove(&stored);
+                    }
+                    editor.lyrics.frames.insert(stored, composed.map(Arc::new));
+                    if let Some(content) = editor.content(cx) {
+                        editor.refresh_unrenderable(&content);
+                    }
+                    cx.notify();
+                });
+            })
+        },
+    );
+}
+
+/// The one place a canonical Lyrics frame's content is decided (header, body,
+/// no footer, no image), shared by the editor's thumbnails and History's
+/// Slides tab so the two can never compose different frames.
+///
+/// Cuts `wanted` (deduplicated, in order) at `capacity`, optionally drops the
+/// `pending` requests nobody waits for any more (`prune`), and calls `spawn`
+/// with the key and content of every frame nothing holds or composes yet; the
+/// task it returns is kept in `pending` until its owner removes it.
+pub(crate) fn compose_missing(
+    frames: &mut rendering::FrameCache<FrameKey>,
+    pending: &mut std::collections::HashMap<FrameKey, gpui::Task<()>>,
+    wanted: Vec<FrameKey>,
+    capacity: usize,
+    prune: bool,
+    mut spawn: impl FnMut(FrameKey, TemplateContent) -> gpui::Task<()>,
+) {
     let mut seen = HashSet::new();
     let wanted: Vec<FrameKey> = wanted
         .into_iter()
         .filter(|key| seen.insert(key.clone()))
-        .take(EDITOR_FRAME_CAPACITY)
+        .take(capacity)
         .collect();
-    let keep: HashSet<&FrameKey> = wanted.iter().collect();
-    editor.lyrics.pending.retain(|key, _| keep.contains(key));
+    if prune {
+        let keep: HashSet<&FrameKey> = wanted.iter().collect();
+        pending.retain(|key, _| keep.contains(key));
+    }
     for key in wanted {
-        if editor.lyrics.frames.get(&key).is_some() || editor.lyrics.pending.contains_key(&key) {
+        if frames.get(&key).is_some() || pending.contains_key(&key) {
             continue;
         }
         let content = TemplateContent {
@@ -139,27 +187,8 @@ pub(crate) fn compose_frames(
             footer: None,
             image: None,
         };
-        let stored = key.clone();
-        let task = cx.spawn(async move |editor, cx| {
-            let composed = cx
-                .background_executor()
-                .spawn(async move { rendering::compose(&content) })
-                .await;
-            let _ = editor.update(cx, |editor, cx| {
-                editor.lyrics.pending.remove(&stored);
-                if composed.is_err() {
-                    editor.lyrics.failed.insert(stored.clone());
-                } else {
-                    editor.lyrics.failed.remove(&stored);
-                }
-                editor.lyrics.frames.insert(stored, composed.map(Arc::new));
-                if let Some(content) = editor.content(cx) {
-                    editor.refresh_unrenderable(&content);
-                }
-                cx.notify();
-            });
-        });
-        editor.lyrics.pending.insert(key, task);
+        let task = spawn(key.clone(), content);
+        pending.insert(key, task);
     }
 }
 

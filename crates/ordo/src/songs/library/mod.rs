@@ -258,7 +258,7 @@ impl SongsWorkspace {
             return;
         }
         let weak = cx.weak_entity();
-        let after: AfterRestore = Rc::new(move |_, _, cx| {
+        let after = AfterRestore::new(move |_, _, cx| {
             let _ = weak.update(cx, |workspace, cx| workspace.refresh(cx));
         });
         open_history(

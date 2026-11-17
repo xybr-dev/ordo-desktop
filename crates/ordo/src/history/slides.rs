@@ -2,20 +2,20 @@
 //! composed off the GPUI thread and cached by (section name, slide body), the
 //! way the Lyrics navigator caches its thumbnails.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use domain::{
     pagination::{slide_body, slides},
     song_library::ArrangementLyrics,
 };
-use gpui::{AnyElement, Context, IntoElement, Styled, Task, div, px, rgb};
-use rendering::{FrameCache, FrameEntry, TemplateContent, TemplateKind};
+use gpui::{
+    AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, Styled, Task,
+    div, px, rgb,
+};
+use rendering::{FrameCache, FrameEntry};
 use ui::{environment::UiEnvironment, tokens};
 
-use crate::canonical_views::live_viewport;
+use crate::{canonical_views::live_viewport, songs::lyrics::navigator::compose_missing};
 
 /// What a composed frame is cached under: the section name and the slide's
 /// rendered body.
@@ -53,37 +53,28 @@ impl SlideFrames {
     /// runs on the background executor; the request is cut at the cache's
     /// capacity so it never evicts its own members.
     pub fn request(&mut self, wanted: Vec<FrameKey>, cx: &mut Context<Self>) {
-        let mut seen = HashSet::new();
-        let wanted: Vec<FrameKey> = wanted
-            .into_iter()
-            .filter(|key| seen.insert(key.clone()))
-            .take(CAPACITY)
-            .collect();
-        for key in wanted {
-            if self.frames.get(&key).is_some() || self.pending.contains_key(&key) {
-                continue;
-            }
-            let content = TemplateContent {
-                kind: TemplateKind::Lyrics,
-                header: key.0.clone(),
-                body: key.1.clone(),
-                footer: None,
-                image: None,
-            };
-            let stored = key.clone();
-            let task = cx.spawn(async move |frames, cx| {
-                let composed = cx
-                    .background_executor()
-                    .spawn(async move { rendering::compose(&content) })
-                    .await;
-                let _ = frames.update(cx, |frames, cx| {
-                    frames.pending.remove(&stored);
-                    frames.frames.insert(stored, composed.map(Arc::new));
-                    cx.notify();
-                });
-            });
-            self.pending.insert(key, task);
-        }
+        // The same composition the editor's thumbnails use; both sides of a
+        // comparison stay pending together, so nothing is pruned.
+        compose_missing(
+            &mut self.frames,
+            &mut self.pending,
+            wanted,
+            CAPACITY,
+            false,
+            |stored, content| {
+                cx.spawn(async move |frames, cx| {
+                    let composed = cx
+                        .background_executor()
+                        .spawn(async move { rendering::compose(&content) })
+                        .await;
+                    let _ = frames.update(cx, |frames, cx| {
+                        frames.pending.remove(&stored);
+                        frames.frames.insert(stored, composed.map(Arc::new));
+                        cx.notify();
+                    });
+                })
+            },
+        );
     }
 
     /// A frame box of `width`: the composed frame when it is ready, else an
@@ -92,6 +83,31 @@ impl SlideFrames {
         match self.frames.peek(key) {
             Some(FrameEntry::Ready(frame)) => {
                 live_viewport(Some(frame.clone()), None, width, None, environment)
+            }
+            Some(FrameEntry::Unavailable(_)) => {
+                // A frame that failed must not look like one still loading.
+                let palette = tokens::palette(environment.appearance());
+                div()
+                    .debug_selector(|| "compare-slide-failed".into())
+                    .w(px(width))
+                    .h(px(width * 9.0 / 16.0))
+                    .rounded(px(tokens::radius::SLIDE_VIEWPORT))
+                    .bg(rgb(palette.surface_secondary))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(tokens::spacing::RELATED_TIGHT))
+                    .text_size(px(tokens::typography::META.size))
+                    .text_color(rgb(palette.warning))
+                    .child(
+                        gpui::svg()
+                            .flex_none()
+                            .size(px(tokens::icon::CONTROL_SIZE))
+                            .text_color(rgb(palette.warning))
+                            .data(ui::assets::icon::TRIANGLE_ALERT.as_bytes()),
+                    )
+                    .child("Can\u{2019}t draw this slide")
+                    .into_any_element()
             }
             _ => div()
                 .w(px(width))

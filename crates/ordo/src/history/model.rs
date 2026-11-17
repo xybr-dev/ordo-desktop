@@ -25,7 +25,8 @@ pub struct SessionRow {
     pub what: String,
     /// When: `Today \u{b7} 10:37\u{2013}10:44`.
     pub when: String,
-    /// How: `Manual edit`, `Creation`, `Import \u{b7} whole-Arrangement replacement`, `Restore`.
+    /// How: `Manual edit`, `Creation`, `Import \u{b7} whole-Arrangement replacement`
+    /// (a Song's import reads `Import`), `Restore`.
     pub how: &'static str,
     /// The session's revisions, newest first.
     pub revisions: Vec<RevisionRow>,
@@ -163,7 +164,10 @@ fn event(
         },
         RevisionKind::Import | RevisionKind::Replacement => (
             "Imported".to_owned(),
-            "Import \u{b7} whole-Arrangement replacement",
+            match revision.content {
+                RevisionContent::Arrangement(_) => "Import \u{b7} whole-Arrangement replacement",
+                RevisionContent::Song(_) => "Import",
+            },
             "Imported".to_owned(),
         ),
         RevisionKind::Restoration => {

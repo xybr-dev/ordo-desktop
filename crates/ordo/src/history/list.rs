@@ -47,12 +47,28 @@ impl HistoryView {
         items
     }
 
+    /// Where the active row is in `items`: the row itself, else the session it
+    /// belonged to (it vanished when that session closed), else the first.
+    pub(super) fn active_index(&self, items: &[Item]) -> usize {
+        let session = match self.active {
+            Item::Session(si) | Item::Revision(si, _) => si,
+        };
+        items
+            .iter()
+            .position(|item| *item == self.active)
+            .or_else(|| {
+                items
+                    .iter()
+                    .position(|item| *item == Item::Session(session))
+            })
+            .unwrap_or(0)
+    }
+
     /// Acts on a row: a session opens or closes, a revision opens its
     /// comparison, and the head (Current) opens nothing.
     pub(super) fn activate(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(at) = self.items().iter().position(|candidate| *candidate == item) {
-            self.active = at;
-        }
+        self.active = item;
+        self.focus.focus(window, cx);
         match item {
             Item::Session(si) => {
                 if !self.expanded.remove(&si) {
@@ -70,7 +86,6 @@ impl HistoryView {
                     cx.notify();
                     return;
                 }
-                self.focus.focus(window, cx);
                 self.open_compare(si, ri, window, cx);
             }
         }
@@ -84,23 +99,23 @@ impl HistoryView {
         if items.is_empty() {
             return;
         }
-        let at = self.active.min(items.len() - 1);
+        let at = self.active_index(&items);
         let item = items[at];
         let handled = match event.keystroke.key.as_str() {
             "down" => {
-                self.active = (at + 1).min(items.len() - 1);
+                self.active = items[(at + 1).min(items.len() - 1)];
                 true
             }
             "up" => {
-                self.active = at.saturating_sub(1);
+                self.active = items[at.saturating_sub(1)];
                 true
             }
             "home" => {
-                self.active = 0;
+                self.active = items[0];
                 true
             }
             "end" => {
-                self.active = items.len() - 1;
+                self.active = items[items.len() - 1];
                 true
             }
             "right" => {
@@ -115,10 +130,7 @@ impl HistoryView {
                         self.expanded.remove(&si);
                     }
                     Item::Revision(si, _) => {
-                        self.active = items
-                            .iter()
-                            .position(|candidate| *candidate == Item::Session(si))
-                            .unwrap_or(0);
+                        self.active = Item::Session(si);
                     }
                 }
                 true
@@ -169,7 +181,7 @@ impl HistoryView {
                 .into_any_element(),
             Load::Ready => {
                 let items = self.items();
-                let active = self.active.min(items.len().saturating_sub(1));
+                let active = self.active_index(&items);
                 let rows: Vec<AnyElement> = items
                     .iter()
                     .enumerate()
@@ -233,7 +245,7 @@ impl HistoryView {
                 .rounded(px(scale.apply(tokens::radius::CONTROL)))
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if ring { palette.focus } else { palette.surface }))
+                .border_color(rgb(if ring { palette.focus } else { palette.border }))
         };
         match item {
             Item::Session(si) => {
@@ -310,7 +322,12 @@ impl HistoryView {
                 .ml(px(scale.apply(tokens::spacing::RELATED) * 2.0))
                 .aria_selected(selected(si, ri))
                 .when(selected(si, ri), |row| row.bg(rgb(palette.selection)))
-                .when(row.current, |row| row.cursor_default())
+                .when(row.current, |row| {
+                    row.cursor_default().aria_description(format!(
+                        "{}. The current revision opens no comparison.",
+                        ui::primitives::Availability::UNAVAILABLE
+                    ))
+                })
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.activate(Item::Revision(si, ri), window, cx);
                 }))

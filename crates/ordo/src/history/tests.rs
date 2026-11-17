@@ -168,7 +168,7 @@ fn open_view(
 ) -> Entity<HistoryView> {
     let host = shell.read_with(cx, |shell, _| shell.overlays().clone());
     let record = calls.clone();
-    let after: AfterRestore = Rc::new(move |target, _, _| record.borrow_mut().push(target));
+    let after = AfterRestore::new(move |target, _, _| record.borrow_mut().push(target));
     let store = store.clone();
     let view = cx.update(|window, cx| open(target, store, host, after, window, cx));
     wait(cx, |cx| {
@@ -201,6 +201,26 @@ fn compare(cx: &mut VisualTestContext, session: usize, revision: usize) {
     settle(cx);
 }
 
+/// The "when" the UI words for a stored revision, from its row.
+fn stored_when(
+    vcx: &mut VisualTestContext,
+    seed: &Seed,
+    view: &Entity<HistoryView>,
+    session: usize,
+    revision: usize,
+) -> String {
+    let id = view.read_with(vcx, |view, _| view.sessions[session].revisions[revision].id);
+    let stored = revisions(vcx, &seed.slot, seed.id)
+        .into_iter()
+        .find(|stored| stored.record.id == id)
+        .expect("stored");
+    when::when(
+        stored.record.created_at,
+        ::time::OffsetDateTime::now_utc(),
+        when::local_offset(),
+    )
+}
+
 fn arrangement_target(seed: &Seed) -> HistoryTarget {
     HistoryTarget::Arrangement(seed.id)
 }
@@ -216,10 +236,15 @@ fn ac1_history_lists_sessions_newest_first_with_when_how_and_revision_count(
 
     let rows = view.read_with(vcx, |view, _| view.sessions.clone());
     assert_eq!(rows.len(), 4);
-    assert!(rows[0].what.starts_with("Edited "), "{}", rows[0].what);
+    assert_eq!(rows[0].what, "Edited lyrics \u{b7} 1 change");
     assert_eq!(rows[1].what, "Edited lyrics \u{b7} 2 changes");
     assert_eq!(rows[2].what, "Edited lyrics \u{b7} 1 change");
-    assert!(rows[3].what.starts_with("Created"), "{}", rows[3].what);
+    assert_eq!(rows[3].what, "Created arrangement");
+    assert!(
+        rows[3].revisions[0].what.starts_with("Created with "),
+        "{}",
+        rows[3].revisions[0].what
+    );
     assert_eq!(rows[3].how, "Creation");
     for row in &rows[..3] {
         assert_eq!(row.how, "Manual edit");
@@ -446,14 +471,20 @@ fn ac2_a_legacy_revision_shows_no_pagination_state_difference(cx: &mut TestAppCo
     let view = open_view(vcx, &shell, &seed.store, arrangement_target(&seed), &calls);
     // A revision written before section states were recorded.
     view.update(vcx, |view, _| {
-        let mut all = (*view.revisions).clone();
+        let mut all = view.revisions.clone();
         for revision in &mut all {
             revision.pagination_recorded = false;
         }
-        view.revisions = Rc::new(all);
+        view.revisions = all;
     });
     press(vcx, "history-session-2");
     compare(vcx, 2, 0);
+    press(vcx, "tab-1");
+    assert!(
+        !has(vcx, "compare-revision-line-0-0-changed")
+            && !has(vcx, "compare-current-line-0-0-changed"),
+        "a state-only difference marks no line"
+    );
 
     let compare = view.read_with(vcx, |view, _| view.compare.clone().expect("open"));
     let (current, legacy) = compare.read_with(vcx, |view, _| view.lyrics_heads());
@@ -518,7 +549,7 @@ fn ac2_song_comparison_has_overview_only(cx: &mut TestAppContext) {
         !has(vcx, "compare-current-line-0-0"),
         "a Song has no Lyrics"
     );
-    assert!(has(vcx, "compare-current-Title") || has(vcx, "compare-current-Title-changed"));
+    assert!(has(vcx, "compare-current-Title-changed"));
     assert!(has(vcx, "compare-revision-Title-changed"));
     finish(vcx, &seed.slot, &seed.dir);
 }
@@ -568,12 +599,14 @@ fn ac3_restore_this_revision_turns_the_footer_into_the_confirmation(cx: &mut Tes
     assert!(has(vcx, "button-Keep current"));
     assert!(has(vcx, "button-Restore entire Arrangement"));
     assert!(!has(vcx, "button-Restore this revision"));
-    let (lead, message) = view.read_with(vcx, |view, _| view.confirmation.clone().expect("set"));
-    assert!(
-        lead.starts_with("Restore the whole Arrangement to "),
-        "{lead}"
-    );
-    assert!(lead.ends_with('?'), "{lead}");
+    let (lead, message) = view.read_with(vcx, |view, _| {
+        view.stage
+            .as_ref()
+            .and_then(|stage| stage.confirmation_text())
+            .expect("set")
+    });
+    let at = stored_when(vcx, &seed, &view, 2, 0);
+    assert_eq!(lead, format!("Restore the whole Arrangement to {at}?"));
     assert_eq!(
         message,
         "Used by Koro Sto. Ni\u{f1}o. Mass-local copies and past Presentation snapshots don\u{2019}t change. It becomes a new revision, so nothing in History is lost."
@@ -1011,6 +1044,10 @@ fn ac1_closing_history_returns_focus_to_its_button(cx: &mut TestAppContext) {
         focused(vcx, &button),
         "focus returns to the Song History button"
     );
+    assert_eq!(
+        vcx.update(|window, cx| shell.read(cx).focused_region(window, cx)),
+        Some("Main editor".into())
+    );
     press_key(vcx, "enter");
     wait_for_history(vcx, &shell);
     vcx.simulate_keystrokes("escape");
@@ -1028,6 +1065,11 @@ fn ac1_closing_history_returns_focus_to_its_button(cx: &mut TestAppContext) {
     assert!(
         focused(vcx, &button),
         "focus returns to the Arrangement History button"
+    );
+    assert_eq!(
+        vcx.update(|window, cx| shell.read(cx).focused_region(window, cx)),
+        Some("Workspace actions".into()),
+        "the Arrangement header is the Workspace actions region"
     );
     press_key(vcx, "enter");
     wait_for_history(vcx, &shell);
@@ -1052,6 +1094,10 @@ fn ac1_after_a_restore_the_editor_reopens_on_the_same_tab_with_a_new_session(
             .len()
     };
     let before = count(vcx);
+    let old_session = editor
+        .read_with(vcx, |editor, _| editor.session().cloned())
+        .expect("session")
+        .entity_id();
 
     press(vcx, "button-History");
     wait_for_history(vcx, &shell);
@@ -1075,5 +1121,362 @@ fn ac1_after_a_restore_the_editor_reopens_on_the_same_tab_with_a_new_session(
         reopened.read_with(vcx, |editor, cx| editor.tab(cx)),
         TaskTab::Sequence
     );
+    let new_session = reopened
+        .read_with(vcx, |editor, _| editor.session().cloned())
+        .expect("session")
+        .entity_id();
+    assert_ne!(new_session, old_session, "a new session");
+    let stored = texts(vcx, &_store, id)[0].clone();
+    assert_eq!(first_lyrics(&reopened, vcx), stored, "the restored lyrics");
+    reopened.update(vcx, |editor, cx| editor.undo(cx));
+    settle(vcx);
+    assert_eq!(
+        first_lyrics(&reopened, vcx),
+        stored,
+        "Undo has nothing to undo"
+    );
+    assert_eq!(count(vcx), before + 1, "and writes nothing");
+    let button = shell.read_with(vcx, |shell, _| shell.history_focus().clone());
+    assert!(
+        vcx.update(|window, _| button.is_focused(window)),
+        "focus returns to the header History button"
+    );
     finish(vcx, &slot, &dir);
+}
+
+// ---- Review fixes (T2.9b) ----
+
+/// A second writer: one more lyric revision through the store, so the head
+/// History was opened on is no longer the head.
+fn write_more(vcx: &mut VisualTestContext, seed: &Seed, by: u8) {
+    let mut lyrics = seed.store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangement(seed.id)
+            .expect("arrangement")
+            .lyrics()
+    });
+    let section = lyrics.sections[0].id;
+    lyrics
+        .set_section_lyrics(section, "Written by someone else".into())
+        .expect("section");
+    let task = seed.store.update(vcx, |store, cx| {
+        store.save_arrangement_lyrics(seed.id, lyrics, session(by), cx)
+    });
+    assert_eq!(vcx.foreground_executor().block_test(task), Ok(seed.id));
+}
+
+const STALE: &str = "This changed since you opened History. Reopen it to restore.";
+
+#[gpui::test]
+fn a_history_read_failure_shows_the_refusal_and_escape_closes(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-read-fails");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let host = shell.read_with(vcx, |shell, _| shell.overlays().clone());
+    let missing = ArrangementId::from_entity(EntityId::from_random_bytes([0x5a; 16]));
+    let store = seed.store.clone();
+    let after = AfterRestore::new(|_, _, _| {});
+    let view = vcx.update(|window, cx| {
+        open(
+            HistoryTarget::Arrangement(missing),
+            store,
+            host,
+            after,
+            window,
+            cx,
+        )
+    });
+    wait(vcx, |cx| {
+        view.read_with(cx, |view, _| matches!(view.load, Load::Failed(_)))
+    });
+    settle(vcx);
+
+    assert!(
+        has(vcx, "history-failed"),
+        "the refusal is in the slideover"
+    );
+    let message = view.read_with(vcx, |view, _| match &view.load {
+        Load::Failed(message) => message.to_string(),
+        _ => String::new(),
+    });
+    assert_eq!(message, super::COULDNT_OPEN);
+    assert!(toasts(&shell, vcx).is_empty(), "no toast says it twice");
+    assert_eq!(depth(vcx, &shell), 1);
+
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    assert_eq!(depth(vcx, &shell), 0, "Escape closes the failed History");
+    let invoker = shell.read_with(vcx, |shell, cx| shell.focus_handle(cx));
+    assert!(
+        vcx.update(|window, cx| invoker.contains_focused(window, cx)),
+        "focus is back on the shell"
+    );
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac3_undo_after_restore_is_refused_while_a_save_failed(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-undo-blocked");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let _editor = open_editor(&shell, seed.id, vcx);
+    let count = revisions(vcx, &seed.slot, seed.id).len();
+
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    press(vcx, "history-session-2");
+    compare(vcx, 2, 0);
+    press(vcx, "button-Restore this revision");
+    settle(vcx);
+    press(vcx, "button-Restore entire Arrangement");
+    wait_for_revisions(vcx, &seed, count + 1);
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| {
+            shell
+                .arrangement_editor()
+                .is_some_and(|now| *now != _editor)
+        })
+    });
+    settle(vcx);
+    let reopened = shell.read_with(vcx, |shell, _| {
+        shell.arrangement_editor().expect("editor").clone()
+    });
+
+    let future = seed
+        .slot
+        .with(|storage| storage.inject_write_failure(1))
+        .expect("storage is open");
+    vcx.foreground_executor().block_test(future).expect("armed");
+    type_text(&reopened, "Typed after the restore", vcx);
+    press(vcx, "button-Undo");
+    settle(vcx);
+
+    assert_eq!(first_lyrics(&reopened, vcx), "Typed after the restore");
+    assert_eq!(revisions(vcx, &seed.slot, seed.id).len(), count + 1);
+    assert_eq!(
+        toasts(&shell, vcx).last().map(String::as_str),
+        Some(super::UNDO_BLOCKED)
+    );
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac3_a_refused_restore_stays_in_the_footer_and_posts_nothing(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-refused");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let view = to_confirmation(vcx, &shell, &seed, &calls);
+    let count = revisions(vcx, &seed.slot, seed.id).len();
+    write_more(vcx, &seed, 0xd4);
+
+    press(vcx, "button-Restore entire Arrangement");
+    wait(vcx, |cx| {
+        view.read_with(cx, |view, cx| {
+            view.stage
+                .as_ref()
+                .is_some_and(|stage| stage.refusal(cx).is_some())
+        })
+    });
+    settle(vcx);
+
+    let (refusal, confirming) = view.read_with(vcx, |view, cx| {
+        let stage = view.stage.as_ref().expect("stage");
+        (stage.refusal(cx), stage.is_confirming(cx))
+    });
+    assert_eq!(refusal.as_deref(), Some(STALE));
+    assert!(!confirming, "back to stage one");
+    assert!(has(vcx, "two-stage-refusal"));
+    assert_eq!(depth(vcx, &shell), 2, "the comparison stays open");
+    assert!(toasts(&shell, vcx).is_empty());
+    assert!(calls.borrow().is_empty(), "the hook did not run");
+    assert_eq!(revisions(vcx, &seed.slot, seed.id).len(), count + 1);
+    assert!(
+        has(vcx, "button-Restore this revision"),
+        "Ask is usable again"
+    );
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac3_a_refused_undo_posts_the_refusal_and_writes_nothing(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-undo-refused");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let _view = to_confirmation(vcx, &shell, &seed, &calls);
+    let count = revisions(vcx, &seed.slot, seed.id).len();
+    press(vcx, "button-Restore entire Arrangement");
+    wait_for_revisions(vcx, &seed, count + 1);
+    write_more(vcx, &seed, 0xd5);
+
+    press(vcx, "button-Undo");
+    wait(vcx, |cx| {
+        toasts(&shell, cx).iter().any(|toast| toast == STALE)
+    });
+    settle(vcx);
+    assert_eq!(revisions(vcx, &seed.slot, seed.id).len(), count + 2);
+    assert_eq!(calls.borrow().len(), 1, "no second hook run");
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac2_the_arrangement_comparison_opens_on_lyrics_and_a_song_on_overview(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-default-tab");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let _view = open_view(vcx, &shell, &seed.store, arrangement_target(&seed), &calls);
+    press(vcx, "history-session-2");
+    compare(vcx, 2, 0);
+    assert!(has(vcx, "compare-current-line-0-0"), "Lyrics is showing");
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+fn song_edit(cx: &mut TestAppContext, seed: &Seed, title: &str, kind: RevisionKind, by: u8) {
+    let future = seed
+        .slot
+        .with(|storage| storage.latest_revision(RevisionEntity::Song(seed.song)))
+        .expect("open");
+    let parent = cx.foreground_executor().block_test(future).expect("latest");
+    let content = SongContent {
+        title: title.to_owned(),
+        aliases: Vec::new(),
+        original_attribution: Some("Fr. Manoling Francisco".to_owned()),
+        provenance: None,
+        rights_notes: None,
+        liturgical_moments: Vec::new(),
+        occasions: Vec::new(),
+    };
+    let song = seed.song;
+    let future = seed
+        .slot
+        .with(|storage| {
+            storage.commit_song_edit(
+                song,
+                content,
+                kind,
+                (kind == RevisionKind::Edit).then(|| session(by)),
+                parent,
+            )
+        })
+        .expect("open");
+    cx.foreground_executor().block_test(future).expect("commit");
+}
+
+#[gpui::test]
+fn ac3_an_archived_song_offers_no_restore_in_its_own_history(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-archived-song");
+    song_edit(cx, &seed, "Tinapay (imported)", RevisionKind::Import, 0x93);
+    let song = seed.song;
+    let task = seed
+        .store
+        .update(cx, |store, cx| store.archive_song(song, cx));
+    assert_eq!(cx.foreground_executor().block_test(task), Ok(song));
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let view = open_view(vcx, &shell, &seed.store, HistoryTarget::Song(song), &calls);
+    let rows = view.read_with(vcx, |view, _| view.sessions.clone());
+    assert_eq!(
+        rows[0].how, "Import",
+        "a Song import is not an Arrangement replacement"
+    );
+    press(vcx, "history-session-1");
+    compare(vcx, 1, 0);
+
+    assert!(has(vcx, "compare-body"));
+    assert!(!has(vcx, "button-Restore this revision"));
+    assert!(has(vcx, "button-Back to History"));
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac3_an_archived_arrangement_offers_no_restore_this_revision(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-archived-arrangement");
+    let id = seed.id;
+    let task = seed
+        .store
+        .update(cx, |store, cx| store.archive_arrangement(id, cx));
+    assert_eq!(cx.foreground_executor().block_test(task), Ok(id));
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let _view = open_view(vcx, &shell, &seed.store, arrangement_target(&seed), &calls);
+    press(vcx, "history-session-2");
+    compare(vcx, 2, 0);
+    assert!(has(vcx, "compare-body"));
+    assert!(!has(vcx, "button-Restore this revision"));
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_the_list_works_from_the_keyboard(cx: &mut TestAppContext) {
+    use super::list::Item;
+    let seed = seeded(cx, "t29-keys");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let calls = Calls::default();
+    let view = open_view(vcx, &shell, &seed.store, arrangement_target(&seed), &calls);
+    let active = |vcx: &mut VisualTestContext| view.read_with(vcx, |view, _| view.active);
+    let list_focused = |vcx: &mut VisualTestContext| {
+        let focus = view.read_with(vcx, |view, _| view.focus.clone());
+        vcx.update(|window, _| focus.is_focused(window))
+    };
+
+    // Enter on Current opens nothing.
+    vcx.simulate_keystrokes("down");
+    assert_eq!(active(vcx), Item::Revision(0, 0));
+    press_key(vcx, "enter");
+    assert_eq!(depth(vcx, &shell), 1);
+
+    // Down to the third session, Right opens it, Down to its revision, Enter
+    // opens the comparison.
+    vcx.simulate_keystrokes("down down right down");
+    assert_eq!(active(vcx), Item::Revision(2, 0));
+    press_key(vcx, "enter");
+    settle(vcx);
+    assert_eq!(depth(vcx, &shell), 2);
+    press(vcx, "button-Back to History");
+    settle(vcx);
+    assert!(list_focused(vcx));
+
+    // Left on a revision steps to the session it belongs to.
+    vcx.simulate_keystrokes("left");
+    assert_eq!(active(vcx), Item::Session(2));
+
+    // Tab leaves the list for the surface's close control, and the surface
+    // keeps the key: Shift+Tab from the list wraps within it too.
+    vcx.simulate_keystrokes("tab");
+    assert!(!list_focused(vcx), "Tab moves past the list");
+    assert_eq!(depth(vcx, &shell), 1);
+    vcx.simulate_keystrokes("shift-tab");
+    assert!(list_focused(vcx));
+    vcx.simulate_keystrokes("shift-tab");
+    assert!(!list_focused(vcx), "Shift+Tab wraps to the last control");
+    vcx.simulate_keystrokes("tab");
+    assert!(list_focused(vcx), "and Tab wraps back to the list");
+    assert_eq!(depth(vcx, &shell), 1);
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_compact_header_buttons_name_themselves_on_hover(cx: &mut TestAppContext) {
+    let (_shell, _editor, _id, vcx) = in_memory(cx, false);
+    vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+    settle(vcx);
+    for name in ["button-Arrangement details", "button-History"] {
+        let bounds = vcx.debug_bounds(name).expect("the icon button");
+        assert!(
+            vcx.debug_bounds("control-tooltip").is_none(),
+            "{name} before hover"
+        );
+        vcx.simulate_mouse_move(bounds.center(), None, gpui::Modifiers::default());
+        vcx.executor()
+            .advance_clock(ui::primitives::button::TOOLTIP_SHOW_DELAY);
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("control-tooltip").is_some(),
+            "{name} on hover"
+        );
+        vcx.simulate_mouse_move(
+            gpui::point(gpui::px(2.0), gpui::px(2.0)),
+            None,
+            gpui::Modifiers::default(),
+        );
+        vcx.run_until_parked();
+    }
 }

@@ -433,7 +433,7 @@ fn render_dialog(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
                                 }),
                             window,
                             cx,
-                        )
+                        );
                     }
                 }),
         )
@@ -466,7 +466,7 @@ fn render_dialog(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
                                 .two_stage(stage),
                             window,
                             cx,
-                        )
+                        );
                     }
                 }),
         )
@@ -524,7 +524,7 @@ fn render_slideover(environment: UiEnvironment, window: &mut Window, cx: &mut Ap
                                             Button::new("open-nested", "Open Song", environment)
                                                 .on_surface(stage)
                                                 .on_activate(move |window, cx| {
-                                                    host.clone().open(child(), window, cx)
+                                                    host.clone().open(child(), window, cx);
                                                 }),
                                         )
                                         .child(long_body(environment))
@@ -532,7 +532,7 @@ fn render_slideover(environment: UiEnvironment, window: &mut Window, cx: &mut Ap
                                 }),
                             window,
                             cx,
-                        )
+                        );
                     }
                 }),
         )

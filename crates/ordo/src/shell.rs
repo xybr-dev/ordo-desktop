@@ -190,6 +190,10 @@ pub struct ShellView {
     editor_scroll: Scroll,
     /// The header's History button, so closing History hands focus back to it.
     history_focus: FocusHandle,
+    /// The header's Back button and Arrangement details button, so the tests
+    /// can walk the real Tab order from the editor's arrival focus.
+    back_focus: FocusHandle,
+    details_focus: FocusHandle,
     registry: RegionRegistry,
     /// Where the rail last laid its entries out, which its pill travels
     /// between (Decision 301).
@@ -317,6 +321,8 @@ impl ShellView {
             viewer_scroll: Scroll::new(),
             editor_scroll: Scroll::new(),
             history_focus: cx.focus_handle(),
+            back_focus: cx.focus_handle(),
+            details_focus: cx.focus_handle(),
             registry: RegionRegistry::default(),
             rail_track: Track::default(),
             masses: masses::MassesIndex::new(window, cx),
@@ -713,6 +719,18 @@ impl ShellView {
         &self.history_focus
     }
 
+    /// The header's Back button focus handle.
+    #[cfg(test)]
+    pub(crate) fn back_focus(&self) -> &FocusHandle {
+        &self.back_focus
+    }
+
+    /// The header's Arrangement details button focus handle.
+    #[cfg(test)]
+    pub(crate) fn details_focus(&self) -> &FocusHandle {
+        &self.details_focus
+    }
+
     /// Opens History for the open Arrangement as a slideover over its editor.
     ///
     /// Pending lyric text is flushed through the edit session first
@@ -757,7 +775,8 @@ impl ShellView {
             return;
         }
         let shell = cx.weak_entity();
-        let after: AfterRestore = Rc::new(move |target, _, cx| {
+        let flush_shell = shell.clone();
+        let after = AfterRestore::new(move |target, _, cx| {
             let HistoryTarget::Arrangement(restored) = target else {
                 return;
             };
@@ -771,6 +790,17 @@ impl ShellView {
                     .map_or(TaskTab::Lyrics, |editor| editor.read(cx).tab(cx));
                 shell.open_arrangement_on(restored, tab, cx);
             });
+        })
+        // An Undo writes over the head, so what the operator typed since the
+        // restore is settled first and a failed save holds the Undo back.
+        .flushing(move |_, cx| {
+            let editor = flush_shell
+                .upgrade()
+                .and_then(|shell| shell.read(cx).arrangement_editor.clone());
+            match editor {
+                Some(editor) => editor.update(cx, |editor, cx| editor.request_navigation(cx)),
+                None => gpui::Task::ready(NavigationGuard::Proceed),
+            }
         });
         open_history(
             HistoryTarget::Arrangement(id),
@@ -1690,12 +1720,14 @@ impl ShellView {
         // header gives its words to the title (mockup `headBtn`).
         let compact = f32::from(window.viewport_size().width)
             < scale.apply(LIST_WIDTH + MAIN_EDITOR_MIN_WIDTH + INSPECTOR_WIDTH) + 4.0 * gutter;
+        let (back_focus, details_focus) = (self.back_focus.clone(), self.details_focus.clone());
         let details = self
             .editing_arrangement
             .is_some_and(|id| self.arrangement_editable(id, cx))
             .then(|| {
                 let shell = cx.entity().downgrade();
                 let button = Button::new("arrangement-details", "Arrangement details", environment)
+                    .track_focus(&details_focus)
                     .icon(ui::assets::icon::SLIDERS_HORIZONTAL)
                     .on_surface(palette.background)
                     .on_activate(move |window, cx| {
@@ -1804,6 +1836,7 @@ impl ShellView {
                     .py(px(scale.apply(tokens::spacing::GROUP)))
                     .child(
                         Button::new("back", format!("Back to {back}"), environment)
+                            .track_focus(&back_focus)
                             // An icon that describes its action leads the
                             // label, so it has to point the way the control
                             // goes.

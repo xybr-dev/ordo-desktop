@@ -18,12 +18,16 @@ use gpui::{
 };
 use ui::{
     environment::UiEnvironment,
+    overlay::mix,
     primitives::selection::{Choice, SelectionState, Tabs},
     tokens,
 };
 
 use super::slides::{SlideFrames, SungSlide, sung_slides};
 use crate::songs::lyrics::navigator::pagination_label;
+
+/// How much of the danger or live colour tints a column's heading.
+const COLUMN_TINT: f32 = 0.14;
 
 /// The tile width of the Slides tab, before the Interface scale.
 const TILE_WIDTH: f32 = 150.0;
@@ -79,6 +83,14 @@ pub struct CompareView {
     revision_time: String,
     tabs: SelectionState,
     frames: Entity<SlideFrames>,
+    /// What each side's sections, Sequence and Overview differ in, read once
+    /// when the comparison opens (the stored revision and the head never
+    /// change under it), `(current, revision)`.
+    marks: Option<(ArrangementComparison, ArrangementComparison)>,
+    /// Each side's sung slides, `(current, revision)`.
+    slides: Option<(Vec<SungSlide>, Vec<SungSlide>)>,
+    /// A Song's differing fields.
+    song_fields: Vec<SongField>,
 }
 
 impl CompareView {
@@ -94,16 +106,37 @@ impl CompareView {
             Sides::Arrangement { .. } => TABS.iter().map(|tab| Choice::new(*tab)).collect(),
             Sides::Song { .. } => vec![Choice::new("Overview")],
         };
-        let tabs = SelectionState::new(choices, Some(0), cx);
-        if let Sides::Arrangement { current, revision } = &sides {
-            let wanted: Vec<_> = sung_slides(&current.lyrics)
-                .into_iter()
-                .chain(sung_slides(&revision.lyrics))
-                .map(|slide| slide.key)
-                .collect();
-            frames.update(cx, |frames, cx| frames.request(wanted, cx));
+        // An Arrangement's comparison opens on Lyrics, the tab the operator
+        // reads a revision by; a Song has only its Overview.
+        let first = match sides {
+            Sides::Arrangement { .. } => 1,
+            Sides::Song { .. } => 0,
+        };
+        let tabs = SelectionState::new(choices, Some(first), cx);
+        let (mut marks, mut slides, mut song_fields) = (None, None, Vec::new());
+        match &sides {
+            Sides::Arrangement { current, revision } => {
+                let (mine, theirs) = (sung_slides(&current.lyrics), sung_slides(&revision.lyrics));
+                let wanted: Vec<_> = mine
+                    .iter()
+                    .chain(&theirs)
+                    .map(|slide| slide.key.clone())
+                    .collect();
+                frames.update(cx, |frames, cx| frames.request(wanted, cx));
+                marks = Some((
+                    compare_arrangements(&current.state(), &revision.state()),
+                    compare_arrangements(&revision.state(), &current.state()),
+                ));
+                slides = Some((mine, theirs));
+            }
+            Sides::Song { current, revision } => {
+                song_fields = song_changed_fields(revision, current);
+            }
         }
         cx.new(|_| Self {
+            marks,
+            slides,
+            song_fields,
             sides,
             choirs,
             current_time: times.0,
@@ -124,11 +157,12 @@ impl CompareView {
     /// The Lyrics headings of both columns, `(current, revision)`; empty for a
     /// Song.
     pub fn lyrics_heads(&self) -> (Vec<String>, Vec<String>) {
-        let Sides::Arrangement { current, revision } = &self.sides else {
+        let (Sides::Arrangement { current, revision }, Some((mine, theirs))) =
+            (&self.sides, &self.marks)
+        else {
             return (Vec::new(), Vec::new());
         };
-        let heads = |data: &ArrangementSide, other: &ArrangementSide| {
-            let marks = compare_arrangements(&data.state(), &other.state());
+        let heads = |data: &ArrangementSide, marks: &ArrangementComparison| {
             data.lyrics
                 .sections
                 .iter()
@@ -144,7 +178,7 @@ impl CompareView {
                 })
                 .collect()
         };
-        (heads(current, revision), heads(revision, current))
+        (heads(current, mine), heads(revision, theirs))
     }
 
     /// Draws the tabs (Arrangement only) and the two columns.
@@ -160,42 +194,51 @@ impl CompareView {
         let tab = self.tab(cx);
         let columns = match &self.sides {
             Sides::Song { current, revision } => {
-                let fields = song_changed_fields(revision, current);
+                let fields = &self.song_fields;
                 vec![
                     self.column(
                         "current",
                         "Current",
                         &self.current_time,
-                        song_rows("current", current, &fields, environment),
+                        song_rows("current", current, fields, environment),
                         environment,
                     ),
                     self.column(
                         "revision",
                         "Revision to restore",
                         &self.revision_time,
-                        song_rows("revision", revision, &fields, environment),
+                        song_rows("revision", revision, fields, environment),
                         environment,
                     ),
                 ]
             }
             Sides::Arrangement { current, revision } => {
-                let (mine, theirs) = (
-                    compare_arrangements(&current.state(), &revision.state()),
-                    compare_arrangements(&revision.state(), &current.state()),
-                );
+                let (Some((mine, theirs)), Some((mine_slides, their_slides))) =
+                    (&self.marks, &self.slides)
+                else {
+                    return div().into_any_element();
+                };
                 vec![
                     self.column(
                         "current",
                         "Current",
                         &self.current_time,
-                        self.tab_rows(tab, "current", current, &mine, environment, cx),
+                        self.tab_rows(tab, "current", current, mine, mine_slides, environment, cx),
                         environment,
                     ),
                     self.column(
                         "revision",
                         "Revision to restore",
                         &self.revision_time,
-                        self.tab_rows(tab, "revision", revision, &theirs, environment, cx),
+                        self.tab_rows(
+                            tab,
+                            "revision",
+                            revision,
+                            theirs,
+                            their_slides,
+                            environment,
+                            cx,
+                        ),
                         environment,
                     ),
                 ]
@@ -230,6 +273,17 @@ impl CompareView {
     ) -> AnyElement {
         let palette = tokens::palette(environment.appearance());
         let scale = environment.preferences().scale;
+        // The mockup tints the Current column toward danger (what a restore
+        // would replace) and the revision toward live (what it would bring).
+        let tint = mix(
+            if side == "current" {
+                palette.danger
+            } else {
+                palette.live
+            },
+            palette.surface,
+            COLUMN_TINT,
+        );
         div()
             .debug_selector(move || format!("compare-{side}"))
             .flex_1()
@@ -237,10 +291,17 @@ impl CompareView {
             .flex()
             .flex_col()
             .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+            .p(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+            .rounded(px(scale.apply(tokens::radius::CONTROL)))
+            .border_1()
+            .border_color(rgb(palette.border))
             .child(
                 div()
                     .flex()
                     .flex_col()
+                    .p(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
+                    .bg(rgb(tint))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(label))
                     .child(
                         div()
@@ -266,12 +327,14 @@ impl CompareView {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn tab_rows(
         &self,
         tab: &str,
         side: &'static str,
         data: &ArrangementSide,
         marks: &ArrangementComparison,
+        slides: &[SungSlide],
         environment: UiEnvironment,
         cx: &App,
     ) -> Vec<AnyElement> {
@@ -360,7 +423,6 @@ impl CompareView {
                 })
                 .collect(),
             "Slides" => {
-                let slides: Vec<SungSlide> = sung_slides(&data.lyrics);
                 let frames = self.frames.read(cx);
                 let tiles = slides.iter().enumerate().map(|(at, slide)| {
                     div()
@@ -390,7 +452,7 @@ impl CompareView {
                 ]
             }
             _ => {
-                let slide_count = sung_slides(&data.lyrics).len();
+                let slide_count = slides.len();
                 let mut rows = vec![
                     (
                         "Languages",
@@ -478,16 +540,11 @@ fn song_rows(
     };
     let rows = [
         ("Title", draft.title.clone(), SongField::Title),
+        ("Also known as", list(&draft.aliases), SongField::Aliases),
         (
             "Attribution",
             dash(draft.original_attribution.as_ref()),
             SongField::Attribution,
-        ),
-        ("Also known as", list(&draft.aliases), SongField::Aliases),
-        (
-            "Liturgical moments",
-            list(&draft.liturgical_moments),
-            SongField::Moments,
         ),
         (
             "Provenance",
@@ -499,10 +556,14 @@ fn song_rows(
             dash(draft.rights_notes.as_ref()),
             SongField::RightsNotes,
         ),
+        (
+            "Liturgical moments",
+            list(&draft.liturgical_moments),
+            SongField::Moments,
+        ),
         ("Occasions", list(&draft.occasions), SongField::Occasions),
     ];
     rows.into_iter()
-        .filter(|(_, _, field)| !matches!(field, SongField::RightsNotes) || fields.contains(field))
         .map(|(label, value, field)| {
             overview_row(side, label, value, fields.contains(&field), environment)
         })

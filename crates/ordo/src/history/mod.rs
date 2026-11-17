@@ -15,7 +15,6 @@ pub mod time;
 mod tests;
 
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
 };
@@ -33,10 +32,11 @@ use ui::overlay::{Overlay, OverlayHost, Toast, TwoStage};
 
 use self::{
     compare::{ArrangementSide, CompareView, Sides},
+    list::Item,
     model::SessionRow,
     slides::SlideFrames,
 };
-use crate::songs::LibraryStore;
+use crate::{edit_session::NavigationGuard, songs::LibraryStore};
 
 /// What History is of.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,9 +56,41 @@ impl HistoryTarget {
     }
 }
 
-/// Runs after a restore (or its Undo) stood and both surfaces closed, so the
-/// shell can rebuild whatever shows the entity.
-pub type AfterRestore = Rc<dyn Fn(HistoryTarget, &mut Window, &mut App)>;
+/// What the shell lends History: a hook that runs after a restore (or its
+/// Undo) stood and both surfaces closed, so the shell can rebuild whatever
+/// shows the entity, and a flush that settles any pending edit before an Undo
+/// writes (an Undo must never overwrite text the operator typed since).
+#[derive(Clone)]
+pub struct AfterRestore {
+    after: AfterHook,
+    flush: FlushHook,
+}
+
+type AfterHook = Rc<dyn Fn(HistoryTarget, &mut Window, &mut App)>;
+type FlushHook = Rc<dyn Fn(&mut Window, &mut App) -> Task<NavigationGuard>>;
+
+impl AfterRestore {
+    /// A hook with nothing to flush.
+    pub fn new(after: impl Fn(HistoryTarget, &mut Window, &mut App) + 'static) -> Self {
+        Self {
+            after: Rc::new(after),
+            flush: Rc::new(|_, _| Task::ready(NavigationGuard::Proceed)),
+        }
+    }
+
+    /// Settles pending edits first; a `Blocked` flush stops the Undo.
+    pub fn flushing(
+        mut self,
+        flush: impl Fn(&mut Window, &mut App) -> Task<NavigationGuard> + 'static,
+    ) -> Self {
+        self.flush = Rc::new(flush);
+        self
+    }
+
+    fn run(&self, target: HistoryTarget, window: &mut Window, cx: &mut App) {
+        (self.after)(target, window, cx);
+    }
+}
 
 /// The title of the History surface.
 pub const TITLE: &str = "History";
@@ -76,6 +108,8 @@ pub const KEEP: &str = "Keep current";
 pub const SAVED_JUST_NOW: &str = "Saved just now";
 /// The refusal when nothing more specific is known.
 pub const COULDNT_SAVE: &str = "Couldn't save.";
+/// The toast when an Undo is held back by an edit that cannot be saved.
+pub const UNDO_BLOCKED: &str = "Couldn\u{2019}t save, so Undo didn\u{2019}t run. Retry save first.";
 /// The refusal when History itself could not be read.
 pub const COULDNT_OPEN: &str = "Couldn't open History.";
 
@@ -93,17 +127,23 @@ pub struct HistoryView {
     host: OverlayHost,
     after_restore: AfterRestore,
     load: Load,
-    revisions: Rc<Vec<HistoryRevision>>,
+    revisions: Vec<HistoryRevision>,
     sessions: Vec<SessionRow>,
     expanded: HashSet<usize>,
-    active: usize,
+    /// The row the arrow keys are on; a row that vanished falls back to its session.
+    active: Item,
     selected: Option<(usize, usize)>,
     focus: FocusHandle,
     frames: Entity<SlideFrames>,
     compare: Option<Entity<CompareView>>,
-    /// The confirmation's lead and message of the comparison last opened.
-    confirmation: Option<(String, String)>,
+    /// The open comparison's footer; its confirmation restores through this view.
+    stage: Option<TwoStage>,
+    /// The overlay ids of this surface and of its comparison.
+    history_id: usize,
+    compare_id: Option<usize>,
     task: Option<Task<()>>,
+    /// The restore in flight; the view owns it and drops it with itself.
+    restore_task: Option<Task<()>>,
     restoring: bool,
     dismissed: bool,
 }
@@ -136,16 +176,19 @@ fn open(
         host: host.clone(),
         after_restore,
         load: Load::Loading,
-        revisions: Rc::new(Vec::new()),
+        revisions: Vec::new(),
         sessions: Vec::new(),
         expanded: HashSet::new(),
-        active: 0,
+        active: Item::Session(0),
         selected: None,
         focus: cx.focus_handle().tab_stop(true),
         frames: cx.new(|_| SlideFrames::new()),
         compare: None,
-        confirmation: None,
+        stage: None,
+        history_id: 0,
+        compare_id: None,
         task: None,
+        restore_task: None,
         restoring: false,
         dismissed: false,
     });
@@ -159,7 +202,8 @@ fn open(
         .on_close(move |_, cx| {
             close.update(cx, |view, _| view.dismissed = true);
         });
-    host.open(overlay, window, cx);
+    let history_id = host.open(overlay, window, cx);
+    view.update(cx, |view, _| view.history_id = history_id);
     let read = store.update(cx, |store, cx| store.history(target.entity(), cx));
     let weak = view.downgrade();
     let task = window.spawn(cx, async move |cx| {
@@ -182,7 +226,7 @@ fn open(
             let _ = weak.update(cx, |view, cx| {
                 match built {
                     Ok((history, rows)) => {
-                        view.revisions = Rc::new(history);
+                        view.revisions = history;
                         view.sessions = rows;
                         view.expanded = HashSet::from([0]);
                         view.load = Load::Ready;
@@ -195,7 +239,10 @@ fn open(
                         });
                     }
                 }
-                if view.host.depth(cx) == 1 && !view.dismissed {
+                // The list takes focus only once it is drawn: a refusal or a
+                // loading line has no key handler, and focus on the list's
+                // handle would leave Escape with nothing to dispatch from.
+                if matches!(view.load, Load::Ready) && view.host.depth(cx) == 1 && !view.dismissed {
                     view.focus.focus(window, cx);
                 }
                 cx.notify();
@@ -204,7 +251,6 @@ fn open(
         .ok();
     });
     view.update(cx, |view, _| view.task = Some(task));
-    view.read(cx).focus.clone().focus(window, cx);
     view
 }
 
@@ -244,39 +290,41 @@ impl HistoryView {
         matches!(self.target, HistoryTarget::Song(_))
     }
 
-    /// The revision a row opens.
-    fn revision_of(&self, si: usize, ri: usize) -> Option<&HistoryRevision> {
-        let id = self.sessions.get(si)?.revisions.get(ri)?.id;
-        self.revisions
-            .iter()
-            .find(|revision| revision.record.id == id)
-    }
-
     /// Opens the nested comparison for one revision.
     fn open_compare(&mut self, si: usize, ri: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(revision) = self.revision_of(si, ri).cloned() else {
+        let Some(id) = self
+            .sessions
+            .get(si)
+            .and_then(|session| session.revisions.get(ri))
+            .map(|row| row.id)
+        else {
             return;
         };
-        let Some(head) = self.revisions.last().cloned() else {
+        let (Some(revision), Some(head)) = (
+            self.revisions
+                .iter()
+                .find(|revision| revision.record.id == id),
+            self.revisions.last(),
+        ) else {
             return;
         };
-        self.selected = Some((si, ri));
+        let (revision_id, head_id) = (revision.record.id, head.record.id);
+        let (revision_created, head_created) = (revision.record.created_at, head.record.created_at);
         let now = ::time::OffsetDateTime::now_utc();
         let offset = time::local_offset();
-        let at = time::when(revision.record.created_at, now, offset);
+        let at = time::when(revision_created, now, offset);
         let what = self.sessions[si].revisions[ri].what.clone();
-        let day = time::day(revision.record.created_at, now, offset);
+        let day = time::day(revision_created, now, offset);
         let meta = format!(
             "{day} {} \u{b7} {what}",
-            time::clock(revision.record.created_at, offset)
+            time::clock(revision_created, offset)
         );
-        let current_time =
-            if now.unix_timestamp() * 1_000 - head.record.created_at.millis() < 60_000 {
-                SAVED_JUST_NOW.to_owned()
-            } else {
-                time::stamp(head.record.created_at, now, offset)
-            };
-        let revision_time = time::stamp(revision.record.created_at, now, offset);
+        let current_time = if now.unix_timestamp() * 1_000 - head_created.millis() < 60_000 {
+            SAVED_JUST_NOW.to_owned()
+        } else {
+            time::stamp(head_created, now, offset)
+        };
+        let revision_time = time::stamp(revision_created, now, offset);
         let (sides, choirs, can_restore) = {
             let library = self.store.read(cx).library();
             let choirs: HashMap<ChoirId, String> = library
@@ -324,6 +372,7 @@ impl HistoryView {
                 _ => return,
             }
         };
+        self.selected = Some((si, ri));
         let choir_text = match &sides {
             Sides::Arrangement { current, .. } => {
                 let names: Vec<&str> = current
@@ -348,7 +397,6 @@ impl HistoryView {
                 "Used by {choir_text}. Mass-local copies and past Presentation snapshots don\u{2019}t change. It becomes a new revision, so nothing in History is lost."
             )
         };
-        let message_copy = message.clone();
         let compare = CompareView::new(
             sides,
             choirs,
@@ -356,10 +404,7 @@ impl HistoryView {
             self.frames.clone(),
             cx,
         );
-        let slot: Rc<RefCell<Option<TwoStage>>> = Rc::new(RefCell::new(None));
         let weak = cx.weak_entity();
-        let confirm_slot = slot.clone();
-        let (revision_id, head_id) = (revision.record.id, head.record.id);
         let confirmed_at = at.clone();
         let mut stage = TwoStage::new(
             format!("Read-only comparison \u{b7} restores the whole {whole}"),
@@ -373,11 +418,11 @@ impl HistoryView {
             KEEP,
             format!("Restore entire {whole}"),
             move |window, cx| {
-                let Some(stage) = confirm_slot.borrow().clone() else {
-                    return;
-                };
                 let at = confirmed_at.clone();
                 let _ = weak.update(cx, |view, cx| {
+                    let Some(stage) = view.stage.clone() else {
+                        return;
+                    };
                     view.restore(revision_id, head_id, at, stage, window, cx);
                 });
             },
@@ -385,9 +430,9 @@ impl HistoryView {
         if !can_restore {
             stage = stage.without_ask();
         }
-        *slot.borrow_mut() = Some(stage.clone());
         self.compare = Some(compare.clone());
-        self.confirmation = Some((format!("Restore the whole {whole} to {at}?"), message_copy));
+        self.stage = Some(stage.clone());
+        let closed = cx.weak_entity();
         let body = compare;
         let overlay = Overlay::slideover(COMPARE_TITLE)
             .wide()
@@ -398,8 +443,16 @@ impl HistoryView {
                     compare.render_body(environment, window, cx)
                 })
             })
+            .on_close(move |_, cx| {
+                let _ = closed.update(cx, |view, cx| {
+                    view.compare = None;
+                    view.stage = None;
+                    view.compare_id = None;
+                    cx.notify();
+                });
+            })
             .two_stage(stage);
-        self.host.open(overlay, window, cx);
+        self.compare_id = Some(self.host.open(overlay, window, cx));
         cx.notify();
     }
 
@@ -423,60 +476,79 @@ impl HistoryView {
             .store
             .update(cx, |store, cx| store.restore_revision(revision, head, cx));
         let weak = cx.weak_entity();
-        window
-            .spawn(cx, async move |cx| {
-                let outcome = task.await;
-                cx.update(|window, cx| {
-                    let Some(view) = weak.upgrade() else {
-                        return;
-                    };
-                    view.update(cx, |view, _| view.restoring = false);
-                    match outcome {
-                        Ok(new_head) => {
-                            // Closing the surfaces runs their dismiss hooks, which
-                            // update this view, so this must not run inside an update.
-                            let (host, target, store, hook) = {
-                                let view = view.read(cx);
-                                (
-                                    view.host.clone(),
-                                    view.target,
-                                    view.store.clone(),
-                                    view.after_restore.clone(),
-                                )
-                            };
-                            restored(host, target, store, hook, head, new_head, at, window, cx);
-                        }
-                        Err(message) => {
-                            let message = if message.is_empty() {
-                                SharedString::from(COULDNT_SAVE)
-                            } else {
-                                message
-                            };
-                            stage.set_refusal(Some(message), cx);
-                        }
+        self.restore_task = Some(window.spawn(cx, async move |cx| {
+            let outcome = task.await;
+            cx.update(|window, cx| {
+                let Some(view) = weak.upgrade() else {
+                    return;
+                };
+                view.update(cx, |view, _| view.restoring = false);
+                match outcome {
+                    Ok(new_head) => {
+                        // Closing the surfaces runs their dismiss hooks, which
+                        // update this view, so this must not run inside an update.
+                        let done = {
+                            let view = view.read(cx);
+                            Restored {
+                                host: view.host.clone(),
+                                surfaces: view
+                                    .compare_id
+                                    .into_iter()
+                                    .chain([view.history_id])
+                                    .collect(),
+                                target: view.target,
+                                store: view.store.clone(),
+                                hook: view.after_restore.clone(),
+                                previous: head,
+                                new_head,
+                                at,
+                            }
+                        };
+                        restored(done, window, cx);
                     }
-                })
-                .ok();
+                    Err(message) => {
+                        let message = if message.is_empty() {
+                            SharedString::from(COULDNT_SAVE)
+                        } else {
+                            message
+                        };
+                        stage.set_refusal(Some(message), cx);
+                    }
+                }
             })
-            .detach();
+            .ok();
+        }));
     }
 }
 
-/// The restore stood: close both surfaces, post the toast, call the hook.
-#[allow(clippy::too_many_arguments)]
-fn restored(
+/// Everything the finished restore needs once the view is out of the way.
+struct Restored {
     host: OverlayHost,
+    /// The surfaces to close, the comparison first.
+    surfaces: Vec<usize>,
     target: HistoryTarget,
     store: Entity<LibraryStore>,
     hook: AfterRestore,
     previous: RevisionId,
     new_head: RevisionId,
     at: String,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    host.close_top(window, cx);
-    host.close_top(window, cx);
+}
+
+/// The restore stood: close both surfaces, post the toast, call the hook.
+fn restored(done: Restored, window: &mut Window, cx: &mut App) {
+    let Restored {
+        host,
+        surfaces,
+        target,
+        store,
+        hook,
+        previous,
+        new_head,
+        at,
+    } = done;
+    for id in surfaces {
+        host.close(id, window, cx);
+    }
     let undo_host = host.clone();
     let undo_hook = hook.clone();
     host.notify(
@@ -484,15 +556,27 @@ fn restored(
             "Restored the revision from {at}. Every earlier revision is still in History."
         ))
         .undo("Undo", move |window, cx| {
-            let task = store.update(cx, |store, cx| {
-                store.restore_revision(previous, new_head, cx)
-            });
-            let (host, hook) = (undo_host.clone(), undo_hook.clone());
+            let (host, hook, store) = (undo_host.clone(), undo_hook.clone(), store.clone());
+            let flush = (hook.flush)(window, cx);
+            // The store queue owns the one-shot write once it is sent, so the
+            // task is detached: dropping it must not cancel an Undo that began.
             window
                 .spawn(cx, async move |cx| {
+                    if flush.await == NavigationGuard::Blocked {
+                        cx.update(|_, cx| host.notify(Toast::failure(UNDO_BLOCKED), cx))
+                            .ok();
+                        return;
+                    }
+                    let Ok(task) = cx.update(|_, cx| {
+                        store.update(cx, |store, cx| {
+                            store.restore_revision(previous, new_head, cx)
+                        })
+                    }) else {
+                        return;
+                    };
                     let outcome = task.await;
                     cx.update(|window, cx| match outcome {
-                        Ok(_) => hook(target, window, cx),
+                        Ok(_) => hook.run(target, window, cx),
                         Err(message) => host.notify(
                             Toast::failure(if message.is_empty() {
                                 SharedString::from(COULDNT_SAVE)
@@ -508,5 +592,5 @@ fn restored(
         }),
         cx,
     );
-    hook(target, window, cx);
+    hook.run(target, window, cx);
 }

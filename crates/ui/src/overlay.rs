@@ -420,6 +420,19 @@ impl TwoStage {
         self
     }
 
+    /// The confirmation's lead and message, for a caller that asserts the
+    /// sentence the operator is asked (`None` without a confirmation).
+    pub fn confirmation_text(&self) -> Option<(SharedString, SharedString)> {
+        self.confirmation
+            .as_ref()
+            .map(|confirmation| (confirmation.lead.clone(), confirmation.message.clone()))
+    }
+
+    /// The refusal sentence now shown in the footer, if any.
+    pub fn refusal(&self, cx: &App) -> Option<SharedString> {
+        self.state.read(cx).refusal.clone()
+    }
+
     /// Whether the confirmation (stage two) is showing.
     pub fn is_confirming(&self, cx: &App) -> bool {
         self.state.read(cx).confirming
@@ -486,7 +499,7 @@ impl TwoStage {
 }
 
 /// `over` mixed toward `color` by `amount` (0 to 1), per channel.
-fn mix(color: u32, over: u32, amount: f32) -> u32 {
+pub fn mix(color: u32, over: u32, amount: f32) -> u32 {
     let channel = |shift: u32| {
         let a = f32::from(((color >> shift) & 0xFF) as u8);
         let b = f32::from(((over >> shift) & 0xFF) as u8);
@@ -515,7 +528,7 @@ fn confirmation_row(
         .flex()
         .items_start()
         .gap(px(scale.apply(tokens::spacing::RELATED)))
-        .text_color(rgb(palette.warning))
+        .text_color(rgb(palette.text))
         .text_size(px(scale.apply(tokens::typography::LABEL.size)))
         .child(
             gpui::svg()
@@ -773,7 +786,7 @@ impl OverlayHost {
     }
 
     /// Opens a surface, nesting it above whatever is already open.
-    pub fn open(&self, overlay: Overlay, window: &mut Window, cx: &mut App) {
+    pub fn open(&self, overlay: Overlay, window: &mut Window, cx: &mut App) -> usize {
         let invoker = window.focused(cx);
         if let Some(stage) = &overlay.two_stage {
             stage.reset(cx);
@@ -787,7 +800,7 @@ impl OverlayHost {
                 .unwrap_or_else(|| cx.focus_handle().tab_stop(true)),
             cx.focus_handle().tab_stop(true),
         ];
-        self.0.update(cx, |host, cx| {
+        let id = self.0.update(cx, |host, cx| {
             let id = host.next;
             host.next += 1;
             host.entries.push(Entry {
@@ -801,11 +814,13 @@ impl OverlayHost {
                 entered: std::cell::Cell::new(false),
             });
             cx.notify();
+            id
         });
         focus.focus(window, cx);
         if let Some(initial) = initial {
             initial.focus(window, cx);
         }
+        id
     }
 
     /// How many surfaces are open, not counting one still playing its exit.
@@ -844,7 +859,9 @@ impl OverlayHost {
         }
     }
 
-    fn close(&self, id: usize, window: &mut Window, cx: &mut App) {
+    /// Closes the surface [`OverlayHost::open`] returned `id` for, wherever it
+    /// sits in the stack; a surface already closing or gone is left alone.
+    pub fn close(&self, id: usize, window: &mut Window, cx: &mut App) {
         let closed = self.0.update(cx, |host, cx| {
             let entry = host
                 .entries
@@ -1074,7 +1091,7 @@ impl OverlayHost {
                 .update(cx, |state, _| std::mem::take(&mut state.refocus_ask));
             if refocus {
                 let ask = stage.handles[1].clone();
-                window.on_next_frame(move |window, cx| ask.focus(window, cx));
+                window.defer(cx, move |window, cx| ask.focus(window, cx));
             }
         }
 
@@ -2141,7 +2158,9 @@ mod tests {
                 .child(Button::new("invoker", "Open", environment).on_activate({
                     let host = host.clone();
                     let overlay = self.overlay(Surface::Dialog);
-                    move |window, cx| host.open(overlay.clone(), window, cx)
+                    move |window, cx| {
+                        host.open(overlay.clone(), window, cx);
+                    }
                 }))
                 .child(
                     // Icon-only, so its tooltip is an observable proxy for the
@@ -3495,8 +3514,11 @@ mod tests {
         assert!(!cx.update(|_, cx| stage.is_confirming(cx)));
         assert!(cx.debug_bounds("two-stage-refusal").is_some());
         assert!(cx.debug_bounds("button-Restore this revision").is_some());
-        // Focus returns to Ask from a next-frame callback, which the test
-        // platform never delivers, so only the state it leaves is asserted.
+        let ask_focused = stage.handles[1].clone();
+        assert!(
+            cx.update(|window, _| ask_focused.is_focused(window)),
+            "focus returns to Ask"
+        );
         click(cx, "button-Restore this revision");
         assert!(
             cx.update(|_, cx| stage.is_confirming(cx)),
