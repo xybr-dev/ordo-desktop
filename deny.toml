@@ -10,6 +10,10 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "pinned GPUI transitive dependency" },
     { id = "RUSTSEC-2026-0206", reason = "pinned GPUI SVG stack" },
     { id = "RUSTSEC-2026-0192", reason = "pinned GPUI font stack" },
+    # chrono is reached only through the pinned GPUI crates (gpui-base,
+    # gpui-pre, its scheduler and zlog). An unmaintained notice, not a
+    # vulnerability; revisit on the next GPUI upgrade.
+    { id = "RUSTSEC-2026-0543", reason = "pinned GPUI transitive dependency (chrono)" },
     # zvariant 5 merged into zbus 6; no safe upgrade exists at the pin. Reached
     # only through gpui-pre-linux's AT-SPI accessibility stack, which a Windows
     # build never compiles (Decision 268). Unmaintained notices, not
