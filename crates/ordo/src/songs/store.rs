@@ -132,6 +132,10 @@ type Reply = async_channel::Sender<Result<Done, SharedString>>;
 
 /// The refusal for a permanent deletion that something now blocks.
 const DELETION_BLOCKED: &str = "Something now uses it, so it can’t be deleted.";
+/// Whether `message` is the refusal for a deletion that something now blocks.
+pub(crate) fn is_deletion_blocked(message: &str) -> bool {
+    message == DELETION_BLOCKED
+}
 /// The refusal for a restore over a head that moved on.
 const STALE_REVISION: &str = "This changed since you opened History. Reopen it to restore.";
 /// The refusal for archiving what is already archived.

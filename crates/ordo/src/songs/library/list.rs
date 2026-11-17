@@ -214,6 +214,7 @@ fn ready(
                         "Include archived",
                         environment,
                     )
+                    .track_focus(&workspace.empty_focus)
                     .on_activate(SongsWorkspace::act(cx, |workspace, _, cx| {
                         workspace.set_include_archived(true, cx);
                     }))
@@ -315,6 +316,7 @@ fn no_match(
                 "Clear search and filters",
                 environment,
             )
+            .track_focus(&workspace.empty_focus)
             .on_activate(SongsWorkspace::act(cx, |workspace, window, cx| {
                 workspace.clear_search_and_filters(window, cx);
             }))
@@ -359,6 +361,11 @@ fn rows(
             let row = match evidence_line(hit) {
                 Some(line) => row.detail(line),
                 None => row,
+            };
+            let row = if workspace.focus_song == Some(id) {
+                row.track_focus(&workspace.row_focus)
+            } else {
+                row
             };
             div()
                 .debug_selector(move || format!("songs-row-{at}"))

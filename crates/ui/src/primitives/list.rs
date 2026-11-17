@@ -138,6 +138,7 @@ pub struct ListRow {
     environment: UiEnvironment,
     surface: u32,
     on_activate: Option<Activate>,
+    focus_handle: Option<gpui::FocusHandle>,
 }
 
 impl ListRow {
@@ -155,7 +156,15 @@ impl ListRow {
             environment,
             surface: tokens::palette(environment.appearance()).surface,
             on_activate: None,
+            focus_handle: None,
         }
+    }
+
+    /// Makes the row the element `focus_handle` focuses, so a caller can put
+    /// focus on a row it knows by identity (the Song that follows an archive).
+    pub fn track_focus(mut self, focus_handle: &gpui::FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle.clone());
+        self
     }
 
     /// The secondary line beneath the title. `DESIGN.md` moves secondary
@@ -227,6 +236,7 @@ impl ListRow {
             self.environment,
         )
         .debug_selector(move || format!("row-{title}"))
+        .when_some(self.focus_handle.as_ref(), |row, handle| row.track_focus(handle))
         .accessibility_label(name.clone())
         // A row's title and detail both truncate, so `DESIGN.md` owes the
         // full text to the pointer as well as to AccessKit.

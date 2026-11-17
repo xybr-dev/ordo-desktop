@@ -12,12 +12,24 @@ use gpui::{
 };
 use ui::{
     environment::UiEnvironment,
-    primitives::{button::Button, list::Badge},
+    primitives::{
+        button::{Button, Tone},
+        list::Badge,
+    },
     tokens,
 };
 
 use super::{OpenArrangement, SongsWorkspace, filters, list};
-use crate::songs::store::LibraryState;
+use crate::songs::{
+    lifecycle::{self, LifecycleTarget},
+    store::LibraryState,
+};
+
+/// The Song notice's first words, shared with the Arrangement banner that a
+/// Song's archive suppresses.
+pub(crate) const ARCHIVED: &str = "Archived.";
+/// The Song notice's explanation.
+pub(crate) const ARCHIVED_SONG_NOTE: &str = "Inspect only; restore to edit or use it in a Mass.";
 
 /// The pane the shell hosts in its viewer region.
 pub(super) fn render(
@@ -38,6 +50,36 @@ pub(super) fn render(
             .child(content)
             .into_any_element()
     };
+    // The overflow is built before the library is borrowed: its Menu state is
+    // keyed in the window, which needs the context mutably.
+    let overflow = workspace
+        .selected
+        .and_then(|id| {
+            store
+                .read(cx)
+                .library()
+                .song(id)
+                .ok()
+                .map(|song| (id, domain::song_library::song_lifecycle_actions(song)))
+        })
+        .map(|(id, actions)| {
+            let weak = cx.weak_entity();
+            let open = open.clone();
+            lifecycle::overflow(
+                "songs-detail-overflow",
+                LifecycleTarget::Song(id),
+                actions,
+                move |action, window, cx| {
+                    let open = open.clone();
+                    let _ = weak.update(cx, |workspace, cx| {
+                        workspace.run_song_lifecycle(id, action, open, window, cx);
+                    });
+                },
+                environment,
+                window,
+                cx,
+            )
+        });
     let store = store.read(cx);
     match store.state() {
         LibraryState::Ready => {}
@@ -137,6 +179,7 @@ pub(super) fn render(
                 arrangement,
                 at,
                 matches,
+                (at == 0).then(|| workspace.arrangement_focus.clone()),
                 environment,
                 move |window, cx| {
                     let _ = weak.update(cx, |workspace, _| workspace.remember_scroll());
@@ -164,7 +207,38 @@ pub(super) fn render(
             .border_color(rgb(palette.border))
             .bg(rgb(palette.surface_secondary))
             .text_color(rgb(palette.text))
-            .child("Archived \u{2014} restore it to edit")
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(ARCHIVED))
+                    .child(ARCHIVED_SONG_NOTE),
+            )
+            .child(
+                div().flex_none().debug_selector(|| "songs-restore".into()).child(
+                    Button::new("songs-restore-button", "Restore", environment)
+                        .tone(Tone::Primary)
+                        .on_surface(palette.surface_secondary)
+                        .on_activate({
+                            let weak = weak.clone();
+                            let open = open.clone();
+                            move |window, cx| {
+                                let open = open.clone();
+                                let _ = weak.update(cx, |workspace, cx| {
+                                    workspace.run_song_lifecycle(
+                                        id,
+                                        domain::song_library::LifecycleAction::Restore,
+                                        open,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }
+                        }),
+                ),
+            )
     });
     let has_some = total > 0;
     let scroll = workspace.detail_scroll.clone();
@@ -203,7 +277,7 @@ pub(super) fn render(
                 )
                 // History reads archived Songs too.
                 .child(
-                    div().flex_none().child(
+                    div().flex_none().flex().items_center().gap(px(scale.apply(tokens::spacing::RELATED))).children(overflow).child(
                         Button::new("songs-detail-history", "History", environment)
                             .track_focus(&workspace.history_focus)
                             .icon(ui::assets::icon::ROTATE_CCW_CLOCK)
@@ -271,6 +345,7 @@ pub(super) fn render(
                     list.child(no_arrangements(
                         song.is_archived(),
                         add_arrangement(&weak, id, open.clone()),
+                        &workspace.arrangement_focus,
                         environment,
                     ))
                 })
@@ -311,6 +386,7 @@ fn add_arrangement(
 fn no_arrangements(
     archived: bool,
     add: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    focus: &gpui::FocusHandle,
     environment: UiEnvironment,
 ) -> Div {
     let palette = tokens::palette(environment.appearance());
@@ -344,6 +420,7 @@ fn no_arrangements(
                             "Add first Arrangement",
                             environment,
                         )
+                        .track_focus(focus)
                         .on_surface(palette.background)
                         .on_activate(add),
                     ),
@@ -406,6 +483,7 @@ fn arrangement_row(
     arrangement: &Arrangement,
     at: usize,
     matches: bool,
+    focus: Option<gpui::FocusHandle>,
     environment: UiEnvironment,
     open: impl Fn(&mut Window, &mut gpui::App) + 'static,
 ) -> Div {
@@ -491,10 +569,17 @@ fn arrangement_row(
                 .flex_none()
                 .debug_selector(move || format!("arrangement-open-{at}"))
                 .child(
-                    Button::new(("arrangement-open-button", at), open_label, environment)
-                        .name(format!("{open_label} {title}"))
-                        .on_surface(palette.background)
-                        .on_activate(open),
+                    {
+                        let button =
+                            Button::new(("arrangement-open-button", at), open_label, environment)
+                                .name(format!("{open_label} {title}"))
+                                .on_surface(palette.background)
+                                .on_activate(open);
+                        match focus.as_ref() {
+                            Some(handle) => button.track_focus(handle),
+                            None => button,
+                        }
+                    },
                 ),
         )
 }
