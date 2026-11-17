@@ -4,8 +4,10 @@
 use gpui::{Entity, TestAppContext, VisualTestContext};
 
 use domain::{
-    identity::{ArrangementId, EntityId, SongId},
-    song_library::{DurableReference, RecordRef},
+    identity::{ArrangementId, EntityId, HistorySessionId, SongId},
+    song_library::{
+        DurableReference, RecordRef, arrangement_lifecycle_actions, song_lifecycle_actions,
+    },
 };
 
 use crate::{
@@ -15,7 +17,10 @@ use crate::{
         LibraryStore, SongsWorkspace, StorageSlot,
         choirs::tests::{open_store, present, wait},
         library::detail::arrangement_badge,
-        lifecycle::{LifecycleTarget, archive_impact, blocked_description, erase_summary},
+        lifecycle::{
+            LifecycleTarget, action_label, archive_impact, blocked_description, erase_summary,
+            menu::trigger_label,
+        },
         lyrics::tests::{dialog, toasts},
         new_song::tests::{
             Seeded, click, find_title, finish, parish, parish_with, settle, songs_of,
@@ -643,5 +648,199 @@ fn ac7_delete_toast_has_no_undo(cx: &mut TestAppContext) {
         shell.read_with(vcx, |shell, _| shell.editing().is_none()),
         "back on the Song"
     );
+    finish(vcx, &slot, &dir);
+}
+
+/// The words nothing in the library offers (T2.9 AC9, Decision 167).
+const FORBIDDEN_WORDS: [&str; 4] = ["merge", "survivor", "redirect", "revers"];
+
+fn assert_no_forbidden_words(names: &[String], surface: &str) {
+    assert!(!names.is_empty(), "{surface} offered nothing to check");
+    for name in names {
+        let lowered = name.to_lowercase();
+        for word in FORBIDDEN_WORDS {
+            assert!(
+                !lowered.contains(word),
+                "{surface} offers {name:?}, which carries {word:?}"
+            );
+        }
+    }
+}
+
+/// Opens the overflow Menu on screen, asserts it holds exactly the rows the
+/// domain offers `target` (no more, no fewer) and returns every name it
+/// shows: the trigger's and each row's. The pinned test platform exposes no
+/// accessibility tree, so the rows are counted on screen and named from the
+/// same function the Menu is built with.
+fn overflow_names(
+    store: &Entity<LibraryStore>,
+    target: LifecycleTarget,
+    trigger: &'static str,
+    vcx: &mut VisualTestContext,
+) -> Vec<String> {
+    let actions = store.read_with(vcx, |store, _| match target {
+        LifecycleTarget::Song(id) => {
+            song_lifecycle_actions(store.library().song(id).expect("song"))
+        }
+        LifecycleTarget::Arrangement(id) => {
+            arrangement_lifecycle_actions(store.library().arrangement(id).expect("arrangement"))
+        }
+    });
+    click(vcx, trigger);
+    let row = |at: usize| -> &'static str { Box::leak(format!("choice-{at}").into_boxed_str()) };
+    for at in 0..actions.len() {
+        assert!(present(vcx, row(at)), "{trigger}: row {at} is on screen");
+    }
+    assert!(
+        !present(vcx, row(actions.len())),
+        "{trigger}: no row beyond the domain's {} actions",
+        actions.len()
+    );
+    click(vcx, trigger);
+    let mut names = vec![trigger_label(target).to_owned()];
+    names.extend(
+        actions
+            .iter()
+            .map(|action| action_label(target, *action).to_owned()),
+    );
+    names
+}
+
+/// Two edits in two History sessions, so History has a revision older than
+/// the head to compare.
+fn two_sessions(store: &Entity<LibraryStore>, id: ArrangementId, vcx: &mut VisualTestContext) {
+    for (byte, words) in [(0xa1_u8, "First edit"), (0xb2, "Second edit")] {
+        let mut lyrics = store.read_with(vcx, |store, _| {
+            store
+                .library()
+                .arrangement(id)
+                .expect("arrangement")
+                .lyrics()
+        });
+        lyrics.sections[0].lyrics = words.to_owned();
+        let session = HistorySessionId::from_entity(EntityId::from_random_bytes([byte; 16]));
+        let task = store.update(vcx, |store, cx| {
+            store.save_arrangement_lyrics(id, lyrics, session, cx)
+        });
+        assert_eq!(vcx.foreground_executor().block_test(task), Ok(id));
+    }
+    settle(vcx);
+}
+
+#[gpui::test]
+fn ac9_overflow_menus_and_history_offer_no_merge_survivor_redirect_or_reversal(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-ac9");
+    let mut names: Vec<String> = Vec::new();
+
+    // The Song overflow: active, then archived (Include archived).
+    select(&shell, ids.exact, vcx);
+    let song = overflow_names(
+        &store,
+        LifecycleTarget::Song(ids.exact),
+        "button-More Song actions",
+        vcx,
+    );
+    assert_eq!(song, ["More Song actions", "Archive song"]);
+    names.extend(song);
+    let songs = songs_of(&shell, vcx);
+    songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
+    select(&shell, ids.archived, vcx);
+    let archived = overflow_names(
+        &store,
+        LifecycleTarget::Song(ids.archived),
+        "button-More Song actions",
+        vcx,
+    );
+    assert_eq!(
+        archived,
+        ["More Song actions", "Restore", "Delete permanently\u{2026}"]
+    );
+    names.extend(archived);
+
+    // The Arrangement overflow: active, archived, and suppressed by its Song.
+    let active = arrangements(&store, ids.exact, vcx)[0];
+    let retired = arrangements(&store, ids.exact, vcx)[1];
+    open(&shell, active, vcx);
+    let row = overflow_names(
+        &store,
+        LifecycleTarget::Arrangement(active),
+        "button-More Arrangement actions",
+        vcx,
+    );
+    assert_eq!(row, ["More Arrangement actions", "Archive arrangement"]);
+    names.extend(row);
+    two_sessions(&store, active, vcx);
+    archive_arrangement_directly(&store, retired, vcx);
+    open(&shell, retired, vcx);
+    let row = overflow_names(
+        &store,
+        LifecycleTarget::Arrangement(retired),
+        "button-More Arrangement actions",
+        vcx,
+    );
+    assert_eq!(
+        row,
+        [
+            "More Arrangement actions",
+            "Restore",
+            "Delete permanently\u{2026}"
+        ]
+    );
+    names.extend(row);
+    let suppressed = arrangements(&store, ids.archived, vcx)[0];
+    open(&shell, suppressed, vcx);
+    names.extend(overflow_names(
+        &store,
+        LifecycleTarget::Arrangement(suppressed),
+        "button-More Arrangement actions",
+        vcx,
+    ));
+
+    // History, a comparison and its confirmation, on the edited Arrangement.
+    open(&shell, active, vcx);
+    for control in ["button-History", "button-Arrangement details"] {
+        assert!(present(vcx, control), "{control} is the header's");
+        names.push(control.trim_start_matches("button-").to_owned());
+    }
+    click(vcx, "button-History");
+    wait(vcx, |vcx| {
+        dialog(&shell, vcx).as_deref() == Some(history::TITLE) && present(vcx, "history-session-1")
+    });
+    settle(vcx);
+    names.push(history::TITLE.to_owned());
+    names.push("Close History".to_owned());
+    names.push("Current".to_owned());
+    names.push(
+        "Every saved change is kept. Select a revision to compare it with the current Arrangement."
+            .to_owned(),
+    );
+    click(vcx, "history-session-1");
+    click(vcx, "history-revision-1-0");
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some(history::COMPARE_TITLE));
+    names.push(history::COMPARE_TITLE.to_owned());
+    // The comparison's four tabs and its footer.
+    for (at, tab) in ["Overview", "Lyrics", "Sequence", "Slides"]
+        .into_iter()
+        .enumerate()
+    {
+        let selector: &'static str = Box::leak(format!("tab-{at}").into_boxed_str());
+        assert!(present(vcx, selector), "tab {tab}");
+        names.push(tab.to_owned());
+    }
+    assert!(!present(vcx, "tab-4"), "exactly four tabs");
+    for control in [history::BACK_LABEL, history::RESTORE_THIS] {
+        let selector: &'static str = Box::leak(format!("button-{control}").into_boxed_str());
+        assert!(present(vcx, selector), "{control}");
+        names.push(control.to_owned());
+    }
+    click(vcx, "button-Restore this revision");
+    for control in [history::KEEP, "Restore entire Arrangement"] {
+        let selector: &'static str = Box::leak(format!("button-{control}").into_boxed_str());
+        assert!(present(vcx, selector), "{control}");
+        names.push(control.to_owned());
+    }
+    assert_no_forbidden_words(&names, "the overflow menus and History");
     finish(vcx, &slot, &dir);
 }
