@@ -55,6 +55,7 @@ pub mod icon {
         REPEAT => "repeat.svg",
         ROTATE_CCW_CLOCK => "rotate-ccw-clock.svg",
         SETTINGS => "settings.svg",
+        SLIDERS_HORIZONTAL => "sliders-horizontal.svg",
         SNOWFLAKE => "snowflake.svg",
         SQUARE => "square.svg",
         TRIANGLE_ALERT => "triangle-alert.svg",

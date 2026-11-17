@@ -113,6 +113,7 @@ const LUCIDE_ICONS: &[&str] = &[
     "repeat.svg",
     "rotate-ccw-clock.svg",
     "settings.svg",
+    "sliders-horizontal.svg",
     "snowflake.svg",
     "square.svg",
     "triangle-alert.svg",

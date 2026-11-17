@@ -11,16 +11,23 @@ use domain::{
     revisions::{RevisionEntity, RevisionKind},
     song_library::{ArrangementLyrics, OccurrenceDraft},
 };
-use gpui::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+use gpui::{
+    Entity, Focusable as _, KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext, VisualTestContext,
+};
 use storage::SongContent;
 use time::{Date, Month, UtcOffset};
 
 use super::{AfterRestore, HistoryTarget, HistoryView, Load, open, time as when};
 use crate::{
+    edit_session::SaveState,
     shell::ShellView,
     songs::{
         LibraryStore, StorageSlot,
         choirs::tests::{entity, open_store, present, wait},
+        lyrics::{
+            ArrangementEditor, TaskTab,
+            tests::{dialog, in_memory, open_editor, parish_full, save_state, toasts},
+        },
         new_song::tests::{click, finish, parish, settle},
     },
 };
@@ -734,4 +741,339 @@ fn focus_stays_in_the_top_slideover_and_returns_to_its_invoker(cx: &mut TestAppC
         "focus returns to the shell that opened History"
     );
     finish(vcx, &seed.slot, &seed.dir);
+}
+
+// ---- WP7: the header History actions (T2.9 AC1) ----
+
+const HISTORY_BLOCKED: &str =
+    "Couldn\u{2019}t save, so History didn\u{2019}t open. Retry save first.";
+
+fn history_is_open(cx: &mut VisualTestContext, shell: &Entity<ShellView>) -> bool {
+    dialog(shell, cx).as_deref() == Some("History")
+}
+
+fn wait_for_history(cx: &mut VisualTestContext, shell: &Entity<ShellView>) {
+    wait(cx, |cx| history_is_open(cx, shell));
+    wait(cx, |cx| has(cx, "history-session-0"));
+    settle(cx);
+}
+
+fn type_text(editor: &Entity<ArrangementEditor>, text: &str, cx: &mut VisualTestContext) {
+    let session = editor
+        .read_with(cx, |editor, _| editor.session().cloned())
+        .expect("an editable Arrangement has a session");
+    session.update(cx, |session, cx| {
+        session.text_edited(|content| content.sections[0].lyrics = text.to_owned(), cx);
+    });
+    cx.run_until_parked();
+}
+
+fn first_lyrics(editor: &Entity<ArrangementEditor>, cx: &mut VisualTestContext) -> String {
+    editor.read_with(cx, |editor, cx| {
+        editor.content(cx).expect("content").sections[0]
+            .lyrics
+            .clone()
+    })
+}
+
+fn select_song(shell: &Entity<ShellView>, song: SongId, cx: &mut VisualTestContext) {
+    let songs = shell.read_with(cx, |shell, _| shell.songs().clone());
+    songs.update(cx, |songs, cx| {
+        songs.refresh(cx);
+        songs.select(song, cx);
+    });
+    settle(cx);
+}
+
+#[gpui::test]
+fn ac1_song_detail_header_offers_history_and_opens_a_full_app_slideover(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-song-header");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    select_song(&shell, seed.song, vcx);
+    assert!(has(vcx, "button-History"), "the Song header offers History");
+    assert!(!history_is_open(vcx, &shell));
+
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    assert_eq!(depth(vcx, &shell), 1);
+    assert!(has(vcx, "overlay-body-History"));
+    // It lives on the shell's overlay layer, so its scrim covers the whole app,
+    // the rail included.
+    let scrim = vcx.debug_bounds("overlay-scrim").expect("scrim");
+    assert_eq!(f32::from(scrim.size.width), 1920.0);
+    assert_eq!(f32::from(scrim.size.height), 1080.0);
+    assert_eq!(f32::from(scrim.origin.x), 0.0);
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_arrangement_header_offers_history_beside_arrangement_details(cx: &mut TestAppContext) {
+    let (shell, _editor, _id, vcx) = in_memory(cx, false);
+    let details = vcx
+        .debug_bounds("button-Arrangement details")
+        .expect("details");
+    let history = vcx.debug_bounds("button-History").expect("history");
+    assert!(history.left() >= details.right(), "History follows details");
+    assert!(
+        (f32::from(history.center().y) - f32::from(details.center().y)).abs() < 2.0,
+        "one header row"
+    );
+    assert!(details.size.width > history.size.width);
+    let wide_details = f32::from(details.size.width);
+
+    // Where only the editor stays, both become icon buttons with the same names.
+    vcx.simulate_resize(gpui::size(gpui::px(800.0), gpui::px(600.0)));
+    settle(vcx);
+    let details = vcx
+        .debug_bounds("button-Arrangement details")
+        .expect("details");
+    let history = vcx.debug_bounds("button-History").expect("history");
+    assert!(f32::from(details.size.width) < wide_details, "icon only");
+    assert!(
+        (f32::from(details.size.width) - f32::from(history.size.width)).abs() < 1.0,
+        "two square icon buttons"
+    );
+    assert!(history.left() >= details.right());
+    assert!(!history_is_open(vcx, &shell));
+}
+
+#[gpui::test]
+fn ac1_history_is_offered_for_archived_arrangements_but_details_is_not(cx: &mut TestAppContext) {
+    let (shell, _editor, _id, vcx) = in_memory(cx, true);
+    assert!(has(vcx, "button-History"));
+    assert!(!has(vcx, "button-Arrangement details"));
+    press(vcx, "button-History");
+    wait(vcx, |cx| history_is_open(cx, &shell));
+}
+
+#[gpui::test]
+fn ac1_opening_history_flushes_pending_lyrics_first(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-flush");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let editor = open_editor(&shell, seed.id, vcx);
+    let before = revisions(vcx, &seed.slot, seed.id).len();
+    type_text(&editor, "Words typed just before History", vcx);
+    assert_eq!(save_state(&editor, vcx), Some(SaveState::Saving));
+
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+
+    assert_eq!(
+        texts(vcx, &seed.store, seed.id)[0],
+        "Words typed just before History"
+    );
+    let after = revisions(vcx, &seed.slot, seed.id);
+    assert_eq!(after.len(), before + 1, "one revision for the flushed text");
+    assert_eq!(after.last().expect("head").record.kind, RevisionKind::Edit);
+    assert_eq!(save_state(&editor, vcx), Some(SaveState::Saved));
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_a_failed_flush_keeps_the_edit_and_does_not_open_history(cx: &mut TestAppContext) {
+    let (shell, editor, _id, vcx) = in_memory(cx, false);
+    type_text(&editor, "Unsaved words", vcx);
+
+    press(vcx, "button-History");
+    settle(vcx);
+
+    assert!(!history_is_open(vcx, &shell));
+    assert_eq!(depth(vcx, &shell), 0, "no History and no dialog");
+    assert_eq!(save_state(&editor, vcx), Some(SaveState::CouldntSave));
+    assert!(has(vcx, "button-Retry save"), "the header keeps Retry save");
+    assert_eq!(
+        first_lyrics(&editor, vcx),
+        "Unsaved words",
+        "the edit stays"
+    );
+    assert_eq!(toasts(&shell, vcx), vec![HISTORY_BLOCKED.to_owned()]);
+
+    // After a failed save the header already says so; History stays closed.
+    press(vcx, "button-History");
+    settle(vcx);
+    assert!(!history_is_open(vcx, &shell));
+    assert_eq!(first_lyrics(&editor, vcx), "Unsaved words");
+}
+
+#[gpui::test]
+fn ac1_song_history_never_lists_arrangement_revisions(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-song-only");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let song_revisions = {
+        let future = seed
+            .slot
+            .with(|storage| storage.history(RevisionEntity::Song(seed.song)))
+            .expect("storage is open");
+        vcx.foreground_executor()
+            .block_test(future)
+            .expect("history")
+            .len()
+    };
+    assert_eq!(song_revisions, 1, "the Song was only created");
+    assert_eq!(revisions(vcx, &seed.slot, seed.id).len(), 5);
+
+    select_song(&shell, seed.song, vcx);
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    assert!(has(vcx, "history-session-0"));
+    assert!(
+        !has(vcx, "history-session-1"),
+        "the Arrangement's four sessions are not the Song's"
+    );
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_the_editor_underneath_keeps_its_tab_selection_and_text(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t29-underneath");
+    let editor = open_editor(&shell, id, vcx);
+
+    // Lyrics tab with text that is still pending.
+    type_text(&editor, "Kept words", vcx);
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    assert!(!history_is_open(vcx, &shell));
+    assert_eq!(first_lyrics(&editor, vcx), "Kept words");
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        TaskTab::Lyrics
+    );
+
+    // Sequence tab with a selected occurrence.
+    press(vcx, "tab-1");
+    settle(vcx);
+    press(vcx, "sequence-name-1");
+    let selected = editor.read_with(vcx, |editor, _| {
+        editor
+            .sequence_selection
+            .map(|selection| selection.occurrence)
+    });
+    assert!(selected.is_some());
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    assert!(
+        shell.read_with(vcx, |shell, _| shell.arrangement_editor() == Some(&editor)),
+        "the same editor stays under History"
+    );
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        TaskTab::Sequence
+    );
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| {
+            editor
+                .sequence_selection
+                .map(|selection| selection.occurrence)
+        }),
+        selected
+    );
+    assert_eq!(first_lyrics(&editor, vcx), "Kept words");
+    finish(vcx, &slot, &dir);
+}
+
+/// Native keyboard activation is a key press, not an action dispatch, so it has
+/// to arrive as the raw pair the platform would send.
+fn press_key(cx: &mut VisualTestContext, key: &str) {
+    let keystroke = Keystroke::parse(key).expect("a parseable key");
+    cx.simulate_event(KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(KeyUpEvent { keystroke });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn ac1_closing_history_returns_focus_to_its_button(cx: &mut TestAppContext) {
+    let seed = seeded(cx, "t29-return-focus");
+    let (shell, vcx) = open_store(cx, seed.store.clone());
+    let focused = |vcx: &mut VisualTestContext, handle: &gpui::FocusHandle| {
+        vcx.update(|window, _| handle.is_focused(window))
+    };
+
+    // Song detail: closing hands focus back to the header's History button,
+    // and Enter there opens History again.
+    select_song(&shell, seed.song, vcx);
+    let songs = shell.read_with(vcx, |shell, _| shell.songs().clone());
+    let button = songs.read_with(vcx, |songs, _| songs.history_focus().clone());
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    assert!(!focused(vcx, &button), "the slideover holds focus");
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    assert!(!history_is_open(vcx, &shell));
+    assert!(
+        focused(vcx, &button),
+        "focus returns to the Song History button"
+    );
+    press_key(vcx, "enter");
+    wait_for_history(vcx, &shell);
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+
+    // Arrangement header, the same way.
+    let _editor = open_editor(&shell, seed.id, vcx);
+    let button = shell.read_with(vcx, |shell, _| shell.history_focus().clone());
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    assert!(!focused(vcx, &button), "the slideover holds focus");
+    vcx.simulate_keystrokes("escape");
+    settle(vcx);
+    assert!(!history_is_open(vcx, &shell));
+    assert!(
+        focused(vcx, &button),
+        "focus returns to the Arrangement History button"
+    );
+    press_key(vcx, "enter");
+    wait_for_history(vcx, &shell);
+    finish(vcx, &seed.slot, &seed.dir);
+}
+
+#[gpui::test]
+fn ac1_after_a_restore_the_editor_reopens_on_the_same_tab_with_a_new_session(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t29-reopen");
+    let editor = open_editor(&shell, id, vcx);
+    press(vcx, "tab-1");
+    settle(vcx);
+    let count = |vcx: &mut VisualTestContext| {
+        let future = slot
+            .with(|storage| storage.history(RevisionEntity::Arrangement(id)))
+            .expect("storage is open");
+        vcx.foreground_executor()
+            .block_test(future)
+            .expect("history")
+            .len()
+    };
+    let before = count(vcx);
+
+    press(vcx, "button-History");
+    wait_for_history(vcx, &shell);
+    press(vcx, "history-session-1");
+    compare(vcx, 1, 0);
+    press(vcx, "button-Restore this revision");
+    settle(vcx);
+    press(vcx, "button-Restore entire Arrangement");
+    wait(vcx, |vcx| count(vcx) == before + 1);
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| {
+            shell.arrangement_editor().is_some_and(|now| *now != editor)
+        })
+    });
+    settle(vcx);
+
+    let reopened = shell.read_with(vcx, |shell, _| {
+        shell.arrangement_editor().expect("editor").clone()
+    });
+    assert_eq!(
+        reopened.read_with(vcx, |editor, cx| editor.tab(cx)),
+        TaskTab::Sequence
+    );
+    finish(vcx, &slot, &dir);
 }

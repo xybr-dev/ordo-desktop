@@ -1067,11 +1067,15 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     };
 
     // The Arrangement opens on Lyrics with focus in the header actions: Tab
-    // past Back to the task tabs, Right to Sequence, Enter to open it.
+    // past Back and History to the task tabs, Right to Sequence, Enter to open it.
     region("Workspace actions", vcx);
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     learn(&mut known, "Back to Songs", vcx);
+    // The header's History button sits between Back and the tabs in Tab order.
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    learn(&mut known, "History", vcx);
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(
@@ -1171,6 +1175,9 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("History"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     vcx.simulate_keystrokes("left");

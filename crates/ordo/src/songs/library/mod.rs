@@ -30,6 +30,8 @@ use ui::{
     scroll::Scroll,
 };
 
+use crate::history::{AfterRestore, HistoryTarget, open_history};
+
 use super::{
     arrangement_details::{self, ArrangementDetailsPanel},
     new_song::{NewSongPanel, Outcome},
@@ -49,6 +51,9 @@ pub struct SongsWorkspace {
     selected: Option<SongId>,
     list_scroll: Scroll,
     detail_scroll: Scroll,
+    /// The detail header's History button, so closing History hands focus
+    /// back to it.
+    history_focus: gpui::FocusHandle,
     /// Which filter's option panel is open under the filter row.
     open_filter: Option<FilterKind>,
     /// The list offset to put back the next time the list is drawn, saved when
@@ -87,6 +92,7 @@ impl SongsWorkspace {
             selected: None,
             list_scroll: Scroll::new(),
             detail_scroll: Scroll::new(),
+            history_focus: cx.focus_handle(),
             open_filter: None,
             restore_scroll: None,
             overlays: None,
@@ -229,6 +235,40 @@ impl SongsWorkspace {
         );
         self.new_arrangement = Some(panel);
         cx.notify();
+    }
+
+    /// The detail header's History button focus handle.
+    #[cfg(test)]
+    pub(crate) fn history_focus(&self) -> &gpui::FocusHandle {
+        &self.history_focus
+    }
+
+    /// Opens History for `song` as a slideover over the workspace, leaving
+    /// the query, filters, selection and scroll as they are. Song detail has
+    /// no edit session, so nothing is flushed first. After a restore the
+    /// hits and the detail are recomputed from the store. Does nothing while
+    /// the library is not readable, the Song is gone or another surface is
+    /// open.
+    pub fn open_song_history(&mut self, song: SongId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = self.overlays.clone() else {
+            return;
+        };
+        let known = self.store.read(cx).library().song(song).is_ok();
+        if !known || host.depth(cx) > 0 || *self.store.read(cx).state() != LibraryState::Ready {
+            return;
+        }
+        let weak = cx.weak_entity();
+        let after: AfterRestore = Rc::new(move |_, _, cx| {
+            let _ = weak.update(cx, |workspace, cx| workspace.refresh(cx));
+        });
+        open_history(
+            HistoryTarget::Song(song),
+            self.store.clone(),
+            host,
+            after,
+            window,
+            cx,
+        );
     }
 
     /// Carries out what the panel decided: both outcomes select a Song, and a
