@@ -322,6 +322,24 @@ fn main() -> Result<(), Failure> {
     println!("    review\" shows for that section only; Approve pagination clears it, and Ctrl+Z");
     println!("    returns it. Reordering the Sequence never changes any section's approval.");
     println!("  - The header readiness reads Needs review until every used section is approved.");
+    println!("History path: edit an Arrangement, leave, reopen and edit again; open History:");
+    println!("  - Sessions list newest first; open the older one and choose its revision. The");
+    println!("    comparison has Overview, Lyrics, Sequence and Slides, marks what changed and");
+    println!("    has no edit control. Restore this revision, then Restore entire Arrangement:");
+    println!("    one later revision is written and the editor reopens on the old text.");
+    println!("  - Undo in the toast writes another later revision; every earlier one stays.");
+    println!("Archive path: Arrangement actions > Archive arrangement > Archive:");
+    println!("  - You return to the Song; the toast offers Undo. Turn on Include archived,");
+    println!("    Inspect the Arrangement (read-only), Restore from the banner, archive again.");
+    println!("  - A Song archives the same way and keeps its Arrangements' own states.");
+    println!("Delete path: archived Arrangement or Song actions > Delete permanently...:");
+    println!("  - The dialog lists what still uses it, grouped, with no delete action; an");
+    println!("    archived child Arrangement lists Inspect. A Mass plan reference cannot be made");
+    println!("    here (no Mass plans yet), so the blocked path by a Mass plan is test-only;");
+    println!("    the automated E2E plants one and removes it.");
+    println!("  - With nothing using it, the dialog says what is erased and how many revisions");
+    println!("    of History go with it. Delete permanently has no Undo; the Song and its");
+    println!("    History stay when only an Arrangement is deleted.");
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {
