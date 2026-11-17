@@ -186,11 +186,15 @@ fn write(action: LifecycleAction, target: LifecycleTarget, store: &Entity<Librar
 /// confirmation toast and the caller's hook, or the refusal as a failure toast
 /// with nothing changed.
 fn perform(action: LifecycleAction, request: Request, window: &mut Window, cx: &mut App) {
-    let flush = (request.after.flush)(window, cx);
     // The store queue owns the write once it is sent, so the task is
     // detached: dropping it must not cancel a write that began.
     window
         .spawn(cx, async move |cx| {
+            // Asked from inside the task: the caller may be mid-update of the
+            // entity the hook reads (a click handler on the shell).
+            let Ok(flush) = cx.update(|window, cx| (request.after.flush)(window, cx)) else {
+                return;
+            };
             if flush.await == NavigationGuard::Blocked {
                 cx.update(|_, cx| request.host.notify(Toast::failure(FLUSH_BLOCKED), cx))
                     .ok();

@@ -10,7 +10,7 @@
 //! library. It runs synchronously when the query, a filter, the archived
 //! toggle or the library changes, never per frame, and never writes.
 
-mod detail;
+pub(crate) mod detail;
 mod filters;
 mod list;
 #[cfg(test)]

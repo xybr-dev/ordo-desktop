@@ -25,6 +25,18 @@ use crate::songs::{
     store::LibraryState,
 };
 
+/// The state badge on an Arrangement row: its own archive wins, otherwise an
+/// archived Song suppresses it until the Song is restored.
+pub(crate) fn arrangement_badge(arrangement_archived: bool, song_archived: bool) -> Option<&'static str> {
+    if arrangement_archived {
+        Some("Archived")
+    } else if song_archived {
+        Some("Available when Song is restored")
+    } else {
+        None
+    }
+}
+
 /// The Song notice's first words, shared with the Arrangement banner that a
 /// Song's archive suppresses.
 pub(crate) const ARCHIVED: &str = "Archived.";
@@ -519,12 +531,10 @@ fn arrangement_row(
     } else {
         "Open"
     };
-    let mut badges = Vec::new();
-    if arrangement.is_archived() {
-        badges.push(Badge::new("Archived", environment));
-    } else if song.is_archived() {
-        badges.push(Badge::new("Available when Song is restored", environment));
-    }
+    let badges: Vec<Badge> = arrangement_badge(arrangement.is_archived(), song.is_archived())
+        .map(|text| Badge::new(text, environment))
+        .into_iter()
+        .collect();
     div()
         .debug_selector(move || format!("songs-arrangement-{at}"))
         .flex()
