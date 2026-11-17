@@ -236,7 +236,9 @@ impl ListRow {
             self.environment,
         )
         .debug_selector(move || format!("row-{title}"))
-        .when_some(self.focus_handle.as_ref(), |row, handle| row.track_focus(handle))
+        .when_some(self.focus_handle.as_ref(), |row, handle| {
+            row.track_focus(handle)
+        })
         .accessibility_label(name.clone())
         // A row's title and detail both truncate, so `DESIGN.md` owes the
         // full text to the pointer as well as to AccessKit.

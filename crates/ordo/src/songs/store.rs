@@ -141,7 +141,7 @@ const STALE_REVISION: &str = "This changed since you opened History. Reopen it t
 /// The refusal for archiving what is already archived.
 const ALREADY_ARCHIVED: &str = "It’s already archived.";
 /// The refusal for deleting what is not archived.
-const NOT_ARCHIVED: &str = "Archive it first.";
+pub(crate) const NOT_ARCHIVED: &str = "Archive it first.";
 /// The refusal for restoring what is not archived.
 const NOT_ARCHIVED_TO_RESTORE: &str = "It isn’t archived.";
 /// The refusal for restoring a revision of an archived entity.

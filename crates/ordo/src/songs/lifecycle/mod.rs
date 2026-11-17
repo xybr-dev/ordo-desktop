@@ -98,8 +98,7 @@ impl AfterLifecycle {
 }
 
 /// The toast when a pending edit cannot be saved first, so nothing was done.
-pub const FLUSH_BLOCKED: &str =
-    "Couldn\u{2019}t save, so nothing changed. Retry save first.";
+pub const FLUSH_BLOCKED: &str = "Couldn\u{2019}t save, so nothing changed. Retry save first.";
 
 /// Everything one lifecycle write needs, so a toast's Undo can run it again.
 #[derive(Clone)]
@@ -151,7 +150,12 @@ pub(crate) fn target_name(
 type Pending = Pin<Box<dyn Future<Output = Result<(), SharedString>>>>;
 
 /// Starts the store write for `action`, dropping what it returns.
-fn write(action: LifecycleAction, target: LifecycleTarget, store: &Entity<LibraryStore>, cx: &mut App) -> Pending {
+fn write(
+    action: LifecycleAction,
+    target: LifecycleTarget,
+    store: &Entity<LibraryStore>,
+    cx: &mut App,
+) -> Pending {
     store.update(cx, |store, cx| -> Pending {
         match (action, target) {
             (LifecycleAction::Archive, LifecycleTarget::Song(id)) => {
@@ -258,13 +262,17 @@ fn finish(
             if action == LifecycleAction::DeletePermanently
                 && crate::songs::store::is_deletion_blocked(&message) =>
         {
-            delete::review(Request {
-                target,
-                name,
-                store,
-                host,
-                after,
-            }, window, cx);
+            delete::review(
+                Request {
+                    target,
+                    name,
+                    store,
+                    host,
+                    after,
+                },
+                window,
+                cx,
+            );
         }
         Err(message) => {
             let text = if message.is_empty() {

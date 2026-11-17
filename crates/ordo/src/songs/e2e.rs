@@ -1079,8 +1079,8 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     known.push(("Back to Songs", back));
     known.push(("Arrangement details", details));
     known.push(("History", history));
-    // The real header order is Back, Arrangement details, History, then the
-    // task tabs; each Tab moves one control.
+    // The real header order is Back, Arrangement details, History, the
+    // Arrangement actions menu, then the task tabs; each Tab moves one control.
     assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
@@ -1094,6 +1094,9 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
         focus(&known, vcx),
         Owner::Region("Workspace actions".into())
     );
+    learn(&mut known, "Arrangement actions", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
     learn(&mut known, "Lyrics tab", vcx);
     vcx.simulate_keystrokes("right");
     settle(vcx);
@@ -1195,6 +1198,9 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(focus(&known, vcx), Owner::Named("History"));
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("Arrangement actions"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     vcx.simulate_keystrokes("left");

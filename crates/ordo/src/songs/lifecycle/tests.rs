@@ -3,7 +3,10 @@
 
 use gpui::{Entity, TestAppContext, VisualTestContext};
 
-use domain::identity::{ArrangementId, SongId};
+use domain::{
+    identity::{ArrangementId, EntityId, SongId},
+    song_library::{DurableReference, RecordRef},
+};
 
 use crate::{
     history,
@@ -12,9 +15,11 @@ use crate::{
         LibraryStore, SongsWorkspace, StorageSlot,
         choirs::tests::{open_store, present, wait},
         library::detail::arrangement_badge,
-        lifecycle::archive_impact,
+        lifecycle::{LifecycleTarget, archive_impact, blocked_description, erase_summary},
         lyrics::tests::{dialog, toasts},
-        new_song::tests::{Seeded, click, finish, parish, settle, songs_of},
+        new_song::tests::{
+            Seeded, click, find_title, finish, parish, parish_with, settle, songs_of,
+        },
     },
 };
 
@@ -68,7 +73,11 @@ fn arrangement_archived(
     vcx: &mut VisualTestContext,
 ) -> bool {
     store.read_with(vcx, |store, _| {
-        store.library().arrangement(id).expect("arrangement").is_archived()
+        store
+            .library()
+            .arrangement(id)
+            .expect("arrangement")
+            .is_archived()
     })
 }
 
@@ -76,7 +85,9 @@ fn arrangement_archived(
 /// would.
 fn archive_directly(store: &Entity<LibraryStore>, song: SongId, vcx: &mut VisualTestContext) {
     let task = store.update(vcx, |store, cx| store.archive_song(song, cx));
-    vcx.foreground_executor().block_test(task).expect("archived");
+    vcx.foreground_executor()
+        .block_test(task)
+        .expect("archived");
     settle(vcx);
 }
 
@@ -88,7 +99,9 @@ fn choose(trigger: &'static str, at: usize, vcx: &mut VisualTestContext) {
 }
 
 fn wait_toast(shell: &Entity<ShellView>, text: &str, vcx: &mut VisualTestContext) {
-    wait(vcx, |vcx| toasts(shell, vcx).iter().any(|toast| toast == text));
+    wait(vcx, |vcx| {
+        toasts(shell, vcx).iter().any(|toast| toast == text)
+    });
     settle(vcx);
 }
 
@@ -125,7 +138,10 @@ fn ac4_archiving_a_song_from_its_overflow_keeps_child_states(cx: &mut TestAppCon
 
     assert!(song_archived(&store, ids.exact, vcx));
     for child in children {
-        assert!(!arrangement_archived(&store, child, vcx), "child state is kept");
+        assert!(
+            !arrangement_archived(&store, child, vcx),
+            "child state is kept"
+        );
     }
     assert_eq!(toasts(&shell, vcx), vec![ARCHIVED_TINAPAY.to_owned()]);
     finish(vcx, &slot, &dir);
@@ -152,12 +168,19 @@ fn ac7_archive_dialog_names_the_impact_and_has_only_cancel_and_archive(cx: &mut 
     let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-dialog");
     select(&shell, ids.exact, vcx);
     choose("button-More Song actions", 0, vcx);
-    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Archive Tinapay sa Langit?"));
+    assert_eq!(
+        dialog(&shell, vcx).as_deref(),
+        Some("Archive Tinapay sa Langit?")
+    );
     assert!(present(vcx, "button-Cancel"));
     assert!(present(vcx, "button-Archive"));
     assert!(!present(vcx, "button-Delete permanently"));
     let impact = vcx.update(|_, cx| {
-        archive_impact(&store, crate::songs::lifecycle::LifecycleTarget::Song(ids.exact), cx)
+        archive_impact(
+            &store,
+            crate::songs::lifecycle::LifecycleTarget::Song(ids.exact),
+            cx,
+        )
     });
     assert_eq!(
         impact,
@@ -165,7 +188,10 @@ fn ac7_archive_dialog_names_the_impact_and_has_only_cancel_and_archive(cx: &mut 
          Existing Mass plans and past Presentation snapshots don\u{2019}t change."
     );
     click(vcx, "button-Cancel");
-    assert!(!song_archived(&store, ids.exact, vcx), "Cancel changes nothing");
+    assert!(
+        !song_archived(&store, ids.exact, vcx),
+        "Cancel changes nothing"
+    );
     finish(vcx, &slot, &dir);
 }
 
@@ -185,11 +211,19 @@ fn ac7_archive_toast_offers_undo_that_restores(cx: &mut TestAppContext) {
 fn ac8_archiving_the_selected_song_selects_the_next_visible_active_result(cx: &mut TestAppContext) {
     let (dir, slot, _store, _ids, shell, vcx) = rig(cx, "life-next");
     let songs = songs_of(&shell, vcx);
-    let hits: Vec<SongId> = songs.read_with(vcx, |songs, _| songs.hits().iter().map(|h| h.song).collect());
+    let hits: Vec<SongId> = songs.read_with(vcx, |songs, _| {
+        songs.hits().iter().map(|h| h.song).collect()
+    });
     select(&shell, hits[0], vcx);
     archive_selected_song(&shell, vcx);
-    assert_eq!(songs.read_with(vcx, |songs, _| songs.selected()), Some(hits[1]));
-    assert_eq!(songs.read_with(vcx, |songs, _| songs.focus_song()), Some(hits[1]));
+    assert_eq!(
+        songs.read_with(vcx, |songs, _| songs.selected()),
+        Some(hits[1])
+    );
+    assert_eq!(
+        songs.read_with(vcx, |songs, _| songs.focus_song()),
+        Some(hits[1])
+    );
     assert!(workspace_focus(&songs, |s| s.row_focus().clone(), vcx));
     finish(vcx, &slot, &dir);
 }
@@ -198,11 +232,16 @@ fn ac8_archiving_the_selected_song_selects_the_next_visible_active_result(cx: &m
 fn ac8_archiving_the_last_listed_song_selects_the_previous(cx: &mut TestAppContext) {
     let (dir, slot, _store, _ids, shell, vcx) = rig(cx, "life-prev");
     let songs = songs_of(&shell, vcx);
-    let hits: Vec<SongId> = songs.read_with(vcx, |songs, _| songs.hits().iter().map(|h| h.song).collect());
+    let hits: Vec<SongId> = songs.read_with(vcx, |songs, _| {
+        songs.hits().iter().map(|h| h.song).collect()
+    });
     let last = hits.len() - 1;
     select(&shell, hits[last], vcx);
     archive_selected_song(&shell, vcx);
-    assert_eq!(songs.read_with(vcx, |songs, _| songs.selected()), Some(hits[last - 1]));
+    assert_eq!(
+        songs.read_with(vcx, |songs, _| songs.selected()),
+        Some(hits[last - 1])
+    );
     assert!(workspace_focus(&songs, |s| s.row_focus().clone(), vcx));
     finish(vcx, &slot, &dir);
 }
@@ -236,7 +275,10 @@ fn ac8_with_include_archived_the_archived_song_stays_selected_without_an_active_
     songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
     select(&shell, ids.exact, vcx);
     archive_selected_song(&shell, vcx);
-    assert_eq!(songs.read_with(vcx, |songs, _| songs.selected()), Some(ids.exact));
+    assert_eq!(
+        songs.read_with(vcx, |songs, _| songs.selected()),
+        Some(ids.exact)
+    );
     assert!(song_archived(&store, ids.exact, vcx));
     finish(vcx, &slot, &dir);
 }
@@ -250,11 +292,20 @@ fn ac8_archiving_an_arrangement_returns_to_its_song(cx: &mut TestAppContext) {
     settle(vcx);
     choose("button-More Arrangement actions", 0, vcx);
     click(vcx, "button-Archive");
-    wait(vcx, |vcx| shell.read_with(vcx, |shell, _| shell.editing().is_none()));
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing().is_none())
+    });
     settle(vcx);
     let songs = songs_of(&shell, vcx);
-    assert_eq!(songs.read_with(vcx, |songs, _| songs.selected()), Some(ids.exact));
-    assert!(workspace_focus(&songs, |s| s.arrangement_focus().clone(), vcx));
+    assert_eq!(
+        songs.read_with(vcx, |songs, _| songs.selected()),
+        Some(ids.exact)
+    );
+    assert!(workspace_focus(
+        &songs,
+        |s| s.arrangement_focus().clone(),
+        vcx
+    ));
     finish(vcx, &slot, &dir);
 }
 
@@ -280,13 +331,19 @@ fn archive_arrangement_directly(
     vcx: &mut VisualTestContext,
 ) {
     let task = store.update(vcx, |store, cx| store.archive_arrangement(id, cx));
-    vcx.foreground_executor().block_test(task).expect("archived");
+    vcx.foreground_executor()
+        .block_test(task)
+        .expect("archived");
     settle(vcx);
 }
 
 fn editor_read_only(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> bool {
     shell.read_with(vcx, |shell, cx| {
-        shell.arrangement_editor().expect("editor").read(cx).is_read_only()
+        shell
+            .arrangement_editor()
+            .expect("editor")
+            .read(cx)
+            .is_read_only()
     })
 }
 
@@ -304,7 +361,10 @@ fn ac5_archived_arrangement_editor_is_inspect_only_with_restore(cx: &mut TestApp
     assert!(editor_read_only(&shell, vcx));
     assert!(present(vcx, "arrangement-archived-notice"));
     assert!(present(vcx, "button-Restore"));
-    assert!(!present(vcx, "button-Arrangement details"), "no editing controls");
+    assert!(
+        !present(vcx, "button-Arrangement details"),
+        "no editing controls"
+    );
     finish(vcx, &slot, &dir);
 }
 
@@ -315,7 +375,9 @@ fn ac5_restore_from_the_banner_makes_the_editor_editable(cx: &mut TestAppContext
     archive_arrangement_directly(&store, id, vcx);
     open(&shell, id, vcx);
     click(vcx, "button-Restore");
-    wait(vcx, |vcx| !arrangement_archived(&store, id, vcx) && !editor_read_only(&shell, vcx));
+    wait(vcx, |vcx| {
+        !arrangement_archived(&store, id, vcx) && !editor_read_only(&shell, vcx)
+    });
     settle(vcx);
     assert!(!present(vcx, "arrangement-archived-notice"));
     assert!(present(vcx, "button-Arrangement details"));
@@ -351,7 +413,9 @@ fn ac5_include_archived_lists_archived_songs_and_arrangements(cx: &mut TestAppCo
     let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-include-list");
     let songs = songs_of(&shell, vcx);
     let listed = |songs: &Entity<SongsWorkspace>, vcx: &mut VisualTestContext| {
-        songs.read_with(vcx, |songs, _| songs.hits().iter().any(|hit| hit.song == ids.archived))
+        songs.read_with(vcx, |songs, _| {
+            songs.hits().iter().any(|hit| hit.song == ids.archived)
+        })
     };
     assert!(!listed(&songs, vcx), "hidden until Include archived");
     songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
@@ -360,7 +424,10 @@ fn ac5_include_archived_lists_archived_songs_and_arrangements(cx: &mut TestAppCo
     let id = arrangements(&store, ids.exact, vcx)[1];
     archive_arrangement_directly(&store, id, vcx);
     select(&shell, ids.exact, vcx);
-    assert!(present(vcx, "button-Inspect"), "the archived Arrangement is still listed");
+    assert!(
+        present(vcx, "button-Inspect"),
+        "the archived Arrangement is still listed"
+    );
     finish(vcx, &slot, &dir);
 }
 
@@ -371,14 +438,19 @@ fn ac5_history_of_an_archived_arrangement_is_viewable(cx: &mut TestAppContext) {
     archive_arrangement_directly(&store, id, vcx);
     open(&shell, id, vcx);
     click(vcx, "button-History");
-    wait(vcx, |vcx| dialog(&shell, vcx).as_deref() == Some(history::TITLE));
+    wait(vcx, |vcx| {
+        dialog(&shell, vcx).as_deref() == Some(history::TITLE)
+    });
     finish(vcx, &slot, &dir);
 }
 
 #[gpui::test]
 fn ac5_suppressed_arrangement_shows_available_when_song_is_restored(cx: &mut TestAppContext) {
     let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-suppressed");
-    assert_eq!(arrangement_badge(false, true), Some("Available when Song is restored"));
+    assert_eq!(
+        arrangement_badge(false, true),
+        Some("Available when Song is restored")
+    );
     assert_eq!(arrangement_badge(true, true), Some("Archived"));
     assert_eq!(arrangement_badge(true, false), Some("Archived"));
     assert_eq!(arrangement_badge(false, false), None);
@@ -388,7 +460,9 @@ fn ac5_suppressed_arrangement_shows_available_when_song_is_restored(cx: &mut Tes
     open(&shell, id, vcx);
     assert!(editor_read_only(&shell, vcx));
     click(vcx, "button-Restore");
-    wait(vcx, |vcx| !song_archived(&store, ids.archived, vcx) && !editor_read_only(&shell, vcx));
+    wait(vcx, |vcx| {
+        !song_archived(&store, ids.archived, vcx) && !editor_read_only(&shell, vcx)
+    });
     assert!(!arrangement_archived(&store, id, vcx));
     finish(vcx, &slot, &dir);
 }
@@ -400,13 +474,174 @@ fn ac6_overflow_offers_delete_permanently_only_when_archived(cx: &mut TestAppCon
     select(&shell, ids.exact, vcx);
     click(vcx, "button-More Song actions");
     assert!(present(vcx, "choice-0"));
-    assert!(!present(vcx, "choice-1"), "an active Song offers Archive only");
+    assert!(
+        !present(vcx, "choice-1"),
+        "an active Song offers Archive only"
+    );
     click(vcx, "button-More Song actions");
     songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
     select(&shell, ids.archived, vcx);
     click(vcx, "button-More Song actions");
-    assert!(present(vcx, "choice-1"), "an archived Song offers Restore and Delete permanently");
+    assert!(
+        present(vcx, "choice-1"),
+        "an archived Song offers Restore and Delete permanently"
+    );
     assert!(!present(vcx, "choice-2"));
     let _ = store;
+    finish(vcx, &slot, &dir);
+}
+
+fn plant(slot: &StorageSlot, target: RecordRef, byte: u8, vcx: &mut VisualTestContext) {
+    let reference = DurableReference::MassPlan(EntityId::from_random_bytes([byte; 16]));
+    let future = slot
+        .with(|storage| storage.plant_reference(target, reference))
+        .expect("storage is open");
+    vcx.foreground_executor()
+        .block_test(future)
+        .expect("planted");
+}
+
+fn title_of(dialog: Option<String>) -> String {
+    dialog.expect("a dialog is open")
+}
+
+/// Waits for the deletion dialog to show something other than its loading
+/// line, then lets it settle.
+fn wait_reviewed(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) {
+    wait(vcx, |vcx| {
+        dialog(shell, vcx).is_some() && !present(vcx, "lifecycle-checking")
+    });
+    settle(vcx);
+}
+
+fn label_of(
+    store: &Entity<LibraryStore>,
+    id: ArrangementId,
+    vcx: &mut VisualTestContext,
+) -> String {
+    store.read_with(vcx, |store, _| {
+        store.library().arrangement_label(id).expect("label")
+    })
+}
+
+/// An Arrangement archived and open in the editor, with Delete permanently
+/// chosen from its overflow.
+fn delete_from_editor(
+    store: &Entity<LibraryStore>,
+    shell: &Entity<ShellView>,
+    id: ArrangementId,
+    vcx: &mut VisualTestContext,
+) {
+    archive_arrangement_directly(store, id, vcx);
+    open(shell, id, vcx);
+    choose("button-More Arrangement actions", 1, vcx);
+    wait_reviewed(shell, vcx);
+}
+
+#[gpui::test]
+fn ac6_delete_dialog_lists_blockers_and_offers_no_delete(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-blocked");
+    let id = arrangements(&store, ids.exact, vcx)[1];
+    plant(&slot, RecordRef::Arrangement(id), 0x11, vcx);
+    let label = label_of(&store, id, vcx);
+    delete_from_editor(&store, &shell, id, vcx);
+    assert_eq!(
+        title_of(dialog(&shell, vcx)),
+        format!("Delete {label} permanently?")
+    );
+    assert!(present(vcx, "lifecycle-group-Mass plans"));
+    assert!(!present(vcx, "button-Delete permanently"));
+    assert!(!present(vcx, "button-Cancel"));
+    assert_eq!(
+        blocked_description("Cebuano SATB"),
+        "Cebuano SATB can\u{2019}t be deleted while these still use it. Archived, it stays out of planning."
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_song_delete_lists_each_child_arrangement_with_inspect(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-children");
+    archive_directly(&store, ids.exact, vcx);
+    let songs = songs_of(&shell, vcx);
+    songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
+    select(&shell, ids.exact, vcx);
+    choose("button-More Song actions", 1, vcx);
+    wait_reviewed(&shell, vcx);
+    assert!(present(vcx, "lifecycle-group-Arrangements"));
+    assert!(present(vcx, "lifecycle-inspect-0"));
+    assert!(present(vcx, "lifecycle-inspect-1"));
+    assert!(!present(vcx, "lifecycle-inspect-2"), "one row per child");
+    assert!(!present(vcx, "button-Delete permanently"));
+    click(vcx, "lifecycle-inspect-0");
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing().is_some())
+    });
+    assert!(
+        dialog(&shell, vcx).is_none(),
+        "Inspect closes the dialog by id"
+    );
+    assert!(song_archived(&store, ids.exact, vcx));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_safe_delete_dialog_states_what_is_erased_and_deletes(cx: &mut TestAppContext) {
+    let (dir, slot, store, _ids) = parish_with(cx, "life-safe", 0, true);
+    let (hollow, _) = find_title(&store, "Hollow", cx).expect("hollow");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let songs = songs_of(&shell, vcx);
+    songs.update(vcx, |songs, cx| songs.set_include_archived(true, cx));
+    select(&shell, hollow, vcx);
+    choose("button-More Song actions", 1, vcx);
+    wait_reviewed(&shell, vcx);
+    assert_eq!(title_of(dialog(&shell, vcx)), "Delete Hollow permanently?");
+    assert!(present(vcx, "button-Cancel"));
+    assert!(present(vcx, "button-Delete permanently"));
+    assert!(!present(vcx, "lifecycle-blockers"));
+    assert_eq!(
+        erase_summary(LifecycleTarget::Song(hollow), "Hollow", 0, 3),
+        "This erases Hollow and all 3 revisions of its History. This can\u{2019}t be undone."
+    );
+    click(vcx, "button-Delete permanently");
+    wait_toast(&shell, "Deleted Hollow permanently.", vcx);
+    assert!(store.read_with(vcx, |store, _| store.library().song(hollow).is_err()));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac6_a_reference_planted_after_review_blocks_the_commit(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-late");
+    let id = arrangements(&store, ids.exact, vcx)[1];
+    delete_from_editor(&store, &shell, id, vcx);
+    assert!(
+        present(vcx, "button-Delete permanently"),
+        "safe at review time"
+    );
+    plant(&slot, RecordRef::Arrangement(id), 0x22, vcx);
+    click(vcx, "button-Delete permanently");
+    wait(vcx, |vcx| present(vcx, "lifecycle-group-Mass plans"));
+    assert!(!present(vcx, "button-Delete permanently"));
+    assert!(store.read_with(vcx, |store, _| store.library().arrangement(id).is_ok()));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac7_delete_toast_has_no_undo(cx: &mut TestAppContext) {
+    let (dir, slot, store, ids, shell, vcx) = rig(cx, "life-delete-toast");
+    let id = arrangements(&store, ids.exact, vcx)[1];
+    let label = label_of(&store, id, vcx);
+    delete_from_editor(&store, &shell, id, vcx);
+    click(vcx, "button-Delete permanently");
+    wait_toast(&shell, &format!("Deleted {label} permanently."), vcx);
+    assert_eq!(
+        toasts(&shell, vcx),
+        vec![format!("Deleted {label} permanently.")]
+    );
+    assert!(!present(vcx, "button-Undo"));
+    assert!(
+        shell.read_with(vcx, |shell, _| shell.editing().is_none()),
+        "back on the Song"
+    );
     finish(vcx, &slot, &dir);
 }

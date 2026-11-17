@@ -27,7 +27,10 @@ use crate::songs::{
 
 /// The state badge on an Arrangement row: its own archive wins, otherwise an
 /// archived Song suppresses it until the Song is restored.
-pub(crate) fn arrangement_badge(arrangement_archived: bool, song_archived: bool) -> Option<&'static str> {
+pub(crate) fn arrangement_badge(
+    arrangement_archived: bool,
+    song_archived: bool,
+) -> Option<&'static str> {
     if arrangement_archived {
         Some("Archived")
     } else if song_archived {
@@ -229,27 +232,30 @@ pub(super) fn render(
                     .child(ARCHIVED_SONG_NOTE),
             )
             .child(
-                div().flex_none().debug_selector(|| "songs-restore".into()).child(
-                    Button::new("songs-restore-button", "Restore", environment)
-                        .tone(Tone::Primary)
-                        .on_surface(palette.surface_secondary)
-                        .on_activate({
-                            let weak = weak.clone();
-                            let open = open.clone();
-                            move |window, cx| {
+                div()
+                    .flex_none()
+                    .debug_selector(|| "songs-restore".into())
+                    .child(
+                        Button::new("songs-restore-button", "Restore", environment)
+                            .tone(Tone::Primary)
+                            .on_surface(palette.surface_secondary)
+                            .on_activate({
+                                let weak = weak.clone();
                                 let open = open.clone();
-                                let _ = weak.update(cx, |workspace, cx| {
-                                    workspace.run_song_lifecycle(
-                                        id,
-                                        domain::song_library::LifecycleAction::Restore,
-                                        open,
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            }
-                        }),
-                ),
+                                move |window, cx| {
+                                    let open = open.clone();
+                                    let _ = weak.update(cx, |workspace, cx| {
+                                        workspace.run_song_lifecycle(
+                                            id,
+                                            domain::song_library::LifecycleAction::Restore,
+                                            open,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    ),
             )
     });
     let has_some = total > 0;
@@ -289,20 +295,26 @@ pub(super) fn render(
                 )
                 // History reads archived Songs too.
                 .child(
-                    div().flex_none().flex().items_center().gap(px(scale.apply(tokens::spacing::RELATED))).children(overflow).child(
-                        Button::new("songs-detail-history", "History", environment)
-                            .track_focus(&workspace.history_focus)
-                            .icon(ui::assets::icon::ROTATE_CCW_CLOCK)
-                            .on_surface(palette.background)
-                            .on_activate({
-                                let weak = weak.clone();
-                                move |window, cx| {
-                                    let _ = weak.update(cx, |workspace, cx| {
-                                        workspace.open_song_history(id, window, cx);
-                                    });
-                                }
-                            }),
-                    ),
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(scale.apply(tokens::spacing::RELATED)))
+                        .children(overflow)
+                        .child(
+                            Button::new("songs-detail-history", "History", environment)
+                                .track_focus(&workspace.history_focus)
+                                .icon(ui::assets::icon::ROTATE_CCW_CLOCK)
+                                .on_surface(palette.background)
+                                .on_activate({
+                                    let weak = weak.clone();
+                                    move |window, cx| {
+                                        let _ = weak.update(cx, |workspace, cx| {
+                                            workspace.open_song_history(id, window, cx);
+                                        });
+                                    }
+                                }),
+                        ),
                 ),
         )
         .children(archived_notice)
@@ -489,6 +501,7 @@ fn metadata(song: &SongWork, environment: UiEnvironment) -> Div {
 }
 
 /// One Arrangement of the selected Song.
+#[allow(clippy::too_many_arguments)]
 fn arrangement_row(
     library: &SongLibrary,
     song: &SongWork,
@@ -578,18 +591,16 @@ fn arrangement_row(
             div()
                 .flex_none()
                 .debug_selector(move || format!("arrangement-open-{at}"))
-                .child(
-                    {
-                        let button =
-                            Button::new(("arrangement-open-button", at), open_label, environment)
-                                .name(format!("{open_label} {title}"))
-                                .on_surface(palette.background)
-                                .on_activate(open);
-                        match focus.as_ref() {
-                            Some(handle) => button.track_focus(handle),
-                            None => button,
-                        }
-                    },
-                ),
+                .child({
+                    let button =
+                        Button::new(("arrangement-open-button", at), open_label, environment)
+                            .name(format!("{open_label} {title}"))
+                            .on_surface(palette.background)
+                            .on_activate(open);
+                    match focus.as_ref() {
+                        Some(handle) => button.track_focus(handle),
+                        None => button,
+                    }
+                }),
         )
 }

@@ -8,11 +8,7 @@ use super::{AfterLifecycle, LifecycleTarget, Request, perform};
 use crate::songs::store::LibraryStore;
 
 /// What archiving `target` does, said before the operator commits.
-pub fn archive_impact(
-    store: &Entity<LibraryStore>,
-    target: LifecycleTarget,
-    cx: &App,
-) -> String {
+pub fn archive_impact(store: &Entity<LibraryStore>, target: LifecycleTarget, cx: &App) -> String {
     let library = store.read(cx).library();
     match target {
         LifecycleTarget::Song(id) => {
@@ -85,4 +81,3 @@ pub fn restore(
     let request = Request::new(target, store, host, after, cx);
     perform(LifecycleAction::Restore, request, window, cx);
 }
-

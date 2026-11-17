@@ -28,9 +28,7 @@ use std::{mem, rc::Rc, time::Instant};
 
 use domain::{
     identity::ArrangementId,
-    song_library::{
-        LifecycleAction, SongLibrary, arrangement_lifecycle_actions,
-    },
+    song_library::{LifecycleAction, SongLibrary, arrangement_lifecycle_actions},
 };
 use fixtures::rows;
 use gpui::{
@@ -862,7 +860,9 @@ impl ShellView {
                         // Focus goes to the Song's Arrangement list, not to
                         // the region's remembered control.
                         shell.drop_editor();
-                        shell.songs.update(cx, |songs, cx| songs.focus_arrangements(window, cx));
+                        shell
+                            .songs
+                            .update(cx, |songs, cx| songs.focus_arrangements(window, cx));
                         cx.notify();
                     }
                     LifecycleOutcome::Restored(_) => {
@@ -1932,55 +1932,57 @@ impl ShellView {
                     .map(|_| (LifecycleTarget::Song(arrangement.song()), true))
             }
         });
-        let archived = banner_target.filter(|_| read_only).map(|(target, song_note)| {
-            let shell = cx.entity().downgrade();
-            div()
-                .debug_selector(|| "arrangement-archived-notice".into())
-                .flex_none()
-                .mx(px(gutter))
-                .mb(px(scale.apply(tokens::spacing::RELATED)))
-                .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
-                .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                .border(px(tokens::border::SEPARATOR))
-                .border_color(rgb(palette.border))
-                .bg(rgb(palette.surface_secondary))
-                .text_color(rgb(palette.text))
-                .flex()
-                .items_center()
-                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                        .child(
-                            div()
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .child("Archived."),
-                        )
-                        .child(if song_note {
-                            "Inspect only; restore to edit or use it in a Mass."
-                        } else {
-                            "Inspect only until restored."
-                        }),
-                )
-                .child(
-                    Button::new("arrangement-restore", "Restore", environment)
-                        .tone(Tone::Primary)
-                        .on_surface(palette.surface_secondary)
-                        .on_activate(move |window, cx| {
-                            let _ = shell.update(cx, |shell, cx| {
-                                shell.run_arrangement_lifecycle(
-                                    target,
-                                    LifecycleAction::Restore,
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                )
-        });
+        let archived = banner_target
+            .filter(|_| read_only)
+            .map(|(target, song_note)| {
+                let shell = cx.entity().downgrade();
+                div()
+                    .debug_selector(|| "arrangement-archived-notice".into())
+                    .flex_none()
+                    .mx(px(gutter))
+                    .mb(px(scale.apply(tokens::spacing::RELATED)))
+                    .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
+                    .border(px(tokens::border::SEPARATOR))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.surface_secondary))
+                    .text_color(rgb(palette.text))
+                    .flex()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                            .child(
+                                div()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child("Archived."),
+                            )
+                            .child(if song_note {
+                                "Inspect only; restore to edit or use it in a Mass."
+                            } else {
+                                "Inspect only until restored."
+                            }),
+                    )
+                    .child(
+                        Button::new("arrangement-restore", "Restore", environment)
+                            .tone(Tone::Primary)
+                            .on_surface(palette.surface_secondary)
+                            .on_activate(move |window, cx| {
+                                let _ = shell.update(cx, |shell, cx| {
+                                    shell.run_arrangement_lifecycle(
+                                        target,
+                                        LifecycleAction::Restore,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    )
+            });
         let header = div()
             .flex_none()
             .flex()
