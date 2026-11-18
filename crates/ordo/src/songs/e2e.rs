@@ -1794,3 +1794,650 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
     assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- T2.10: import and the Phase 2 gate ----
+
+use std::rc::Rc;
+
+use domain::{
+    revisions::{RevisionEntity, RevisionKind},
+    song_library::{
+        PaginationState,
+        import::{ImportDocument, Outcome},
+    },
+};
+use storage::{
+    ArrangementContent, HistoryRevision, RevisionContent,
+    exchange::{
+        InspectLimits, ManifestOverrides, SongImportRead, pack_for_tests, read_song_import_bytes,
+    },
+};
+
+use super::import_review::{FilePicker, markdown::probe as draft_probe, probe, tests as import};
+use ui::primitives::Availability;
+
+fn seed_song(n: u16) -> SongId {
+    SongId::parse(&format!("00000000-0000-4000-8000-000000000{n:03}")).expect("a Song id")
+}
+
+fn seed_arrangement(n: u16) -> ArrangementId {
+    ArrangementId::parse(&format!("00000000-0000-4000-8000-000000000{n:03}"))
+        .expect("an Arrangement id")
+}
+
+/// The five documents of tests/fixtures/song-import/batch, by file name.
+fn batch() -> [(&'static str, &'static [u8]); 5] {
+    [
+        (
+            "01-new-song.ordo",
+            &include_bytes!("../../../../tests/fixtures/song-import/batch/01-new-song.json")[..],
+        ),
+        (
+            "02-unchanged.ordo",
+            &include_bytes!("../../../../tests/fixtures/song-import/batch/02-unchanged.json")[..],
+        ),
+        (
+            "03-attachable.ordo",
+            &include_bytes!("../../../../tests/fixtures/song-import/batch/03-attachable.json")[..],
+        ),
+        (
+            "04-ambiguous-replacement.ordo",
+            &include_bytes!(
+                "../../../../tests/fixtures/song-import/batch/04-ambiguous-replacement.json"
+            )[..],
+        ),
+        (
+            "05-invalid-tampered-hash.ordo",
+            &include_bytes!(
+                "../../../../tests/fixtures/song-import/batch/05-invalid-tampered-hash.json"
+            )[..],
+        ),
+    ]
+}
+
+/// One payload wrapped as an Ordo file with the same packing the contract
+/// tests use.
+fn packed(payload: &[u8]) -> Vec<u8> {
+    pack_for_tests(&ManifestOverrides::default(), payload, &[])
+}
+
+/// A fixture payload read back as the typed document it describes.
+fn decoded(payload: &[u8]) -> ImportDocument {
+    match read_song_import_bytes(&packed(payload), &InspectLimits::default()) {
+        SongImportRead::Valid(document) => document,
+        other => panic!("the fixture should be a valid document: {other:?}"),
+    }
+}
+
+/// What tests/fixtures/song-import/batch/seed.json describes: Salamat, Ginoo
+/// with its Koro San Roque Arrangement, and Bread of Life as it was before the
+/// batch reworded it, both under the fixtures' own ids.
+fn library_seed() -> Vec<ImportDocument> {
+    let batch = batch();
+    let unchanged = decoded(batch[1].1);
+    let mut bread = decoded(batch[3].1);
+    bread.warnings.clear();
+    let arrangement = &mut bread.arrangements[0];
+    arrangement.warnings.clear();
+    arrangement.sections.truncate(2);
+    arrangement.sections[1].lyrics = "You gave us your body\na gift for the hungry".to_owned();
+    arrangement.sequence.truncate(3);
+    vec![unchanged, bread]
+}
+
+fn history_of(
+    executor: &gpui::ForegroundExecutor,
+    slot: &super::StorageSlot,
+    entity: RevisionEntity,
+) -> Vec<HistoryRevision> {
+    let future = slot
+        .with(|storage| storage.history(entity))
+        .expect("storage is open");
+    executor.block_test(future).expect("history")
+}
+
+fn arrangement_content(revision: &HistoryRevision) -> &ArrangementContent {
+    match &revision.content {
+        RevisionContent::Arrangement(content) => content,
+        other => panic!("an Arrangement revision, not {other:?}"),
+    }
+}
+
+/// The sections as (label, lyrics, pagination).
+fn sections_of(content: &ArrangementContent) -> Vec<(String, String, PaginationState)> {
+    content
+        .sections
+        .iter()
+        .map(|section| {
+            (
+                section.label.clone().unwrap_or_default(),
+                section.lyrics.clone(),
+                section.pagination,
+            )
+        })
+        .collect()
+}
+
+/// The Sequence as the positions of the sections it sings.
+fn sung(content: &ArrangementContent) -> Vec<usize> {
+    content
+        .sequence
+        .iter()
+        .map(|occurrence| {
+            content
+                .sections
+                .iter()
+                .position(|section| section.id == occurrence.section)
+                .expect("an occurrence names one of the sections")
+        })
+        .collect()
+}
+
+/// Every Song and Arrangement revision the batch could have touched.
+fn edit_revisions(executor: &gpui::ForegroundExecutor, slot: &super::StorageSlot) -> usize {
+    let songs = [100, 200, 300].map(|n| RevisionEntity::Song(seed_song(n)));
+    let arrangements =
+        [101, 111, 201, 301].map(|n| RevisionEntity::Arrangement(seed_arrangement(n)));
+    songs
+        .into_iter()
+        .chain(arrangements)
+        .map(|entity| history_of(executor, slot, entity).len())
+        .sum()
+}
+
+const FORWARD_REPEAT: &str = "---\ntitle: Koro sa Kabuntagon\nlanguage: Cebuano\n---\n[Bersikulo 1]\nSa kabuntagon ako moawit\n\nsa imong dakong gugma\n[Repeat: Korro]\n\n[Koro]\nSalamat, Ginoo\n";
+
+#[gpui::test]
+fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_save(
+    cx: &mut TestAppContext,
+) {
+    use super::{
+        choirs::tests::wait,
+        lyrics::tests::toasts,
+        new_song::tests::{settle, stop},
+    };
+
+    // 1. The library seed.json describes, seeded through the real commit.
+    let (rig, vcx) = import::open_shell(cx, "t210-e2e", &library_seed());
+    let executor = vcx.foreground_executor().clone();
+    assert_eq!(rig.songs(vcx), 2);
+    let old_head = history_of(
+        &executor,
+        &rig.slot,
+        RevisionEntity::Arrangement(seed_arrangement(201)),
+    );
+    assert_eq!(old_head.len(), 1, "Bread of Life starts with its creation");
+    let old_ids: Vec<_> = arrangement_content(&old_head[0])
+        .sections
+        .iter()
+        .map(|section| section.id)
+        .collect();
+    let choirs_before = rig
+        .store
+        .read_with(vcx, |store, _| store.library().choirs().count());
+    assert_eq!(choirs_before, 1, "Koro San Roque");
+    let revisions_before = edit_revisions(&executor, &rig.slot);
+
+    // 2. The five documents, packed into the picker's folder; Import .ordo.
+    let paths: Vec<_> = batch()
+        .iter()
+        .map(|(name, payload)| rig.file(name, &packed(payload)))
+        .collect();
+    rig.answer(paths.clone());
+    rig.import_settled(vcx);
+    assert!(rig.framed(vcx));
+    assert_eq!(rig.picker.asked.get(), 1);
+    assert_eq!(rig.picker.multiple.get(), Some(true));
+    assert_eq!(
+        rig.songs(vcx),
+        2,
+        "nothing is written before Import approved"
+    );
+
+    // 3. The review.
+    let review = rig
+        .shell
+        .read_with(vcx, |shell, _| shell.import_review().cloned())
+        .expect("one review");
+    let chips = review.read_with(vcx, |review, _| {
+        (0..review.documents().len())
+            .map(|at| probe::chip(review, at))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        chips,
+        [
+            "Add new Song",
+            "Skip unchanged",
+            "Attach Arrangement",
+            "Needs decision",
+            "Invalid"
+        ]
+    );
+    for at in 0..5 {
+        let selector: &'static str = [
+            "import-doc-0",
+            "import-doc-1",
+            "import-doc-2",
+            "import-doc-3",
+            "import-doc-4",
+        ][at];
+        assert!(present(vcx, selector), "{selector}");
+    }
+    let names = review.read_with(vcx, |review, _| {
+        (0..5)
+            .map(|at| probe::row_name(review, at))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        names,
+        [
+            "Awit ng Pasasalamat, 01-new-song.ordo, Add new Song",
+            "Salamat, Ginoo, 02-unchanged.ordo, Skip unchanged",
+            "Salamat, Ginoo, 03-attachable.ordo, Attach Arrangement",
+            "Bread of Life, 04-ambiguous-replacement.ordo, Needs decision",
+            "05-invalid-tampered-hash.ordo, Invalid"
+        ]
+    );
+    review.read_with(vcx, |review, cx| {
+        let library = rig.store.read(cx).library();
+        let said = probe::evidence_of(review, 2, 0, library).expect("an attach sentence");
+        assert!(said.contains("Adds the Choir Adult Choir."), "{said}");
+        assert_eq!(
+            probe::gate(review),
+            Availability::unavailable("Make every decision first.")
+        );
+        assert_eq!(
+            probe::summary(review),
+            "1 new Song · 2 new Arrangements · 1 new Choir · 1 skipped · 1 invalid · 1 decision to make"
+        );
+    });
+    click(vcx, "import-doc-4");
+    assert!(present(vcx, "import-invalid"));
+    let reason = review
+        .read_with(vcx, |review, _| probe::invalid_reason(review, 4))
+        .expect("an invalid reason");
+    assert_eq!(reason, "Its content hash doesn't match its lyrics.");
+    click(vcx, "button-View technical details");
+    assert!(present(vcx, "import-technical"));
+
+    // 4. Compare contents on Bread of Life.
+    click(vcx, "import-doc-3");
+    click(vcx, "button-Compare contents");
+    settle(vcx);
+    assert!(review.read_with(vcx, |review, _| review.compare().is_some()));
+    for tab in ["tab-0", "tab-1", "tab-2", "tab-3"] {
+        assert!(present(vcx, tab), "{tab}");
+    }
+    assert!(!present(vcx, "tab-4"));
+    click(vcx, "tab-1");
+    assert!(present(vcx, "compare-current-line-1-1-changed"));
+    assert!(present(vcx, "compare-revision-line-1-1-changed"));
+    assert!(!present(vcx, "compare-current-line-1-0-changed"));
+    assert!(!present(vcx, "text-area-control"), "no edit control");
+    click(vcx, "button-Back to review");
+    settle(vcx);
+    assert!(review.read_with(vcx, |review, _| review.compare().is_none()));
+    assert_eq!(
+        review.read_with(vcx, |review, _| review.selected_document()),
+        3
+    );
+
+    // 5. Update existing Arrangement, its disclosure, then Import approved.
+    let at = review
+        .read_with(vcx, |review, _| {
+            probe::offered_at(review, 3, 0, Outcome::UpdateExisting)
+        })
+        .expect("Update existing Arrangement is offered");
+    let radio: &'static str = [
+        "radio-import-outcome-3000-0",
+        "radio-import-outcome-3000-1",
+        "radio-import-outcome-3000-2",
+    ][at];
+    click(vcx, radio);
+    review.read_with(vcx, |review, cx| {
+        let library = rig.store.read(cx).library();
+        assert_eq!(
+            probe::update_disclosure(review, 3, 0, library).as_deref(),
+            Some("Replaces the existing Arrangement as a new revision. Koro San Roque will see the new words; Mass-local copies don\u{2019}t change.")
+        );
+        assert_eq!(probe::chip(review, 3), "Update existing");
+        assert_eq!(probe::gate(review), Availability::Available);
+        assert_eq!(
+            probe::summary(review),
+            "1 new Song · 2 new Arrangements · 1 update · 1 new Choir · 1 skipped · 1 invalid"
+        );
+    });
+    click(vcx, "button-Import approved");
+    let shell = rig.shell.clone();
+    wait(vcx, |vcx| {
+        !shell.read_with(vcx, |shell, _| shell.has_frame())
+    });
+    vcx.update(|window, _| window.refresh());
+    vcx.run_until_parked();
+
+    // 6. The toast, the selection and the stored records.
+    assert_eq!(
+        toasts(&rig.shell, vcx),
+        ["Imported the approved changes in one update."]
+    );
+    assert_eq!(
+        rig.workspace(vcx)
+            .read_with(vcx, |songs, _| songs.selected()),
+        Some(seed_song(300))
+    );
+    let (songs, choirs, attached) = rig.store.read_with(vcx, |store, _| {
+        let library = store.library();
+        (
+            library.songs().count(),
+            library.choirs().count(),
+            library
+                .arrangements_for_song(seed_song(100))
+                .map(|list| list.len())
+                .unwrap_or_default(),
+        )
+    });
+    assert_eq!(
+        (songs, choirs, attached),
+        (3, 2, 2),
+        "one new Song, one new Choir, one attached"
+    );
+    assert!(
+        rig.store.read_with(vcx, |store, _| store
+            .library()
+            .song(seed_song(400))
+            .is_err()),
+        "nothing from the invalid file"
+    );
+    let song = history_of(&executor, &rig.slot, RevisionEntity::Song(seed_song(300)));
+    assert_eq!(song.len(), 1);
+    assert_eq!(song[0].record.kind, RevisionKind::Creation);
+    assert_eq!(song[0].record.parent, None);
+    let created = history_of(
+        &executor,
+        &rig.slot,
+        RevisionEntity::Arrangement(seed_arrangement(301)),
+    );
+    assert_eq!(created.len(), 1);
+    assert_eq!(
+        created[0].record.kind,
+        RevisionKind::Creation,
+        "a parentless first revision is a creation"
+    );
+    assert_eq!(created[0].record.parent, None);
+    assert_eq!(
+        sections_of(arrangement_content(&created[0])),
+        [
+            (
+                "Koro".to_owned(),
+                "Salamat po, Panginoon".to_owned(),
+                PaginationState::NeedsReview
+            ),
+            (
+                "Bersikulo".to_owned(),
+                "Sa bawat umaga\nikaw ang aming awit".to_owned(),
+                PaginationState::NeedsReview
+            ),
+        ]
+    );
+    assert_eq!(sung(arrangement_content(&created[0])), [0, 1, 0]);
+    let attach = history_of(
+        &executor,
+        &rig.slot,
+        RevisionEntity::Arrangement(seed_arrangement(111)),
+    );
+    assert_eq!(attach.len(), 1);
+    assert_eq!(attach[0].record.kind, RevisionKind::Creation);
+    let replaced = history_of(
+        &executor,
+        &rig.slot,
+        RevisionEntity::Arrangement(seed_arrangement(201)),
+    );
+    assert_eq!(replaced.len(), 2, "exactly one new revision");
+    assert_eq!(
+        replaced[0].record.id, old_head[0].record.id,
+        "the old head stands"
+    );
+    assert_eq!(replaced[1].record.kind, RevisionKind::Replacement);
+    assert_eq!(replaced[1].record.parent, Some(old_head[0].record.id));
+    assert_eq!(replaced[1].record.session, None);
+    let content = arrangement_content(&replaced[1]);
+    assert_eq!(
+        sections_of(content)
+            .into_iter()
+            .map(|(label, lyrics, _)| (label, lyrics))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "Refrain".to_owned(),
+                "Bread of life,\nfeed us today".to_owned()
+            ),
+            (
+                "Verse 1".to_owned(),
+                "You gave us your body\na gift for the hungry and poor".to_owned()
+            ),
+            (
+                "Verse 2".to_owned(),
+                "Gather us in your name\none table, one people".to_owned()
+            ),
+        ]
+    );
+    assert_eq!(sung(content), [0, 1, 0, 2]);
+    assert_eq!(
+        content.sections[..2]
+            .iter()
+            .map(|section| section.id)
+            .collect::<Vec<_>>(),
+        old_ids,
+        "the sections it matched keep their identity"
+    );
+    for untouched in [seed_song(100), seed_song(200)] {
+        assert_eq!(
+            history_of(&executor, &rig.slot, RevisionEntity::Song(untouched)).len(),
+            1,
+            "the Song itself gained no revision"
+        );
+    }
+    assert_eq!(
+        history_of(
+            &executor,
+            &rig.slot,
+            RevisionEntity::Arrangement(seed_arrangement(101))
+        )
+        .len(),
+        1,
+        "the unchanged Arrangement gained no revision"
+    );
+    let after_commit = edit_revisions(&executor, &rig.slot);
+    assert_eq!(
+        after_commit,
+        revisions_before + 4,
+        "two creations, one attached creation, one replacement"
+    );
+
+    // 7. Reopen the parish: the same records and the History rows.
+    stop(vcx, &rig.slot);
+    let (slot, store) = open_parish(cx, &rig.dir);
+    let (shell, vcx) = open_store(cx, store.clone());
+    let reopened = history_of(
+        &executor,
+        &slot,
+        RevisionEntity::Arrangement(seed_arrangement(201)),
+    );
+    assert_eq!(reopened.len(), replaced.len());
+    for (before, now) in replaced.iter().zip(&reopened) {
+        assert_eq!(before.record.id, now.record.id);
+        assert_eq!(before.content, now.content);
+    }
+    let rows = crate::history::model::rows(
+        &reopened,
+        ::time::OffsetDateTime::now_utc(),
+        ::time::UtcOffset::UTC,
+    );
+    assert_eq!(rows[0].what, "Updated from import");
+    assert_eq!(rows[0].how, "Import \u{b7} whole-Arrangement replacement");
+    assert_eq!(rows[0].revisions[0].what, "Replaced from an import");
+    assert_eq!(rows[1].what, "Created arrangement");
+    let rows = crate::history::model::rows(
+        &history_of(
+            &executor,
+            &slot,
+            RevisionEntity::Arrangement(seed_arrangement(301)),
+        ),
+        ::time::OffsetDateTime::now_utc(),
+        ::time::UtcOffset::UTC,
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].what, "Created arrangement",
+        "an imported new Arrangement reads as a creation"
+    );
+    assert_eq!(edit_revisions(&executor, &slot), after_commit);
+    assert_eq!(
+        store.read_with(vcx, |store, _| store.library().songs().count()),
+        3
+    );
+
+    // 8. The same five files again: a no-op.
+    let picker = Rc::new(import::ScriptedPicker::default());
+    let installed: Rc<dyn FilePicker> = picker.clone();
+    shell.update(vcx, |shell, cx| shell.set_picker(installed, cx));
+    vcx.run_until_parked();
+    let rig = import::ShellRig {
+        shell,
+        store,
+        slot,
+        dir: rig.dir.clone(),
+        files: rig.files.clone(),
+        picker,
+    };
+    rig.answer(paths);
+    rig.import_settled(vcx);
+    let review = rig
+        .shell
+        .read_with(vcx, |shell, _| shell.import_review().cloned())
+        .expect("the review opens again");
+    let chips = review.read_with(vcx, |review, _| {
+        (0..5).map(|at| probe::chip(review, at)).collect::<Vec<_>>()
+    });
+    assert_eq!(
+        chips,
+        [
+            "Skip unchanged",
+            "Skip unchanged",
+            "Skip unchanged",
+            "Skip unchanged",
+            "Invalid"
+        ]
+    );
+    review.read_with(vcx, |review, _| {
+        assert_eq!(
+            probe::gate(review),
+            Availability::unavailable("Everything is already in the Library.")
+        );
+        assert_eq!(probe::summary(review), "4 skipped · 1 invalid");
+    });
+    click(vcx, "button-Cancel import");
+    wait(vcx, |vcx| {
+        !rig.shell.read_with(vcx, |shell, _| shell.has_frame())
+    });
+    assert_eq!(
+        edit_revisions(&executor, &rig.slot),
+        after_commit,
+        "nothing was written"
+    );
+    assert_eq!(rig.songs(vcx), 3);
+
+    // 9. A Markdown song whose forward repeat is misspelled.
+    let md = rig.file("forward-repeat-unresolved.md", FORWARD_REPEAT.as_bytes());
+    rig.answer(vec![md]);
+    rig.import_settled(vcx);
+    let draft = rig
+        .shell
+        .read_with(vcx, |shell, _| shell.markdown_draft().cloned())
+        .expect("the draft opens");
+    assert!(present(vcx, "markdown-source") && present(vcx, "button-Save song"));
+    draft.read_with(vcx, |draft, _| {
+        assert_eq!(
+            draft_probe::issue_rows(draft),
+            ["Line 9 \u{b7} No section is called Korro."]
+        );
+        assert_eq!(draft.parsed().document.song.title, "Koro sa Kabuntagon");
+    });
+    let source = draft.read_with(vcx, |draft, _| draft.source().clone());
+    let at = FORWARD_REPEAT.find("Korro").expect("the typo");
+    vcx.update(|window, cx| {
+        source.set_selected_range(at..at + "Korro".len(), cx);
+        source.focus(window, cx);
+    });
+    vcx.simulate_input("Koro");
+    vcx.run_until_parked();
+    wait(vcx, |vcx| {
+        draft.read_with(vcx, |draft, _| {
+            !draft.parsing() && draft_probe::issue_rows(draft).is_empty()
+        })
+    });
+    draft.read_with(vcx, |draft, _| {
+        let lines = draft_probe::sequence_lines(draft);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(
+            lines.iter().all(|line| !line.contains("not found")),
+            "{lines:?}"
+        );
+    });
+
+    // 10. Save song; the editor opens; storage holds the exact content.
+    click(vcx, "button-Save song");
+    let shell = rig.shell.clone();
+    wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing_arrangement().is_some())
+    });
+    assert!(!rig.framed(vcx));
+    assert_eq!(
+        toasts(&rig.shell, vcx).last().map(String::as_str),
+        Some("Saved Koro sa Kabuntagon.")
+    );
+    let saved = rig
+        .shell
+        .read_with(vcx, |shell, _| shell.editing_arrangement())
+        .expect("the editor");
+    let verify = |executor: &gpui::ForegroundExecutor, slot: &super::StorageSlot| {
+        let history = history_of(executor, slot, RevisionEntity::Arrangement(saved));
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].record.kind, RevisionKind::Creation);
+        let content = arrangement_content(&history[0]);
+        assert_eq!(
+            sections_of(content),
+            [
+                (
+                    "Bersikulo 1".to_owned(),
+                    "Sa kabuntagon ako moawit\n\nsa imong dakong gugma".to_owned(),
+                    PaginationState::Draft
+                ),
+                (
+                    "Koro".to_owned(),
+                    "Salamat, Ginoo".to_owned(),
+                    PaginationState::Draft
+                ),
+            ]
+        );
+        assert_eq!(sung(content), [0, 1, 1]);
+        assert_eq!(
+            content.sequence[1].section, content.sequence[2].section,
+            "the repeat is a second occurrence of the same section"
+        );
+        assert_ne!(content.sequence[1].id, content.sequence[2].id);
+    };
+    verify(&executor, &rig.slot);
+    stop(vcx, &rig.slot);
+    let (slot, store) = open_parish(cx, &rig.dir);
+    verify(&executor, &slot);
+    assert_eq!(
+        store.read_with(cx, |store, _| store.library().songs().count()),
+        4
+    );
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    let _ = std::fs::remove_dir_all(&rig.dir);
+    let _ = std::fs::remove_dir_all(&rig.files);
+}

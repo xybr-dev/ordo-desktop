@@ -12,6 +12,27 @@ mod preview;
 #[cfg(test)]
 mod tests;
 
+/// Reads of the draft's private rows for the end-to-end tests.
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::{MarkdownDraftView, issues, preview};
+
+    /// The issue rows as the operator reads them.
+    pub(crate) fn issue_rows(view: &MarkdownDraftView) -> Vec<String> {
+        view.parsed().issues.iter().map(issues::row_text).collect()
+    }
+
+    /// The preview's Sequence lines, repeats resolved or marked not found.
+    pub(crate) fn sequence_lines(view: &MarkdownDraftView) -> Vec<String> {
+        view.parsed()
+            .document
+            .arrangements
+            .first()
+            .map(preview::sequence_lines)
+            .unwrap_or_default()
+    }
+}
+
 use domain::{
     identity::{ArrangementId, SongId},
     song_library::{
