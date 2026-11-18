@@ -2,10 +2,11 @@
 //! summary only. No lyrics and nothing to edit.
 
 use domain::identity::SongId;
-use gpui::{
-    AnyElement, App, Context, Entity, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
-};
 use gpui::Window;
+use gpui::{
+    AnyElement, App, Context, Entity, FontWeight, IntoElement, ParentElement, Styled, div,
+    prelude::*, px, rgb,
+};
 use ui::{environment::UiEnvironment, overlay::Overlay, tokens};
 
 use super::{NewSongPanel, Outcome};

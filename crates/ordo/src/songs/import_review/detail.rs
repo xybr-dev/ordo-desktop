@@ -445,9 +445,9 @@ fn compose(review: &ImportReview, index: usize, cx: &gpui::App) -> Option<Facts>
                 .filter(|(song, _)| Some(*song) != *archived)
                 .filter_map(|(song, _)| song_card(library, *song).map(|card| (*song, card)))
                 .collect(),
-            archived.and_then(|song| library.song(song).ok()).map(|work| {
-                format!("{} is archived. Restore it to attach to it.", work.title())
-            }),
+            archived
+                .and_then(|song| library.song(song).ok())
+                .map(|work| format!("{} is archived. Restore it to attach to it.", work.title())),
         ),
         _ => (Vec::new(), None),
     };

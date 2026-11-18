@@ -9,8 +9,8 @@
 
 mod import;
 
-pub use import::{ImportOutcome, ImportStaging, MARKDOWN_LIMIT, MarkdownFile};
 pub(crate) use import::STALE_IMPORT;
+pub use import::{ImportOutcome, ImportStaging, MARKDOWN_LIMIT, MarkdownFile};
 
 use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 

@@ -572,7 +572,9 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut gpui::App,
     ) {
-        let open = weak.read_with(cx, |review, _| (review.overlays.clone(), review.compare_id()));
+        let open = weak.read_with(cx, |review, _| {
+            (review.overlays.clone(), review.compare_id())
+        });
         if let Ok((Some(host), Some(id))) = open {
             host.close(id, window, cx);
         }

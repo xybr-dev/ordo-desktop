@@ -25,8 +25,7 @@ use domain::{
     },
 };
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, Pixels, Point, Subscription,
-    Task, Window,
+    AnyElement, App, Context, Entity, EventEmitter, Pixels, Point, Subscription, Task, Window,
 };
 use ui::{
     environment::UiEnvironment,
@@ -784,4 +783,3 @@ impl SongsWorkspace {
         }
     }
 }
-

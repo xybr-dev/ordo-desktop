@@ -406,7 +406,8 @@ fn ac5_arrangement_outcomes_wait_for_the_song_choice(cx: &mut TestAppContext) {
         click(cx, "button-Compare contents");
     }
     assert!(
-        rig.review.read_with(cx, |review, _| review.compare().is_none()),
+        rig.review
+            .read_with(cx, |review, _| review.compare().is_none()),
         "Compare does nothing before the Song is chosen"
     );
     // Add as a new Song: the option after the one candidate.
@@ -1349,7 +1350,8 @@ fn a_commit_in_flight_refuses_other_decisions_and_cancel(cx: &mut TestAppContext
     click(cx, "button-Import approved");
     assert!(rig.review.read_with(cx, |r, _| r.busy()));
     click(cx, "button-Cancel import");
-    rig.review.update(cx, |review, cx| review.choose_outcome(0, 0, 1, cx));
+    rig.review
+        .update(cx, |review, cx| review.choose_outcome(0, 0, 1, cx));
     let after = rig
         .review
         .read_with(cx, |r, _| r.choices().arrangements.get(&(0, 0)).copied());
@@ -1381,8 +1383,7 @@ fn ac9_a_stale_commit_says_so_and_restages(cx: &mut TestAppContext) {
     cx.foreground_executor().block_test(task).expect("archived");
     click(cx, "button-Import approved");
     wait(cx, |cx| {
-        rig.review
-            .read_with(cx, |r, _| !r.busy() && !r.restaging())
+        rig.review.read_with(cx, |r, _| !r.busy() && !r.restaging())
     });
     let refusal = rig
         .review
@@ -1417,9 +1418,7 @@ fn ac8_remove_from_review_moves_focus_to_the_selected_row(cx: &mut TestAppContex
             .read_with(cx, |r, _| r.documents().len() == 2 && !r.busy())
     });
     cx.run_until_parked();
-    let focused = rig
-        .review
-        .read_with(cx, |r, _| r.row_focus.clone());
+    let focused = rig.review.read_with(cx, |r, _| r.row_focus.clone());
     assert!(cx.update(|window, _| focused.is_focused(window)));
     rig.finish(cx);
 }

@@ -164,7 +164,15 @@ impl RadioGroup {
             .position(Availability::is_available)
             .or((self.unavailable.is_some() && !view.availability.is_empty()).then_some(0));
         let stop = match view.stop {
-            Some(stop) if self.unavailable.is_some() || view.availability.get(stop).is_some_and(Availability::is_available) => stop == i,
+            Some(stop)
+                if self.unavailable.is_some()
+                    || view
+                        .availability
+                        .get(stop)
+                        .is_some_and(Availability::is_available) =>
+            {
+                stop == i
+            }
             _ => first == Some(i),
         };
         let state = self.state.clone();
@@ -654,7 +662,9 @@ mod tests {
             cx.debug_bounds("chip-Recommended").is_some(),
             "the badge is a chip after the label"
         );
-        let bounds = cx.debug_bounds("radio-outcome-2").expect("the option is drawn");
+        let bounds = cx
+            .debug_bounds("radio-outcome-2")
+            .expect("the option is drawn");
         cx.simulate_click(bounds.center(), gpui::Modifiers::default());
         view.read_with(cx, |v, cx| {
             assert_eq!(v.state.selected(cx), Some(2));

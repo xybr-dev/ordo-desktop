@@ -110,10 +110,9 @@ fn song_why(
                         "alias".to_owned(),
                         song.and_then(|song| song.aliases().get(*at)).cloned(),
                     ),
-                    (MatchedOn::Alias(at), _) => (
-                        "alias".to_owned(),
-                        document.song.aliases.get(*at).cloned(),
-                    ),
+                    (MatchedOn::Alias(at), _) => {
+                        ("alias".to_owned(), document.song.aliases.get(*at).cloned())
+                    }
                 };
                 match alias {
                     Some(alias) => {
@@ -147,19 +146,35 @@ fn song_why(
     };
     match (aspects.is_empty(), aliases.is_empty()) {
         (false, true) => {
-            let verb = if aspects.len() == 1 { "matches" } else { "match" };
+            let verb = if aspects.len() == 1 {
+                "matches"
+            } else {
+                "match"
+            };
             sentences.push(format!(
                 "{} {verb} {title}.",
                 capitalised(&join_plain(&aspects))
             ));
         }
         (false, false) => {
-            let verb = if aspects.len() == 1 { "matches" } else { "match" };
-            let also = if aliases.len() == 1 { "matches" } else { "match" };
+            let verb = if aspects.len() == 1 {
+                "matches"
+            } else {
+                "match"
+            };
+            let also = if aliases.len() == 1 {
+                "matches"
+            } else {
+                "match"
+            };
             sentences.push(format!(
                 "{} {verb} {title}; the {} {} also {also}.",
                 capitalised(&join_plain(&aspects)),
-                if aliases.len() == 1 { "alias" } else { "aliases" },
+                if aliases.len() == 1 {
+                    "alias"
+                } else {
+                    "aliases"
+                },
                 join_plain(&aliases),
             ));
         }
@@ -376,7 +391,10 @@ mod tests {
     #[test]
     fn matching_aspects_are_joined_without_it() {
         assert_eq!(join_plain(&words(&["title"])), "title");
-        assert_eq!(join_plain(&words(&["title", "opening line"])), "title and opening line");
+        assert_eq!(
+            join_plain(&words(&["title", "opening line"])),
+            "title and opening line"
+        );
         assert_eq!(
             join_plain(&words(&["title", "opening line", "alias"])),
             "title, opening line and alias"

@@ -57,7 +57,11 @@ pub(super) fn header(
                 .tooltip("Cancel import")
                 .on_surface(palette.surface)
                 .track_focus(&review.cancel_focus)
-                .availability(review.held().map_or(Availability::Available, Availability::unavailable))
+                .availability(
+                    review
+                        .held()
+                        .map_or(Availability::Available, Availability::unavailable),
+                )
                 .on_activate(move |window, cx| {
                     // Close the comparison first, outside the review's own
                     // update: closing it calls back into the review.
@@ -109,13 +113,13 @@ pub(super) fn footer(
         .or_else(|| blocked(review))
         .map_or(Availability::Available, Availability::unavailable);
     let commit = Button::new("import-approved", "Import approved", environment)
-    .icon(icon::CHECK)
-    .tone(Tone::Primary)
-    .on_surface(palette.surface)
-    .availability(availability)
-    .on_activate(ImportReview::act(cx, |review, window, cx| {
-        review.commit(window, cx);
-    }));
+        .icon(icon::CHECK)
+        .tone(Tone::Primary)
+        .on_surface(palette.surface)
+        .availability(availability)
+        .on_activate(ImportReview::act(cx, |review, window, cx| {
+            review.commit(window, cx);
+        }));
     region
         .flex_none()
         .flex()
