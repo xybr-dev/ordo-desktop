@@ -35,8 +35,9 @@
       "description": "Artifact kind; selects the payload contract that validates payload.json."
     },
     "schema_version": {
-      "const": 1,
-      "description": "Schema version of the payload contract named by kind; 1 in v1."
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version of the payload contract named by kind; each kind's supported versions are listed in docs/contracts/README.md §4."
     },
     "artifact_id": {
       "$ref": "#/$defs/uuid",

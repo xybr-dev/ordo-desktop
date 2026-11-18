@@ -1,0 +1,64 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "English"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": true,
+  "composer": null,
+  "issues": [],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": null,
+      "slides": [
+        [
+          "Words before any label"
+        ],
+        [
+          "still the same section, new slide"
+        ]
+      ]
+    },
+    {
+      "label": "Koro",
+      "slides": [
+        [
+          "Labelled words"
+        ]
+      ]
+    },
+    {
+      "label": null,
+      "slides": [
+        [
+          "Free words"
+        ]
+      ]
+    },
+    {
+      "label": null,
+      "slides": [
+        [
+          "After a repeat"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0,
+    1,
+    2,
+    1,
+    3
+  ],
+  "source": null,
+  "title": "Unlabeled"
+}

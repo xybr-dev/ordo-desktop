@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000100",
+  "title": "Salamat, Ginoo",
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000111",
+      "title": "Tagalog - Adult Choir",
+      "languages": [
+        "Tagalog"
+      ],
+      "choirs": [
+        "Adult Choir"
+      ],
+      "content_sha256": "97589191dbb0a28b0720e5292a9fdb1368b0587596e27a3f62b7bddfed550854",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000130",
+          "label": "Koro",
+          "slides": [
+            {
+              "lines": [
+                "Salamat, Ginoo,",
+                "sa iyong pag-ibig"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000131",
+          "label": "Bersikulo 1",
+          "slides": [
+            {
+              "lines": [
+                "Sa umaga ako aawit",
+                "sa dakila mong pag-ibig"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000130",
+        "00000000-0000-4000-8000-000000000131",
+        "00000000-0000-4000-8000-000000000130"
+      ]
+    }
+  ]
+}

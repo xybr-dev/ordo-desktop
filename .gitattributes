@@ -31,3 +31,6 @@ tests/fixtures/presentations/** -text
 migrations/*.sql text eol=lf
 # ERD.md is byte-compared against the in-memory render; a CRLF checkout would drift.
 ERD.md text eol=lf
+# Markdown song fixtures include CRLF and BOM cases that the parser tests pin;
+# a checkout must not normalize their line endings.
+tests/fixtures/song-import/markdown/** -text

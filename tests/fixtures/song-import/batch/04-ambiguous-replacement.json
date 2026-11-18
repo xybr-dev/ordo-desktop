@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000200",
+  "title": "Bread of Life",
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000201",
+      "title": "English - Koro San Roque",
+      "languages": [
+        "English"
+      ],
+      "choirs": [
+        "Koro San Roque"
+      ],
+      "extraction_warnings": [
+        "Verse 2 may be a different translation."
+      ],
+      "content_sha256": "d9918af62a162ec4e8006d8b51a8a32786c917654f686df9e134d20472d2e373",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000140",
+          "label": "Refrain",
+          "slides": [
+            {
+              "lines": [
+                "Bread of life,",
+                "feed us today"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000141",
+          "label": "Verse 1",
+          "slides": [
+            {
+              "lines": [
+                "You gave us your body",
+                "a gift for the hungry and poor"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000142",
+          "label": "Verse 2",
+          "slides": [
+            {
+              "lines": [
+                "Gather us in your name",
+                "one table, one people"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000140",
+        "00000000-0000-4000-8000-000000000141",
+        "00000000-0000-4000-8000-000000000140",
+        "00000000-0000-4000-8000-000000000142"
+      ]
+    }
+  ]
+}

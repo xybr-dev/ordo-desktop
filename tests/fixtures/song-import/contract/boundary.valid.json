@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000040",
+  "title": "Maligayang Pasko sa Iyong Pag-ibig, Panginoon: Mahabang Himno ng Pasasalamat para sa mga Pamilya at Parokya ng Santa Ana, Lungsod ng Cebu — Ñoño Ñ ñ",
+  "aliases": [],
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000041",
+      "title": "Pagsasalamat — Buong Koro",
+      "languages": [
+        "Bisaya"
+      ],
+      "choirs": [],
+      "occasions": [],
+      "content_sha256": "f4888fba7b2575e1acb569db9b68e601b67c8661e087ee57b496b0c15c126ced",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000050",
+          "slides": [
+            {
+              "lines": [
+                "Kaluwalhatian sa Diyos sa kaitaasan, 1",
+                "ÑÁÉÍÓÚ ñ — ang ulan at sikat ng araw ay para sa lahat"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000051",
+          "label": "Saknong 2 — ñ",
+          "slides": [
+            {
+              "lines": [
+                "Kaluwalhatian sa Diyos sa kaitaasan, 2",
+                "ÑÁÉÍÓÚ ñ — ang ulan"
+              ]
+            },
+            {
+              "lines": [
+                "  indented line  "
+              ]
+            },
+            {
+              "lines": [
+                "x"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000052",
+          "label": "[Brackets] and: colons",
+          "slides": [
+            {
+              "lines": [
+                "last"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000050",
+        "00000000-0000-4000-8000-000000000051",
+        "00000000-0000-4000-8000-000000000052",
+        "00000000-0000-4000-8000-000000000051",
+        "00000000-0000-4000-8000-000000000050"
+      ]
+    }
+  ]
+}

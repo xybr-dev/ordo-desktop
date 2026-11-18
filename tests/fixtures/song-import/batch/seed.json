@@ -1,0 +1,78 @@
+{
+  "choirs": [
+    {
+      "name": "Koro San Roque"
+    }
+  ],
+  "songs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000100",
+      "title": "Salamat, Ginoo",
+      "original_attribution": "Sample Composer",
+      "arrangements": [
+        {
+          "id": "00000000-0000-4000-8000-000000000101",
+          "title": "Koro San Roque",
+          "languages": [
+            "Cebuano"
+          ],
+          "choirs": [
+            "Koro San Roque"
+          ],
+          "sections": [
+            {
+              "label": "Koro",
+              "lyrics": "Salamat, Ginoo,\nsa imong gugma"
+            },
+            {
+              "label": "Bersikulo 1",
+              "lyrics": "Sa kabuntagon ako moawit\nsa imong dakong gugma"
+            },
+            {
+              "label": "Bersikulo 2",
+              "lyrics": "Sa kagabhion ako mosalig\nsa imong kamatuoran"
+            }
+          ],
+          "sequence": [
+            0,
+            1,
+            0,
+            2,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000200",
+      "title": "Bread of Life",
+      "arrangements": [
+        {
+          "id": "00000000-0000-4000-8000-000000000201",
+          "title": "English - Koro San Roque",
+          "languages": [
+            "English"
+          ],
+          "choirs": [
+            "Koro San Roque"
+          ],
+          "sections": [
+            {
+              "label": "Refrain",
+              "lyrics": "Bread of life,\nfeed us today"
+            },
+            {
+              "label": "Verse 1",
+              "lyrics": "You gave us your body\na gift for the hungry"
+            }
+          ],
+          "sequence": [
+            0,
+            1,
+            0
+          ]
+        }
+      ]
+    }
+  ]
+}
