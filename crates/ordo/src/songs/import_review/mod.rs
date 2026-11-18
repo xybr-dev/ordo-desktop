@@ -11,6 +11,7 @@ mod detail;
 mod evidence;
 mod footer;
 mod list;
+pub mod markdown;
 mod picker;
 mod review;
 #[cfg(test)]
@@ -21,6 +22,7 @@ use ui::{environment::UiEnvironment, tokens};
 
 pub use compare::{ImportCompare, imported_side, open_compare};
 pub use evidence::{arrangement_sentence, song_sentence, summary};
+pub use markdown::{MarkdownDraftEvent, MarkdownDraftView};
 pub use picker::FilePicker;
 pub use review::{ImportReview, ImportReviewEvent};
 
