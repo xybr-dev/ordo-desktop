@@ -2710,3 +2710,481 @@ fn ac1_history_backfills_a_t2_1_era_entity_first(cx: &mut TestAppContext) {
     assert!(list[0].pagination_recorded);
     finish(cx, &slot, &dir);
 }
+
+// ---------------------------------------------------------------------------
+// T2.10: import staging, commit and Markdown save over a real parish store.
+// ---------------------------------------------------------------------------
+
+use domain::song_library::{
+    ReadinessState,
+    import::{
+        Choices, DocumentReview, ImportArrangement, ImportDocument, ImportSection, Outcome, Review,
+        SequenceEntry, SongChoice, SongIdentity,
+    },
+    readiness,
+};
+use storage::exchange::{ManifestOverrides, encode_song_import, pack_for_tests};
+
+use crate::songs::store::{ImportOutcome, ImportStaging};
+
+const STALE_IMPORT: &str =
+    "Something in the Library changed while you reviewed. Review the import again.";
+const COULDNT: &str = "Couldn't import. Nothing was changed.";
+
+fn song_id(byte: u8) -> SongId {
+    SongId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+fn arrangement_id(byte: u8) -> ArrangementId {
+    ArrangementId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+/// A one-Arrangement document: a Verse and a Chorus, sung Verse, Chorus.
+fn import_doc(
+    song: SongId,
+    arrangement: ArrangementId,
+    title: &str,
+    verse: &str,
+) -> ImportDocument {
+    ImportDocument {
+        id: song,
+        song: SongDraft::titled(title),
+        arrangements: vec![ImportArrangement {
+            id: arrangement,
+            title: Some("Imported".to_owned()),
+            languages: vec!["English".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: None,
+            sections: vec![
+                ImportSection {
+                    label: Some("Verse".to_owned()),
+                    lyrics: verse.to_owned(),
+                },
+                ImportSection {
+                    label: Some("Chorus".to_owned()),
+                    lyrics: "Sing it again".to_owned(),
+                },
+            ],
+            sequence: vec![SequenceEntry::Section(0), SequenceEntry::Section(1)],
+            warnings: Vec::new(),
+        }],
+        warnings: Vec::new(),
+    }
+}
+
+fn write_ordo(dir: &Path, name: &str, document: &ImportDocument) -> std::path::PathBuf {
+    let payload = encode_song_import(document).to_string().into_bytes();
+    let bytes = pack_for_tests(&ManifestOverrides::default(), &payload, &[]);
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).expect("write the .ordo file");
+    path
+}
+
+fn stage(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    paths: Vec<std::path::PathBuf>,
+) -> ImportStaging {
+    let task = store.update(cx, |store, cx| store.stage_import(paths, cx));
+    run(cx, task)
+}
+
+fn commit(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    staging: &ImportStaging,
+    choices: Choices,
+) -> Result<ImportOutcome, SharedString> {
+    let task = store.update(cx, |store, cx| store.commit_import(staging, choices, cx));
+    run(cx, task)
+}
+
+fn arm_failure(cx: &mut TestAppContext, slot: &StorageSlot, step: usize) {
+    let future = slot
+        .with(|storage| storage.inject_write_failure(step))
+        .expect("storage is open");
+    cx.foreground_executor().block_test(future).expect("armed");
+}
+
+fn markdown_file(dir: &Path, name: &str, text: &str) -> std::path::PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, text).expect("write the Markdown file");
+    path
+}
+
+fn read_md(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    path: std::path::PathBuf,
+) -> domain::song_library::import::MarkdownDraft {
+    let task = store.update(cx, |store, cx| store.read_markdown(path, cx));
+    run(cx, task).expect("read")
+}
+
+fn save_md(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    draft: domain::song_library::import::MarkdownDraft,
+    target: SongChoice,
+) -> Result<ArrangementId, SharedString> {
+    let task = store.update(cx, |store, cx| store.save_markdown(draft, target, cx));
+    run(cx, task)
+}
+
+const AVE_VERUM: &str = "---\ntitle: Ave Verum\nlanguage: Latin\n---\n[Verse]\nAve verum corpus\nnatum de Maria\n\n[Chorus]\nEsto nobis\n\n[Repeat: Verse]\n";
+
+#[gpui::test]
+fn ac1_staging_reads_many_files_and_writes_nothing(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-stage");
+    let files = temp_dir("store-import-stage-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let changes = count_changes(cx, &store);
+
+    let mut first = import_doc(song_id(0x11), arrangement_id(0x21), "First Hymn", "One");
+    first.arrangements[0].choirs = vec!["Koro Nuevo".to_owned()];
+    let second = import_doc(song_id(0x12), arrangement_id(0x22), "Second Hymn", "Two");
+    let paths = vec![
+        files.join("missing.ordo"),
+        write_ordo(&files, "b.ordo", &second),
+        write_ordo(&files, "a.ordo", &first),
+    ];
+    let staging = stage(cx, &store, paths);
+
+    let names: Vec<&str> = staging
+        .documents
+        .iter()
+        .map(|d| d.source.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["a.ordo", "b.ordo", "missing.ordo"],
+        "file-name order"
+    );
+    assert_eq!(staging.reviews.len(), 3);
+    assert!(matches!(staging.reviews[0], Review::Valid(_)));
+    assert!(matches!(staging.reviews[1], Review::Valid(_)));
+    assert!(
+        matches!(staging.reviews[2], Review::Invalid(_)),
+        "an unreadable file is an Invalid document"
+    );
+    store.read_with(cx, |store, _| {
+        assert_eq!(store.library(), &before, "staging changed memory");
+        assert_eq!(store.library().choirs().count(), 0, "no Choir is created");
+    });
+    assert_eq!(*changes.borrow(), 0, "staging emits nothing");
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    store.read_with(cx, |store, _| {
+        assert_eq!(store.library(), &before, "staging wrote to disk");
+    });
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac8_commit_is_refused_without_io_while_a_decision_is_open(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-open");
+    let files = temp_dir("store-import-open-files");
+    let (slot, store) = open_parish(cx, &dir);
+    create(cx, &store, SongDraft::titled("Ambiguous")).expect("first");
+    create(cx, &store, SongDraft::titled("Ambiguous")).expect("second");
+    let document = import_doc(song_id(0x31), arrangement_id(0x41), "Ambiguous", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "x.ordo", &document)]);
+    assert!(
+        matches!(
+            &staging.reviews[0],
+            Review::Valid(DocumentReview {
+                identity: SongIdentity::NeedsDecision { .. },
+                ..
+            })
+        ),
+        "two exact titles need a decision"
+    );
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let changes = count_changes(cx, &store);
+
+    // A write would hit the armed fault; the refusal proves none was tried.
+    arm_failure(cx, &slot, 1);
+    let message = commit(cx, &store, &staging, Choices::default()).expect_err("open decision");
+    assert_eq!(message, "Some items still need a decision.");
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    assert_eq!(*changes.borrow(), 0);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac9_a_storage_failure_leaves_memory_and_disk_unchanged(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-fault");
+    let files = temp_dir("store-import-fault-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let document = import_doc(song_id(0x51), arrangement_id(0x61), "Faulty Hymn", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "f.ordo", &document)]);
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let changes = count_changes(cx, &store);
+
+    for step in [1, 4] {
+        arm_failure(cx, &slot, step);
+        let message = commit(cx, &store, &staging, Choices::default()).expect_err("injected");
+        assert_eq!(message, COULDNT, "step {step}");
+        store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+        assert_eq!(*changes.borrow(), 0);
+    }
+    let (slot, store) = reopen(cx, &slot, &dir);
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+
+    // The hook cleared with the failed transaction: the same review commits.
+    let staging = stage(cx, &store, vec![files.join("f.ordo")]);
+    let outcome = commit(cx, &store, &staging, Choices::default()).expect("clean commit");
+    assert_eq!(outcome.songs, [document.id]);
+    assert_eq!(outcome.arrangements, [document.arrangements[0].id]);
+    store.read_with(cx, |store, _| {
+        assert_eq!(
+            store.library().song(document.id).expect("song").title(),
+            "Faulty Hymn"
+        );
+    });
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac9_a_library_change_after_staging_is_refused_as_stale(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-stale");
+    let files = temp_dir("store-import-stale-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let document = import_doc(song_id(0x71), arrangement_id(0x81), "Late Hymn", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "l.ordo", &document)]);
+    assert!(matches!(
+        &staging.reviews[0],
+        Review::Valid(DocumentReview {
+            identity: SongIdentity::New,
+            ..
+        })
+    ));
+
+    // Someone adds a Song with the same title while the review is open.
+    create(cx, &store, SongDraft::titled("Late Hymn")).expect("created");
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let message = commit(cx, &store, &staging, Choices::default()).expect_err("stale");
+    assert_eq!(message, STALE_IMPORT);
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac10_reimporting_after_commit_stages_only_skips_and_commits_nothing(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-reimport");
+    let files = temp_dir("store-import-reimport-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let document = import_doc(song_id(0x91), arrangement_id(0xa1), "Stable Hymn", "Words");
+    let path = write_ordo(&files, "s.ordo", &document);
+    let staging = stage(cx, &store, vec![path.clone()]);
+    commit(cx, &store, &staging, Choices::default()).expect("first import");
+
+    let again = stage(cx, &store, vec![path]);
+    let Review::Valid(review) = &again.reviews[0] else {
+        panic!("valid");
+    };
+    assert!(matches!(review.identity, SongIdentity::Existing { .. }));
+    assert_eq!(
+        review.arrangements[0].classification,
+        domain::song_library::import::Classification::SkipUnchanged
+    );
+    let before: SongLibrary = store.read_with(cx, |store, _| store.library().clone());
+    let changes = count_changes(cx, &store);
+    // A write would hit the armed fault; an empty commit never tries one.
+    arm_failure(cx, &slot, 1);
+    let outcome = commit(cx, &store, &again, Choices::default()).expect("nothing to commit");
+    assert_eq!(outcome, ImportOutcome::default());
+    store.read_with(cx, |store, _| assert_eq!(store.library(), &before));
+    assert_eq!(*changes.borrow(), 0);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn an_update_replaces_one_arrangement_as_one_replacement_revision(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, arrangement) = seeded(cx, "store-import-update");
+    let files = temp_dir("store-import-update-files");
+    let mut document = import_doc(song, arrangement, "Panis Angelicus", "Panis reworded");
+    document.arrangements[0].title = Some("Latin SATB".to_owned());
+    document.arrangements[0].languages = vec!["Latin".to_owned()];
+    document.arrangements[0].occasions = vec!["Corpus Christi".to_owned()];
+    let staging = stage(cx, &store, vec![write_ordo(&files, "u.ordo", &document)]);
+    let Review::Valid(review) = &staging.reviews[0] else {
+        panic!("valid");
+    };
+    assert!(
+        review.arrangements[0]
+            .offered
+            .contains(&Outcome::UpdateExisting)
+    );
+    assert!(
+        staging.heads.contains_key(&arrangement),
+        "the reviewed head is captured"
+    );
+
+    // Needs a decision until the operator picks Update.
+    assert_eq!(
+        commit(cx, &store, &staging, Choices::default()),
+        Err(SharedString::from("Some items still need a decision."))
+    );
+    let before = history(cx, &slot, arrangement);
+    let mut choices = Choices::default();
+    choices.arrangements.insert((0, 0), Outcome::UpdateExisting);
+    let outcome = commit(cx, &store, &staging, choices).expect("update");
+    assert_eq!(outcome.replaced, [arrangement]);
+    assert!(outcome.arrangements.is_empty() && outcome.songs.is_empty());
+
+    let after = history(cx, &slot, arrangement);
+    assert_eq!(after.len(), before.len() + 1, "one revision");
+    let head = after.last().expect("head");
+    assert_eq!(head.kind, RevisionKind::Replacement);
+    assert_eq!(head.parent, before.last().map(|revision| revision.id));
+    let stored = arrangement_of(cx, &store, arrangement);
+    assert_eq!(stored.sections()[0].lyrics(), "Panis reworded");
+    assert_eq!(stored.sections().len(), 2);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac3_markdown_save_creates_song_and_arrangement_in_one_transaction(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-md-new");
+    let files = temp_dir("store-md-new-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let draft = read_md(cx, &store, markdown_file(&files, "ave.md", AVE_VERUM));
+    assert!(draft.can_save());
+    let changes = count_changes(cx, &store);
+
+    // A fault inside the transaction leaves nothing behind.
+    arm_failure(cx, &slot, 3);
+    save_md(cx, &store, draft.clone(), SongChoice::New).expect_err("injected");
+    assert_eq!(song_count(cx, &store), 0);
+    assert_eq!(*changes.borrow(), 0);
+
+    let id = save_md(cx, &store, draft, SongChoice::New).expect("saved");
+    assert_eq!(*changes.borrow(), 1, "one Changed for one save");
+    let check = |cx: &mut TestAppContext, store: &Entity<LibraryStore>| {
+        let stored = arrangement_of(cx, store, id);
+        assert_eq!(stored.sections().len(), 2);
+        assert_eq!(stored.sequence().len(), 3);
+        assert!(
+            stored
+                .sections()
+                .iter()
+                .all(|section| section.pagination() == PaginationState::Draft),
+            "Markdown sections begin Draft"
+        );
+        assert_eq!(song_count(cx, store), 1);
+    };
+    check(cx, &store);
+    let revisions = history(cx, &slot, id);
+    assert_eq!(revisions.len(), 1);
+    assert_eq!(revisions[0].kind, RevisionKind::Creation);
+
+    let (slot, store) = reopen(cx, &slot, &dir);
+    check(cx, &store);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac3_markdown_save_to_an_existing_song_adds_one_arrangement(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, song, existing) = seeded(cx, "store-md-existing");
+    let files = temp_dir("store-md-existing-files");
+    let draft = read_md(cx, &store, markdown_file(&files, "ave.md", AVE_VERUM));
+
+    let id = save_md(cx, &store, draft, SongChoice::Existing(song)).expect("saved");
+    assert_ne!(id, existing);
+    store.read_with(cx, |store, _| {
+        assert_eq!(store.library().songs().count(), 1, "no new Song");
+        let owned = store.library().arrangements_for_song(song).expect("song");
+        assert_eq!(owned.len(), 2, "one Arrangement was added");
+        assert_eq!(
+            store.library().song(song).expect("song").title(),
+            "Panis Angelicus",
+            "the Song is untouched"
+        );
+    });
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn ac2_markdown_save_with_an_unresolved_repeat_stores_an_incomplete_arrangement(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-md-unresolved");
+    let files = temp_dir("store-md-unresolved-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let text =
+        "---\ntitle: Gloria\nlanguage: English\n---\n[Verse]\nGlory to God\n\n[Repeat: Coda]\n";
+    let draft = read_md(cx, &store, markdown_file(&files, "g.md", text));
+    assert!(draft.can_save(), "an unresolved repeat is not blocking");
+
+    let id = save_md(cx, &store, draft, SongChoice::New).expect("saved");
+    let stored = arrangement_of(cx, &store, id);
+    let labels: Vec<Option<&str>> = stored.sections().iter().map(|s| s.label()).collect();
+    assert_eq!(
+        labels,
+        [Some("Verse"), Some("Coda")],
+        "a placeholder section"
+    );
+    assert_eq!(stored.sections()[1].lyrics(), "");
+    let state = readiness(&stored.lyrics(), &std::collections::BTreeSet::new()).state;
+    assert_eq!(state, ReadinessState::Incomplete);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn import_and_autosave_share_one_queue(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, slot, store, _song, arrangement) = seeded(cx, "store-import-queue");
+    let files = temp_dir("store-import-queue-files");
+    let document = import_doc(song_id(0xb1), arrangement_id(0xc1), "Queued Hymn", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "q.ordo", &document)]);
+    let changes = count_changes(cx, &store);
+
+    let mut edited = arrangement_of(cx, &store, arrangement).lyrics();
+    edited
+        .set_section_lyrics(edited.sections[1].id, "Typed meanwhile".to_owned())
+        .expect("section");
+    let (import, autosave) = store.update(cx, |store, cx| {
+        let import = store.commit_import(&staging, Choices::default(), cx);
+        let autosave =
+            store.save_arrangement_lyrics(arrangement, edited.clone(), session(0xd1), cx);
+        (import, autosave)
+    });
+    store.read_with(cx, |store, _| {
+        assert_eq!(
+            store.write_state(),
+            (true, 1),
+            "the autosave waits its turn"
+        );
+    });
+    assert!(run(cx, import).is_ok());
+    assert_eq!(run(cx, autosave), Ok(arrangement));
+    assert_eq!(*changes.borrow(), 2);
+    store.read_with(cx, |store, _| {
+        assert!(store.library().song(document.id).is_ok());
+    });
+    assert_eq!(arrangement_of(cx, &store, arrangement).lyrics(), edited);
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}

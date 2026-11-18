@@ -21,11 +21,15 @@ use domain::{
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
+mod import;
+
+pub use import::{ImportOutcome, ImportStaging};
+
 use storage::{
     ArrangementContent, ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord,
-    DeletionFacts, HistoryRevision, NewArrangement, NewChoir, NewSection, NewSong,
-    OccurrenceContent, RevisionContent, SectionContent, ShutdownOutcome, SongContent, SongRecord,
-    Storage, StorageConfig, StorageError,
+    DeletionFacts, HistoryRevision, ImportBatch, ImportCommittedRecords, NewArrangement, NewChoir,
+    NewSection, NewSong, OccurrenceContent, RevisionContent, SectionContent, ShutdownOutcome,
+    SongContent, SongRecord, Storage, StorageConfig, StorageError,
 };
 
 /// Where the parish library is in its life.
@@ -120,12 +124,14 @@ pub struct LibraryStore {
 }
 
 /// What a finished write resolves to.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Done {
     /// The id of the record the write created or changed.
     Id(EntityId),
     /// How many revisions a permanent deletion erased.
     Count(usize),
+    /// What an import commit or Markdown save wrote.
+    Imported(ImportOutcome),
 }
 
 type Reply = async_channel::Sender<Result<Done, SharedString>>;
@@ -190,6 +196,10 @@ enum LibraryWrite {
         head: RevisionId,
         entity: RevisionEntity,
     },
+    /// An approved import or a Markdown save: the plan is built when the
+    /// write reaches the front of the queue, so it never interleaves with an
+    /// autosave.
+    CommitImport(Box<import::ImportRequest>),
 }
 
 impl LibraryWrite {
@@ -218,6 +228,8 @@ enum Stored {
     Deleted(usize),
     /// A restored revision: the new head and the content storage wrote.
     Restored(RevisionId, Restored),
+    /// What an import batch wrote, exactly.
+    Imported(Box<ImportCommittedRecords>),
 }
 
 /// The entity a revision restore rewrote, as the restoration wrote it. Memory
@@ -235,6 +247,9 @@ enum Verdict {
     Unchanged(EntityId),
     /// The storage call to make.
     Write(Prepared),
+    /// The write resolved to this without any storage call (an import with
+    /// nothing to write).
+    Resolved(Done),
 }
 
 /// The storage call for a write, built from the domain-checked values.
@@ -261,6 +276,8 @@ enum Prepared {
     DeleteSong(SongId),
     DeleteArrangement(ArrangementId),
     RestoreRevision(RevisionId, RevisionId),
+    /// One import batch, written in a single storage transaction.
+    CommitImport(Box<ImportBatch>),
 }
 
 /// What a reference-safety review found, for the deletion dialog.
@@ -291,7 +308,7 @@ fn archived_stamp(at: Option<Timestamp>, kind: &str) -> Result<Timestamp, Shared
 fn count_of(done: Done) -> Result<usize, SharedString> {
     match done {
         Done::Count(revisions) => Ok(revisions),
-        Done::Id(_) => Err(SharedString::from(WRONG_KIND)),
+        Done::Id(_) | Done::Imported(_) => Err(SharedString::from(WRONG_KIND)),
     }
 }
 
@@ -1004,7 +1021,7 @@ impl LibraryStore {
             write,
             move |done| match done {
                 Done::Id(id) => Ok(convert(id)),
-                Done::Count(_) => Err(SharedString::from(WRONG_KIND)),
+                Done::Count(_) | Done::Imported(_) => Err(SharedString::from(WRONG_KIND)),
             },
             cx,
         )
@@ -1044,6 +1061,10 @@ impl LibraryStore {
                     let _ = reply.try_send(Ok(Done::Id(id)));
                     continue;
                 }
+                Ok(Verdict::Resolved(done)) => {
+                    let _ = reply.try_send(Ok(done));
+                    continue;
+                }
                 Err(message) => {
                     let _ = reply.try_send(Err(message));
                     continue;
@@ -1081,6 +1102,14 @@ impl LibraryStore {
                             .await
                             .map(|deleted| Stored::Deleted(deleted.revisions))
                     })
+                }
+                Prepared::CommitImport(batch) => {
+                    let commit = storage.commit_import(*batch);
+                    let write: StoredWrite =
+                        Box::pin(
+                            async move { commit.await.map(|r| Stored::Imported(Box::new(r))) },
+                        );
+                    write
                 }
                 Prepared::RestoreRevision(revision, head) => {
                     let restore = storage.restore_revision(revision, head);
@@ -1129,6 +1158,7 @@ impl LibraryStore {
             };
             self.writing = true;
             let operator_copy = write.has_operator_copy();
+            let importing = matches!(write, LibraryWrite::CommitImport(_));
             let restoring = matches!(
                 write,
                 LibraryWrite::Restore(_)
@@ -1139,7 +1169,10 @@ impl LibraryStore {
                 let stored = cx
                     .background_spawn(async move {
                         started.await.map_err(|error| {
-                            if restoring && matches!(error, StorageError::NotArchived { .. }) {
+                            if importing {
+                                import::import_copy(&error).to_owned()
+                            } else if restoring && matches!(error, StorageError::NotArchived { .. })
+                            {
                                 NOT_ARCHIVED_TO_RESTORE.to_owned()
                             } else if operator_copy {
                                 storage_copy(&error, COULDNT_SAVE)
@@ -1300,6 +1333,7 @@ impl LibraryStore {
                 }
                 Prepared::RestoreChoir(*id)
             }
+            LibraryWrite::CommitImport(request) => return self.prepare_import(request),
             lifecycle => self.validate_lifecycle(lifecycle)?,
         };
         Ok(Verdict::Write(prepared))
@@ -1489,6 +1523,9 @@ impl LibraryStore {
                     )
                     .map_err(refusal)?;
                 Ok(Done::Id(head.entity()))
+            }
+            (LibraryWrite::CommitImport(request), Stored::Imported(records)) => {
+                self.apply_imported(request, records)
             }
             _ => self.apply_record(write, stored).map(Done::Id),
         }
