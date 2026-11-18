@@ -5819,12 +5819,14 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "domain",
+ "flate2",
  "futures-lite",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -5834,6 +5836,7 @@ dependencies = [
  "domain",
  "futures-lite",
  "rusqlite",
+ "serde_json",
  "sha2",
  "storage",
 ]

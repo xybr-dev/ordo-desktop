@@ -71,6 +71,7 @@ use std::time::Duration;
 mod assets;
 #[cfg(test)]
 mod erd;
+pub mod exchange;
 mod lifecycle;
 mod migrations;
 #[cfg(test)]
