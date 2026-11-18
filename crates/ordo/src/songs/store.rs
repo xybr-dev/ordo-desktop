@@ -130,7 +130,9 @@ enum Done {
 
 type Reply = async_channel::Sender<Result<Done, SharedString>>;
 
-/// The refusal for a permanent deletion that something now blocks.
+/// The refusal for a permanent deletion that something now blocks. The
+/// lifecycle UI keys on this exact text (`is_deletion_blocked`) to redraw the
+/// blocked dialog, so a copy edit here must keep the two in step.
 const DELETION_BLOCKED: &str = "Something now uses it, so it can’t be deleted.";
 /// Whether `message` is the refusal for a deletion that something now blocks.
 pub(crate) fn is_deletion_blocked(message: &str) -> bool {
@@ -151,7 +153,7 @@ const COULDNT_SAVE: &str = "Couldn't save.";
 /// A failed History read.
 const COULDNT_OPEN_HISTORY: &str = "Couldn't open History.";
 /// A failed read of what still uses an entity.
-const COULDNT_CHECK_USES: &str = "Couldn't check what uses it.";
+pub(crate) const COULDNT_CHECK_USES: &str = "Couldn't check what uses it.";
 
 /// One change the store can make. Choir and Song writes share one queue, so
 /// the order they were submitted in is the order they run in.

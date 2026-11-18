@@ -1481,8 +1481,7 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
     cx: &mut TestAppContext,
 ) {
     use super::{
-        lifecycle::{LifecycleTarget, erase_summary},
-        lyrics::tests::{dialog, open_editor, saved, toasts},
+        lyrics::tests::{dialog, open_editor, saved, toasts, type_into_area},
         new_song::tests::{parish, settle, songs_of, stop},
     };
     use crate::songs::choirs::tests::wait;
@@ -1541,13 +1540,10 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
 
     // 1-2. Two editing sessions: open, edit, wait for Saved, go Back, repeat.
     for text in [FIRST, SECOND] {
+        // Real keystrokes in the Lyrics editor, as the owner types. The seeded
+        // Arrangement has one section, Verse 1, so that is the one edited.
         let editor = open_editor(&shell, id, vcx);
-        let session = editor
-            .read_with(vcx, |editor, _| editor.session().cloned())
-            .expect("session");
-        session.update(vcx, |session, cx| {
-            session.text_edited(|content| content.sections[0].lyrics = text.to_owned(), cx);
-        });
+        type_into_area(&editor, text, vcx);
         saved(&editor, vcx);
         click(vcx, "button-Back to Songs");
         wait(vcx, |vcx| {
@@ -1704,7 +1700,7 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
     );
     assert!(present(vcx, "lifecycle-group-Mass plans"));
     assert!(!present(vcx, "button-Delete permanently"));
-    vcx.simulate_keystrokes("escape");
+    click(vcx, "button-Close");
     wait(vcx, |vcx| dialog(&shell, vcx).is_none());
     settle(vcx);
     assert!(store.read_with(vcx, |store, _| store.library().arrangement(id).is_ok()));
@@ -1728,6 +1724,7 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
             .sections
             .len()
     });
+    assert_eq!(sections, 1, "the seeded Arrangement has only Verse 1");
     overflow(vcx, "choice-1");
     wait_reviewed(vcx, &shell);
     assert_eq!(
@@ -1736,16 +1733,18 @@ fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_dele
     );
     assert!(!present(vcx, "lifecycle-blockers"));
     assert!(present(vcx, "button-Cancel"));
+    // The copy the operator reads in the dialog, not the function behind it.
+    let said = shell.read_with(vcx, |shell, cx| {
+        shell
+            .overlays()
+            .top_description(cx)
+            .map(|text| text.to_string())
+    });
     assert_eq!(
-        erase_summary(
-            LifecycleTarget::Arrangement(id),
-            &label,
-            sections,
-            revisions
-        ),
-        format!(
+        said,
+        Some(format!(
             "This erases {label}, its 1 section, its Sequence and all {revisions} revisions of its History. This can\u{2019}t be undone."
-        )
+        ))
     );
     // Earlier toasts time out, so the deletion's is the only one left.
     vcx.executor()

@@ -78,7 +78,6 @@ pub struct SongsWorkspace {
     /// first Arrangement button), where focus lands after an Arrangement is
     /// archived or deleted.
     arrangement_focus: gpui::FocusHandle,
-    removal: Option<Removal>,
     /// Set until the detail pane has drawn the Arrangement list that
     /// `arrangement_focus` belongs to.
     focus_arrangements_pending: bool,
@@ -125,7 +124,6 @@ impl SongsWorkspace {
             focus_song: None,
             empty_focus: cx.focus_handle(),
             arrangement_focus: cx.focus_handle(),
-            removal: None,
             focus_arrangements_pending: false,
             open_filter: None,
             restore_scroll: None,
@@ -332,15 +330,17 @@ impl SongsWorkspace {
                 (hit.song, active)
             })
             .collect();
-        self.removal = Some(Removal {
+        // Each request carries its own snapshot, so a Cancel or a refusal
+        // leaves nothing behind for the next one.
+        let removal = Removal {
             visible,
             include_archived: self.query.include_archived,
-        });
+        };
         let weak = cx.weak_entity();
         let inspect_open = open.clone();
         let after = AfterLifecycle::new(move |outcome, window, cx| {
             let _ = weak.update(cx, |workspace, cx| {
-                workspace.after_lifecycle(outcome, window, cx);
+                workspace.after_lifecycle(outcome, &removal, window, cx);
             });
         })
         .inspecting(move |id, window, cx| inspect_open(id, window, cx));
@@ -359,6 +359,7 @@ impl SongsWorkspace {
     fn after_lifecycle(
         &mut self,
         outcome: LifecycleOutcome,
+        removal: &Removal,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -366,12 +367,12 @@ impl SongsWorkspace {
             LifecycleOutcome::Archived(LifecycleTarget::Song(song))
             | LifecycleOutcome::Deleted(LifecycleTarget::Song(song)) => {
                 let deleted = matches!(outcome, LifecycleOutcome::Deleted(_));
-                let removal = self.removal.take();
                 self.refresh(cx);
-                let (visible, include) = removal
-                    .map(|removal| (removal.visible, removal.include_archived))
-                    .unwrap_or_default();
-                match selection_after_archive(&visible, song, include && !deleted) {
+                match selection_after_archive(
+                    &removal.visible,
+                    song,
+                    removal.include_archived && !deleted,
+                ) {
                     AfterArchive::Select(next) => {
                         self.select(next, cx);
                         self.focus_song = Some(next);
@@ -384,14 +385,27 @@ impl SongsWorkspace {
                     }
                     AfterArchive::EmptyState => {
                         self.selected = None;
-                        self.empty_focus.focus(window, cx);
+                        // Focus goes to a control that is drawn: the first
+                        // remaining row (nothing is selected, the domain rule
+                        // stands), else the empty or no-match state's action,
+                        // which is **Create song** for an empty library.
+                        if let Some(first) = self.hits.first() {
+                            self.focus_song = Some(first.song);
+                            self.row_focus.focus(window, cx);
+                        } else {
+                            self.empty_focus.focus(window, cx);
+                        }
                         cx.notify();
                     }
                 }
             }
             LifecycleOutcome::Restored(LifecycleTarget::Song(song)) => {
-                self.removal = None;
+                // The control that held focus (the empty state's action, the
+                // toast's Undo) is gone with the restore, so the restored
+                // Song's row takes it; `reveal` put the Song in the list.
                 self.reveal(song, window, cx);
+                self.focus_song = Some(song);
+                self.row_focus.focus(window, cx);
             }
             _ => self.refresh(cx),
         }
@@ -441,7 +455,7 @@ impl SongsWorkspace {
 
     /// Selects `song`, making it visible: an archived Song turns Include
     /// archived on, and a Song the search or filters hide makes them give way.
-    fn reveal(&mut self, song: SongId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reveal(&mut self, song: SongId, window: &mut Window, cx: &mut Context<Self>) {
         let archived = self
             .store
             .read(cx)

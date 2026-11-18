@@ -849,6 +849,14 @@ impl ShellView {
         }
         let shell = cx.weak_entity();
         let flush_shell = shell.clone();
+        // Read before the write: after a deletion the Arrangement is gone.
+        let song = self
+            .library_store
+            .read(cx)
+            .library()
+            .arrangement(id)
+            .ok()
+            .map(|arrangement| arrangement.song());
         let after = AfterLifecycle::new(move |outcome, window, cx| {
             let _ = shell.update(cx, |shell, cx| {
                 if shell.editing_arrangement != Some(id) {
@@ -857,12 +865,25 @@ impl ShellView {
                 match outcome {
                     LifecycleOutcome::Archived(LifecycleTarget::Arrangement(_))
                     | LifecycleOutcome::Deleted(LifecycleTarget::Arrangement(_)) => {
-                        // Focus goes to the Song's Arrangement list, not to
-                        // the region's remembered control.
                         shell.drop_editor();
-                        shell
-                            .songs
-                            .update(cx, |songs, cx| songs.focus_arrangements(window, cx));
+                        match song {
+                            // Back on the Songs screen: select the
+                            // Arrangement's own Song and put focus on its
+                            // Arrangement list, not on the region's
+                            // remembered control.
+                            Some(song) if shell.showing_songs(cx) => {
+                                shell.songs.update(cx, |songs, cx| {
+                                    songs.reveal(song, window, cx);
+                                    songs.focus_arrangements(window, cx);
+                                });
+                            }
+                            // Opened from elsewhere (the Choirs repertoire):
+                            // the screen the operator left comes back and
+                            // focus goes to its main region, as on Back.
+                            // The Songs screen is not drawn, so it keeps no
+                            // pending focus for a later visit.
+                            _ => shell.registry.focus_region(MAIN_EDITOR),
+                        }
                         cx.notify();
                     }
                     LifecycleOutcome::Restored(_) => {
@@ -877,9 +898,15 @@ impl ShellView {
             });
         })
         .flushing(move |_, cx| {
-            let editor = flush_shell
-                .upgrade()
-                .and_then(|shell| shell.read(cx).arrangement_editor.clone());
+            // Only this Arrangement's own editor is settled: an Undo that
+            // runs after the operator opened another one must not be held
+            // back by that editor's failed save.
+            let editor = flush_shell.upgrade().and_then(|shell| {
+                let shell = shell.read(cx);
+                (shell.editing_arrangement == Some(id))
+                    .then(|| shell.arrangement_editor.clone())
+                    .flatten()
+            });
             match editor {
                 Some(editor) => editor.update(cx, |editor, cx| editor.request_navigation(cx)),
                 None => gpui::Task::ready(NavigationGuard::Proceed),
@@ -1959,13 +1986,9 @@ impl ShellView {
                             .child(
                                 div()
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Archived."),
+                                    .child(crate::songs::library::detail::ARCHIVED),
                             )
-                            .child(if song_note {
-                                "Inspect only; restore to edit or use it in a Mass."
-                            } else {
-                                "Inspect only until restored."
-                            }),
+                            .child(crate::songs::library::detail::banner_note(song_note)),
                     )
                     .child(
                         Button::new("arrangement-restore", "Restore", environment)

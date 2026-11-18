@@ -12,10 +12,16 @@ pub fn archive_impact(store: &Entity<LibraryStore>, target: LifecycleTarget, cx:
     let library = store.read(cx).library();
     match target {
         LifecycleTarget::Song(id) => {
-            let count = library.arrangements_for_song(id).map_or(0, |all| all.len());
+            let all = library.arrangements_for_song(id).unwrap_or_default();
+            // Only those still in planning leave it with the Song.
+            let count = all
+                .iter()
+                .filter(|arrangement| !arrangement.is_archived())
+                .count();
             let kept = "Existing Mass plans and past Presentation snapshots don\u{2019}t change.";
             match count {
-                0 => format!("It has no Arrangements. {kept}"),
+                0 if all.is_empty() => format!("It has no Arrangements. {kept}"),
+                0 => format!("Its Arrangements are already archived. {kept}"),
                 1 => format!(
                     "Its Arrangement leaves planning with it and keeps its own archive state. {kept}"
                 ),
@@ -35,11 +41,7 @@ pub fn archive_impact(store: &Entity<LibraryStore>, target: LifecycleTarget, cx:
                         .collect()
                 })
                 .unwrap_or_default();
-            let used = if names.is_empty() {
-                "no choir".to_owned()
-            } else {
-                names.join(", ")
-            };
+            let used = crate::history::choir_list(&names);
             format!(
                 "Used by {used}. It leaves planning; existing Mass plans and past Presentation snapshots don\u{2019}t change."
             )

@@ -45,6 +45,19 @@ pub(crate) fn arrangement_badge(
 pub(crate) const ARCHIVED: &str = "Archived.";
 /// The Song notice's explanation.
 pub(crate) const ARCHIVED_SONG_NOTE: &str = "Inspect only; restore to edit or use it in a Mass.";
+/// The banner note over an archived Arrangement's own editor.
+pub(crate) const ARCHIVED_ARRANGEMENT_NOTE: &str = "Inspect only until restored.";
+
+/// The note an archived banner carries: the Song's when the Song is what is
+/// archived (the Arrangement is only suppressed by it), else the
+/// Arrangement's own.
+pub(crate) fn banner_note(song_note: bool) -> &'static str {
+    if song_note {
+        ARCHIVED_SONG_NOTE
+    } else {
+        ARCHIVED_ARRANGEMENT_NOTE
+    }
+}
 
 /// The pane the shell hosts in its viewer region.
 pub(super) fn render(
@@ -300,7 +313,6 @@ pub(super) fn render(
                         .flex()
                         .items_center()
                         .gap(px(scale.apply(tokens::spacing::RELATED)))
-                        .children(overflow)
                         .child(
                             Button::new("songs-detail-history", "History", environment)
                                 .track_focus(&workspace.history_focus)
@@ -314,7 +326,8 @@ pub(super) fn render(
                                         });
                                     }
                                 }),
-                        ),
+                        )
+                        .children(overflow),
                 ),
         )
         .children(archived_notice)

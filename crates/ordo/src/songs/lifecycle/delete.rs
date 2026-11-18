@@ -7,7 +7,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use domain::{
-    identity::ArrangementId,
+    identity::{ArrangementId, EntityId},
     song_library::{BlockerGroup, DeletionVerdict, LifecycleAction, RecordRef},
 };
 use gpui::{
@@ -22,12 +22,10 @@ use ui::{
 };
 
 use super::{AfterLifecycle, LifecycleTarget, Request, perform};
-use crate::songs::store::{LibraryStore, NOT_ARCHIVED};
+use crate::songs::store::{COULDNT_CHECK_USES, LibraryStore, NOT_ARCHIVED};
 
 /// Shown in the dialog while the store reads what still uses the record.
 const CHECKING: &str = "Checking what still uses it\u{2026}";
-/// Shown when the read itself failed, so there is nothing to judge.
-const COULDNT_CHECK: &str = "Couldn\u{2019}t check what uses it.";
 
 /// The line under the title of the blocked dialog.
 pub fn blocked_description(name: &str) -> String {
@@ -76,6 +74,22 @@ fn heading(group: &BlockerGroup) -> &'static str {
     }
 }
 
+/// The kind a reference group names, in the singular.
+fn reference_kind(group: &BlockerGroup) -> &'static str {
+    match group {
+        BlockerGroup::MassPlans(_) => "Mass plan",
+        BlockerGroup::PresentationSnapshots(_) => "Presentation snapshot",
+        BlockerGroup::CelebrationPackages(_) => "Celebration package",
+        _ => "Record",
+    }
+}
+
+/// One reference row: its kind and the first eight characters of its id.
+pub(super) fn reference_row(kind: &str, id: &EntityId) -> String {
+    let id = id.to_string();
+    format!("{kind} {}", id.get(..8).unwrap_or(&id))
+}
+
 /// Opens the deletion dialog for `target`: a loading line first, then the
 /// store's verdict.
 pub fn review_deletion(
@@ -93,13 +107,13 @@ pub fn review_deletion(
 /// Opens the loading dialog and starts the review. Also the way a deletion
 /// that the store refused at commit shows what now blocks it.
 pub(super) fn review(request: Request, window: &mut Window, cx: &mut App) {
-    // Set once the answer was used or the operator walked away; the review
-    // task is owned by this flow and does nothing after that.
+    // Set once the answer was used or the operator walked away. The review
+    // is a one-shot read, so its task is detached and `finished` makes a
+    // late answer a no-op.
     let finished = Rc::new(Cell::new(false));
     let dismissed = finished.clone();
     let loading = request.host.open(
         Overlay::dialog(format!("Delete {} permanently?", request.name))
-            .description(CHECKING)
             .body(|environment, _, _| checking(environment))
             .secondary("Cancel", |_, _| {})
             .on_close(move |_, _| dismissed.set(true)),
@@ -173,8 +187,8 @@ fn confirm(request: Request, sections: usize, revisions: usize, window: &mut Win
     host.open(overlay, window, cx);
 }
 
-/// The blocked dialog: every blocker, named, and no way to delete. The header
-/// Close is the only action.
+/// The blocked dialog: every blocker, named, and no way to delete. **Close**
+/// is the only action.
 fn blocked(request: Request, groups: Vec<BlockerGroup>, window: &mut Window, cx: &mut App) {
     let Request {
         name,
@@ -192,7 +206,8 @@ fn blocked(request: Request, groups: Vec<BlockerGroup>, window: &mut Window, cx:
         .description(blocked_description(&name))
         .body(move |environment, _, cx| {
             blocker_list(&groups, &store, &body_host, &own, &after, environment, cx)
-        });
+        })
+        .secondary("Close", |_, _| {});
     id.set(Some(host.open(overlay, window, cx)));
 }
 
@@ -258,11 +273,23 @@ fn blocker_list(
             | BlockerGroup::PresentationSnapshots(all)
             | BlockerGroup::CelebrationPackages(all) => all
                 .iter()
-                .map(|record| line(record.to_string()).into_any_element())
+                .enumerate()
+                .map(|(at, record)| {
+                    div()
+                        .debug_selector(move || format!("lifecycle-reference-{at}"))
+                        .child(line(reference_row(reference_kind(group), record)))
+                        .into_any_element()
+                })
                 .collect(),
             BlockerGroup::Other(all) => all
                 .iter()
-                .map(|(kind, record)| line(format!("{kind} {record}")).into_any_element())
+                .enumerate()
+                .map(|(at, (kind, record))| {
+                    div()
+                        .debug_selector(move || format!("lifecycle-reference-{at}"))
+                        .child(line(reference_row(kind, record)))
+                        .into_any_element()
+                })
                 .collect(),
         };
         sections.push(
@@ -290,14 +317,15 @@ fn blocker_list(
         .into_any_element()
 }
 
-/// The review could not be read: the message, and the header Close.
+/// The review could not be read: the message, and **Close**.
 fn failed(request: Request, message: SharedString, window: &mut Window, cx: &mut App) {
     let text = if message.is_empty() {
-        SharedString::from(COULDNT_CHECK)
+        SharedString::from(COULDNT_CHECK_USES)
     } else {
         message
     };
-    let overlay =
-        Overlay::dialog(format!("Delete {} permanently?", request.name)).description(text);
+    let overlay = Overlay::dialog(format!("Delete {} permanently?", request.name))
+        .description(text)
+        .secondary("Close", |_, _| {});
     request.host.open(overlay, window, cx);
 }
