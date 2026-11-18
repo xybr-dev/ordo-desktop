@@ -53,7 +53,8 @@ const UNTITLED: &str = "Untitled song";
 const NOT_SAVED: &str = "Not saved yet.";
 const DISCARD: &str = "Discard draft";
 const SAVE: &str = "Save song";
-const BLOCKED: &str = "Fix the issues marked in red first.";
+const BLOCKED: &str = "Fix the blocking issues first.";
+const SAVING: &str = "Saving\u{2026}";
 const CHECKING: &str = "Checking the draft\u{2026}";
 const DISCARD_TITLE: &str = "Discard this draft?";
 const KEEP_EDITING: &str = "Keep editing";
@@ -273,6 +274,12 @@ impl MarkdownDraftView {
     }
 
     /// Ranks the possible existing Songs for the parsed Song.
+    ///
+    /// This runs on the GPUI thread, as the Library snapshot it ranks against
+    /// lives there; the shaping constraint is that a parse lands once per edit
+    /// burst, not per frame. T2.10c's 16 ms timing check covers it with a
+    /// Library of realistic size; if it fails, the ranking moves to a snapshot
+    /// in the background like the import classification does.
     fn recompute(&mut self, cx: &mut Context<Self>) {
         self.candidates = self
             .store
@@ -302,7 +309,7 @@ impl MarkdownDraftView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (Some(host), None) = (self.overlays.clone(), self.previewed) else {
+        let (Some(host), None, false) = (self.overlays.clone(), self.previewed, self.busy) else {
             return;
         };
         let Some(overlay) = preview::overlay(self, song, cx) else {
@@ -353,9 +360,20 @@ impl MarkdownDraftView {
         let weak = cx.weak_entity();
         self.save_task = Some(window.spawn(cx, async move |cx| {
             let result = task.await;
-            cx.update(|_, cx| {
+            cx.update(|window, cx| {
+                // Close what this view opened first, outside its own update:
+                // closing hands focus back and calls into the view.
+                let open = weak.read_with(cx, |view, _| {
+                    (view.overlays.clone(), view.previewed, view.confirming)
+                });
+                if let Ok((Some(host), previewed, confirming)) = open {
+                    for id in previewed.map(|(id, _)| id).into_iter().chain(confirming) {
+                        host.close(id, window, cx);
+                    }
+                }
                 let _ = weak.update(cx, |view, cx| {
                     view.busy = false;
+                    view.save_task = None;
                     match result {
                         Ok(arrangement) => cx.emit(MarkdownDraftEvent::Saved(arrangement)),
                         Err(message) => view.refusal = Some(message),
@@ -371,6 +389,9 @@ impl MarkdownDraftView {
     /// **Discard draft**: closes at once when nothing was edited, and asks
     /// first when something was.
     pub fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
         let Some(host) = self.overlays.clone() else {
             cx.emit(MarkdownDraftEvent::Discarded);
             return;
@@ -502,8 +523,12 @@ impl MarkdownDraftView {
     ) -> AnyElement {
         let palette = tokens::palette(environment.appearance());
         let scale = environment.preferences().scale;
-        let availability = if self.busy || self.parsing {
-            Availability::Disabled
+        // Unavailable, not Disabled, and the label stays: the button keeps its
+        // place in the tab order, so focus is not lost while it waits.
+        let availability = if self.busy {
+            Availability::unavailable(SAVING)
+        } else if self.parsing {
+            Availability::unavailable(CHECKING)
         } else if self.parsed.can_save() {
             Availability::Available
         } else {
@@ -515,11 +540,6 @@ impl MarkdownDraftView {
                 |work| format!("Save to {}", work.title()),
             ),
             _ => SAVE.to_owned(),
-        };
-        let label = if self.parsing {
-            CHECKING.to_owned()
-        } else {
-            label
         };
         let save = Button::new("markdown-save", label, environment)
             .icon(icon::CHECK)
@@ -544,6 +564,11 @@ impl MarkdownDraftView {
                     .quiet()
                     .tooltip(DISCARD)
                     .on_surface(palette.surface)
+                    .availability(if self.busy {
+                        Availability::unavailable(SAVING)
+                    } else {
+                        Availability::Available
+                    })
                     .on_activate(Self::act(cx, |view, window, cx| view.discard(window, cx))),
             )
             .child(
@@ -627,9 +652,16 @@ fn column(
 }
 
 /// The Arrangement the draft carries.
+///
+/// The parser always makes exactly one; if a draft ever came without, a random
+/// id keeps the draft usable rather than colliding with a real one.
 fn first_arrangement(draft: &MarkdownDraft) -> ArrangementId {
     draft.document.arrangements.first().map_or_else(
-        || ArrangementId::from_entity(domain::identity::EntityId::from_random_bytes([0; 16])),
+        || {
+            ArrangementId::from_entity(domain::identity::EntityId::from_random_bytes(
+                *uuid::Uuid::new_v4().as_bytes(),
+            ))
+        },
         |a| a.id,
     )
 }

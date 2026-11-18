@@ -9,7 +9,7 @@ use domain::{
         StagedDocument, can_commit, tally,
     },
 };
-use gpui::{Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Task, Window};
+use gpui::{Context, Entity, EventEmitter, FocusHandle, SharedString, Task, Window};
 use ui::{
     accessibility::RegionRegistry,
     overlay::OverlayHost,
@@ -21,7 +21,21 @@ use super::{
     compare::{ImportCompare, open_compare},
     picker::FilePicker,
 };
-use crate::songs::store::{ImportOutcome, ImportStaging, LibraryStore};
+use crate::songs::store::{ImportOutcome, ImportStaging, LibraryStore, STALE_IMPORT};
+
+/// Why decisions, removal and Cancel import wait while a commit is in flight.
+pub(super) const IMPORTING: &str = "Importing\u{2026}";
+/// Why they wait while the documents are classified again.
+pub(super) const UPDATING: &str = "Updating the review\u{2026}";
+
+/// Where focus goes after the next draw: the selected document's row (a
+/// document was removed or replaced, or the review opened), or Cancel import
+/// (no document is left).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Refocus {
+    Row,
+    Cancel,
+}
 
 /// What the review tells its owner.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,6 +66,14 @@ pub struct ImportReview {
     pub(super) controls: BTreeMap<ControlKey, SelectionState>,
     pub(super) technical: DisclosureState,
     pub(super) busy: bool,
+    /// Whether the documents are being classified again (or a replacement
+    /// file is being picked and read). Decisions wait until it is done.
+    pub(super) restaging: bool,
+    /// The selected document's row, so focus can follow a removal.
+    pub(super) row_focus: FocusHandle,
+    /// **Cancel import**, where focus goes when no document is left.
+    pub(super) cancel_focus: FocusHandle,
+    refocus: Option<Refocus>,
     /// The shell's overlay layer, which hosts Compare contents.
     overlays: Option<OverlayHost>,
     /// The open comparison and the id its host gave it, while it is open.
@@ -59,19 +81,14 @@ pub struct ImportReview {
     pub(super) refusal: Option<SharedString>,
     /// Which restage or pick is current; an older answer is dropped.
     generation: u64,
-    /// The in-flight restage, pick or commit, owned here so closing the
-    /// review drops the interest.
-    pending: Option<Task<()>>,
-    focus: FocusHandle,
+    /// The in-flight commit, owned here so closing the review drops the
+    /// interest. It never overlaps a restage: each waits for the other.
+    commit_task: Option<Task<()>>,
+    /// The in-flight restage or pick, owned here for the same reason.
+    restage_task: Option<Task<()>>,
 }
 
 impl EventEmitter<ImportReviewEvent> for ImportReview {}
-
-impl Focusable for ImportReview {
-    fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
-        self.focus.clone()
-    }
-}
 
 /// The first document that needs a decision, else the first.
 fn initial_selection(reviews: &[Review]) -> usize {
@@ -101,8 +118,8 @@ pub(super) fn default_outcome(classification: Classification) -> Option<Outcome>
 }
 
 impl ImportReview {
-    /// Opens the review over a staged batch. Focus starts in the document
-    /// list.
+    /// Opens the review over a staged batch. Focus starts on the selected
+    /// document's row.
     pub fn new(
         staging: ImportStaging,
         store: Entity<LibraryStore>,
@@ -124,12 +141,16 @@ impl ImportReview {
             controls: BTreeMap::new(),
             technical: DisclosureState::new(cx),
             busy: false,
+            restaging: false,
+            row_focus: cx.focus_handle().tab_stop(true),
+            cancel_focus: cx.focus_handle().tab_stop(true),
+            refocus: Some(Refocus::Row),
             overlays: None,
             compare: None,
             refusal: None,
             generation: 0,
-            pending: None,
-            focus: cx.focus_handle(),
+            commit_task: None,
+            restage_task: None,
         }
     }
 
@@ -159,7 +180,7 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (Some(host), None) = (self.overlays.clone(), &self.compare) else {
+        let (Some(host), None, None) = (self.overlays.clone(), &self.compare, self.held()) else {
             return;
         };
         let weak = cx.weak_entity();
@@ -189,7 +210,7 @@ impl ImportReview {
     /// Whether **Import approved** can be taken: every decision is made,
     /// something would change, and no commit is in flight.
     pub fn can_commit(&self) -> bool {
-        !self.busy && can_commit(&self.staging.reviews, &self.choices)
+        self.held().is_none() && can_commit(&self.staging.reviews, &self.choices)
     }
 
     /// The staged documents, in file order.
@@ -210,6 +231,31 @@ impl ImportReview {
     /// Whether a commit is in flight.
     pub fn busy(&self) -> bool {
         self.busy
+    }
+
+    /// Whether the documents are being classified again.
+    pub fn restaging(&self) -> bool {
+        self.restaging
+    }
+
+    /// Why decisions, removal, Compare and Cancel import wait right now, or
+    /// `None` when the review is at rest.
+    pub(super) fn held(&self) -> Option<&'static str> {
+        if self.busy {
+            Some(IMPORTING)
+        } else if self.restaging {
+            Some(UPDATING)
+        } else {
+            None
+        }
+    }
+
+    /// Takes the focus the last change asked for.
+    pub(super) fn take_refocus(&mut self) -> Option<FocusHandle> {
+        self.refocus.take().map(|target| match target {
+            Refocus::Row => self.row_focus.clone(),
+            Refocus::Cancel => self.cancel_focus.clone(),
+        })
     }
 
     pub(super) fn review_of(&self, index: usize) -> Option<&DocumentReview> {
@@ -236,7 +282,7 @@ impl ImportReview {
 
     /// Shows document `index` on the right.
     pub(super) fn select(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index < self.staging.documents.len() && index != self.selected {
+        if !self.restaging && index < self.staging.documents.len() && index != self.selected {
             self.selected = index;
             self.technical.set_expanded(false, cx);
             cx.notify();
@@ -267,6 +313,9 @@ impl ImportReview {
         index: usize,
         cx: &mut Context<Self>,
     ) {
+        if self.held().is_some() {
+            return;
+        }
         let outcome = self
             .review_of(document)
             .and_then(|review| review.arrangements.get(arrangement))
@@ -289,6 +338,9 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.held().is_some() {
+            return;
+        }
         self.choices.songs.insert(document, choice);
         self.choices
             .arrangements
@@ -301,13 +353,7 @@ impl ImportReview {
     }
 
     /// The Song a candidate index of the identity block stands for.
-    pub(super) fn song_choice_at(
-        &self,
-        document: usize,
-        candidates: &[SongId],
-        index: usize,
-    ) -> Option<SongChoice> {
-        let _ = document;
+    pub(super) fn song_choice_at(candidates: &[SongId], index: usize) -> Option<SongChoice> {
         match index.checked_sub(candidates.len()) {
             None => candidates.get(index).copied().map(SongChoice::Existing),
             Some(0) => Some(SongChoice::New),
@@ -317,31 +363,40 @@ impl ImportReview {
     }
 
     /// **Remove from review**: drops the document and classifies the rest
-    /// again.
+    /// again. Refused while a commit or a restage is in flight, so it never
+    /// works from a document list that is about to be replaced.
     pub(super) fn remove(&mut self, document: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy || document >= self.staging.documents.len() {
+        if self.held().is_some() || document >= self.staging.documents.len() {
             return;
         }
         let mut documents = self.staging.documents.clone();
         documents.remove(document);
-        let shift = |index: usize| if index > document { index - 1 } else { index };
-        self.choices.songs = std::mem::take(&mut self.choices.songs)
-            .into_iter()
-            .filter(|(index, _)| *index != document)
-            .map(|(index, choice)| (shift(index), choice))
-            .collect();
-        self.choices.arrangements = std::mem::take(&mut self.choices.arrangements)
-            .into_iter()
-            .filter(|((index, _), _)| *index != document)
-            .map(|((index, at), outcome)| ((shift(index), at), outcome))
-            .collect();
-        self.controls.clear();
+        self.remap(|index| match index.cmp(&document) {
+            std::cmp::Ordering::Less => Some(index),
+            std::cmp::Ordering::Equal => None,
+            std::cmp::Ordering::Greater => Some(index - 1),
+        });
         self.selected = self.selected.min(documents.len().saturating_sub(1));
         if self.selected > document {
             self.selected -= 1;
         }
         self.refusal = None;
+        self.refocus = Some(Refocus::Row);
         self.restage(documents, window, cx);
+    }
+
+    /// Moves every decision to where its document now stands; `map` gives the
+    /// new index of an old one, or `None` when the document is gone.
+    fn remap(&mut self, map: impl Fn(usize) -> Option<usize>) {
+        self.choices.songs = std::mem::take(&mut self.choices.songs)
+            .into_iter()
+            .filter_map(|(index, choice)| map(index).map(|index| (index, choice)))
+            .collect();
+        self.choices.arrangements = std::mem::take(&mut self.choices.arrangements)
+            .into_iter()
+            .filter_map(|((index, at), outcome)| map(index).map(|index| ((index, at), outcome)))
+            .collect();
+        self.controls.clear();
     }
 
     /// **Choose another file**: asks for one file and, when one is picked,
@@ -352,14 +407,16 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy {
+        if self.held().is_some() {
             return;
         }
         self.generation += 1;
         let generation = self.generation;
+        // The pick is part of the restage: decisions wait for it too.
+        self.restaging = true;
         let pick = self.picker.pick(false, cx);
         let weak = cx.weak_entity();
-        self.pending = Some(window.spawn(cx, async move |cx| {
+        self.restage_task = Some(window.spawn(cx, async move |cx| {
             let paths = pick.await;
             cx.update(|window, cx| {
                 let _ = weak.update(cx, |review, cx| {
@@ -368,6 +425,7 @@ impl ImportReview {
             })
             .ok();
         }));
+        cx.notify();
     }
 
     fn picked(
@@ -378,17 +436,20 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(path) = paths.and_then(|paths| paths.into_iter().next()) else {
-            return;
-        };
         if generation != self.generation {
             return;
         }
+        let Some(path) = paths.and_then(|paths| paths.into_iter().next()) else {
+            self.restaging = false;
+            self.restage_task = None;
+            cx.notify();
+            return;
+        };
         let staged = self
             .store
             .update(cx, |store, cx| store.stage_import(vec![path], cx));
         let weak = cx.weak_entity();
-        self.pending = Some(window.spawn(cx, async move |cx| {
+        self.restage_task = Some(window.spawn(cx, async move |cx| {
             let staging = staged.await;
             cx.update(|window, cx| {
                 let _ = weak.update(cx, |review, cx| {
@@ -407,25 +468,48 @@ impl ImportReview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(new) = staging.documents.into_iter().next() else {
-            return;
-        };
-        if generation != self.generation || document >= self.staging.documents.len() {
+        if generation != self.generation {
             return;
         }
-        let mut documents = self.staging.documents.clone();
-        documents[document] = new;
-        self.choices.songs.remove(&document);
-        self.choices
-            .arrangements
-            .retain(|(owner, _), _| *owner != document);
-        self.controls.retain(|(owner, _), _| *owner != document);
+        let new = staging.documents.into_iter().next();
+        let (Some(new), true) = (new, document < self.staging.documents.len()) else {
+            self.restaging = false;
+            self.restage_task = None;
+            cx.notify();
+            return;
+        };
+        // The list stays in file order, as a fresh staging would have it, so
+        // the replacement lands where its name sorts; every other decision
+        // follows its document.
+        let mut tagged: Vec<(Option<usize>, StagedDocument)> = self
+            .staging
+            .documents
+            .iter()
+            .cloned()
+            .enumerate()
+            .filter(|(index, _)| *index != document)
+            .map(|(index, document)| (Some(index), document))
+            .collect();
+        tagged.push((None, new));
+        tagged.sort_by(|a, b| a.1.source.cmp(&b.1.source));
+        let mut forward = vec![None; self.staging.documents.len()];
+        let mut landed = 0;
+        for (at, (old, _)) in tagged.iter().enumerate() {
+            match old {
+                Some(old) => forward[*old] = Some(at),
+                None => landed = at,
+            }
+        }
+        self.remap(|index| forward.get(index).copied().flatten());
+        self.selected = landed;
+        let documents = tagged.into_iter().map(|(_, document)| document).collect();
         self.refusal = None;
+        self.refocus = Some(Refocus::Row);
         self.restage(documents, window, cx);
     }
 
     /// Classifies `documents` again off the GPUI thread. Only the newest
-    /// answer is applied.
+    /// answer is applied; decisions wait until it is.
     fn restage(
         &mut self,
         documents: Vec<StagedDocument>,
@@ -434,12 +518,13 @@ impl ImportReview {
     ) {
         self.generation += 1;
         let generation = self.generation;
+        self.restaging = true;
         let songs = self.choices.songs.clone();
         let task = self
             .store
             .update(cx, |store, cx| store.reclassify(documents, songs, cx));
         let weak = cx.weak_entity();
-        self.pending = Some(window.spawn(cx, async move |cx| {
+        self.restage_task = Some(window.spawn(cx, async move |cx| {
             let staging = task.await;
             cx.update(|_, cx| {
                 let _ = weak.update(cx, |review, cx| review.apply(generation, staging, cx));
@@ -471,11 +556,34 @@ impl ImportReview {
         if self.selected >= self.staging.documents.len() {
             self.selected = self.staging.documents.len().saturating_sub(1);
         }
-        self.pending = None;
+        if self.staging.documents.is_empty() && self.refocus.is_some() {
+            self.refocus = Some(Refocus::Cancel);
+        }
+        self.restaging = false;
+        self.restage_task = None;
         cx.notify();
     }
 
+    /// Closes the surface this review opened (the comparison), if any. Run
+    /// from outside the review's own update: closing hands focus back and
+    /// calls `compare_closed`, which updates the review.
+    pub(super) fn close_surfaces(
+        weak: &gpui::WeakEntity<Self>,
+        window: &mut Window,
+        cx: &mut gpui::App,
+    ) {
+        let open = weak.read_with(cx, |review, _| (review.overlays.clone(), review.compare_id()));
+        if let Ok((Some(host), Some(id))) = open {
+            host.close(id, window, cx);
+        }
+    }
+
     /// **Import approved**: writes every approved change in one update.
+    ///
+    /// A refusal stays in the footer. When it says the Library moved on, the
+    /// documents are classified again at once, so the operator re-decides
+    /// against what is there now; any other refusal leaves the review as it
+    /// was.
     pub fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_commit() {
             return;
@@ -486,14 +594,23 @@ impl ImportReview {
             store.commit_import(&self.staging, self.choices.clone(), cx)
         });
         let weak = cx.weak_entity();
-        self.pending = Some(window.spawn(cx, async move |cx| {
+        self.commit_task = Some(window.spawn(cx, async move |cx| {
             let result = task.await;
-            cx.update(|_, cx| {
+            cx.update(|window, cx| {
+                Self::close_surfaces(&weak, window, cx);
                 let _ = weak.update(cx, |review, cx| {
                     review.busy = false;
+                    review.commit_task = None;
                     match result {
                         Ok(outcome) => cx.emit(ImportReviewEvent::Committed(outcome)),
-                        Err(message) => review.refusal = Some(message),
+                        Err(message) => {
+                            let stale = message.as_ref() == STALE_IMPORT;
+                            review.refusal = Some(message);
+                            if stale {
+                                let documents = review.staging.documents.clone();
+                                review.restage(documents, window, cx);
+                            }
+                        }
                     }
                     cx.notify();
                 });
@@ -504,13 +621,16 @@ impl ImportReview {
     }
 
     /// **Cancel import**: discards the staging. Nothing has been written, so
-    /// nothing is asked.
+    /// nothing is asked. Refused while a commit or a restage is in flight.
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        self.pending = None;
+        if self.held().is_some() {
+            return;
+        }
         cx.emit(ImportReviewEvent::Cancelled);
     }
 
-    /// Whether document `index` is one the operator has not yet decided.
+    /// Whether document `index` is a valid Ordo document (an invalid file has
+    /// nothing to decide).
     pub(super) fn is_staged_valid(&self, index: usize) -> bool {
         matches!(
             self.staging.documents.get(index).map(|d| &d.content),

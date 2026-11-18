@@ -31,12 +31,14 @@ fn blocked(review: &ImportReview) -> Option<&'static str> {
 
 /// The header: **Cancel import**, the trail and title, and the reassurance.
 pub(super) fn header(
+    review: &ImportReview,
     region: Stateful<Div>,
     environment: UiEnvironment,
     cx: &mut Context<ImportReview>,
 ) -> AnyElement {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
+    let weak = cx.weak_entity();
     region
         .flex_none()
         .flex()
@@ -54,7 +56,14 @@ pub(super) fn header(
                 .quiet()
                 .tooltip("Cancel import")
                 .on_surface(palette.surface)
-                .on_activate(ImportReview::act(cx, |review, _, cx| review.cancel(cx))),
+                .track_focus(&review.cancel_focus)
+                .availability(review.held().map_or(Availability::Available, Availability::unavailable))
+                .on_activate(move |window, cx| {
+                    // Close the comparison first, outside the review's own
+                    // update: closing it calls back into the review.
+                    ImportReview::close_surfaces(&weak, window, cx);
+                    let _ = weak.update(cx, |review, cx| review.cancel(cx));
+                }),
         )
         .child(
             div()
@@ -93,20 +102,13 @@ pub(super) fn footer(
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     let summary = evidence::summary(&review.tally());
-    let availability = if review.busy {
-        Availability::Disabled
-    } else {
-        blocked(review).map_or(Availability::Available, Availability::unavailable)
-    };
-    let commit = Button::new(
-        "import-approved",
-        if review.busy {
-            "Importing\u{2026}"
-        } else {
-            "Import approved"
-        },
-        environment,
-    )
+    // Unavailable, not Disabled: the button keeps its label and its place in
+    // the tab order, so focus is not lost while the import runs.
+    let availability = review
+        .held()
+        .or_else(|| blocked(review))
+        .map_or(Availability::Available, Availability::unavailable);
+    let commit = Button::new("import-approved", "Import approved", environment)
     .icon(icon::CHECK)
     .tone(Tone::Primary)
     .on_surface(palette.surface)

@@ -22,6 +22,16 @@ pub(super) fn join_and(items: &[String]) -> String {
     }
 }
 
+/// "a", "a and b", "a, b and c": the plain list a Song's matching aspects
+/// read as, where [join_and] is for lists of differences.
+pub(super) fn join_plain(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 fn capitalised(text: &str) -> String {
     let mut chars = text.chars();
     chars.next().map_or_else(String::new, |first| {
@@ -77,6 +87,7 @@ fn song_why(
 ) -> String {
     let title = song.map_or("this Song", SongWork::title);
     let mut aspects: Vec<String> = Vec::new();
+    let mut aliases: Vec<String> = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     for item in evidence {
         match item {
@@ -91,19 +102,30 @@ fn song_why(
                 existing_on,
                 ..
             } => {
-                let aspect = match (candidate_on, existing_on) {
-                    (MatchedOn::Title, MatchedOn::Title) => "title".to_owned(),
-                    (_, MatchedOn::Alias(at)) => song
-                        .and_then(|song| song.aliases().get(*at))
-                        .map_or_else(|| "alias".to_owned(), |alias| format!("alias {alias}")),
-                    (MatchedOn::Alias(at), _) => document
-                        .song
-                        .aliases
-                        .get(*at)
-                        .map_or_else(|| "alias".to_owned(), |alias| format!("alias {alias}")),
+                // A matching alias is named on its own, not listed among the
+                // aspects: "the alias X" reads as a name, not as a field.
+                let (aspect, alias) = match (candidate_on, existing_on) {
+                    (MatchedOn::Title, MatchedOn::Title) => ("title".to_owned(), None),
+                    (_, MatchedOn::Alias(at)) => (
+                        "alias".to_owned(),
+                        song.and_then(|song| song.aliases().get(*at)).cloned(),
+                    ),
+                    (MatchedOn::Alias(at), _) => (
+                        "alias".to_owned(),
+                        document.song.aliases.get(*at).cloned(),
+                    ),
                 };
-                if !aspects.contains(&aspect) {
-                    aspects.push(aspect);
+                match alias {
+                    Some(alias) => {
+                        if !aliases.contains(&alias) {
+                            aliases.push(alias);
+                        }
+                    }
+                    None => {
+                        if !aspects.contains(&aspect) {
+                            aspects.push(aspect);
+                        }
+                    }
                 }
             }
             SongEvidence::SameAttribution => aspects.push("composer".to_owned()),
@@ -115,16 +137,38 @@ fn song_why(
         }
     }
     let mut sentences = Vec::new();
-    if !aspects.is_empty() {
-        let verb = if aspects.len() == 1 {
-            "matches"
+    let alias_clause = |lead: &str| {
+        let (noun, verb) = if aliases.len() == 1 {
+            ("alias", "matches")
         } else {
-            "match"
+            ("aliases", "match")
         };
-        sentences.push(format!(
-            "{} {verb} {title}.",
-            capitalised(&join_and(&aspects))
-        ));
+        (!aliases.is_empty()).then(|| format!("{lead} {noun} {} {verb}", join_plain(&aliases)))
+    };
+    match (aspects.is_empty(), aliases.is_empty()) {
+        (false, true) => {
+            let verb = if aspects.len() == 1 { "matches" } else { "match" };
+            sentences.push(format!(
+                "{} {verb} {title}.",
+                capitalised(&join_plain(&aspects))
+            ));
+        }
+        (false, false) => {
+            let verb = if aspects.len() == 1 { "matches" } else { "match" };
+            let also = if aliases.len() == 1 { "matches" } else { "match" };
+            sentences.push(format!(
+                "{} {verb} {title}; the {} {} also {also}.",
+                capitalised(&join_plain(&aspects)),
+                if aliases.len() == 1 { "alias" } else { "aliases" },
+                join_plain(&aliases),
+            ));
+        }
+        (true, false) => {
+            if let Some(clause) = alias_clause("The") {
+                sentences.push(format!("{clause} {title}."));
+            }
+        }
+        (true, true) => {}
     }
     sentences.extend(lines);
     sentences.join(" ")

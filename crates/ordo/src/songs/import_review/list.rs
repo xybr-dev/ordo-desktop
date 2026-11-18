@@ -99,6 +99,7 @@ pub(super) fn render(
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     let count = review.staging.documents.len();
+    let row_focus = review.row_focus.clone();
     let rows = (0..count)
         .map(|index| {
             let title = title_of(review, index);
@@ -113,14 +114,19 @@ pub(super) fn render(
             };
             let select = ImportReview::act(cx, move |review, _, cx| review.select(index, cx));
             let key = ImportReview::act(cx, move |review, _, cx| review.select(index, cx));
-            let row = div()
-                .id(("import-document", index))
+            let row = div().id(("import-document", index));
+            // The selected row carries the review's handle, so focus can land
+            // on it after a removal; the others stay ordinary Tab stops.
+            let row = if selected {
+                row.track_focus(&row_focus)
+            } else {
+                row.focusable().tab_stop(true)
+            };
+            let row = row
                 .debug_selector(move || format!("import-doc-{index}"))
                 .role(Role::ListItem)
                 .aria_label(name)
                 .aria_selected(selected)
-                .focusable()
-                .tab_stop(true)
                 .flex_none()
                 .flex()
                 .flex_col()

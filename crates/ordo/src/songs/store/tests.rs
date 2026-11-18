@@ -2820,7 +2820,38 @@ fn read_md(
     path: std::path::PathBuf,
 ) -> domain::song_library::import::MarkdownDraft {
     let task = store.update(cx, |store, cx| store.read_markdown(path, cx));
-    run(cx, task).expect("read")
+    run(cx, task).expect("read").draft
+}
+
+#[gpui::test]
+fn a_markdown_file_is_read_once_with_its_name_and_bytes(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-md-once");
+    let files = temp_dir("store-md-once-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let path = markdown_file(&files, "ave.md", AVE_VERUM);
+    let task = store.update(cx, |store, cx| store.read_markdown(path, cx));
+    let read = run(cx, task).expect("read");
+    assert_eq!(read.name, "ave.md");
+    assert_eq!(read.bytes, AVE_VERUM.as_bytes());
+    assert_eq!(read.draft.document.song.title, "Ave Verum");
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
+fn a_markdown_file_over_the_limit_is_refused_as_unreadable(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-md-limit");
+    let files = temp_dir("store-md-limit-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let big = "a".repeat(usize::try_from(crate::songs::store::MARKDOWN_LIMIT).unwrap_or(0) + 1);
+    let path = markdown_file(&files, "huge.md", &big);
+    let task = store.update(cx, |store, cx| store.read_markdown(path, cx));
+    let refusal = run(cx, task).expect_err("over the limit");
+    assert_eq!(refusal, "Couldn't read huge.md.");
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
 }
 
 fn save_md(

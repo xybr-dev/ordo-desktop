@@ -46,7 +46,9 @@ struct Block {
     evidence: String,
     notes: Vec<String>,
     update: String,
-    review: domain::song_library::import::ArrangementReview,
+    classification: Classification,
+    offered: Vec<Outcome>,
+    recommended: Option<Outcome>,
 }
 
 fn plural(count: usize, one: &str, many: &str) -> String {
@@ -276,13 +278,18 @@ fn invalid(
         .flex_col()
         .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
         .children(lines.into_iter().map(|line| meta(line, environment)));
+    let held = review
+        .held()
+        .map_or(Availability::Available, Availability::unavailable);
     let remove = Button::new("import-remove", "Remove from review", environment)
         .on_surface(palette.background)
+        .availability(held.clone())
         .on_activate(ImportReview::act(cx, move |review, window, cx| {
             review.remove(index, window, cx);
         }));
     let another = Button::new("import-choose-another", "Choose another file", environment)
         .on_surface(palette.background)
+        .availability(held)
         .on_activate(ImportReview::act(cx, move |review, window, cx| {
             review.choose_another(index, window, cx);
         }));
@@ -340,28 +347,34 @@ fn invalid(
         .into_any_element()
 }
 
-#[allow(clippy::too_many_lines)] // one pane: the cards, the evidence and the blocks read top to bottom
-fn valid(
-    review: &mut ImportReview,
-    index: usize,
-    environment: UiEnvironment,
-    cx: &mut Context<ImportReview>,
-) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
+/// Everything the `valid` pane shows, composed from borrows of the review and
+/// the Library and returned as small owned pieces, so no document is cloned
+/// and the controls can then borrow the review mutably.
+struct Facts {
+    imported_title: String,
+    imported_meta: String,
+    notes: Vec<String>,
+    library_card: (String, String),
+    lead: Option<(&'static str, String)>,
+    needs_decision: bool,
+    awaiting: bool,
+    skipped: bool,
+    preview_only: bool,
+    blocks: Vec<Block>,
+    candidates: Vec<(SongId, Card)>,
+    archived_note: Option<String>,
+}
+
+/// Composes [`Facts`] for document `index`; `None` when it is not a valid one.
+fn compose(review: &ImportReview, index: usize, cx: &gpui::App) -> Option<Facts> {
     let (Some(Staged::Valid(imported)), Some(Review::Valid(document))) = (
-        review
-            .staging
-            .documents
-            .get(index)
-            .map(|d| d.content.clone()),
-        review.staging.reviews.get(index).cloned(),
+        review.staging.documents.get(index).map(|d| &d.content),
+        review.staging.reviews.get(index),
     ) else {
-        return div().into_any_element();
+        return None;
     };
     let chosen = review.choices.songs.get(&index).copied();
-    let store = review.store.clone();
-    let library = store.read(cx).library();
+    let library = review.store.read(cx).library();
     let target: Option<SongId> = match (chosen, &document.identity) {
         (Some(SongChoice::Existing(song)), _) => Some(song),
         (Some(_), _) => None,
@@ -405,7 +418,7 @@ fn valid(
             (Some(_), _) => SongIdentity::New,
             (None, identity) => identity.clone(),
         };
-        Some(evidence::song_sentence(&identity, &imported, library))
+        Some(evidence::song_sentence(&identity, imported, library))
     };
     let blocks: Vec<Block> = document
         .arrangements
@@ -417,31 +430,72 @@ fn valid(
             evidence: evidence::arrangement_sentence(arrangement, library),
             notes: source.warnings.clone(),
             update: update_text(library, arrangement.nearest),
-            review: arrangement.clone(),
+            classification: arrangement.classification,
+            offered: arrangement.offered.clone(),
+            recommended: arrangement.recommended,
         })
         .collect();
-    let candidates: Vec<(SongId, Card)> = match &document.identity {
+    let (candidates, archived_note) = match &document.identity {
         SongIdentity::NeedsDecision {
             candidates,
             archived,
-        } => candidates
-            .iter()
-            .filter(|(song, _)| Some(*song) != *archived)
-            .filter_map(|(song, _)| song_card(library, *song).map(|card| (*song, card)))
-            .collect(),
-        _ => Vec::new(),
+        } => (
+            candidates
+                .iter()
+                .filter(|(song, _)| Some(*song) != *archived)
+                .filter_map(|(song, _)| song_card(library, *song).map(|card| (*song, card)))
+                .collect(),
+            archived.and_then(|song| library.song(song).ok()).map(|work| {
+                format!("{} is archived. Restore it to attach to it.", work.title())
+            }),
+        ),
+        _ => (Vec::new(), None),
     };
-    let archived_note = match &document.identity {
-        SongIdentity::NeedsDecision {
-            archived: Some(song),
-            ..
-        } => library
-            .song(*song)
-            .ok()
-            .map(|work| format!("{} is archived. Restore it to attach to it.", work.title())),
-        _ => None,
+    let count = plural(imported.arrangements.len(), "Arrangement", "Arrangements");
+    Some(Facts {
+        imported_title: imported.song.title.clone(),
+        imported_meta: match &imported.song.original_attribution {
+            Some(by) => format!("{by} \u{b7} {count}"),
+            None => count,
+        },
+        notes: imported.warnings.clone(),
+        library_card,
+        lead,
+        needs_decision: matches!(document.identity, SongIdentity::NeedsDecision { .. }),
+        awaiting,
+        skipped,
+        preview_only: target.is_none(),
+        blocks,
+        candidates,
+        archived_note,
+    })
+}
+
+fn valid(
+    review: &mut ImportReview,
+    index: usize,
+    environment: UiEnvironment,
+    cx: &mut Context<ImportReview>,
+) -> AnyElement {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    let Some(facts) = compose(review, index, cx) else {
+        return div().into_any_element();
     };
-    let preview_only = target.is_none();
+    let Facts {
+        imported_title,
+        imported_meta,
+        notes,
+        library_card,
+        lead,
+        needs_decision,
+        awaiting,
+        skipped,
+        preview_only,
+        blocks,
+        candidates,
+        archived_note,
+    } = facts;
 
     let mut column = div()
         .flex()
@@ -454,15 +508,8 @@ fn valid(
                 .child(card(
                     "import-card-imported",
                     "Imported document",
-                    imported.song.title.clone(),
-                    {
-                        let count =
-                            plural(imported.arrangements.len(), "Arrangement", "Arrangements");
-                        match &imported.song.original_attribution {
-                            Some(by) => format!("{by} \u{b7} {count}"),
-                            None => count,
-                        }
-                    },
+                    imported_title,
+                    imported_meta,
                     environment,
                 ))
                 .child(card(
@@ -495,7 +542,7 @@ fn valid(
                 ),
         );
     }
-    if matches!(document.identity, SongIdentity::NeedsDecision { .. }) {
+    if needs_decision {
         column = column.child(identity_block(
             review,
             index,
@@ -511,14 +558,11 @@ fn valid(
             index,
             at,
             block,
-            awaiting,
-            skipped,
-            preview_only,
+            (awaiting, skipped, preview_only),
             environment,
             cx,
         ));
     }
-    let notes = imported.warnings.clone();
     if !notes.is_empty() {
         column = column.child(notes_block(&notes, environment));
     }
@@ -583,11 +627,15 @@ fn identity_block(
     )
     .on_select(move |at, window, cx| {
         let _ = weak.update(cx, |review, cx| {
-            if let Some(choice) = review.song_choice_at(index, &ids, at) {
+            if let Some(choice) = ImportReview::song_choice_at(&ids, at) {
                 review.choose_song(index, choice, window, cx);
             }
         });
     });
+    let group = match review.held() {
+        Some(reason) => group.unavailable(reason),
+        None => group,
+    };
     div()
         .debug_selector(|| "import-identity".into())
         .flex()
@@ -598,23 +646,21 @@ fn identity_block(
         .child(group)
 }
 
-#[allow(clippy::too_many_arguments)] // one block of the pane, built from the pane's facts
 fn arrangement_block(
     review: &mut ImportReview,
     index: usize,
     at: usize,
     block: Block,
-    awaiting: bool,
-    skipped: bool,
-    preview_only: bool,
+    (awaiting, skipped, preview_only): (bool, bool, bool),
     environment: UiEnvironment,
     cx: &mut Context<ImportReview>,
 ) -> Div {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    let classification = block.review.classification;
-    let offered = block.review.offered.clone();
-    let recommended = block.review.recommended;
+    let classification = block.classification;
+    let offered = block.offered.clone();
+    let recommended = block.recommended;
+    let held = review.held();
     let current: Option<Outcome> = review
         .choices
         .arrangements
@@ -651,21 +697,22 @@ fn arrangement_block(
         let made = position(review_choice(review, index, at));
         let state = review.control((index, Some(at)), || (labels, made), cx);
         let weak = cx.weak_entity();
-        Some(
-            RadioGroup::new(
-                ("import-outcome", index * 1000 + at),
-                "Outcome",
-                options,
-                &state,
-                environment,
-            )
-            .on_select(move |choice, _, cx| {
-                let _ = weak.update(cx, |review, cx| {
-                    review.choose_outcome(index, at, choice, cx);
-                });
-            })
-            .into_any_element(),
+        let group = RadioGroup::new(
+            ("import-outcome", index * 1000 + at),
+            "Outcome",
+            options,
+            &state,
+            environment,
         )
+        .on_select(move |choice, _, cx| {
+            let _ = weak.update(cx, |review, cx| {
+                review.choose_outcome(index, at, choice, cx);
+            });
+        });
+        Some(match held {
+            Some(reason) => group.unavailable(reason).into_any_element(),
+            None => group.into_any_element(),
+        })
     } else {
         let labels: Vec<Choice> = offered
             .iter()
@@ -673,27 +720,45 @@ fn arrangement_block(
             .collect();
         let state = review.control((index, Some(at)), || (labels, position(current)), cx);
         let weak = cx.weak_entity();
+        // While the review waits, the Select becomes a Button that names the
+        // current action and says why it cannot change; a Select would stay
+        // openable.
+        let action: AnyElement = match held {
+            Some(reason) => {
+                let current = position(current)
+                    .and_then(|at| offered.get(at))
+                    .map_or("None", |outcome| outcome_label(*outcome, classification));
+                Button::new(
+                    ("import-staged-action", index * 1000 + at),
+                    format!("Staged action: {current}"),
+                    environment,
+                )
+                .on_surface(palette.background)
+                .availability(Availability::unavailable(reason))
+                .into_any_element()
+            }
+            None => Select::new(
+                ("import-staged-action", index * 1000 + at),
+                "Staged action",
+                &state,
+                environment,
+            )
+            .on_select(move |choice, _, cx| {
+                if let Some(choice) = choice {
+                    let _ = weak.update(cx, |review, cx| {
+                        review.choose_outcome(index, at, choice, cx);
+                    });
+                }
+            })
+            .into_any_element(),
+        };
         Some(
             div()
                 .flex()
                 .items_center()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .child(label_text("Staged action", environment))
-                .child(
-                    Select::new(
-                        ("import-staged-action", index * 1000 + at),
-                        "Staged action",
-                        &state,
-                        environment,
-                    )
-                    .on_select(move |choice, _, cx| {
-                        if let Some(choice) = choice {
-                            let _ = weak.update(cx, |review, cx| {
-                                review.choose_outcome(index, at, choice, cx);
-                            });
-                        }
-                    }),
-                )
+                .child(action)
                 .into_any_element(),
         )
     };
@@ -711,7 +776,7 @@ fn arrangement_block(
     .availability(if awaiting {
         Availability::Disabled
     } else {
-        Availability::Available
+        held.map_or(Availability::Available, Availability::unavailable)
     })
     .on_activate(ImportReview::act(cx, move |review, window, cx| {
         review.open_compare(index, at, window, cx);

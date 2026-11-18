@@ -366,7 +366,7 @@ fn ac5_a_song_identity_decision_is_made_once_for_the_document(cx: &mut TestAppCo
     assert_eq!(chips(&rig, cx), ["Needs decision"]);
     assert!(present(cx, "import-identity"));
     assert!(!rig.review.read_with(cx, |r, _| r.can_commit()));
-    click(cx, "radio-0");
+    click(cx, "radio-import-song-choice-0-0");
     wait(cx, |cx| {
         rig.review.read_with(cx, |r, _| {
             !r.busy()
@@ -398,9 +398,18 @@ fn ac5_arrangement_outcomes_wait_for_the_song_choice(cx: &mut TestAppContext) {
             "nothing is offered before the Song is chosen"
         );
     });
-    assert!(!present(cx, "radio-1") || !present(cx, "import-compare"));
-    // Add as a new Song: the second-to-last option, after the one candidate.
-    click(cx, "radio-1");
+    // No Outcome is offered, and Compare is not available, until the Song is chosen.
+    assert!(!present(cx, "radio-import-outcome-0-0"));
+    assert!(!present(cx, "radio-import-outcome-0-1"));
+    if present(cx, "button-Compare contents") {
+        click(cx, "button-Compare contents");
+    }
+    assert!(
+        rig.review.read_with(cx, |review, _| review.compare().is_none()),
+        "Compare does nothing before the Song is chosen"
+    );
+    // Add as a new Song: the option after the one candidate.
+    click(cx, "radio-import-song-choice-0-1");
     wait(cx, |cx| {
         rig.review.read_with(cx, |r, _| {
             !r.busy()
@@ -431,10 +440,14 @@ fn ac7_a_near_duplicate_offers_add_as_new_update_existing_or_skip_with_recommend
             [Outcome::AddAsNew, Outcome::Skip, Outcome::UpdateExisting]
         );
     });
-    for selector in ["radio-0", "radio-1", "radio-2"] {
+    for selector in [
+        "radio-import-outcome-0-0",
+        "radio-import-outcome-0-1",
+        "radio-import-outcome-0-2",
+    ] {
         assert!(present(cx, selector), "{selector}");
     }
-    assert!(!present(cx, "radio-3"));
+    assert!(!present(cx, "radio-import-outcome-0-3"));
     assert_eq!(chips(&rig, cx), ["Needs decision"]);
     rig.finish(cx);
 }
@@ -477,7 +490,7 @@ fn ac8_import_approved_is_disabled_until_every_decision_is_made(cx: &mut TestApp
     );
     assert_eq!(rig.song_arrangements(cx, song_id(1)), before);
     // Decide: the first offered option.
-    click(cx, "radio-0");
+    click(cx, "radio-import-outcome-0-0");
     assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
     click(cx, "button-Import approved");
     wait(cx, |_| !rig.events.borrow().is_empty());

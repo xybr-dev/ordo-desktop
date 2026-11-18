@@ -6,7 +6,6 @@ use domain::{
     identity::SongId,
     pagination::slides,
     song_library::{
-        SongLibrary,
         import::{ImportArrangement, SequenceEntry},
         position_label,
     },
@@ -27,6 +26,7 @@ use ui::{
 };
 
 use super::MarkdownDraftView;
+use crate::songs::sequence::readiness::NO_SECTIONS;
 use domain::song_library::import::SongChoice;
 
 /// Section headings (Decision 24).
@@ -34,8 +34,6 @@ pub(super) const SONG: &str = "Song";
 pub(super) const ARRANGEMENT: &str = "Arrangement";
 pub(super) const PREVIEW: &str = "Preview";
 
-/// The line under a nested Song preview.
-const EXISTING_PREVIEW: &str = "Existing Song \u{b7} preview only";
 /// The empty value of a read-only row.
 const NONE: &str = "\u{2014}";
 /// Between two slides of one section, as the comparison words it.
@@ -313,138 +311,26 @@ fn identity(
         .into_any_element()
 }
 
-/// The nested, identity-only preview of an existing Song, with **Back** and
-/// **Use this existing Song**. An archived Song cannot take an Arrangement,
-/// so its preview offers Back only.
+/// The nested, identity-only preview of an existing Song (the shared New Song
+/// preview), with **Back** and **Use this existing Song**.
 pub(super) fn overlay(
     view: &MarkdownDraftView,
     song: SongId,
     cx: &mut Context<MarkdownDraftView>,
 ) -> Option<Overlay> {
-    let library = view.store.read(cx).library();
-    let work = library.song(song).ok()?;
-    let title = work.title().to_owned();
-    let archived = work.is_archived();
-    let facts = Facts::of(library, song)?;
     let weak = cx.weak_entity();
     let closed = cx.weak_entity();
-    let description = if archived {
-        format!("{title} is archived. Restore it to attach to it.")
-    } else {
-        EXISTING_PREVIEW.to_owned()
-    };
-    let overlay = Overlay::slideover(title)
-        .description(description)
-        .body(move |environment, _, _| render_facts(&facts, environment))
-        .secondary("Back", |_, _| {})
-        .on_close(move |_, cx| {
-            let _ = closed.update(cx, |view, cx| view.preview_closed(cx));
-        });
-    Some(if archived {
-        overlay
-    } else {
-        overlay.primary("Use this existing Song", move |_, cx| {
+    crate::songs::new_song::song_overlay(
+        view.store.clone(),
+        song,
+        move |_, cx| {
             let _ = weak.update(cx, |view, cx| view.use_existing_song(song, cx));
-        })
-    })
-}
-
-/// The Song text the nested preview shows.
-struct Facts {
-    composer: String,
-    aliases: String,
-    moments: String,
-    arrangements: Vec<(String, String)>,
-}
-
-impl Facts {
-    fn of(library: &SongLibrary, song: SongId) -> Option<Self> {
-        let work = library.song(song).ok()?;
-        let arrangements = library
-            .arrangements_for_song(song)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|arrangement| {
-                let choirs = arrangement
-                    .choirs()
-                    .iter()
-                    .filter_map(|id| library.choir(*id).ok())
-                    .map(|choir| choir.name().to_owned())
-                    .collect::<Vec<_>>();
-                let choirs = if choirs.is_empty() {
-                    "Choir unspecified".to_owned()
-                } else {
-                    choirs.join(", ")
-                };
-                let languages = arrangement.languages().join(", ");
-                let summary = if languages.is_empty() {
-                    choirs
-                } else {
-                    format!("{languages} \u{b7} {choirs}")
-                };
-                (
-                    library
-                        .arrangement_label(arrangement.id())
-                        .unwrap_or_default(),
-                    summary,
-                )
-            })
-            .collect();
-        Some(Self {
-            composer: work.original_attribution().unwrap_or_default().to_owned(),
-            aliases: work.aliases().join(", "),
-            moments: work
-                .liturgical_moments()
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", "),
-            arrangements,
-        })
-    }
-}
-
-fn render_facts(facts: &Facts, environment: UiEnvironment) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    let arrangements = facts
-        .arrangements
-        .iter()
-        .map(|(title, summary)| {
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(palette.text))
-                        .child(title.clone()),
-                )
-                .child(muted(summary.clone(), environment))
-        })
-        .collect::<Vec<_>>();
-    div()
-        .debug_selector(|| "markdown-song-preview".into())
-        .flex()
-        .flex_col()
-        .gap(px(scale.apply(tokens::spacing::GROUP)))
-        .w_full()
-        .child(fact(
-            "Composer / original author",
-            facts.composer.clone(),
-            environment,
-        ))
-        .child(fact("Aliases", facts.aliases.clone(), environment))
-        .child(fact("Usual moments", facts.moments.clone(), environment))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                .child(muted("Arrangements", environment))
-                .children(arrangements),
-        )
-        .into_any_element()
+        },
+        move |_, cx| {
+            let _ = closed.update(cx, |view, cx| view.preview_closed(cx));
+        },
+        cx,
+    )
 }
 
 /// The right column: sections with their slides, then the Sequence.
@@ -519,7 +405,7 @@ pub(super) fn render(view: &MarkdownDraftView, environment: UiEnvironment) -> An
         .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
         .child(heading(PREVIEW, environment))
         .when(sections.is_empty(), |pane| {
-            pane.child(muted("No sections yet.", environment))
+            pane.child(muted(NO_SECTIONS, environment))
         })
         .children(sections)
         .child(

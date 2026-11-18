@@ -16,7 +16,7 @@ mod list;
 #[cfg(test)]
 mod tests;
 
-use std::{path::PathBuf, rc::Rc};
+use std::rc::Rc;
 
 use domain::{
     identity::{ArrangementId, SongId},
@@ -25,7 +25,7 @@ use domain::{
     },
 };
 use gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, Pixels, Point, Subscription,
+    AnyElement, App, Context, Entity, EventEmitter, Pixels, Point, Subscription,
     Task, Window,
 };
 use ui::{
@@ -255,23 +255,22 @@ impl SongsWorkspace {
                     Some(SongsEvent::OpenReview(task.await))
                 }
                 Picked::Markdown(path) => {
-                    let Ok((draft, bytes)) = this.update(cx, |workspace, cx| {
+                    let Ok(read) = this.update(cx, |workspace, cx| {
                         workspace.reading = true;
                         cx.notify();
-                        let draft = workspace
+                        workspace
                             .store
-                            .update(cx, |store, cx| store.read_markdown(path.clone(), cx));
-                        (draft, cx.background_spawn(read_bytes(path)))
+                            .update(cx, |store, cx| store.read_markdown(path, cx))
                     }) else {
                         return;
                     };
-                    match (draft.await, bytes.await) {
-                        (Ok(draft), Ok((file, bytes))) => Some(SongsEvent::OpenDraft {
-                            file,
-                            bytes,
-                            draft: Box::new(draft),
+                    match read.await {
+                        Ok(read) => Some(SongsEvent::OpenDraft {
+                            file: read.name,
+                            bytes: read.bytes,
+                            draft: Box::new(read.draft),
                         }),
-                        (Err(message), _) | (_, Err(message)) => {
+                        Err(message) => {
                             let _ = this.update(cx, |workspace, cx| {
                                 workspace.toast_failure(message, cx);
                             });
@@ -786,14 +785,3 @@ impl SongsWorkspace {
     }
 }
 
-/// Reads a picked file's bytes and name; the error is the operator copy.
-async fn read_bytes(path: PathBuf) -> Result<(String, Vec<u8>), gpui::SharedString> {
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    match std::fs::read(&path) {
-        Ok(bytes) => Ok((name, bytes)),
-        Err(_) => Err(format!("Couldn't read {name}.").into()),
-    }
-}

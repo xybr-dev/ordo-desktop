@@ -339,7 +339,7 @@ fn ac3_possible_existing_songs_show_the_ordinary_count_and_preview(cx: &mut Test
         Some("Existing Song \u{b7} preview only")
     );
     for part in [
-        "markdown-song-preview",
+        "new-song-preview",
         "button-Back",
         "button-Use this existing Song",
     ] {

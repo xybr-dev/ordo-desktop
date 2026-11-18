@@ -15,6 +15,7 @@
 
 mod form;
 mod preview;
+pub(crate) use preview::song_overlay;
 #[cfg(test)]
 pub(crate) mod tests;
 

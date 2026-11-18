@@ -47,13 +47,21 @@ impl ImportReview {
         let palette = tokens::palette(environment.appearance());
         let scale = environment.preferences().scale;
         let header = self.regions.region(HEADER_ACTIONS, window, cx);
-        let header = footer::header(header, environment, cx);
+        let header = footer::header(self, header, environment, cx);
         let list = self.regions.region(DOCUMENT_LIST, window, cx);
         let list = list::render(self, list, environment, window, cx);
         let detail = self.regions.region(DOCUMENT_DETAIL, window, cx);
         let detail = detail::render(self, detail, environment, window, cx);
         let summary = self.regions.region(REVIEW_FOOTER, window, cx);
         let summary = footer::footer(self, summary, environment, cx);
+        if let Some(handle) = self.take_refocus() {
+            // Focus lands after this frame is drawn, when the row exists.
+            window
+                .spawn(cx, async move |cx| {
+                    cx.update(|window, cx| handle.focus(window, cx)).ok();
+                })
+                .detach();
+        }
         self.regions
             .root(window, cx)
             .size_full()
