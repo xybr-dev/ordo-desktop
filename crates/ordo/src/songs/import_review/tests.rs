@@ -313,10 +313,7 @@ fn ac4_each_row_shows_its_classification_chip_and_the_detail_its_evidence(cx: &m
     let seen = chips(&rig, cx);
     assert_eq!(seen[0], "Add new Song");
     assert_eq!(seen[1], "Skip unchanged");
-    assert!(
-        matches!(seen[2], "Attach Arrangement" | "Needs decision"),
-        "{seen:?}"
-    );
+    assert_eq!(seen[2], "Attach Arrangement");
     click(cx, "import-doc-1");
     assert_eq!(rig.review.read_with(cx, |r, _| r.selected_document()), 1);
     for selector in [
@@ -338,7 +335,11 @@ fn ac4_each_row_shows_its_classification_chip_and_the_detail_its_evidence(cx: &m
             },
             library,
         );
-        assert!(!kind.is_empty() && !sentence.is_empty());
+        assert_eq!(kind, "Same Song work.");
+        assert_eq!(
+            sentence,
+            "Title and opening line match Tinapay sa Langit. The file names this Song by its identity."
+        );
     });
     rig.finish(cx);
 }
@@ -522,10 +523,13 @@ fn ac8_an_invalid_document_is_listed_with_its_reason_and_technical_details(
         else {
             panic!("invalid");
         };
-        assert!(!evidence::technical_line(&reasons[0]).is_empty());
-        assert!(
-            !evidence::invalid_sentence(reasons, "a-broken.ordo").is_empty(),
-            "the reason is put in words"
+        assert_eq!(
+            evidence::technical_line(&reasons[0]),
+            "container \u{b7} It isn't an Ordo file. (no end of central directory record)"
+        );
+        assert_eq!(
+            evidence::invalid_sentence(reasons, "a-broken.ordo"),
+            "It isn't an Ordo file."
         );
     });
     // The good document still imports.
@@ -1328,5 +1332,110 @@ fn saving_a_draft_swaps_in_the_ordinary_editor_and_discarding_returns_to_import(
     assert!(!rig.framed(cx));
     assert_eq!(rig.songs(cx), 1);
     assert_eq!(rig.toasts(cx), ["Saved Gloria."]);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn a_commit_in_flight_refuses_other_decisions_and_cancel(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "t210b-held", &tinapay_seed(), &reworded_batch());
+    click(cx, "radio-import-outcome-0-0");
+    let chosen = rig
+        .review
+        .read_with(cx, |r, _| r.choices().arrangements.get(&(0, 0)).copied());
+    assert!(chosen.is_some());
+    let _ = rig
+        .slot
+        .with(|storage| storage.inject_delay(std::time::Duration::from_millis(600)));
+    click(cx, "button-Import approved");
+    assert!(rig.review.read_with(cx, |r, _| r.busy()));
+    click(cx, "button-Cancel import");
+    rig.review.update(cx, |review, cx| review.choose_outcome(0, 0, 1, cx));
+    let after = rig
+        .review
+        .read_with(cx, |r, _| r.choices().arrangements.get(&(0, 0)).copied());
+    assert_eq!(after, chosen, "another decision is refused while importing");
+    assert!(
+        !rig.events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, ImportReviewEvent::Cancelled)),
+        "Cancel import is refused while importing"
+    );
+    wait(cx, |_| {
+        rig.events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, ImportReviewEvent::Committed(_)))
+    });
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac9_a_stale_commit_says_so_and_restages(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "t210b-stale", &tinapay_seed(), &reworded_batch());
+    click(cx, "radio-import-outcome-0-0");
+    assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
+    let task = rig.store.update(cx, |store, cx| {
+        store.archive_arrangement(arrangement_id(0x11), cx)
+    });
+    cx.foreground_executor().block_test(task).expect("archived");
+    click(cx, "button-Import approved");
+    wait(cx, |cx| {
+        rig.review
+            .read_with(cx, |r, _| !r.busy() && !r.restaging())
+    });
+    let refusal = rig
+        .review
+        .read_with(cx, |r, _| r.refusal().map(|text| text.to_string()));
+    assert_eq!(
+        refusal.as_deref(),
+        Some("Something in the Library changed while you reviewed. Review the import again.")
+    );
+    assert!(
+        !rig.events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, ImportReviewEvent::Committed(_))),
+        "nothing was committed"
+    );
+    assert_eq!(rig.review.read_with(cx, |r, _| r.documents().len()), 1);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_remove_from_review_moves_focus_to_the_selected_row(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a-broken.ordo", b"nope".to_vec()),
+        ("b-broken.ordo", b"still nope".to_vec()),
+        ("c-good.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+    ];
+    let (rig, cx) = open(cx, "t210b-remove-focus", &[], &batch);
+    click(cx, "import-doc-0");
+    click(cx, "button-Remove from review");
+    wait(cx, |cx| {
+        rig.review
+            .read_with(cx, |r, _| r.documents().len() == 2 && !r.busy())
+    });
+    cx.run_until_parked();
+    let focused = rig
+        .review
+        .read_with(cx, |r, _| r.row_focus.clone());
+    assert!(cx.update(|window, _| focused.is_focused(window)));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn removing_the_last_document_focuses_cancel_import(cx: &mut TestAppContext) {
+    let batch = vec![("a-broken.ordo", b"nope".to_vec())];
+    let (rig, cx) = open(cx, "t210b-last", &[], &batch);
+    click(cx, "import-doc-0");
+    click(cx, "button-Remove from review");
+    wait(cx, |cx| {
+        rig.review
+            .read_with(cx, |r, _| r.documents().is_empty() && !r.busy())
+    });
+    cx.run_until_parked();
+    let cancel = rig.review.read_with(cx, |r, _| r.cancel_focus.clone());
+    assert!(cx.update(|window, _| cancel.is_focused(window)));
     rig.finish(cx);
 }

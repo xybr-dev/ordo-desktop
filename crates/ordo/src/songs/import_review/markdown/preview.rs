@@ -323,6 +323,7 @@ pub(super) fn overlay(
     crate::songs::new_song::song_overlay(
         view.store.clone(),
         song,
+        false,
         move |_, cx| {
             let _ = weak.update(cx, |view, cx| view.use_existing_song(song, cx));
         },

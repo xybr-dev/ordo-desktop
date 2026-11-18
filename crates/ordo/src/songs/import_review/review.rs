@@ -556,7 +556,7 @@ impl ImportReview {
         if self.selected >= self.staging.documents.len() {
             self.selected = self.staging.documents.len().saturating_sub(1);
         }
-        if self.staging.documents.is_empty() && self.refocus.is_some() {
+        if self.staging.documents.is_empty() {
             self.refocus = Some(Refocus::Cancel);
         }
         self.restaging = false;

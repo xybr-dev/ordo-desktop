@@ -357,3 +357,29 @@ pub fn technical_line(reason: &InvalidReason) -> String {
         None => format!("{} \u{b7} {}", reason.code, reason.message),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{join_and, join_plain};
+
+    fn words(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    #[test]
+    fn differences_are_joined_with_the_oxford_comma() {
+        assert_eq!(join_and(&words(&["a"])), "a");
+        assert_eq!(join_and(&words(&["a", "b"])), "a and b");
+        assert_eq!(join_and(&words(&["a", "b", "c"])), "a, b, and c");
+    }
+
+    #[test]
+    fn matching_aspects_are_joined_without_it() {
+        assert_eq!(join_plain(&words(&["title"])), "title");
+        assert_eq!(join_plain(&words(&["title", "opening line"])), "title and opening line");
+        assert_eq!(
+            join_plain(&words(&["title", "opening line", "alias"])),
+            "title, opening line and alias"
+        );
+    }
+}

@@ -25,6 +25,7 @@ pub(super) fn overlay(
     song_overlay(
         panel.store.clone(),
         song,
+        true,
         move |window, cx| report(Outcome::UseExisting(song), window, cx),
         move |_, cx| {
             close.update(cx, |panel, cx| {
@@ -38,13 +39,15 @@ pub(super) fn overlay(
 
 /// The nested preview of an existing Song, shared by every flow that offers
 /// one (New Song, the Markdown draft): identity and an Arrangement summary,
-/// **Back**, and **Use this existing Song** running `use_existing`. An
-/// archived Song cannot take an Arrangement, so its preview offers Back only.
+/// **Back**, and **Use this existing Song** running `use_existing`. When
+/// `attach_to_archived` is false an archived Song cannot take an Arrangement,
+/// so its preview offers Back only.
 /// `on_close` runs once the surface has gone, however it was dismissed. `None`
 /// when the Library no longer has the Song.
 pub(crate) fn song_overlay(
     store: Entity<LibraryStore>,
     song: SongId,
+    attach_to_archived: bool,
     use_existing: impl Fn(&mut Window, &mut App) + 'static,
     on_close: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
@@ -52,7 +55,10 @@ pub(crate) fn song_overlay(
     let (title, archived) = {
         let library = store.read(cx).library();
         let work = library.song(song).ok()?;
-        (work.title().to_owned(), work.is_archived())
+        (
+            work.title().to_owned(),
+            work.is_archived() && !attach_to_archived,
+        )
     };
     let body = store.clone();
     let gone = store;
