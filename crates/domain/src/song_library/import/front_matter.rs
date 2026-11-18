@@ -151,11 +151,10 @@ fn scalar_prefix(text: &str, line: usize) -> Result<(String, &str), MarkdownIssu
             let mut rest = text[1..].char_indices().peekable();
             while let Some((offset, c)) = rest.next() {
                 if quote == '"' && escaped {
-                    value.push(match c {
-                        'n' => '\n',
-                        't' => '\t',
-                        other => other,
-                    });
+                    if matches!(c, 'n' | 'r' | 't') {
+                        return Err(bad(line, "A value can't contain a line break or a tab."));
+                    }
+                    value.push(c);
                     escaped = false;
                 } else if quote == '"' && c == '\\' {
                     escaped = true;

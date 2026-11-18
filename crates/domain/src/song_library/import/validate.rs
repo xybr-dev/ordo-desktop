@@ -1,6 +1,7 @@
 //! Whole-document validity, shared by the `.ordo` and Markdown routes.
 
 use std::collections::BTreeSet;
+use std::fmt;
 
 use crate::identity::ArrangementId;
 use crate::song_library::{Field, is_listed};
@@ -51,6 +52,68 @@ pub enum DocumentProblem {
     },
     /// Two Arrangements of the document share one identity.
     DuplicateArrangement(ArrangementId),
+}
+
+impl DocumentProblem {
+    /// The RFC 6901 JSON pointer of the offending value, in the machine
+    /// document's shape; the review shows it beside the message in technical
+    /// details.
+    pub fn pointer(&self) -> String {
+        let arrangement_at = |index: usize| format!("/arrangements/{index}");
+        match self {
+            Self::BlankTitle => "/title".to_owned(),
+            Self::UnlistedLanguage { arrangement, .. } | Self::NoLanguage { arrangement } => {
+                format!("{}/languages", arrangement_at(*arrangement))
+            }
+            Self::UnknownSection {
+                arrangement,
+                position,
+            } => format!("{}/sequence/{position}", arrangement_at(*arrangement)),
+            Self::BlankField { arrangement, field } | Self::Duplicate { arrangement, field } => {
+                let member = match field {
+                    Field::OriginalAttribution => "composer",
+                    Field::Provenance => "source",
+                    Field::RightsNotes => "rights",
+                    Field::Aliases => "aliases",
+                    Field::LiturgicalMoment => "liturgical_moments",
+                    Field::Occasion => "occasions",
+                    Field::Language => "languages",
+                    Field::ArrangementTitle => "title",
+                    Field::RenditionAttribution => "translator",
+                    Field::ArrangementNotes => "notes",
+                    Field::Choir => "choirs",
+                    Field::SectionLabel => "sections",
+                    _ => "",
+                };
+                let base = arrangement.map_or_else(String::new, arrangement_at);
+                if member.is_empty() {
+                    base
+                } else {
+                    format!("{base}/{member}")
+                }
+            }
+            Self::DuplicateArrangement(_) => "/arrangements".to_owned(),
+        }
+    }
+}
+
+impl fmt::Display for DocumentProblem {
+    /// The finding in words, for technical details.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BlankTitle => f.write_str("the title is blank"),
+            Self::UnlistedLanguage { value, .. } => {
+                write!(f, "{value:?} is not one of Ordo's languages")
+            }
+            Self::NoLanguage { .. } => f.write_str("names no language"),
+            Self::UnknownSection { .. } => {
+                f.write_str("names a section the Arrangement does not have")
+            }
+            Self::BlankField { field, .. } => write!(f, "{field:?} is blank"),
+            Self::Duplicate { field, .. } => write!(f, "{field:?} repeats a value"),
+            Self::DuplicateArrangement(id) => write!(f, "Arrangement {id} appears twice"),
+        }
+    }
 }
 
 /// Every rule beyond the JSON shape; an empty result means the document is

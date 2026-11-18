@@ -175,7 +175,7 @@ pub(super) fn lookup_choir(library: &SongLibrary, name: &str) -> ChoirLookup {
 fn problem_reason(problem: &super::DocumentProblem) -> InvalidReason {
     InvalidReason {
         code: "invalid-document".to_owned(),
-        message: format!("{problem:?}"),
+        message: format!("{} · {problem}", problem.pointer()),
     }
 }
 
@@ -638,7 +638,7 @@ fn classify_against(
         (
             Classification::SkipUnchanged,
             Some(Outcome::Skip),
-            vec![Outcome::Skip, Outcome::AddAsNew],
+            vec![Outcome::Skip, Outcome::AttachAsAnother],
         )
     } else {
         let found_differences: Vec<ArrangementDifference> =

@@ -13,7 +13,7 @@ use domain::song_library::import::{
     DocumentReview, ImportArrangement, ImportCommitted, ImportDocument, ImportPlan, ImportSection,
     InvalidReason, Outcome, PlanError, ReplacedArrangement, Review, SequenceEntry, SongChoice,
     SongEvidence, SongIdentity, Staged, StagedDocument, Tally, align_sections, can_commit,
-    classify_batch, plan, plan_markdown, tally,
+    classify_batch, plan, plan_markdown, review_with_choices, tally,
 };
 use domain::song_library::{
     ArchiveState, ArrangementDraft, ChoirDraft, FindingKind, HydrateArrangement, HydrateChoir,
@@ -1030,7 +1030,7 @@ fn ac8_any_suggested_action_can_be_changed() {
     let added = make_plan(
         &library,
         &unchanged,
-        &choose(&[((0, 0), Outcome::AddAsNew)]),
+        &choose(&[((0, 0), Outcome::AttachAsAnother)]),
     )
     .unwrap();
     assert_eq!(added.arrangements.len(), 1);
@@ -1464,4 +1464,82 @@ fn apply_import_is_all_or_nothing() {
         Err(SongLibraryError::DuplicateArrangement(arrangement_id(10)))
     );
     assert_eq!(library, before);
+}
+
+// --- Review fixes: B1, B3, T2, T5 -----------------------------------------
+
+#[test]
+fn skipping_the_creating_document_hands_the_song_to_the_next() {
+    let library = local();
+    let mut later = copy_of_10(61);
+    later.languages = vec!["Tagalog".to_owned()];
+    let documents = [
+        staged("a.ordo", document(50, "Bag-ong Awit", vec![copy_of_10(60)])),
+        staged("b.ordo", document(50, "Ibang Ngalan", vec![later])),
+    ];
+    let mut choices = Choices::default();
+    choices.songs.insert(0, SongChoice::Skip);
+    let reviews = classify_batch(&library, &documents);
+    let mut mint = minter();
+    let result = plan(&library, &documents, &reviews, &choices, &mut mint).unwrap();
+    // The Song is created from the second document's details, and only the
+    // second document's Arrangement is written.
+    assert_eq!(result.songs.len(), 1);
+    assert_eq!(result.songs[0].1.title, "Ibang Ngalan");
+    assert_eq!(result.arrangements.len(), 1);
+    assert_eq!(result.arrangements[0].id, arrangement_id(61));
+    assert_eq!(result.arrangements[0].song, result.songs[0].0);
+    library.check_import(&result).unwrap();
+}
+
+#[test]
+fn a_dependent_document_follows_the_creators_song_choice() {
+    let library = local();
+    let mut later = copy_of_10(61);
+    later.languages = vec!["Tagalog".to_owned()];
+    let documents = [
+        staged("a.ordo", document(50, "Bag-ong Awit", vec![copy_of_10(60)])),
+        staged("b.ordo", document(50, "Ibang Ngalan", vec![later])),
+    ];
+    let mut songs = std::collections::BTreeMap::new();
+    songs.insert(0, SongChoice::Existing(song(2)));
+    let reviews = classify_batch(&library, &documents);
+    let choices = Choices {
+        songs: songs.clone(),
+        ..Choices::default()
+    };
+    let mut mint = minter();
+    let result = plan(&library, &documents, &reviews, &choices, &mut mint).unwrap();
+    assert!(result.songs.is_empty());
+    assert_eq!(result.arrangements.len(), 2);
+    assert!(result.arrangements.iter().all(|a| a.song == song(2)));
+    // The same-choices review is what a commit's stale check recomputes.
+    let again = review_with_choices(&library, &documents, &songs);
+    assert_eq!(again, review_with_choices(&library, &documents, &songs));
+    assert_eq!(
+        valid(&again[0]).identity,
+        classify_batch(&library, &documents)
+            .first()
+            .map(|review| valid(review).identity.clone())
+            .unwrap()
+    );
+}
+
+#[test]
+fn an_arrangement_id_owned_by_another_song_is_added_under_a_fresh_id() {
+    let library = local();
+    // Arrangement 10 belongs to Song 1; the document puts it under Song 2.
+    let documents = [staged(
+        "a.ordo",
+        document(2, "Awit sa Pag-asa", vec![copy_of_10(10)]),
+    )];
+    let result = make_plan(&library, &documents, &Choices::default()).unwrap();
+    assert_eq!(result.arrangements.len(), 1);
+    assert_ne!(result.arrangements[0].id, arrangement_id(10));
+    assert_eq!(result.arrangements[0].song, song(2));
+    library.check_import(&result).unwrap();
+    let mut after = library.clone();
+    commit(&mut after, &result);
+    let again = make_plan(&after, &documents, &Choices::default()).unwrap();
+    assert!(again.is_empty(), "a second import must write nothing");
 }

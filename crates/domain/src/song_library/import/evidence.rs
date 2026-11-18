@@ -66,6 +66,8 @@ pub enum ArrangementEvidence {
     /// This Choir name matches no Choir, so a Choir is added.
     AddsChoir(String),
     /// This Choir name matches only an archived Choir, so it is not linked.
+    /// An Update replaces the whole Arrangement, so it also unlinks an
+    /// archived Choir the local Arrangement had; the Choirs difference shows it.
     ArchivedChoir(String),
     /// The Arrangement it resembles, or replaces, is archived.
     ExistingArchived,

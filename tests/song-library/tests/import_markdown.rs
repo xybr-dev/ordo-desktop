@@ -359,3 +359,97 @@ fn ac2_every_markdown_fixture_parses_to_its_expectation() {
     }
     assert_eq!(checked, 8, "the corpus has eight Markdown fixtures");
 }
+
+/// Marker and front matter edge cases, one table: the body starts on line 5
+/// of `with_body`, so a case's first body line is line 5.
+#[test]
+fn markdown_marker_edge_cases() {
+    let bad = |text: &str| IssueKind::BadFrontMatter(text.to_owned());
+    // (case, whole file, issues as (line, kind, blocking), sections, sequence)
+    type Case = (
+        &'static str,
+        String,
+        Vec<(usize, IssueKind, bool)>,
+        Vec<(Option<&'static str>, &'static str)>,
+        Vec<SequenceEntry>,
+    );
+    let body = |body: &str| format!("---\ntitle: Song\nlanguage: English\n---\n{body}");
+    let cases: Vec<Case> = vec![
+        (
+            "an empty repeat label is a malformed marker kept as lyrics",
+            body("[Verse]\nOne\n[Repeat:]\n"),
+            vec![(7, IssueKind::NotALabel("[Repeat:]".to_owned()), false)],
+            vec![(Some("Verse"), "One\n[Repeat:]")],
+            vec![SequenceEntry::Section(0)],
+        ),
+        (
+            "spacing and case inside a repeat marker do not matter",
+            body("[Verse]\nOne\n[ repeat : verse ]\n"),
+            vec![],
+            vec![(Some("Verse"), "One")],
+            vec![SequenceEntry::Section(0), SequenceEntry::Section(0)],
+        ),
+        (
+            "a repeat before its section resolves to the later section",
+            body("[Repeat: Verse]\n[Verse]\nOne\n"),
+            vec![],
+            vec![(Some("Verse"), "One")],
+            vec![SequenceEntry::Section(0), SequenceEntry::Section(0)],
+        ),
+        (
+            "text right after a repeat starts a new unlabeled section",
+            body("[Verse]\nOne\n[Repeat: Verse]\nTwo\n"),
+            vec![],
+            vec![(Some("Verse"), "One"), (None, "Two")],
+            vec![
+                SequenceEntry::Section(0),
+                SequenceEntry::Section(0),
+                SequenceEntry::Section(1),
+            ],
+        ),
+        (
+            "a --- line inside the body is lyrics",
+            body("[Verse]\nOne\n---\nTwo\n"),
+            vec![],
+            vec![(Some("Verse"), "One\n---\nTwo")],
+            vec![SequenceEntry::Section(0)],
+        ),
+    ];
+    for (name, text, issues, expected_sections, sequence) in cases {
+        let found = draft(&text);
+        assert_eq!(kinds(&found), issues, "{name}: issues");
+        assert_eq!(sections(&found), expected_sections, "{name}: sections");
+        assert_eq!(
+            found.document.arrangements[0].sequence, sequence,
+            "{name}: sequence"
+        );
+    }
+
+    // Front matter faults are blocking, each with its own reason.
+    let blocking = [
+        (
+            "a duplicate key",
+            "---\ntitle: A\ntitle: B\nlanguage: English\n---\n[Verse]\nOne\n",
+            (3, bad("title appears twice."), true),
+        ),
+        (
+            "a block list under a scalar-only key",
+            "---\ntitle:\n  - A\n  - B\nlanguage: English\n---\n[Verse]\nOne\n",
+            (2, bad("title takes one value, not a list."), true),
+        ),
+        (
+            "a line break escaped inside a quoted title",
+            "---\ntitle: \"Ave\\nVerum\"\nlanguage: English\n---\n[Verse]\nOne\n",
+            (2, bad("A value can't contain a line break or a tab."), true),
+        ),
+    ];
+    for (name, text, expected) in blocking {
+        let found = draft(text);
+        assert!(!found.can_save(), "{name}: blocks saving");
+        assert!(
+            kinds(&found).contains(&expected),
+            "{name}: expected {expected:?} in {:?}",
+            kinds(&found)
+        );
+    }
+}

@@ -16,7 +16,7 @@ use crate::song_library::{
 
 use super::classify::{
     ChoirLookup, Classification, DocumentReview, ResolvedSong, Review, SongIdentity, Staged,
-    StagedDocument, classify_arrangements, lookup_choir,
+    StagedDocument, classify_arrangements, classify_batch, lookup_choir,
 };
 use super::evidence::pair_sections;
 use super::{
@@ -35,7 +35,8 @@ pub enum Outcome {
     AddAsNew,
     /// Replace the matched Arrangement's whole content (Decision 136).
     UpdateExisting,
-    /// Add it as another Arrangement of the chosen Song (a Markdown save).
+    /// Add the same content as another Arrangement of the Song (offered on
+    /// Skip unchanged).
     AttachAsAnother,
     /// Write nothing for it.
     Skip,
@@ -66,10 +67,10 @@ pub enum SongChoice {
 /// its classification's default, or stays an open decision when the
 /// classification needs one.
 ///
-/// After changing a document's Song choice, replace its
-/// [`DocumentReview::arrangements`] with [`classify_arrangements`] so
-/// [`tally`] and [`can_commit`] see the new Song; [`plan`] re-classifies
-/// on its own.
+/// After changing a document's Song choice, take the reviews from
+/// [`review_with_choices`] (with `songs`) so [`tally`] and [`can_commit`] see
+/// the new Song; the commit compares its reviews with the same function, and
+/// [`plan`] re-classifies on its own.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Choices {
     /// Song choices by document index.
@@ -107,32 +108,93 @@ enum Resolution {
     Open(usize),
 }
 
+/// Where each valid document's Song ends up.
+///
+/// A document staged by an earlier one follows that document's resolution. When
+/// the earlier document is skipped, the first later document with that Song
+/// becomes its creator (so its own Song details win), and the rest follow it.
 fn resolutions(reviews: &[Review], choices: &Choices) -> Vec<Option<Resolution>> {
     let mut resolved: Vec<Option<Resolution>> = Vec::with_capacity(reviews.len());
+    let mut heirs: BTreeMap<usize, Resolution> = BTreeMap::new();
     for (index, review) in reviews.iter().enumerate() {
         let Review::Valid(review) = review else {
             resolved.push(None);
             continue;
         };
-        let by_identity = || match &review.identity {
-            SongIdentity::Existing { song, .. } => Resolution::Existing(*song),
-            SongIdentity::New => Resolution::New(index),
-            SongIdentity::StagedBy { document } => resolved
-                .get(*document)
-                .copied()
-                .flatten()
-                .unwrap_or(Resolution::Open(*document)),
-            SongIdentity::NeedsDecision { .. } => Resolution::Open(index),
-        };
         let resolution = match choices.songs.get(&index) {
             Some(SongChoice::Skip) => Resolution::Skipped,
             Some(SongChoice::Existing(song)) => Resolution::Existing(*song),
             Some(SongChoice::New) => Resolution::New(index),
-            None => by_identity(),
+            None => match &review.identity {
+                SongIdentity::Existing { song, .. } => Resolution::Existing(*song),
+                SongIdentity::New => Resolution::New(index),
+                SongIdentity::NeedsDecision { .. } => Resolution::Open(index),
+                SongIdentity::StagedBy { document } => {
+                    match resolved.get(*document).copied().flatten() {
+                        Some(Resolution::Skipped) => {
+                            *heirs.entry(*document).or_insert(Resolution::New(index))
+                        }
+                        Some(other) => other,
+                        None => Resolution::Open(*document),
+                    }
+                }
+            },
         };
         resolved.push(Some(resolution));
     }
     resolved
+}
+
+/// The reviews of a batch with the operator's Song choices applied.
+///
+/// This is [`classify_batch`] followed by [`classify_arrangements`] for every
+/// document whose Song a choice settles, dependent documents included. A
+/// document staged by an earlier one that was skipped becomes the creator of
+/// the Song (`SongIdentity::New`), and later ones follow it. Both the review
+/// screen and the commit's stale check use this one function, so they agree on
+/// what the operator was shown.
+pub fn review_with_choices(
+    library: &SongLibrary,
+    documents: &[StagedDocument],
+    songs: &BTreeMap<usize, SongChoice>,
+) -> Vec<Review> {
+    let mut reviews = classify_batch(library, documents);
+    let choices = Choices {
+        songs: songs.clone(),
+        arrangements: BTreeMap::new(),
+    };
+    let resolved = resolutions(&reviews, &choices);
+    for (index, resolution) in resolved.iter().enumerate() {
+        let (Some(resolution), Review::Valid(review), Staged::Valid(document)) =
+            (resolution, &mut reviews[index], &documents[index].content)
+        else {
+            continue;
+        };
+        let song = match *resolution {
+            Resolution::Skipped | Resolution::Open(_) => continue,
+            Resolution::Existing(song) => ResolvedSong::Existing(song),
+            Resolution::New(creator) if creator == index => ResolvedSong::New,
+            Resolution::New(_) => ResolvedSong::Staged,
+        };
+        let mut settled = choices.songs.contains_key(&index)
+            || matches!(review.identity, SongIdentity::NeedsDecision { .. });
+        if let SongIdentity::StagedBy { document: creator } = review.identity {
+            settled = true;
+            match *resolution {
+                // The creator was skipped: this document creates the Song.
+                Resolution::New(heir) if heir == index => review.identity = SongIdentity::New,
+                // A later document of the same Song follows the new creator.
+                Resolution::New(heir) if heir != creator => {
+                    review.identity = SongIdentity::StagedBy { document: heir };
+                }
+                _ => {}
+            }
+        }
+        if settled {
+            review.arrangements = classify_arrangements(library, document, song);
+        }
+    }
+    reviews
 }
 
 /// The outcome of one Arrangement: the operator's, else the classification's
@@ -423,7 +485,8 @@ impl<'a> Builder<'a> {
     }
 
     /// The Choirs of an Arrangement: matched active Choirs, Choirs this plan
-    /// creates for unmatched names, and nothing for archived matches.
+    /// creates for unmatched names, and nothing for archived matches (so an
+    /// Update unlinks an archived Choir; the Choirs difference discloses it).
     fn choirs(&mut self, names: &[String]) -> Vec<ChoirId> {
         let mut linked: Vec<ChoirId> = Vec::new();
         for name in names {

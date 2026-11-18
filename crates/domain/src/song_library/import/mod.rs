@@ -23,7 +23,7 @@ pub use evidence::{ArrangementDifference, ArrangementEvidence, DetailField, Song
 pub use plan::{
     Choices, ImportCommitted, ImportPlan, Outcome, PlanError, PlannedArrangement,
     PlannedReplacement, ReplacedArrangement, SongChoice, Tally, align_sections, can_commit, plan,
-    plan_markdown, tally,
+    plan_markdown, review_with_choices, tally,
 };
 
 pub use document::{
