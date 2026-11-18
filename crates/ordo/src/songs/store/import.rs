@@ -32,8 +32,8 @@ use storage::{
 };
 
 use super::{
-    Done, LibraryStore, LibraryWrite, Prepared, Verdict, arrangement_draft_of, draft_of, refusal,
-    song_draft_of,
+    Done, LibraryStore, LibraryWrite, Prepared, Reply, Verdict, arrangement_draft_of, draft_of,
+    refusal, song_draft_of,
 };
 
 /// The refusal for an import the Library moved away from while it was
@@ -110,6 +110,13 @@ pub(super) struct ImportRequest {
     source: Source,
     /// Filled when the write is prepared: what the batch will write.
     outcome: ImportOutcome,
+}
+
+impl ImportRequest {
+    /// Whether this is a reviewed batch, whose verdict runs in the background.
+    pub(super) fn is_batch(&self) -> bool {
+        matches!(self.source, Source::Batch { .. })
+    }
 }
 
 /// Where the plan comes from.
@@ -479,8 +486,8 @@ impl LibraryStore {
 
     /// The domain's verdict on an import write, before any I/O, with the
     /// storage batch it needs.
-    pub(super) fn prepare_import(
-        &self,
+    pub(super) fn import_verdict(
+        library: &SongLibrary,
         request: &mut ImportRequest,
     ) -> Result<Verdict, SharedString> {
         let mut mint = fresh_entity;
@@ -495,28 +502,25 @@ impl LibraryStore {
                 // different classification now, with the same Song choices
                 // applied, means it must be redone.
                 //
-                // Shaping-constraint exception: this verdict (classify,
-                // plan, whole-library check) runs on the GPUI thread. It has
-                // to see exactly the library this write commits against,
-                // and nothing else writes in between; off the thread it would
-                // need a snapshot plus a generation re-check, the same work
-                // again. The cost is linear and small at parish scale. T2.10c
-                // times 50 documents against about 1,000 Songs in release and
-                // moves this to `background_spawn` if it exceeds 16 ms.
-                if review_with_choices(&self.library, documents, &choices.songs) != *reviews {
+                // Timed in release at 50 documents against 1,000 Songs, this
+                // verdict costs about 30 ms (T2.10c), past the 16 ms frame
+                // budget, so a batch runs it in `background_spawn` on a
+                // snapshot (`verdict_in_background`); only Markdown saves,
+                // which touch one Song, keep it on the GPUI thread.
+                if review_with_choices(library, documents, &choices.songs) != *reviews {
                     return Err(STALE_IMPORT.into());
                 }
-                let plan = plan(&self.library, documents, reviews, choices, &mut mint)
+                let plan = plan(library, documents, reviews, choices, &mut mint)
                     .map_err(|error| plan_refusal(&error))?;
-                self.library
+                library
                     .check_import(&plan)
                     .map_err(|_| SharedString::from(STALE_IMPORT))?;
                 (plan, RevisionKind::Import)
             }
             Source::Markdown { draft, target } => {
-                let plan = plan_markdown(&self.library, draft, *target, &mut mint)
+                let plan = plan_markdown(library, draft, *target, &mut mint)
                     .map_err(|error| plan_refusal(&error))?;
-                self.library.check_import(&plan).map_err(refusal)?;
+                library.check_import(&plan).map_err(refusal)?;
                 (plan, RevisionKind::Creation)
             }
         };
@@ -530,6 +534,57 @@ impl LibraryStore {
         let (batch, outcome) = batch_of(plan, heads, first_kind)?;
         request.outcome = outcome;
         Ok(Verdict::Write(Prepared::CommitImport(Box::new(batch))))
+    }
+
+    /// Runs a batch import's verdict on a snapshot of the library in the
+    /// background, then starts the storage write. The queue is held
+    /// (`writing`) meanwhile, so nothing else writes; the generation check
+    /// still refuses the commit if the library was replaced under it.
+    pub(super) fn verdict_in_background(
+        &mut self,
+        write: LibraryWrite,
+        reply: Reply,
+        cx: &mut Context<Self>,
+    ) {
+        let LibraryWrite::CommitImport(mut request) = write else {
+            let _ = reply.try_send(Err(super::WRONG_KIND.into()));
+            return;
+        };
+        self.writing = true;
+        let library = self.library.clone();
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let (request, verdict) = cx
+                .background_spawn(async move {
+                    let verdict = Self::import_verdict(&library, &mut request);
+                    (request, verdict)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.writing = false;
+                let verdict = if this.generation == generation {
+                    verdict
+                } else {
+                    Err(SharedString::from(STALE_IMPORT))
+                };
+                match verdict {
+                    Ok(Verdict::Write(prepared)) => {
+                        this.dispatch(LibraryWrite::CommitImport(request), reply, prepared, cx);
+                    }
+                    Ok(Verdict::Unchanged(id)) => {
+                        let _ = reply.try_send(Ok(Done::Id(id)));
+                    }
+                    Ok(Verdict::Resolved(done)) => {
+                        let _ = reply.try_send(Ok(done));
+                    }
+                    Err(message) => {
+                        let _ = reply.try_send(Err(message));
+                    }
+                }
+                this.pump(cx);
+            });
+        })
+        .detach();
     }
 
     /// Takes what a commit wrote into memory, from the returned records and

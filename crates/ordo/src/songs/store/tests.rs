@@ -3012,6 +3012,34 @@ fn ac9_a_library_change_after_staging_is_refused_as_stale(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn ac9_a_library_replaced_while_the_verdict_runs_off_thread_is_refused_and_nothing_is_written(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-moved");
+    let files = temp_dir("store-import-moved-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let document = import_doc(song_id(0x72), arrangement_id(0x82), "Moved Hymn", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "m.ordo", &document)]);
+
+    // The verdict is computed on a snapshot in the background; the library is
+    // replaced (same content, new generation) before it comes back.
+    let import = store.update(cx, |store, cx| {
+        let import = store.commit_import(&staging, Choices::default(), cx);
+        let library = store.library().clone();
+        store.replace_library(library, cx);
+        import
+    });
+    assert_eq!(run(cx, import), Err(SharedString::from(STALE_IMPORT)));
+    store.read_with(cx, |store, _| {
+        assert!(store.library().song(document.id).is_err());
+        assert_eq!(store.write_state(), (false, 0));
+    });
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
+#[gpui::test]
 fn ac10_reimporting_after_commit_stages_only_skips_and_commits_nothing(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let dir = temp_dir("store-import-reimport");

@@ -22,6 +22,17 @@ use std::{
     thread::{self, Thread},
 };
 
+use domain::{
+    identity::{ArrangementId, ChoirId, EntityId, OccurrenceId, SectionId, SongId, Timestamp},
+    revisions::RevisionKind,
+    song_library::{
+        ArrangementDraft, OccurrenceDraft, PaginationState, SectionDraft, SongDraft, SongLibrary,
+        import::{
+            Choices, ImportArrangement, ImportDocument, ImportSection, Outcome, SequenceEntry,
+            SongChoice, Staged, StagedDocument, plan, review_with_choices,
+        },
+    },
+};
 use gpui::{App, AppContext as _};
 use gpui_platform::application;
 use ordo::{
@@ -29,7 +40,11 @@ use ordo::{
     songs::{LibraryStore, StorageSlot},
 };
 use storage::{
-    NewArrangement, NewChoir, NewSection, NewSong, ShutdownOutcome, Storage, StorageConfig,
+    ArrangementContent, ImportBatch, ImportedArrangement, NewArrangement, NewChoir, NewSection,
+    NewSong, OccurrenceContent, SectionContent, ShutdownOutcome, Storage, StorageConfig,
+    exchange::{
+        InspectLimits, ManifestOverrides, SongImportRead, pack_for_tests, read_song_import_bytes,
+    },
 };
 
 /// Unparks the thread blocked in [`block_on`].
@@ -260,19 +275,376 @@ fn seed(dir: &Path) -> Result<(), Failure> {
             block_on(storage.archive_song(song.id))?;
         }
     }
+    seed_baseline(&storage)?;
     match block_on(storage.shutdown()) {
         ShutdownOutcome::Clean => Ok(()),
         other => Err(format!("the seeding store did not stop cleanly: {other:?}").into()),
     }
 }
 
+// ---- Import: the batch, its baseline library and the verdict timing ----
+
+/// The five documents of tests/fixtures/song-import/batch, by file name.
+const BATCH: [(&str, &[u8]); 5] = [
+    (
+        "01-new-song.ordo",
+        include_bytes!("../../../tests/fixtures/song-import/batch/01-new-song.json"),
+    ),
+    (
+        "02-unchanged.ordo",
+        include_bytes!("../../../tests/fixtures/song-import/batch/02-unchanged.json"),
+    ),
+    (
+        "03-attachable.ordo",
+        include_bytes!("../../../tests/fixtures/song-import/batch/03-attachable.json"),
+    ),
+    (
+        "04-ambiguous-replacement.ordo",
+        include_bytes!("../../../tests/fixtures/song-import/batch/04-ambiguous-replacement.json"),
+    ),
+    (
+        "05-invalid-tampered-hash.ordo",
+        include_bytes!("../../../tests/fixtures/song-import/batch/05-invalid-tampered-hash.json"),
+    ),
+];
+
+/// A Markdown song whose forward repeat names a section that does not exist.
+const FORWARD_REPEAT: &str = "---\ntitle: Koro sa Kabuntagon\nlanguage: Cebuano\n---\n[Bersikulo 1]\nSa kabuntagon ako moawit\n\nsa imong dakong gugma\n[Repeat: Korro]\n\n[Koro]\nSalamat, Ginoo\n";
+
+/// An id for the nth thing, distinct from every other n.
+fn entity(n: u64) -> EntityId {
+    let mut bytes = [0xab; 16];
+    bytes[8..].copy_from_slice(&n.to_be_bytes());
+    EntityId::from_random_bytes(bytes)
+}
+
+/// A fixture payload read back as the typed document it describes.
+fn decoded(payload: &[u8]) -> Result<ImportDocument, Failure> {
+    let bytes = pack_for_tests(&ManifestOverrides::default(), payload, &[]);
+    match read_song_import_bytes(&bytes, &InspectLimits::default()) {
+        SongImportRead::Valid(document) => Ok(document),
+        other => Err(format!("a fixture should be a valid document: {other:?}").into()),
+    }
+}
+
+/// What tests/fixtures/song-import/batch/seed.json describes: Salamat, Ginoo
+/// and Bread of Life as it was before the batch reworded it.
+fn baseline() -> Result<Vec<ImportDocument>, Failure> {
+    let unchanged = decoded(BATCH[1].1)?;
+    let mut bread = decoded(BATCH[3].1)?;
+    bread.warnings.clear();
+    let arrangement = &mut bread.arrangements[0];
+    arrangement.warnings.clear();
+    arrangement.sections.truncate(2);
+    arrangement.sections[1].lyrics = "You gave us your body\na gift for the hungry".to_owned();
+    arrangement.sequence.truncate(3);
+    Ok(vec![unchanged, bread])
+}
+
+/// Writes the baseline into the lab parish under the fixtures' own identities,
+/// through the storage Interface, so the batch classifies as in the tests.
+fn seed_baseline(storage: &Storage) -> Result<(), Failure> {
+    let documents = baseline()?;
+    let mut batch = ImportBatch {
+        choirs: Vec::new(),
+        songs: Vec::new(),
+        arrangements: Vec::new(),
+        replacements: Vec::new(),
+        first_kind: RevisionKind::Import,
+    };
+    let mut next = 1_000u64;
+    let mut mint = || {
+        next += 1;
+        entity(next)
+    };
+    for document in documents {
+        batch.songs.push((
+            document.id,
+            NewSong {
+                title: document.song.title.clone(),
+                aliases: document.song.aliases.clone(),
+                original_attribution: document.song.original_attribution.clone(),
+                provenance: document.song.provenance.clone(),
+                rights_notes: document.song.rights_notes.clone(),
+                liturgical_moments: document.song.liturgical_moments.clone(),
+                occasions: document.song.occasions.clone(),
+            },
+        ));
+        for arrangement in document.arrangements {
+            let mut choirs = Vec::new();
+            for name in &arrangement.choirs {
+                let known = batch.choirs.iter().find(|(_, choir)| &choir.name == name);
+                let id = match known {
+                    Some((id, _)) => *id,
+                    None => {
+                        let id = ChoirId::from_entity(mint());
+                        batch.choirs.push((
+                            id,
+                            NewChoir {
+                                name: name.clone(),
+                                short_label: None,
+                                languages: Vec::new(),
+                                notes: None,
+                            },
+                        ));
+                        id
+                    }
+                };
+                choirs.push(id);
+            }
+            choirs.sort();
+            let sections: Vec<SectionContent> = arrangement
+                .sections
+                .iter()
+                .map(|section| SectionContent {
+                    id: SectionId::from_entity(mint()),
+                    label: section.label.clone(),
+                    lyrics: section.lyrics.clone(),
+                    pagination: PaginationState::NeedsReview,
+                })
+                .collect();
+            let sequence = arrangement
+                .sequence
+                .iter()
+                .filter_map(|entry| match entry {
+                    SequenceEntry::Section(at) => sections.get(*at).map(|section| section.id),
+                    SequenceEntry::Unresolved { .. } => None,
+                })
+                .map(|section| OccurrenceContent {
+                    id: OccurrenceId::from_entity(mint()),
+                    section,
+                })
+                .collect();
+            batch.arrangements.push(ImportedArrangement {
+                id: arrangement.id,
+                song: document.id,
+                content: ArrangementContent {
+                    title: arrangement.title,
+                    languages: arrangement.languages,
+                    choirs,
+                    rendition_attribution: arrangement.rendition_attribution,
+                    occasions: arrangement.occasions,
+                    notes: arrangement.notes,
+                    sections,
+                    sequence,
+                },
+            });
+        }
+    }
+    block_on(storage.commit_import(batch))?;
+    Ok(())
+}
+
+/// Writes the five documents and the Markdown song the Import path uses.
+fn write_batch(dir: &Path) -> Result<std::path::PathBuf, Failure> {
+    let folder = dir.join("import-batch");
+    std::fs::create_dir_all(&folder)?;
+    for (name, payload) in BATCH {
+        let bytes = pack_for_tests(&ManifestOverrides::default(), payload, &[]);
+        std::fs::write(folder.join(name), bytes)?;
+    }
+    std::fs::write(
+        folder.join("forward-repeat-unresolved.md"),
+        FORWARD_REPEAT.as_bytes(),
+    )?;
+    Ok(folder)
+}
+
+/// The generated document of Song number n; variant 1 rewords its first
+/// verse.
+fn generated(n: u64, variant: u8) -> ImportDocument {
+    let verse = if variant == 0 {
+        format!("Awit {n}, unang linya\nawit {n}, ikaduhang linya")
+    } else {
+        format!("Awit {n}, gibag-o nga linya\nawit {n}, ikaduhang linya")
+    };
+    ImportDocument {
+        id: SongId::from_entity(entity(10_000 + n)),
+        song: SongDraft {
+            aliases: vec![format!("Song {n}")],
+            original_attribution: Some(format!("Composer {}", n % 40)),
+            ..SongDraft::titled(format!("Awit nga Numero {n}"))
+        },
+        arrangements: vec![ImportArrangement {
+            id: ArrangementId::from_entity(entity(20_000 + n)),
+            title: None,
+            languages: vec!["Cebuano".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: None,
+            sections: vec![
+                ImportSection {
+                    label: Some("Verse 1".to_owned()),
+                    lyrics: verse,
+                },
+                ImportSection {
+                    label: Some("Chorus".to_owned()),
+                    lyrics: format!("Aleluya {n}\nsalamat sa Ginoo"),
+                },
+            ],
+            sequence: vec![
+                SequenceEntry::Section(0),
+                SequenceEntry::Section(1),
+                SequenceEntry::Section(0),
+            ],
+            warnings: Vec::new(),
+        }],
+        warnings: Vec::new(),
+    }
+}
+
+/// The library of Songs numbered 0 up to count, as the generator wrote them.
+fn generated_library(count: u64) -> Result<SongLibrary, Failure> {
+    let mut library = SongLibrary::new();
+    let at = Timestamp::from_millis(0);
+    let mut next = 100_000u64;
+    for n in 0..count {
+        let document = generated(n, 0);
+        library.create_song(document.id, at, document.song.clone())?;
+        for arrangement in &document.arrangements {
+            let sections: Vec<SectionDraft> = arrangement
+                .sections
+                .iter()
+                .map(|section| {
+                    next += 1;
+                    SectionDraft {
+                        id: SectionId::from_entity(entity(next)),
+                        label: section.label.clone(),
+                        lyrics: section.lyrics.clone(),
+                        pagination: PaginationState::NeedsReview,
+                    }
+                })
+                .collect();
+            let sequence = arrangement
+                .sequence
+                .iter()
+                .filter_map(|entry| match entry {
+                    SequenceEntry::Section(at) => sections.get(*at).map(|s| s.id),
+                    SequenceEntry::Unresolved { .. } => None,
+                })
+                .map(|section| {
+                    next += 1;
+                    OccurrenceDraft::new(OccurrenceId::from_entity(entity(next)), section)
+                })
+                .collect();
+            library.create_arrangement(
+                arrangement.id,
+                document.id,
+                at,
+                ArrangementDraft {
+                    languages: arrangement.languages.clone(),
+                    sections,
+                    sequence,
+                    ..ArrangementDraft::default()
+                },
+                Vec::new(),
+            )?;
+        }
+    }
+    Ok(library)
+}
+
+/// The milliseconds one call took, best of several.
+fn best_of<T>(runs: usize, mut call: impl FnMut() -> T) -> (f64, T) {
+    let mut best = f64::MAX;
+    let mut last = None;
+    for _ in 0..runs {
+        let started = std::time::Instant::now();
+        let value = call();
+        best = best.min(started.elapsed().as_secs_f64() * 1000.0);
+        last = Some(value);
+    }
+    (best, last.expect("at least one run"))
+}
+
+/// Times what the GPUI thread does for one Import approved press and for one
+/// Markdown recompute: the review a commit compares against, the plan, the
+/// whole-library check, and the Markdown draft's possible-existing-Songs
+/// ranking, for 50 documents against about 1,000 Songs. Run it in release.
+fn time_import() -> Result<(), Failure> {
+    const SONGS: u64 = 1_000;
+    const DOCUMENTS: u64 = 50;
+    let library = generated_library(SONGS)?;
+    // 20 new Songs, 15 unchanged, 15 reworded (each decided as an Update).
+    let mut documents = Vec::new();
+    let mut choices = Choices::default();
+    for at in 0..DOCUMENTS {
+        let document = match at {
+            0..=19 => generated(SONGS + at, 0),
+            20..=34 => generated(at, 0),
+            _ => generated(at, 1),
+        };
+        if at >= 35 {
+            choices
+                .arrangements
+                .insert((at as usize, 0), Outcome::UpdateExisting);
+        }
+        documents.push(StagedDocument {
+            source: format!("{at:02}.ordo"),
+            content: Staged::Valid(document),
+        });
+    }
+    let songs = std::collections::BTreeMap::<usize, SongChoice>::new();
+    let (review_ms, reviews) = best_of(20, || review_with_choices(&library, &documents, &songs));
+    let mut next = 1_000_000u64;
+    let (plan_ms, planned) = best_of(20, || {
+        let mut mint = || {
+            next += 1;
+            entity(next)
+        };
+        plan(&library, &documents, &reviews, &choices, &mut mint)
+    });
+    let planned = planned?;
+    let (check_ms, checked) = best_of(20, || library.check_import(&planned));
+    checked?;
+    let total = review_ms + plan_ms + check_ms;
+    println!(
+        "import verdict, {DOCUMENTS} documents against {} Songs ({} new Songs, {} replacements planned):",
+        library.songs().count(),
+        planned.songs.len(),
+        planned.replacements.len()
+    );
+    println!("  review_with_choices  {review_ms:8.3} ms");
+    println!("  plan                 {plan_ms:8.3} ms");
+    println!("  check_import         {check_ms:8.3} ms");
+    println!("  verdict total        {total:8.3} ms   (budget 16 ms)");
+    println!("  The store runs this verdict in a background task on a snapshot of the library;");
+    println!("  the GPUI thread only pays for the snapshot clone below.");
+    let (clone_ms, _) = best_of(20, || library.clone());
+    println!("  library snapshot clone {clone_ms:8.3} ms   (on the GPUI thread)");
+    // The Markdown draft ranks its title against the whole library on every
+    // recompute: a title that resembles many Songs is the worst case.
+    for (name, title) in [
+        ("no resemblance", "Zzzz unrelated title"),
+        ("one exact title", "Awit nga Numero 500"),
+        ("resembles many", "Awit nga Numero"),
+    ] {
+        let draft = SongDraft {
+            aliases: vec!["Song 500".to_owned()],
+            original_attribution: Some("Composer 20".to_owned()),
+            ..SongDraft::titled(title)
+        };
+        let (ms, found) = best_of(20, || library.possible_existing_songs(&draft));
+        println!(
+            "  possible_existing_songs ({name}, {} found) {ms:8.3} ms",
+            found.len()
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Failure> {
+    if std::env::args().any(|argument| argument == "--time-import") {
+        return time_import();
+    }
     let dir = std::env::temp_dir().join(format!("ordo-songs-library-lab-{}", std::process::id()));
     if dir.exists() {
         return Err(format!("{} already exists; remove it and rerun", dir.display()).into());
     }
     std::fs::create_dir_all(&dir)?;
     seed(&dir)?;
+    let batch = write_batch(&dir)?;
     println!("Lab parish folder: {}", dir.display());
     println!("Library > Songs and Library > Choirs read it; nothing else is touched.");
     println!("New song path: Library > Songs > New song. Type the title {NEAR_TITLE:?}:");
@@ -340,6 +712,30 @@ fn main() -> Result<(), Failure> {
     println!("  - With nothing using it, the dialog says what is erased and how many revisions");
     println!("    of History go with it. Delete permanently has no Undo; the Song and its");
     println!("    History stay when only an Arrangement is deleted.");
+
+    println!("Import path: Library > Songs > Import .ordo, choose every .ordo file in");
+    println!("  {}", batch.display());
+    println!("  - The review lists five documents: Add new Song, Skip unchanged, Attach");
+    println!("    Arrangement, Needs decision (Bread of Life) and Invalid (tampered hash).");
+    println!("  - Import approved is off while a decision is open or until something can be");
+    println!("    written; its reason is shown. Nothing is written until you press it.");
+    println!("  - On Bread of Life, Compare contents (no edit control); choose Update existing");
+    println!("    Arrangement and read its disclosure; Import approved then writes one batch.");
+    println!(
+        "  - The footer summary counts Songs, Arrangements, updates, Choirs, skipped, invalid."
+    );
+    println!("  - Open the updated Arrangement's History: its row reads Replaced from an import.");
+    println!("  - Import the same folder again: every valid document is Skip unchanged and");
+    println!("    Import approved stays off with nothing to import.");
+    println!(
+        "Markdown path: Library > Songs > Import Markdown, choose forward-repeat-unresolved.md:"
+    );
+    println!("  - The draft flags the misspelled forward repeat [Repeat: Korro]; correct it to");
+    println!("    Koro or leave it, then Save: an unresolved repeat saves as an empty placeholder");
+    println!("    section; possible existing Songs show under the title as in New song.");
+    println!(
+        "Timing check: cargo run --release -p ordo --example songs-library-lab -- --time-import"
+    );
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {
