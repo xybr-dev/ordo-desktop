@@ -39,11 +39,6 @@ erDiagram
         text lyrics
         text created_at
     }
-    celebration_package {
-        text id PK
-        text manifest_sha256
-        text created_at
-    }
     choir {
         text id PK
         text name
@@ -77,11 +72,6 @@ erDiagram
         text name
         text created_at
     }
-    parish_backup {
-        text id PK
-        text manifest_sha256
-        text created_at
-    }
     parish_note {
         integer id PK
         integer profile_id FK
@@ -95,11 +85,6 @@ erDiagram
         text key PK
         text value
         text updated_at
-    }
-    presentation_snapshot {
-        text id PK
-        text manifest_sha256
-        text created_at
     }
     schema_metadata {
         text key PK
@@ -258,21 +243,6 @@ Indexes:
 Foreign keys:
 - (arrangement_id) → `arrangement`(id), on delete NO ACTION, on update NO ACTION
 
-## celebration_package
-
-**Owner:** Celebration Packages (placeholder). **Lifecycle:** Schema only until package export and install use it.
-
-| Column | Type | Null | Default | Key | Check |
-|---|---|---|---|---|---|
-| id | text | no | — | PK | `canonical UUIDv4` |
-| manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
-| created_at | text | no | — | — | `canonical UTC time` |
-
-Indexes:
-- `sqlite_autoindex_celebration_package_1` on (id), unique (constraint)
-
-Foreign keys: none.
-
 ## choir
 
 **Owner:** Song Library. **Lifecycle:** Created by the operator; archived by setting archived_at; never cascades.
@@ -365,21 +335,6 @@ Indexes:
 
 Foreign keys: none.
 
-## parish_backup
-
-**Owner:** Parish Backups (placeholder). **Lifecycle:** Schema only until backup and restore use it.
-
-| Column | Type | Null | Default | Key | Check |
-|---|---|---|---|---|---|
-| id | text | no | — | PK | `canonical UUIDv4` |
-| manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
-| created_at | text | no | — | — | `canonical UTC time` |
-
-Indexes:
-- `sqlite_autoindex_parish_backup_1` on (id), unique (constraint)
-
-Foreign keys: none.
-
 ## parish_note
 
 **Owner:** T0.7 storage spike. **Lifecycle:** Spike table kept so checksummed history stays valid; no product code reads it.
@@ -422,21 +377,6 @@ WITHOUT ROWID.
 
 Indexes:
 - `sqlite_autoindex_parish_setting_1` on (key), unique (constraint)
-
-Foreign keys: none.
-
-## presentation_snapshot
-
-**Owner:** Presentation snapshots (placeholder). **Lifecycle:** Immutable once captured; schema only until snapshot capture uses it.
-
-| Column | Type | Null | Default | Key | Check |
-|---|---|---|---|---|---|
-| id | text | no | — | PK | `canonical UUIDv4` |
-| manifest_sha256 | text | no | — | — | `length(manifest_sha256) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'` |
-| created_at | text | no | — | — | `canonical UTC time` |
-
-Indexes:
-- `sqlite_autoindex_presentation_snapshot_1` on (id), unique (constraint)
 
 Foreign keys: none.
 

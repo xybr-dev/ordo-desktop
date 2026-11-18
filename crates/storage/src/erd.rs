@@ -180,21 +180,6 @@ const NOTES: &[(&str, &str, &str)] = &[
         "Edit revisions (placeholder, T2.2)",
         "Append-only; restoration adds a later revision; names exactly one song or arrangement.",
     ),
-    (
-        "presentation_snapshot",
-        "Presentation snapshots (placeholder)",
-        "Immutable once captured; schema only until snapshot capture uses it.",
-    ),
-    (
-        "celebration_package",
-        "Celebration Packages (placeholder)",
-        "Schema only until package export and install use it.",
-    ),
-    (
-        "parish_backup",
-        "Parish Backups (placeholder)",
-        "Schema only until backup and restore use it.",
-    ),
 ];
 
 /// Render the committed reference from a database migrated by this build.

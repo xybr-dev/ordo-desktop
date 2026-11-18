@@ -63,9 +63,6 @@ fn schema_lists_every_t2_1_table() {
         "managed_asset",
         "theme",
         "edit_revision",
-        "presentation_snapshot",
-        "celebration_package",
-        "parish_backup",
     ]
     .into_iter()
     .map(str::to_owned)
