@@ -23,7 +23,7 @@ use ui::{environment::UiEnvironment, tokens};
 pub use compare::{ImportCompare, imported_side, open_compare};
 pub use evidence::{arrangement_sentence, song_sentence, summary};
 pub use markdown::{MarkdownDraftEvent, MarkdownDraftView};
-pub use picker::FilePicker;
+pub use picker::{FilePicker, Picked, SystemPicker, route};
 pub use review::{ImportReview, ImportReviewEvent};
 
 /// The F6 regions, in reading order.

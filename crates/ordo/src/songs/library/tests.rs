@@ -241,8 +241,9 @@ fn ac2_ac3_empty_library_keeps_two_panes_and_creates_through_the_new_song_panel(
     assert!(present(cx, "songs-new"));
     assert!(present(cx, "songs-detail-steps"));
     assert!(!present(cx, "songs-search"));
-    // Import stays unavailable and does nothing when clicked.
-    click(cx, "songs-import");
+    // Import is available and asks for files; it opens no panel of its own.
+    // (The picking itself is covered with the review's tests.)
+    assert!(present(cx, "songs-import-header"));
     assert!(!present(cx, "new-song-form"));
     // Create song and New song both open the New song panel.
     click(cx, "songs-create");

@@ -899,3 +899,421 @@ fn ac6_a_new_song_document_previews_with_no_match(cx: &mut TestAppContext) {
     assert!(!present(cx, "compare-current-line-0-0-changed"));
     rig.finish(cx);
 }
+
+// ---- WP11: Import entry, file picking and shell frames ----
+
+/// Answers each pick with the next scripted answer and counts the asks.
+#[derive(Default)]
+struct ScriptedPicker {
+    answers: RefCell<Vec<Option<Vec<PathBuf>>>>,
+    asked: std::cell::Cell<usize>,
+    multiple: std::cell::Cell<Option<bool>>,
+}
+
+impl FilePicker for ScriptedPicker {
+    fn pick(&self, multiple: bool, _cx: &mut App) -> Task<Option<Vec<PathBuf>>> {
+        self.asked.set(self.asked.get() + 1);
+        self.multiple.set(Some(multiple));
+        let mut answers = self.answers.borrow_mut();
+        Task::ready(if answers.is_empty() {
+            None
+        } else {
+            answers.remove(0)
+        })
+    }
+}
+
+/// A shell on Library → Songs over a real parish, with a scripted picker.
+struct ShellRig {
+    shell: Entity<crate::shell::ShellView>,
+    store: Entity<LibraryStore>,
+    slot: StorageSlot,
+    dir: PathBuf,
+    files: PathBuf,
+    picker: Rc<ScriptedPicker>,
+}
+
+impl ShellRig {
+    fn answer(&self, paths: Vec<PathBuf>) {
+        self.picker.answers.borrow_mut().push(Some(paths));
+    }
+
+    fn file(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        write(&self.files, name, bytes)
+    }
+
+    fn songs(&self, cx: &mut VisualTestContext) -> usize {
+        self.store
+            .read_with(cx, |store, _| store.library().songs().count())
+    }
+
+    fn workspace(&self, cx: &mut VisualTestContext) -> Entity<crate::songs::SongsWorkspace> {
+        self.shell.read_with(cx, |shell, _| shell.songs().clone())
+    }
+
+    fn framed(&self, cx: &mut VisualTestContext) -> bool {
+        self.shell.read_with(cx, |shell, _| shell.has_frame())
+    }
+
+    fn toasts(&self, cx: &mut VisualTestContext) -> Vec<String> {
+        crate::songs::lyrics::tests::toasts(&self.shell, cx)
+    }
+
+    /// Clicks the header's Import and waits for the files to be read.
+    fn import_from_header(&self, cx: &mut VisualTestContext) {
+        click(cx, "songs-import-header");
+        let workspace = self.workspace(cx);
+        wait(cx, |cx| !workspace.read_with(cx, |ws, _| ws.reading()));
+    }
+
+    /// As [Self::import_from_header], then lets the frame finish rising so
+    /// recorded bounds are where it rests.
+    fn import_settled(&self, cx: &mut VisualTestContext) {
+        self.import_from_header(cx);
+        for _ in 0..10 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(60));
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        }
+    }
+
+    fn finish(&self, cx: &mut VisualTestContext) {
+        let outcome = cx.foreground_executor().block_test(self.slot.shutdown());
+        assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = std::fs::remove_dir_all(&self.files);
+    }
+}
+
+const GLORIA: &str = "---\ntitle: Gloria\nlanguage: English\n---\n[Verse]\nGlory to God\n";
+
+fn open_shell<'a>(
+    cx: &'a mut TestAppContext,
+    tag: &str,
+    seed: &[ImportDocument],
+) -> (ShellRig, &'a mut VisualTestContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir(tag);
+    let files = temp_dir(&format!("{tag}-files"));
+    let (slot, store) = open_parish(cx, &dir);
+    for (index, document) in seed.iter().enumerate() {
+        let path = write(&files, &format!("seed-{index}.ordo"), &ordo_bytes(document));
+        let staging = stage(cx, &store, vec![path]);
+        let task = store.update(cx, |store, cx| {
+            store.commit_import(&staging, Choices::default(), cx)
+        });
+        cx.foreground_executor().block_test(task).expect("seeded");
+    }
+    let (shell, cx) = crate::songs::choirs::tests::open_store(cx, store.clone());
+    let picker = Rc::new(ScriptedPicker::default());
+    let installed: Rc<dyn FilePicker> = picker.clone();
+    shell.update(cx, |shell, cx| shell.set_picker(installed, cx));
+    cx.run_until_parked();
+    (
+        ShellRig {
+            shell,
+            store,
+            slot,
+            dir,
+            files,
+            picker,
+        },
+        cx,
+    )
+}
+
+fn pathbufs(names: &[&str]) -> Vec<PathBuf> {
+    names.iter().map(PathBuf::from).collect()
+}
+
+#[test]
+fn route_goes_by_extension_case_insensitively() {
+    use super::{Picked, route};
+    assert_eq!(
+        route(&pathbufs(&["a.ordo", "B.ORDO"])),
+        Picked::Ordo(pathbufs(&["a.ordo", "B.ORDO"]))
+    );
+    assert_eq!(
+        route(&pathbufs(&["song.MD"])),
+        Picked::Markdown(PathBuf::from("song.MD"))
+    );
+    assert_eq!(
+        route(&pathbufs(&["song.txt"])),
+        Picked::Markdown(PathBuf::from("song.txt"))
+    );
+    for refused in [
+        &["a.md", "b.md"][..],
+        &["a.md", "b.ordo"],
+        &["a.ordo", "b.txt"],
+        &["deck.pptx"],
+        &["deck.ppt"],
+        &["noextension"],
+        &[],
+    ] {
+        assert_eq!(route(&pathbufs(refused)), Picked::Refused, "{refused:?}");
+    }
+}
+
+#[gpui::test]
+fn ac1_import_ordo_is_available_in_the_empty_state_and_the_songs_header(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "wp11-entry", &[]);
+    assert!(present(cx, "songs-empty"));
+    assert!(present(cx, "songs-import") && present(cx, "songs-import-header"));
+    // Neither says "arrives in a later build": both ask for files.
+    click(cx, "songs-import");
+    assert_eq!(rig.picker.asked.get(), 1);
+    assert_eq!(rig.picker.multiple.get(), Some(true));
+    click(cx, "songs-import-header");
+    assert_eq!(rig.picker.asked.get(), 2);
+    assert!(!rig.framed(cx));
+    // A populated library keeps the header entry.
+    rig.finish(cx);
+    let (rig, cx) = open_shell(cx, "wp11-entry-full", &tinapay_seed());
+    assert!(!present(cx, "songs-import"));
+    click(cx, "songs-import-header");
+    assert_eq!(rig.picker.asked.get(), 1);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac1_several_ordo_files_open_one_review(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "wp11-several", &[]);
+    let a = rig.file("a.ordo", &ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing")));
+    let b = rig.file("B.ORDO", &ordo_bytes(&doc(2, 0x12, "Benedictus", "Bless")));
+    rig.answer(vec![a, b]);
+    rig.import_settled(cx);
+    assert!(rig.framed(cx));
+    let review = rig
+        .shell
+        .read_with(cx, |shell, _| shell.import_review().cloned())
+        .expect("one review");
+    assert_eq!(
+        review.read_with(cx, |review, _| review.documents().len()),
+        2
+    );
+    assert!(present(cx, "import-doc-0") && present(cx, "import-doc-1"));
+    // The review covers the workspace: no Songs list pane, no rail.
+    assert!(!present(cx, "songs-list-pane"));
+    assert_eq!(
+        rig.songs(cx),
+        0,
+        "nothing is written before Import approved"
+    );
+    assert!(rig.toasts(cx).is_empty());
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac3_one_markdown_or_text_file_opens_the_draft(cx: &mut TestAppContext) {
+    for (name, tag) in [("gloria.md", "wp11-md"), ("gloria.TXT", "wp11-txt")] {
+        let (rig, cx) = open_shell(cx, tag, &[]);
+        let path = rig.file(name, GLORIA.as_bytes());
+        rig.answer(vec![path]);
+        rig.import_settled(cx);
+        let draft = rig
+            .shell
+            .read_with(cx, |shell, _| shell.markdown_draft().cloned())
+            .expect("the draft opens");
+        draft.read_with(cx, |draft, cx| {
+            assert_eq!(draft.parsed().document.song.title, "Gloria");
+            assert_eq!(draft.source().value(cx).as_ref(), GLORIA);
+        });
+        assert!(present(cx, "markdown-source") && present(cx, "button-Save song"));
+        assert!(
+            rig.shell
+                .read_with(cx, |shell, _| shell.import_review().is_none())
+        );
+        assert_eq!(
+            rig.songs(cx),
+            0,
+            "{name}: nothing is saved before Save song"
+        );
+        rig.finish(cx);
+    }
+}
+
+#[gpui::test]
+fn ac1_a_mixed_or_powerpoint_selection_is_refused_with_a_toast_and_nothing_opens(
+    cx: &mut TestAppContext,
+) {
+    let (rig, cx) = open_shell(cx, "wp11-refuse", &[]);
+    let ordo = rig.file("a.ordo", &ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing")));
+    let md = rig.file("one.md", GLORIA.as_bytes());
+    let other = rig.file("two.md", GLORIA.as_bytes());
+    let deck = rig.file("deck.pptx", b"not a song");
+    let legacy = rig.file("deck.ppt", b"not a song");
+    for (round, selection) in [
+        vec![ordo, md.clone()],
+        vec![md, other],
+        vec![deck],
+        vec![legacy],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        rig.answer(selection);
+        rig.import_settled(cx);
+        cx.run_until_parked();
+        assert!(!rig.framed(cx), "round {round}");
+        assert_eq!(rig.songs(cx), 0, "round {round}");
+        assert_eq!(
+            rig.toasts(cx),
+            ["Choose .ordo files, or one Markdown (.md or .txt) song."],
+            "round {round}"
+        );
+        assert!(present(cx, "songs-empty"), "round {round}");
+    }
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac1_cancelling_the_picker_changes_nothing(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "wp11-cancel-pick", &tinapay_seed());
+    let before = rig.workspace(cx).read_with(cx, |ws, _| ws.selected());
+    // The picker answers None, as a cancelled dialog does; an empty answer is
+    // the same.
+    rig.import_settled(cx);
+    rig.picker.answers.borrow_mut().push(Some(Vec::new()));
+    rig.import_settled(cx);
+    assert_eq!(rig.picker.asked.get(), 2);
+    assert!(!rig.framed(cx));
+    assert!(rig.toasts(cx).is_empty());
+    assert_eq!(rig.songs(cx), 1);
+    assert_eq!(
+        rig.workspace(cx).read_with(cx, |ws, _| ws.selected()),
+        before
+    );
+    // And the entry still works afterwards.
+    let path = rig.file("a.ordo", &ordo_bytes(&doc(2, 0x12, "Benedictus", "Bless")));
+    rig.answer(vec![path]);
+    rig.import_settled(cx);
+    assert!(rig.framed(cx));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn the_review_rises_and_cancel_returns_focus_to_import(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "wp11-rise", &[]);
+    let path = rig.file("a.ordo", &ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing")));
+    rig.answer(vec![path]);
+    rig.import_from_header(cx);
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let frame = cx.debug_bounds("focused-frame").expect("the frame");
+    let page = cx.debug_bounds("focused-frame-page").expect("the page");
+    assert!(
+        page.origin.y > frame.origin.y,
+        "the frame starts below its resting place and rises"
+    );
+    // After the slideover timing it is at rest.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(
+            (ui::tokens::motion::STANDARD_DURATION_MS * 2).into(),
+        ));
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let page = cx.debug_bounds("focused-frame-page").expect("the page");
+    assert_eq!(page.origin.y, frame.origin.y);
+    click(cx, "button-Cancel import");
+    assert!(!rig.framed(cx));
+    assert!(present(cx, "songs-list-pane"));
+    let focus = rig
+        .workspace(cx)
+        .read_with(cx, |ws, _| ws.import_focus().clone());
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert!(cx.update(|window, _| focus.is_focused(window)));
+    assert_eq!(rig.songs(cx), 0);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn an_approved_import_returns_to_songs_with_the_first_created_song_selected(
+    cx: &mut TestAppContext,
+) {
+    let (rig, cx) = open_shell(cx, "wp11-commit", &[]);
+    let a = rig.file("a.ordo", &ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing")));
+    let b = rig.file("b.ordo", &ordo_bytes(&doc(2, 0x12, "Benedictus", "Bless")));
+    rig.answer(vec![a, b]);
+    rig.import_settled(cx);
+    click(cx, "button-Import approved");
+    let shell = rig.shell.clone();
+    wait(cx, |cx| !shell.read_with(cx, |shell, _| shell.has_frame()));
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert_eq!(rig.songs(cx), 2);
+    assert_eq!(
+        rig.toasts(cx),
+        ["Imported the approved changes in one update."]
+    );
+    let workspace = rig.workspace(cx);
+    let selected = workspace
+        .read_with(cx, |ws, _| ws.selected())
+        .expect("selected");
+    assert_eq!(selected, song_id(1));
+    let focused = cx.update(|window, cx| workspace.read(cx).row_focus().is_focused(window));
+    assert!(focused, "the selected Song's row holds focus");
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn reading_files_shows_a_named_progress_indicator(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "wp11-reading", &[]);
+    let path = rig.file("a.ordo", &ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing")));
+    rig.answer(vec![path]);
+    let workspace = rig.workspace(cx);
+    cx.update(|window, cx| workspace.update(cx, |ws, cx| ws.import(window, cx)));
+    // Step the foreground until the read is under way, before it finishes.
+    let mut seen = false;
+    for _ in 0..200 {
+        if workspace.read_with(cx, |ws, _| ws.reading()) {
+            seen = true;
+            break;
+        }
+        cx.executor().tick();
+    }
+    assert!(seen, "the indicator is up while the files are read");
+    cx.update(|window, _| window.refresh());
+    let role = cx.debug_bounds("songs-reading");
+    assert!(role.is_some(), "the named indicator is drawn");
+    let named = cx.update(|_, cx| {
+        let _ = cx;
+        super::super::library::READING_FILES
+    });
+    assert_eq!(named, "Reading files\u{2026}");
+    wait(cx, |cx| !workspace.read_with(cx, |ws, _| ws.reading()));
+    assert!(!present(cx, "songs-reading"));
+    assert!(rig.framed(cx));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn saving_a_draft_swaps_in_the_ordinary_editor_and_discarding_returns_to_import(
+    cx: &mut TestAppContext,
+) {
+    let (rig, cx) = open_shell(cx, "wp11-draft", &[]);
+    let path = rig.file("gloria.md", GLORIA.as_bytes());
+    rig.answer(vec![path.clone()]);
+    rig.import_settled(cx);
+    click(cx, "button-Discard draft");
+    assert!(!rig.framed(cx), "an untouched draft closes at once");
+    assert_eq!(rig.songs(cx), 0);
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let focus = rig
+        .workspace(cx)
+        .read_with(cx, |ws, _| ws.import_focus().clone());
+    assert!(cx.update(|window, _| focus.is_focused(window)));
+    rig.answer(vec![path]);
+    rig.import_settled(cx);
+    click(cx, "button-Save song");
+    let shell = rig.shell.clone();
+    wait(cx, |cx| {
+        shell.read_with(cx, |shell, _| shell.editing_arrangement().is_some())
+    });
+    assert!(!rig.framed(cx));
+    assert_eq!(rig.songs(cx), 1);
+    assert_eq!(rig.toasts(cx), ["Saved Gloria."]);
+    rig.finish(cx);
+}

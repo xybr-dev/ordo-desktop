@@ -16,7 +16,7 @@ mod list;
 #[cfg(test)]
 mod tests;
 
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 
 use domain::{
     identity::{ArrangementId, SongId},
@@ -24,10 +24,13 @@ use domain::{
         AfterArchive, LibraryQuery, LifecycleAction, SongHit, search, selection_after_archive,
     },
 };
-use gpui::{AnyElement, App, Context, Entity, Pixels, Point, Subscription, Window};
+use gpui::{
+    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, Pixels, Point, Subscription,
+    Task, Window,
+};
 use ui::{
     environment::UiEnvironment,
-    overlay::OverlayHost,
+    overlay::{OverlayHost, Toast},
     primitives::field::{FieldEvent, FieldState},
     scroll::Scroll,
 };
@@ -36,14 +39,45 @@ use crate::history::{AfterRestore, HistoryTarget, open_history};
 
 use super::{
     arrangement_details::{self, ArrangementDetailsPanel},
+    import_review::{FilePicker, Picked, SystemPicker, route},
     lifecycle::{
         AfterLifecycle, LifecycleOutcome, LifecycleTarget, confirm_archive, restore,
         review_deletion,
     },
     new_song::{NewSongPanel, Outcome},
-    store::{LibraryEvent, LibraryState, LibraryStore},
+    store::{ImportStaging, LibraryEvent, LibraryState, LibraryStore},
 };
 pub use filters::FilterKind;
+
+/// The toast for a pick no import path accepts (Decision 21).
+pub(crate) const CHOOSE_FILES: &str = "Choose .ordo files, or one Markdown (.md or .txt) song.";
+/// The named progress indicator while files are read (DESIGN 620).
+pub(crate) const READING_FILES: &str = "Reading files\u{2026}";
+
+/// What the workspace asks the shell to open: a full-workspace frame over the
+/// screen, built from what the operator picked.
+pub enum SongsEvent {
+    /// Review Song import over a staged batch.
+    OpenReview(ImportStaging),
+    /// The Markdown draft over one picked Markdown or text file.
+    OpenDraft {
+        /// The file's name, for the frame's meta line.
+        file: String,
+        /// The file's bytes, as read.
+        bytes: Vec<u8>,
+        /// The parse of those bytes, with fresh identities.
+        draft: Box<domain::song_library::import::MarkdownDraft>,
+    },
+}
+
+/// Focus the next draw of the list should place, once the control is drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PendingFocus {
+    /// The header's **Import .ordo**, after the frame that import opened closes.
+    Import,
+    /// The selected Song's row, after an import was committed.
+    Row,
+}
 
 /// How the detail pane asks the shell to open an Arrangement's focused view.
 pub type OpenArrangement = Rc<dyn Fn(ArrangementId, &mut Window, &mut App)>;
@@ -94,8 +128,22 @@ pub struct SongsWorkspace {
     new_song: Option<Entity<NewSongPanel>>,
     /// The New Arrangement panel while it is open.
     new_arrangement: Option<Entity<ArrangementDetailsPanel>>,
+    /// How files are picked; the system dialog unless a test installs another.
+    picker: Rc<dyn FilePicker>,
+    /// The header's **Import .ordo**, where focus returns when the frame it
+    /// opened closes.
+    import_focus: gpui::FocusHandle,
+    /// Whether an import is between the pick and the frame it opens.
+    importing: bool,
+    /// Whether the picked files are being read, which the list says by name.
+    reading: bool,
+    /// The pick and the read, owned here so a closed workspace drops them.
+    import_task: Option<Task<()>>,
+    pending_focus: Option<PendingFocus>,
     _subscriptions: Vec<Subscription>,
 }
+
+impl EventEmitter<SongsEvent> for SongsWorkspace {}
 
 impl SongsWorkspace {
     /// A workspace over `store`, searching as the operator types.
@@ -130,6 +178,12 @@ impl SongsWorkspace {
             overlays: None,
             new_song: None,
             new_arrangement: None,
+            picker: Rc::new(SystemPicker),
+            import_focus: cx.focus_handle(),
+            importing: false,
+            reading: false,
+            import_task: None,
+            pending_focus: None,
             _subscriptions: vec![typed, changed],
         };
         workspace.refresh(cx);
@@ -140,6 +194,126 @@ impl SongsWorkspace {
     /// panel. Without it the panel cannot open.
     pub fn set_overlays(&mut self, overlays: OverlayHost) {
         self.overlays = Some(overlays);
+    }
+
+    /// Replaces how files are picked, for a test.
+    pub fn set_picker(&mut self, picker: Rc<dyn FilePicker>) {
+        self.picker = picker;
+    }
+
+    /// How files are picked.
+    pub fn picker(&self) -> Rc<dyn FilePicker> {
+        self.picker.clone()
+    }
+
+    /// Whether the picked files are being read.
+    pub fn reading(&self) -> bool {
+        self.reading
+    }
+
+    /// The header's **Import .ordo**, which takes focus back when the frame it
+    /// opened closes.
+    pub fn import_focus(&self) -> &gpui::FocusHandle {
+        &self.import_focus
+    }
+
+    /// Asks for files and routes them (Decision 21): `.ordo` files become one
+    /// Review Song import, one Markdown or text file becomes the draft, and
+    /// anything else is refused with a toast. Reading and classifying run off
+    /// the GPUI thread; the shell opens the frame on the [`SongsEvent`].
+    /// Cancelling the pick changes nothing. Does nothing while the library is
+    /// not readable, another import is under way, or a surface is open.
+    pub fn import(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.importing
+            || *self.store.read(cx).state() != LibraryState::Ready
+            || self.overlay_depth(cx) > 0
+        {
+            return;
+        }
+        self.importing = true;
+        let picked = self.picker.pick(true, cx);
+        self.import_task = Some(cx.spawn(async move |this, cx| {
+            let paths = picked.await.unwrap_or_default();
+            let event = match route(&paths) {
+                _ if paths.is_empty() => None,
+                Picked::Refused => {
+                    let _ = this.update(cx, |workspace, cx| {
+                        workspace.toast_failure(CHOOSE_FILES, cx)
+                    });
+                    None
+                }
+                Picked::Ordo(paths) => {
+                    let Ok(task) = this.update(cx, |workspace, cx| {
+                        workspace.reading = true;
+                        cx.notify();
+                        workspace
+                            .store
+                            .update(cx, |store, cx| store.stage_import(paths, cx))
+                    }) else {
+                        return;
+                    };
+                    Some(SongsEvent::OpenReview(task.await))
+                }
+                Picked::Markdown(path) => {
+                    let Ok((draft, bytes)) = this.update(cx, |workspace, cx| {
+                        workspace.reading = true;
+                        cx.notify();
+                        let draft = workspace
+                            .store
+                            .update(cx, |store, cx| store.read_markdown(path.clone(), cx));
+                        (draft, cx.background_spawn(read_bytes(path)))
+                    }) else {
+                        return;
+                    };
+                    match (draft.await, bytes.await) {
+                        (Ok(draft), Ok((file, bytes))) => Some(SongsEvent::OpenDraft {
+                            file,
+                            bytes,
+                            draft: Box::new(draft),
+                        }),
+                        (Err(message), _) | (_, Err(message)) => {
+                            let _ = this.update(cx, |workspace, cx| {
+                                workspace.toast_failure(message, cx);
+                            });
+                            None
+                        }
+                    }
+                }
+            };
+            let _ = this.update(cx, |workspace, cx| {
+                workspace.importing = false;
+                workspace.reading = false;
+                workspace.import_task = None;
+                if let Some(event) = event {
+                    cx.emit(event);
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    /// Says `message` in a failure toast, when the overlay layer is there.
+    fn toast_failure(&self, message: impl Into<gpui::SharedString>, cx: &mut App) {
+        if let Some(host) = &self.overlays {
+            host.notify(Toast::failure(message), cx);
+        }
+    }
+
+    /// Puts focus on **Import .ordo** once the list draws it: the frame the
+    /// import opened has closed without writing.
+    pub fn focus_import(&mut self, cx: &mut Context<Self>) {
+        self.pending_focus = Some(PendingFocus::Import);
+        cx.notify();
+    }
+
+    /// Selects `song` and puts focus on its row once the list draws it: the
+    /// import was committed and `song` is the first it created or updated.
+    pub fn show_imported(&mut self, song: SongId, window: &mut Window, cx: &mut Context<Self>) {
+        self.reveal(song, window, cx);
+        self.focus_song = Some(song);
+        self.pending_focus = Some(PendingFocus::Row);
+        cx.notify();
     }
 
     /// The New song panel, while it is open.
@@ -563,6 +737,19 @@ impl SongsWorkspace {
         if let Some(offset) = self.restore_scroll.take() {
             self.list_scroll.handle().set_offset(offset);
         }
+        if let Some(pending) = self.pending_focus.take() {
+            // The control is drawn by this very render, so focus moves once
+            // it is in the frame.
+            let handle = match pending {
+                PendingFocus::Import => self.import_focus.clone(),
+                PendingFocus::Row => self.row_focus.clone(),
+            };
+            window
+                .spawn(cx, async move |cx| {
+                    cx.update(|window, cx| handle.focus(window, cx)).ok();
+                })
+                .detach();
+        }
         list::render(self, environment, window, cx)
     }
 
@@ -596,5 +783,17 @@ impl SongsWorkspace {
         move |window, cx| {
             let _ = weak.update(cx, |workspace, cx| run(workspace, window, cx));
         }
+    }
+}
+
+/// Reads a picked file's bytes and name; the error is the operator copy.
+async fn read_bytes(path: PathBuf) -> Result<(String, Vec<u8>), gpui::SharedString> {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok((name, bytes)),
+        Err(_) => Err(format!("Couldn't read {name}.").into()),
     }
 }
