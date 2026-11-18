@@ -304,6 +304,18 @@ fn the_draft_splits_trims_and_drops_empties() {
     assert!(draft.aliases.is_empty() && draft.liturgical_moments.is_empty());
 }
 
+#[test]
+fn quoted_aliases_and_moments_keep_their_commas_and_lose_their_quote_marks() {
+    let draft = build_draft(
+        "Kyrie",
+        "",
+        "\"Lord, have mercy\", Kyrie eleison, \"\"",
+        "\"Entrance, Gathering\"",
+    );
+    assert_eq!(draft.aliases, ["Lord, have mercy", "Kyrie eleison"]);
+    assert_eq!(draft.liturgical_moments, ["Entrance, Gathering"]);
+}
+
 #[gpui::test]
 fn ac1_the_form_has_exactly_four_identity_fields_and_none_of_the_arrangement_ones(
     cx: &mut TestAppContext,

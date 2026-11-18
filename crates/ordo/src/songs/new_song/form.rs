@@ -33,22 +33,37 @@ pub(super) const CREATE_REASON: &str = "Type a primary title first";
 pub(super) const FAILED: &str = "Couldn't create song";
 
 /// The draft the four fields stage. The title is kept verbatim; aliases and
-/// moments are split on commas, trimmed at the ends and stripped of empties;
-/// a blank composer is no composer.
+/// moments are split on commas (a double-quoted part keeps its commas), trimmed
+/// at the ends and stripped of empties; a blank composer is no composer.
 pub fn build_draft(title: &str, composer: &str, aliases: &str, moments: &str) -> SongDraft {
-    let list = |text: &str| -> Vec<String> {
-        text.split(',')
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
-            .map(str::to_owned)
-            .collect()
-    };
     let mut draft = SongDraft::titled(title);
     draft.original_attribution =
         Some(composer.to_owned()).filter(|composer| !composer.trim().is_empty());
-    draft.aliases = list(aliases);
-    draft.liturgical_moments = list(moments);
+    draft.aliases = split_list(aliases);
+    draft.liturgical_moments = split_list(moments);
     draft
+}
+
+/// Splits a comma-separated field into trimmed, non-empty parts. A part wrapped
+/// in double quotes is one part even when it contains commas, and its quote
+/// marks are removed. An unclosed quote runs to the end of the field.
+fn split_list(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for ch in text.chars() {
+        match ch {
+            '"' => quoted = !quoted,
+            ',' if !quoted => parts.push(std::mem::take(&mut current)),
+            _ => current.push(ch),
+        }
+    }
+    parts.push(current);
+    parts
+        .into_iter()
+        .map(|part| part.trim().to_owned())
+        .filter(|part| !part.is_empty())
+        .collect()
 }
 
 /// "1 possible existing Song" or "N possible existing Songs".
