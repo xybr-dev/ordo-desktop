@@ -640,6 +640,14 @@ fn a_refused_save_stays_in_the_header_and_keeps_the_draft(cx: &mut TestAppContex
         view.read_with(cx, |view, _| view.refusal().is_some() && !view.busy())
     });
     assert!(present(cx, "markdown-refusal"));
+    assert_eq!(
+        rig.view
+            .read_with(cx, |view, _| view.refusal().map(|text| text.to_string())),
+        Some(
+            "Something in the Library changed while you reviewed. Review the import again."
+                .to_owned()
+        )
+    );
     assert!(rig.events.borrow().is_empty());
     assert_eq!(rig.arrangements_of(cx, existing), 0);
     assert_eq!(rig.text(cx), TINAPAY, "the draft stays");

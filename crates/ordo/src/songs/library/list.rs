@@ -139,7 +139,7 @@ fn import_button(
 }
 
 /// The named progress indicator shown while picked files are read.
-fn reading(environment: UiEnvironment) -> impl IntoElement {
+pub(super) fn reading(environment: UiEnvironment) -> gpui::Stateful<gpui::Div> {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     div()
@@ -184,6 +184,7 @@ pub(super) fn render(
         .border_color(rgb(palette.border))
         .child(
             div()
+                .debug_selector(|| "songs-title".into())
                 .text_size(px(scale.apply(tokens::typography::HEADING.size)))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(palette.text))
@@ -192,6 +193,7 @@ pub(super) fn render(
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .child(

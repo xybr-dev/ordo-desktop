@@ -375,7 +375,87 @@ pub fn technical_line(reason: &InvalidReason) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{join_and, join_plain};
+    use domain::{
+        identity::{EntityId, SongId},
+        song_library::{
+            MatchedOn, SongDraft,
+            import::{ImportDocument, SongEvidence},
+        },
+    };
+
+    use super::{join_and, join_plain, song_why};
+
+    fn document(aliases: &[&str]) -> ImportDocument {
+        let mut song = SongDraft::titled("Tinapay");
+        song.aliases = aliases.iter().map(|alias| (*alias).to_owned()).collect();
+        ImportDocument {
+            id: SongId::from_entity(EntityId::from_random_bytes([9; 16])),
+            song,
+            arrangements: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn name(candidate_on: MatchedOn) -> SongEvidence {
+        SongEvidence::Name {
+            candidate_on,
+            existing_on: MatchedOn::Title,
+            exact: true,
+        }
+    }
+
+    #[test]
+    fn a_title_match_reads_as_an_aspect() {
+        let why = song_why(&[name(MatchedOn::Title)], &document(&[]), None);
+        assert_eq!(why, "Title matches this Song.");
+    }
+
+    #[test]
+    fn aspects_are_listed_without_the_oxford_comma() {
+        let evidence = [
+            name(MatchedOn::Title),
+            SongEvidence::SameAttribution,
+            SongEvidence::SameOpeningLine,
+        ];
+        assert_eq!(
+            song_why(&evidence, &document(&[]), None),
+            "Title, composer and opening line match this Song."
+        );
+    }
+
+    #[test]
+    fn an_alias_alone_is_named_as_an_alias() {
+        let why = song_why(&[name(MatchedOn::Alias(0))], &document(&["Bread"]), None);
+        assert_eq!(why, "The alias Bread matches this Song.");
+        let why = song_why(
+            &[name(MatchedOn::Alias(0)), name(MatchedOn::Alias(1))],
+            &document(&["Bread", "Loaf"]),
+            None,
+        );
+        assert_eq!(why, "The aliases Bread and Loaf match this Song.");
+    }
+
+    #[test]
+    fn aspects_and_an_alias_share_one_sentence() {
+        let evidence = [name(MatchedOn::Title), name(MatchedOn::Alias(0))];
+        assert_eq!(
+            song_why(&evidence, &document(&["Bread"]), None),
+            "Title matches this Song; the alias Bread also matches."
+        );
+    }
+
+    #[test]
+    fn the_file_naming_lines_follow_the_match() {
+        let evidence = [
+            SongEvidence::SameId,
+            SongEvidence::FileTitle("Panis".to_owned()),
+            SongEvidence::AlsoCalled("Loaf".to_owned()),
+        ];
+        assert_eq!(
+            song_why(&evidence, &document(&[]), None),
+            "The file names this Song by its identity. The file names it Panis. The file also calls it Loaf."
+        );
+    }
 
     fn words(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| (*item).to_owned()).collect()

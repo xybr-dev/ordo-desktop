@@ -88,6 +88,21 @@ fn plural(count: usize, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
 }
 
+/// A row's accessible name: "{title}, {file}, {chip}", or "{title}, {chip}"
+/// for an invalid file (its title is already the file).
+pub(super) fn row_name(review: &ImportReview, index: usize) -> String {
+    let title = title_of(review, index);
+    let chip = chip(review, index);
+    if review.is_staged_valid(index) {
+        format!(
+            "{title}, {}, {chip}",
+            review.staging.documents[index].source
+        )
+    } else {
+        format!("{title}, {chip}")
+    }
+}
+
 /// The list pane, inside its F6 region.
 pub(super) fn render(
     review: &mut ImportReview,
@@ -107,11 +122,7 @@ pub(super) fn render(
             let valid = review.is_staged_valid(index);
             let file = review.staging.documents[index].source.clone();
             let selected = review.selected == index;
-            let name = if valid {
-                format!("{title}, {file}, {chip}")
-            } else {
-                format!("{title}, {chip}")
-            };
+            let name = row_name(review, index);
             let select = ImportReview::act(cx, move |review, _, cx| review.select(index, cx));
             let key = ImportReview::act(cx, move |review, _, cx| review.select(index, cx));
             let row = div().id(("import-document", index));

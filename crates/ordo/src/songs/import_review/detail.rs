@@ -111,7 +111,10 @@ fn block_counts(imported: &domain::song_library::import::ImportArrangement) -> S
 }
 
 /// The Update description: who will see the new words.
-fn update_text(library: &SongLibrary, nearest: Option<domain::identity::ArrangementId>) -> String {
+pub(super) fn update_text(
+    library: &SongLibrary,
+    nearest: Option<domain::identity::ArrangementId>,
+) -> String {
     let names: Vec<String> = nearest
         .and_then(|id| library.arrangement(id).ok())
         .map(|arrangement| {

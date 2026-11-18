@@ -29,6 +29,15 @@ fn blocked(review: &ImportReview) -> Option<&'static str> {
     }
 }
 
+/// Whether **Import approved** can be taken, and the reason when it cannot:
+/// a commit or re-stage in flight first, then what blocks the import.
+pub(super) fn import_availability(review: &ImportReview) -> Availability {
+    review
+        .held()
+        .or_else(|| blocked(review))
+        .map_or(Availability::Available, Availability::unavailable)
+}
+
 /// The header: **Cancel import**, the trail and title, and the reassurance.
 pub(super) fn header(
     review: &ImportReview,
@@ -108,10 +117,7 @@ pub(super) fn footer(
     let summary = evidence::summary(&review.tally());
     // Unavailable, not Disabled: the button keeps its label and its place in
     // the tab order, so focus is not lost while the import runs.
-    let availability = review
-        .held()
-        .or_else(|| blocked(review))
-        .map_or(Availability::Available, Availability::unavailable);
+    let availability = import_availability(review);
     let commit = Button::new("import-approved", "Import approved", environment)
         .icon(icon::CHECK)
         .tone(Tone::Primary)

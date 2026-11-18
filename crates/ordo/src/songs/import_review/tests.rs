@@ -20,7 +20,7 @@ use ui::{
     overlay::OverlayHost,
 };
 
-use super::{FilePicker, ImportReview, ImportReviewEvent, evidence, list};
+use super::{FilePicker, ImportReview, ImportReviewEvent, detail, evidence, footer, list};
 use crate::songs::{
     LibraryStore, StorageSlot,
     choirs::tests::{click, open_parish, temp_dir, wait},
@@ -456,28 +456,107 @@ fn ac7_a_near_duplicate_offers_add_as_new_update_existing_or_skip_with_recommend
 
 #[gpui::test]
 fn ac7_update_existing_discloses_the_choirs_inline(cx: &mut TestAppContext) {
+    let mut seeded = doc(1, 0x11, "Tinapay sa Langit", "Bread from heaven");
+    seeded.arrangements[0].choirs = vec!["Koro Sto. Nino".to_owned()];
     let mut changed = doc(1, 0x11, "Tinapay sa Langit", "Bread, reworded");
     changed.arrangements[0].choirs = vec!["Koro Sto. Nino".to_owned()];
     let batch = vec![("choirs.ordo", ordo_bytes(&changed))];
-    let (rig, cx) = open(cx, "wp8-ac7-choirs", &tinapay_seed(), &batch);
+    let (rig, cx) = open(cx, "wp8-ac7-choirs", &[seeded], &batch);
     assert!(present(cx, "import-card-imported"));
-    rig.review.update(cx, |review, cx| {
-        let offered = review.review_of(0).expect("valid").arrangements[0]
+    // The description names the Choir that will see the new words.
+    let said = rig.store.read_with(cx, |store, _| {
+        detail::update_text(store.library(), Some(arrangement_id(0x11)))
+    });
+    assert_eq!(
+        said,
+        "Replaces the existing Arrangement as a new revision. Koro Sto. Nino will see the new words; Mass-local copies don\u{2019}t change."
+    );
+    let at = rig.review.read_with(cx, |review, _| {
+        review.review_of(0).expect("valid").arrangements[0]
             .offered
-            .clone();
-        let at = offered
             .iter()
             .position(|outcome| *outcome == Outcome::UpdateExisting)
-            .expect("Update is offered");
-        review.choose_outcome(0, 0, at, cx);
+            .expect("Update is offered")
     });
-    cx.run_until_parked();
+    let selector: &'static str = [
+        "radio-import-outcome-0-0",
+        "radio-import-outcome-0-1",
+        "radio-import-outcome-0-2",
+    ][at];
+    click(cx, selector);
     let summary = rig
         .review
         .read_with(cx, |review, _| evidence::summary(&review.tally()));
     assert!(summary.contains("1 update"), "{summary}");
-    assert!(summary.contains("1 new Choir"), "{summary}");
     assert_eq!(chips(&rig, cx), ["Update existing"]);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac7_an_arrangement_with_no_choir_says_no_choir_will_see_the_update(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp8-ac7-nochoir", &tinapay_seed(), &reworded_batch());
+    let said = rig.store.read_with(cx, |store, _| {
+        detail::update_text(store.library(), Some(arrangement_id(0x11)))
+    });
+    assert_eq!(
+        said,
+        "Replaces the existing Arrangement as a new revision. No Choir will see the new words; Mass-local copies don\u{2019}t change."
+    );
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac4_rows_chips_and_the_import_gate_are_named_from_the_render(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a-broken.ordo", b"nope".to_vec()),
+        (
+            "b-reworded.ordo",
+            ordo_bytes(&doc(1, 0x11, "Tinapay sa Langit", "Bread, reworded")),
+        ),
+    ];
+    let (rig, cx) = open(cx, "t210b-names", &tinapay_seed(), &batch);
+    let names = rig.review.read_with(cx, |review, _| {
+        (0..2)
+            .map(|index| list::row_name(review, index))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        names,
+        [
+            "a-broken.ordo, Invalid",
+            "Tinapay sa Langit, b-reworded.ordo, Needs decision"
+        ]
+    );
+    click(cx, "import-doc-1");
+    assert!(
+        present(cx, "chip-Recommended"),
+        "the recommended option carries its chip"
+    );
+    let gate = |rig: &Rig, cx: &mut VisualTestContext| {
+        rig.review
+            .read_with(cx, |review, _| footer::import_availability(review))
+    };
+    assert_eq!(
+        gate(&rig, cx),
+        ui::primitives::Availability::unavailable("Make every decision first.")
+    );
+    click(cx, "radio-import-outcome-1000-0");
+    // The first document is invalid, so deciding the second makes the batch ready.
+    assert_eq!(gate(&rig, cx), ui::primitives::Availability::Available);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_an_unchanged_batch_is_unavailable_with_its_reason(cx: &mut TestAppContext) {
+    let batch = vec![("same.ordo", ordo_bytes(&tinapay_seed()[0]))];
+    let (rig, cx) = open(cx, "t210b-unchanged", &tinapay_seed(), &batch);
+    let gate = rig
+        .review
+        .read_with(cx, |review, _| footer::import_availability(review));
+    assert_eq!(
+        gate,
+        ui::primitives::Availability::unavailable("Everything is already in the Library.")
+    );
     rig.finish(cx);
 }
 
@@ -684,6 +763,17 @@ fn settle(cx: &mut VisualTestContext) {
     }
 }
 
+/// A key pressed and released on the focused control, as the window delivers it.
+fn press(cx: &mut VisualTestContext, key: &str) {
+    let keystroke = gpui::Keystroke::parse(key).expect("a parseable key");
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(gpui::KeyUpEvent { keystroke });
+}
+
 /// A click, then the motion it started finished.
 fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     click(cx, selector);
@@ -847,8 +937,7 @@ fn ac6_closing_keeps_the_staged_action_selection_and_scroll(cx: &mut TestAppCont
         ("same.ordo", ordo_bytes(&tinapay_seed()[0])),
     ];
     let (rig, cx) = open(cx, "wp9-close", &tinapay_seed(), &batch);
-    rig.review.update(cx, |review, cx| review.select(1, cx));
-    cx.run_until_parked();
+    click(cx, "import-doc-1");
     tap(cx, "button-Staged action: Skip unchanged");
     tap(cx, "choice-1");
     let state = |rig: &Rig, cx: &mut VisualTestContext| {
@@ -1218,6 +1307,15 @@ fn the_review_rises_and_cancel_returns_focus_to_import(cx: &mut TestAppContext) 
     rig.import_from_header(cx);
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
+    let review = rig
+        .shell
+        .read_with(cx, |shell, _| shell.import_review().cloned())
+        .expect("the review is open");
+    let row = review.read_with(cx, |review, _| review.row_focus.clone());
+    assert!(
+        cx.update(|window, _| row.is_focused(window)),
+        "the selected row is focused on open"
+    );
     let frame = cx.debug_bounds("focused-frame").expect("the frame");
     let page = cx.debug_bounds("focused-frame-page").expect("the page");
     assert!(
@@ -1436,5 +1534,141 @@ fn removing_the_last_document_focuses_cancel_import(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let cancel = rig.review.read_with(cx, |r, _| r.cancel_focus.clone());
     assert!(cx.update(|window, _| cancel.is_focused(window)));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn a_second_remove_waits_for_the_first(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a-broken.ordo", b"nope".to_vec()),
+        ("b-broken.ordo", b"still nope".to_vec()),
+        ("c-good.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+    ];
+    let (rig, cx) = open(cx, "t210b-second-remove", &[], &batch);
+    click(cx, "import-doc-0");
+    rig.review.update(cx, |review, cx| {
+        let held_before = review.restaging();
+        assert!(!held_before);
+        let _ = cx;
+    });
+    click(cx, "button-Remove from review");
+    // A second Remove while the first re-stages is refused.
+    if rig.review.read_with(cx, |r, _| r.restaging()) {
+        click(cx, "button-Remove from review");
+    }
+    wait(cx, |cx| {
+        rig.review.read_with(cx, |r, _| !r.restaging() && !r.busy())
+    });
+    let sources = rig.review.read_with(cx, |r, _| {
+        r.documents()
+            .iter()
+            .map(|d| d.source.clone())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(sources, ["b-broken.ordo", "c-good.ordo"]);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn import_approved_keeps_focus_while_importing(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "t210b-keep-focus", &tinapay_seed(), &reworded_batch());
+    click(cx, "radio-import-outcome-0-0");
+    let _ = rig
+        .slot
+        .with(|storage| storage.inject_delay(std::time::Duration::from_millis(600)));
+    click(cx, "button-Import approved");
+    assert!(rig.review.read_with(cx, |r, _| r.busy()));
+    let focused = cx.update(|window, cx| window.focused(cx));
+    assert!(
+        focused.is_some(),
+        "focus stays on a control while importing"
+    );
+    // Pressing Enter on the held button commits nothing more.
+    cx.simulate_keystrokes("enter");
+    wait(cx, |_| {
+        rig.events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, ImportReviewEvent::Committed(_)))
+    });
+    let committed = rig
+        .events
+        .borrow()
+        .iter()
+        .filter(|event| matches!(event, ImportReviewEvent::Committed(_)))
+        .count();
+    assert_eq!(committed, 1);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn closing_the_comparison_returns_focus_to_compare_contents(cx: &mut TestAppContext) {
+    let (rig, cx) = open(
+        cx,
+        "t210b-compare-focus",
+        &tinapay_seed(),
+        &reworded_batch(),
+    );
+    for close in ["button", "escape"] {
+        let centre = cx
+            .debug_bounds("button-Compare contents")
+            .expect("the button")
+            .center();
+        cx.simulate_mouse_down(centre, gpui::MouseButton::Left, gpui::Modifiers::default());
+        let button = cx
+            .update(|w, cx| w.focused(cx))
+            .expect("a press focuses the button");
+        cx.simulate_mouse_up(centre, gpui::MouseButton::Left, gpui::Modifiers::default());
+        settle(cx);
+        assert_eq!(depth(&rig, cx), 1, "one slideover is open");
+        assert!(rig.review.read_with(cx, |r, _| r.compare().is_some()));
+        if close == "button" {
+            tap(cx, "button-Back to review");
+        } else {
+            cx.simulate_keystrokes("escape");
+        }
+        settle(cx);
+        assert!(
+            rig.review.read_with(cx, |r, _| r.compare().is_none()),
+            "{close} closes it"
+        );
+        // Focus is back on Compare contents: Enter opens it again.
+        let now = cx.update(|w, cx| w.focused(cx));
+        assert_eq!(
+            now.as_ref(),
+            Some(&button),
+            "{close} returns focus to the button (now {now:?}, button {button:?})"
+        );
+        press(cx, "enter");
+        settle(cx);
+        assert!(
+            rig.review.read_with(cx, |r, _| r.compare().is_some()),
+            "{close} returns focus to the button"
+        );
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+    }
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn discarding_an_edited_draft_returns_focus_to_import(cx: &mut TestAppContext) {
+    let (rig, cx) = open_shell(cx, "t210b-discard-focus", &[]);
+    let path = rig.file("gloria.md", GLORIA.as_bytes());
+    rig.answer(vec![path]);
+    rig.import_settled(cx);
+    click(cx, "markdown-source");
+    cx.simulate_input("x");
+    cx.run_until_parked();
+    click(cx, "button-Discard draft");
+    assert!(rig.framed(cx), "an edited draft asks first");
+    click(cx, "button-Discard");
+    assert!(!rig.framed(cx));
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let focus = rig
+        .workspace(cx)
+        .read_with(cx, |ws, _| ws.import_focus().clone());
+    assert!(cx.update(|window, _| focus.is_focused(window)));
     rig.finish(cx);
 }
