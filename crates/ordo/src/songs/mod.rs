@@ -9,6 +9,7 @@ pub mod arrangement_details;
 pub mod choirs;
 #[cfg(test)]
 mod e2e;
+pub mod import_review;
 pub mod library;
 pub mod lifecycle;
 pub mod lyrics;

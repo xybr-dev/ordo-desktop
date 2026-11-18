@@ -1,0 +1,618 @@
+//! Review Song import behaviour tests, over a real parish store in a
+//! temporary directory, a real window, and real clicks and keys.
+
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
+
+use domain::{
+    identity::{ArrangementId, EntityId, SongId},
+    song_library::import::{
+        Choices, Classification, ImportArrangement, ImportDocument, ImportSection, Outcome,
+        SequenceEntry, SongChoice, SongIdentity,
+    },
+};
+use gpui::{
+    App, AppContext as _, Context, Entity, FocusHandle, IntoElement, Render, Task, TestAppContext,
+    VisualTestContext, Window,
+};
+use storage::exchange::{ManifestOverrides, encode_song_import, pack_for_tests};
+use ui::environment::{ResolvedAppearance, UiEnvironment, UiPreferences};
+
+use super::{FilePicker, ImportReview, ImportReviewEvent, evidence, list};
+use crate::songs::{
+    LibraryStore, StorageSlot,
+    choirs::tests::{click, open_parish, temp_dir, wait},
+};
+
+const COULDNT: &str = "Couldn't import. Nothing was changed.";
+
+fn song_id(byte: u8) -> SongId {
+    SongId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+fn arrangement_id(byte: u8) -> ArrangementId {
+    ArrangementId::from_entity(EntityId::from_random_bytes([byte; 16]))
+}
+
+/// A one-Arrangement document: a Verse and a Chorus, sung Verse, Chorus.
+fn doc(song: u8, arrangement: u8, title: &str, verse: &str) -> ImportDocument {
+    ImportDocument {
+        id: song_id(song),
+        song: domain::song_library::SongDraft::titled(title),
+        arrangements: vec![ImportArrangement {
+            id: arrangement_id(arrangement),
+            title: Some("Imported".to_owned()),
+            languages: vec!["English".to_owned()],
+            choirs: Vec::new(),
+            rendition_attribution: None,
+            occasions: Vec::new(),
+            notes: None,
+            sections: vec![
+                ImportSection {
+                    label: Some("Verse".to_owned()),
+                    lyrics: verse.to_owned(),
+                },
+                ImportSection {
+                    label: Some("Chorus".to_owned()),
+                    lyrics: "Sing it again".to_owned(),
+                },
+            ],
+            sequence: vec![SequenceEntry::Section(0), SequenceEntry::Section(1)],
+            warnings: Vec::new(),
+        }],
+        warnings: Vec::new(),
+    }
+}
+
+fn ordo_bytes(document: &ImportDocument) -> Vec<u8> {
+    let payload = encode_song_import(document).to_string().into_bytes();
+    pack_for_tests(&ManifestOverrides::default(), &payload, &[])
+}
+
+fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).expect("write the file");
+    path
+}
+
+/// Answers every pick with the next queued answer.
+#[derive(Default)]
+struct FakePicker {
+    answers: RefCell<Vec<Option<Vec<PathBuf>>>>,
+}
+
+impl FilePicker for FakePicker {
+    fn pick(&self, _multiple: bool, _cx: &mut App) -> Task<Option<Vec<PathBuf>>> {
+        let answer = {
+            let mut answers = self.answers.borrow_mut();
+            if answers.is_empty() {
+                None
+            } else {
+                answers.remove(0)
+            }
+        };
+        Task::ready(answer)
+    }
+}
+
+/// Hosts the review like the shell does: draws its frame, and takes focus
+/// back to the invoker when it is cancelled.
+struct Host {
+    review: Entity<ImportReview>,
+    invoker: FocusHandle,
+}
+
+impl Render for Host {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+        self.review.update(cx, |review, cx| {
+            review.render_frame(environment, window, cx)
+        })
+    }
+}
+
+struct Rig {
+    review: Entity<ImportReview>,
+    store: Entity<LibraryStore>,
+    slot: StorageSlot,
+    dir: PathBuf,
+    files: PathBuf,
+    events: Rc<RefCell<Vec<ImportReviewEvent>>>,
+    picker: Rc<FakePicker>,
+    invoker: FocusHandle,
+}
+
+impl Rig {
+    fn library_songs(&self, cx: &mut VisualTestContext) -> usize {
+        self.store
+            .read_with(cx, |store, _| store.library().songs().count())
+    }
+
+    fn song_arrangements(&self, cx: &mut VisualTestContext, song: SongId) -> usize {
+        self.store.read_with(cx, |store, _| {
+            store
+                .library()
+                .arrangements_for_song(song)
+                .map_or(0, |list| list.len())
+        })
+    }
+
+    fn finish(&self, cx: &mut VisualTestContext) {
+        let outcome = cx.foreground_executor().block_test(self.slot.shutdown());
+        assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = std::fs::remove_dir_all(&self.files);
+    }
+}
+
+fn stage(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    paths: Vec<PathBuf>,
+) -> crate::songs::store::ImportStaging {
+    let task = store.update(cx, |store, cx| store.stage_import(paths, cx));
+    cx.foreground_executor().block_test(task)
+}
+
+/// Opens a review of `batch` (name and bytes) over a parish that already holds
+/// the `seed` documents.
+fn open<'a>(
+    cx: &'a mut TestAppContext,
+    tag: &str,
+    seed: &[ImportDocument],
+    batch: &[(&str, Vec<u8>)],
+) -> (Rig, &'a mut VisualTestContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir(tag);
+    let files = temp_dir(&format!("{tag}-files"));
+    let (slot, store) = open_parish(cx, &dir);
+    for (index, document) in seed.iter().enumerate() {
+        let path = write(&files, &format!("seed-{index}.ordo"), &ordo_bytes(document));
+        let staging = stage(cx, &store, vec![path]);
+        let task = store.update(cx, |store, cx| {
+            store.commit_import(&staging, Choices::default(), cx)
+        });
+        cx.foreground_executor().block_test(task).expect("seeded");
+    }
+    let paths = batch
+        .iter()
+        .map(|(name, bytes)| write(&files, name, bytes))
+        .collect();
+    let staging = stage(cx, &store, paths);
+    cx.update(crate::init_ui).expect("ui");
+    let picker = Rc::new(FakePicker::default());
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let for_window = (store.clone(), picker.clone(), events.clone());
+    let (host, cx) = cx.add_window_view(move |window, cx| {
+        let (store, picker, events) = for_window;
+        let review = cx.new(|cx| ImportReview::new(staging, store, picker, window, cx));
+        cx.observe(&review, |_, _, cx| cx.notify()).detach();
+        let invoker = cx.focus_handle();
+        let log = events.clone();
+        cx.subscribe_in(
+            &review,
+            window,
+            move |host: &mut Host, _, event, window, cx| {
+                log.borrow_mut().push(event.clone());
+                if matches!(event, ImportReviewEvent::Cancelled) {
+                    window.focus(&host.invoker, cx);
+                }
+            },
+        )
+        .detach();
+        Host { review, invoker }
+    });
+    cx.update(|window, _| window.activate_window());
+    cx.simulate_resize(gpui::size(gpui::px(1600.0), gpui::px(1000.0)));
+    cx.run_until_parked();
+    let (review, invoker) =
+        host.read_with(cx, |host, _| (host.review.clone(), host.invoker.clone()));
+    (
+        Rig {
+            review,
+            store,
+            slot,
+            dir,
+            files,
+            events,
+            picker,
+            invoker,
+        },
+        cx,
+    )
+}
+
+fn present(cx: &mut VisualTestContext, selector: &'static str) -> bool {
+    cx.debug_bounds(selector).is_some()
+}
+
+fn chips(rig: &Rig, cx: &mut VisualTestContext) -> Vec<&'static str> {
+    rig.review.read_with(cx, |review, _| {
+        (0..review.documents().len())
+            .map(|index| list::chip(review, index))
+            .collect()
+    })
+}
+
+fn tinapay_seed() -> Vec<ImportDocument> {
+    vec![doc(1, 0x11, "Tinapay sa Langit", "Bread from heaven")]
+}
+
+/// A batch whose one document resembles the seeded Song but has its own
+/// identity, so the operator must say which Song it is.
+fn near_song_batch() -> Vec<(&'static str, Vec<u8>)> {
+    vec![(
+        "near.ordo",
+        ordo_bytes(&doc(2, 0x12, "Tinapay, sa Langit", "Bread from heaven")),
+    )]
+}
+
+/// The same Song and Arrangement with reworded lyrics: an Update candidate.
+fn reworded_batch() -> Vec<(&'static str, Vec<u8>)> {
+    vec![(
+        "reworded.ordo",
+        ordo_bytes(&doc(1, 0x11, "Tinapay sa Langit", "Bread, reworded")),
+    )]
+}
+
+#[gpui::test]
+fn ac3_ordo_files_open_one_batch_review_with_every_document_listed(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a.ordo", ordo_bytes(&doc(1, 0x11, "Alleluia", "Sing"))),
+        ("b.ordo", ordo_bytes(&doc(2, 0x12, "Benedictus", "Bless"))),
+        ("c.ordo", ordo_bytes(&doc(3, 0x13, "Credo", "Believe"))),
+    ];
+    let (rig, cx) = open(cx, "wp8-ac3", &[], &batch);
+    assert_eq!(rig.review.read_with(cx, |r, _| r.documents().len()), 3);
+    for selector in [
+        "import-doc-0",
+        "import-doc-1",
+        "import-doc-2",
+        "import-count",
+    ] {
+        assert!(present(cx, selector), "{selector}");
+    }
+    assert_eq!(chips(&rig, cx), ["Add new Song"; 3]);
+    assert!(present(cx, "button-Import approved"));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac4_each_row_shows_its_classification_chip_and_the_detail_its_evidence(cx: &mut TestAppContext) {
+    let mut attach = doc(1, 0x21, "Tinapay sa Langit", "Completely other words");
+    attach.arrangements[0].title = Some("Choral".to_owned());
+    attach.arrangements[0].languages = vec!["Tagalog".to_owned()];
+    attach.arrangements[0].sections.truncate(1);
+    attach.arrangements[0].sequence = vec![SequenceEntry::Section(0)];
+    let batch = vec![
+        ("a-new.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+        ("b-same.ordo", ordo_bytes(&tinapay_seed()[0])),
+        ("c-attach.ordo", ordo_bytes(&attach)),
+    ];
+    let (rig, cx) = open(cx, "wp8-ac4", &tinapay_seed(), &batch);
+    let seen = chips(&rig, cx);
+    assert_eq!(seen[0], "Add new Song");
+    assert_eq!(seen[1], "Skip unchanged");
+    assert!(
+        matches!(seen[2], "Attach Arrangement" | "Needs decision"),
+        "{seen:?}"
+    );
+    click(cx, "import-doc-1");
+    assert_eq!(rig.review.read_with(cx, |r, _| r.selected_document()), 1);
+    for selector in [
+        "import-card-imported",
+        "import-card-library",
+        "import-song-evidence",
+    ] {
+        assert!(present(cx, selector), "{selector}");
+    }
+    rig.review.read_with(cx, |review, cx| {
+        let document = review.review_of(1).expect("valid");
+        assert!(matches!(document.identity, SongIdentity::Existing { .. }));
+        let library = review.store.read(cx).library();
+        let (kind, sentence) = evidence::song_sentence(
+            &document.identity,
+            match &review.documents()[1].content {
+                domain::song_library::import::Staged::Valid(valid) => valid,
+                _ => unreachable!("valid"),
+            },
+            library,
+        );
+        assert!(!kind.is_empty() && !sentence.is_empty());
+    });
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac4_a_staged_action_can_be_changed_with_the_select(cx: &mut TestAppContext) {
+    let batch = vec![("same.ordo", ordo_bytes(&tinapay_seed()[0]))];
+    let (rig, cx) = open(cx, "wp8-ac4-select", &tinapay_seed(), &batch);
+    assert_eq!(chips(&rig, cx), ["Skip unchanged"]);
+    click(cx, "button-Staged action: Skip unchanged");
+    assert!(present(cx, "choice-1"), "the Select lists its actions");
+    click(cx, "choice-1");
+    let chosen = rig
+        .review
+        .read_with(cx, |r, _| r.choices().arrangements.get(&(0, 0)).copied());
+    assert_eq!(chosen, Some(Outcome::AttachAsAnother));
+    assert_eq!(chips(&rig, cx), ["Attach Arrangement"]);
+    assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac5_a_song_identity_decision_is_made_once_for_the_document(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp8-ac5-song", &tinapay_seed(), &near_song_batch());
+    assert_eq!(chips(&rig, cx), ["Needs decision"]);
+    assert!(present(cx, "import-identity"));
+    assert!(!rig.review.read_with(cx, |r, _| r.can_commit()));
+    click(cx, "radio-0");
+    wait(cx, |cx| {
+        rig.review.read_with(cx, |r, _| {
+            !r.busy()
+                && r.choices().songs.get(&0) == Some(&SongChoice::Existing(song_id(1)))
+                && r.review_of(0)
+                    .is_some_and(|d| !d.arrangements[0].offered.is_empty())
+        })
+    });
+    // One choice for the document, none per Arrangement.
+    assert_eq!(rig.review.read_with(cx, |r, _| r.choices().songs.len()), 1);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac5_arrangement_outcomes_wait_for_the_song_choice(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp8-ac5-wait", &tinapay_seed(), &near_song_batch());
+    rig.review.read_with(cx, |review, _| {
+        let document = review.review_of(0).expect("valid");
+        assert!(matches!(
+            document.identity,
+            SongIdentity::NeedsDecision { .. }
+        ));
+        assert_eq!(
+            document.arrangements[0].classification,
+            Classification::NeedsDecision
+        );
+        assert!(
+            document.arrangements[0].offered.is_empty(),
+            "nothing is offered before the Song is chosen"
+        );
+    });
+    assert!(!present(cx, "radio-1") || !present(cx, "import-compare"));
+    // Add as a new Song: the second-to-last option, after the one candidate.
+    click(cx, "radio-1");
+    wait(cx, |cx| {
+        rig.review.read_with(cx, |r, _| {
+            !r.busy()
+                && r.choices().songs.get(&0) == Some(&SongChoice::New)
+                && r.review_of(0).is_some_and(|d| {
+                    d.arrangements[0].classification != Classification::NeedsDecision
+                })
+        })
+    });
+    assert_eq!(chips(&rig, cx), ["Add new Song"]);
+    assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac7_a_near_duplicate_offers_add_as_new_update_existing_or_skip_with_recommended(
+    cx: &mut TestAppContext,
+) {
+    let (rig, cx) = open(cx, "wp8-ac7", &tinapay_seed(), &reworded_batch());
+    rig.review.read_with(cx, |review, _| {
+        let arrangement = &review.review_of(0).expect("valid").arrangements[0];
+        assert_eq!(arrangement.classification, Classification::NeedsDecision);
+        assert_eq!(arrangement.recommended, Some(Outcome::UpdateExisting));
+        let mut offered = arrangement.offered.clone();
+        offered.sort_by_key(|outcome| format!("{outcome:?}"));
+        assert_eq!(
+            offered,
+            [Outcome::AddAsNew, Outcome::Skip, Outcome::UpdateExisting]
+        );
+    });
+    for selector in ["radio-0", "radio-1", "radio-2"] {
+        assert!(present(cx, selector), "{selector}");
+    }
+    assert!(!present(cx, "radio-3"));
+    assert_eq!(chips(&rig, cx), ["Needs decision"]);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac7_update_existing_discloses_the_choirs_inline(cx: &mut TestAppContext) {
+    let mut changed = doc(1, 0x11, "Tinapay sa Langit", "Bread, reworded");
+    changed.arrangements[0].choirs = vec!["Koro Sto. Nino".to_owned()];
+    let batch = vec![("choirs.ordo", ordo_bytes(&changed))];
+    let (rig, cx) = open(cx, "wp8-ac7-choirs", &tinapay_seed(), &batch);
+    assert!(present(cx, "import-card-imported"));
+    rig.review.update(cx, |review, cx| {
+        let offered = review.review_of(0).expect("valid").arrangements[0]
+            .offered
+            .clone();
+        let at = offered
+            .iter()
+            .position(|outcome| *outcome == Outcome::UpdateExisting)
+            .expect("Update is offered");
+        review.choose_outcome(0, 0, at, cx);
+    });
+    cx.run_until_parked();
+    let summary = rig
+        .review
+        .read_with(cx, |review, _| evidence::summary(&review.tally()));
+    assert!(summary.contains("1 update"), "{summary}");
+    assert!(summary.contains("1 new Choir"), "{summary}");
+    assert_eq!(chips(&rig, cx), ["Update existing"]);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_import_approved_is_disabled_until_every_decision_is_made(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp8-ac8-gate", &tinapay_seed(), &reworded_batch());
+    let before = rig.song_arrangements(cx, song_id(1));
+    click(cx, "button-Import approved");
+    assert!(
+        rig.events.borrow().is_empty(),
+        "a blocked button does nothing"
+    );
+    assert_eq!(rig.song_arrangements(cx, song_id(1)), before);
+    // Decide: the first offered option.
+    click(cx, "radio-0");
+    assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
+    click(cx, "button-Import approved");
+    wait(cx, |_| !rig.events.borrow().is_empty());
+    assert!(matches!(
+        rig.events.borrow()[0],
+        ImportReviewEvent::Committed(_)
+    ));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_an_invalid_document_is_listed_with_its_reason_and_technical_details(
+    cx: &mut TestAppContext,
+) {
+    let batch = vec![
+        ("a-broken.ordo", b"this is not an archive".to_vec()),
+        ("b-good.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+    ];
+    let (rig, cx) = open(cx, "wp8-ac8-invalid", &[], &batch);
+    assert_eq!(chips(&rig, cx), ["Invalid", "Add new Song"]);
+    click(cx, "import-doc-0");
+    assert!(present(cx, "import-invalid"));
+    assert!(present(cx, "button-Remove from review"));
+    assert!(present(cx, "button-Choose another file"));
+    click(cx, "button-View technical details");
+    assert!(present(cx, "import-technical"));
+    rig.review.read_with(cx, |review, _| {
+        let domain::song_library::import::Staged::Invalid(reasons) = &review.documents()[0].content
+        else {
+            panic!("invalid");
+        };
+        assert!(!evidence::technical_line(&reasons[0]).is_empty());
+        assert!(
+            !evidence::invalid_sentence(reasons, "a-broken.ordo").is_empty(),
+            "the reason is put in words"
+        );
+    });
+    // The good document still imports.
+    assert!(rig.review.read_with(cx, |r, _| r.can_commit()));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_remove_from_review_and_choose_another_file_change_only_staging(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a-broken.ordo", b"nope".to_vec()),
+        ("b-broken.ordo", b"still nope".to_vec()),
+        ("c-good.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+    ];
+    let (rig, cx) = open(cx, "wp8-ac8-fix", &[], &batch);
+    let songs = rig.library_songs(cx);
+    click(cx, "import-doc-0");
+    click(cx, "button-Remove from review");
+    wait(cx, |cx| {
+        rig.review
+            .read_with(cx, |r, _| r.documents().len() == 2 && !r.busy())
+    });
+    assert_eq!(rig.library_songs(cx), songs);
+
+    let replacement = write(
+        &rig.files,
+        "d-fixed.ordo",
+        &ordo_bytes(&doc(8, 0x18, "Benedictus", "Bless")),
+    );
+    rig.picker
+        .answers
+        .borrow_mut()
+        .push(Some(vec![replacement]));
+    click(cx, "import-doc-0");
+    click(cx, "button-Choose another file");
+    wait(cx, |cx| {
+        rig.review.read_with(cx, |r, _| {
+            r.documents().iter().any(|d| d.source.contains("d-fixed"))
+        })
+    });
+    assert_eq!(rig.library_songs(cx), songs, "nothing was written");
+    assert!(rig.events.borrow().is_empty());
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac8_cancel_import_changes_nothing_and_returns_focus(cx: &mut TestAppContext) {
+    let batch = vec![("a.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing")))];
+    let (rig, cx) = open(cx, "wp8-ac8-cancel", &[], &batch);
+    click(cx, "button-Cancel import");
+    assert_eq!(*rig.events.borrow(), [ImportReviewEvent::Cancelled]);
+    assert_eq!(rig.library_songs(cx), 0);
+    let focused = cx.update(|window, _| rig.invoker.is_focused(window));
+    assert!(focused, "focus returns to the invoker");
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac9_a_failed_commit_keeps_the_review_open_with_the_refusal(cx: &mut TestAppContext) {
+    let batch = vec![("a.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing")))];
+    let (rig, cx) = open(cx, "wp8-ac9", &[], &batch);
+    let future = rig
+        .slot
+        .with(|storage| storage.inject_write_failure(1))
+        .expect("storage is open");
+    cx.foreground_executor().block_test(future).expect("armed");
+    click(cx, "button-Import approved");
+    wait(cx, |cx| {
+        rig.review.read_with(cx, |r, _| r.refusal().is_some())
+    });
+    assert_eq!(
+        rig.review
+            .read_with(cx, |r, _| r.refusal().map(ToString::to_string)),
+        Some(COULDNT.to_owned())
+    );
+    assert!(present(cx, "import-refusal"));
+    assert!(rig.events.borrow().is_empty(), "the review stays open");
+    assert!(!rig.review.read_with(cx, |r, _| r.busy()));
+    assert_eq!(rig.library_songs(cx), 0);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac10_a_batch_of_unchanged_documents_has_nothing_to_import(cx: &mut TestAppContext) {
+    let batch = vec![("same.ordo", ordo_bytes(&tinapay_seed()[0]))];
+    let (rig, cx) = open(cx, "wp8-ac10", &tinapay_seed(), &batch);
+    assert_eq!(chips(&rig, cx), ["Skip unchanged"]);
+    let summary = rig
+        .review
+        .read_with(cx, |review, _| evidence::summary(&review.tally()));
+    assert_eq!(summary, "Everything is already in the Library.");
+    assert!(!rig.review.read_with(cx, |r, _| r.can_commit()));
+    click(cx, "button-Import approved");
+    assert!(rig.events.borrow().is_empty());
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn the_review_is_keyboard_reachable_by_f6_regions(cx: &mut TestAppContext) {
+    let batch = vec![("a.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing")))];
+    let (rig, cx) = open(cx, "wp8-f6", &[], &batch);
+    let focused = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| rig.review.read(cx).focused_region(window, cx))
+            .map(|name| name.to_string())
+    };
+    let mut order = vec![focused(cx)];
+    for _ in 0..4 {
+        cx.simulate_keystrokes("f6");
+        cx.run_until_parked();
+        order.push(focused(cx));
+    }
+    let order: Vec<_> = order.into_iter().flatten().collect();
+    assert_eq!(
+        order,
+        [
+            "Primary list",
+            "Main editor",
+            "Review summary",
+            "Workspace actions",
+            "Primary list"
+        ]
+    );
+    rig.finish(cx);
+}
