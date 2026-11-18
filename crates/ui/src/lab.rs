@@ -255,12 +255,12 @@ fn render_combobox_new(
 fn render_radio_group(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
     let options = vec![
         RadioOption {
-            label: "Add as a new Arrangement".into(),
+            label: "Add as new Arrangement".into(),
             description: Some("Keeps both renditions side by side.".into()),
             badge: Some("Recommended".into()),
         },
         RadioOption {
-            label: "Update the existing Arrangement".into(),
+            label: "Update existing Arrangement".into(),
             description: Some("Replaces the existing Arrangement as a new revision.".into()),
             badge: None,
         },
@@ -270,7 +270,7 @@ fn render_radio_group(environment: UiEnvironment, window: &mut Window, cx: &mut 
             badge: None,
         },
         RadioOption {
-            label: "Skip".into(),
+            label: "Skip document".into(),
             description: Some("Leaves the Library as it is.".into()),
             badge: None,
         },

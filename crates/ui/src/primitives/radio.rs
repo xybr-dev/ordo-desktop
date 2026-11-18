@@ -11,7 +11,7 @@
 use crate::{
     environment::UiEnvironment,
     primitives::{
-        focus_visible,
+        Availability, focus_visible,
         record::Chip,
         selection::{RadioView, SelectionState},
     },
@@ -54,6 +54,7 @@ pub struct RadioGroup {
     environment: UiEnvironment,
     surface: u32,
     on_select: Option<OnSelect>,
+    unavailable: Option<SharedString>,
 }
 
 impl RadioGroup {
@@ -75,7 +76,17 @@ impl RadioGroup {
             environment,
             surface: tokens::palette(environment.appearance()).background,
             on_select: None,
+            unavailable: None,
         }
+    }
+
+    /// Holds the whole group Unavailable for `reason`: every option stays
+    /// drawn, focusable and named, with the reason in its description, but
+    /// choosing is suppressed (click, Space and the arrows). Unlike a state
+    /// change it keeps the focus handles and the chosen option as they are.
+    pub fn unavailable(mut self, reason: impl Into<SharedString>) -> Self {
+        self.unavailable = Some(reason.into());
+        self
     }
 
     /// The color immediately outside the group, which its focus ring separates
@@ -96,6 +107,7 @@ impl RadioGroup {
     fn root(&self) -> gpui_base::RadioGroup {
         let state = self.state.clone();
         let on_select = self.on_select.clone();
+        let held = self.unavailable.is_some();
         gpui_base::RadioGroup::new(self.id.clone())
             .aria_label(self.name.clone())
             .flex()
@@ -107,7 +119,14 @@ impl RadioGroup {
                 .apply(tokens::spacing::RELATED)))
             .on_key_down(move |event, window, cx| {
                 let key = event.keystroke.key.as_str();
-                if !matches!(key, "up" | "down" | "left" | "right" | "home" | "end") {
+                if !matches!(key, "up" | "down" | "left" | "right" | "home" | "end")
+                    || event.keystroke.modifiers.modified()
+                {
+                    return;
+                }
+                if held {
+                    cx.stop_propagation();
+                    window.prevent_default();
                     return;
                 }
                 if let Some(index) = state.radio_step(key, window, cx)
@@ -124,7 +143,10 @@ impl RadioGroup {
     /// description, carrying the `Radio` role with its checked state.
     fn radio(&self, i: usize, view: &RadioView) -> gpui_base::Radio {
         let option = &self.options[i];
-        let availability = view.availability.get(i).cloned().unwrap_or_default();
+        let availability = match &self.unavailable {
+            Some(reason) => Availability::unavailable(reason.clone()),
+            None => view.availability.get(i).cloned().unwrap_or_default(),
+        };
         let checked = view.selected == Some(i);
         let palette = tokens::palette(self.environment.appearance());
         let scale = self.environment.preferences().scale;
@@ -134,12 +156,20 @@ impl RadioGroup {
             (Some(text), None) => Some(text.to_string()),
             (None, reason) => reason.clone(),
         };
+        // The chosen option, else the one last active, else the first
+        // Available one; never an option that cannot take focus.
+        let first = view
+            .availability
+            .iter()
+            .position(Availability::is_available)
+            .or((self.unavailable.is_some() && !view.availability.is_empty()).then_some(0));
         let stop = match view.stop {
-            Some(stop) => stop == i,
-            None => i == 0,
+            Some(stop) if self.unavailable.is_some() || view.availability.get(stop).is_some_and(Availability::is_available) => stop == i,
+            _ => first == Some(i),
         };
         let state = self.state.clone();
         let on_select = self.on_select.clone();
+        let group = self.id.to_string();
         let indicator = div()
             .flex_none()
             .flex()
@@ -183,7 +213,7 @@ impl RadioGroup {
                     .text_color(rgb(palette.text_muted))
                     .child(description)
             }))
-            .children(reason.map(|reason| {
+            .children(reason.filter(|_| self.unavailable.is_none()).map(|reason| {
                 div()
                     .text_size(px(scale.apply(tokens::typography::META.size)))
                     .text_color(rgb(palette.warning))
@@ -207,7 +237,7 @@ impl RadioGroup {
                 })
             })
             .when_some(description, |radio, text| radio.aria_description(text))
-            .debug_selector(move || format!("radio-{i}"))
+            .debug_selector(move || format!("radio-{group}-{i}"))
             .flex()
             .items_start()
             .gap(px(scale.apply(tokens::spacing::RELATED)))
@@ -243,7 +273,19 @@ impl RenderOnce for RadioGroup {
         let radios: Vec<_> = (0..self.options.len())
             .map(|i| self.radio(i, &view))
             .collect();
-        self.root().children(radios)
+        let palette = tokens::palette(self.environment.appearance());
+        let size = self
+            .environment
+            .preferences()
+            .scale
+            .apply(tokens::typography::META.size);
+        let held = self.unavailable.clone().map(|reason| {
+            div()
+                .text_size(px(size))
+                .text_color(rgb(palette.warning))
+                .child(format!("{}. {reason}", Availability::UNAVAILABLE))
+        });
+        self.root().children(radios).children(held)
     }
 }
 
@@ -270,17 +312,17 @@ mod tests {
     fn options() -> Vec<RadioOption> {
         vec![
             RadioOption {
-                label: "Add as a new Arrangement".into(),
+                label: "Add as new Arrangement".into(),
                 description: Some("Keeps both renditions side by side.".into()),
                 badge: Some("Recommended".into()),
             },
             RadioOption {
-                label: "Update the existing Arrangement".into(),
-                description: Some("Replaces it as a new revision.".into()),
+                label: "Update existing Arrangement".into(),
+                description: Some("Replaces the existing Arrangement as a new revision.".into()),
                 badge: None,
             },
             RadioOption {
-                label: "Skip".into(),
+                label: "Skip document".into(),
                 description: Some("Leaves the Library as it is.".into()),
                 badge: None,
             },
@@ -498,14 +540,14 @@ mod tests {
         assert_eq!(group.label(), Some("Outcome"));
         let expected = [
             (
-                "Add as a new Arrangement",
+                "Add as new Arrangement",
                 "Keeps both renditions side by side.",
             ),
             (
-                "Update the existing Arrangement",
-                "Replaces it as a new revision.",
+                "Update existing Arrangement",
+                "Replaces the existing Arrangement as a new revision.",
             ),
-            ("Skip", "Leaves the Library as it is."),
+            ("Skip document", "Leaves the Library as it is."),
         ];
         for (node, (label, description)) in [first, second, third].into_iter().zip(expected) {
             assert_eq!(node.role(), Role::RadioButton);
@@ -525,13 +567,94 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_disabled_first_option_is_not_the_tab_stop(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx, &[0]);
+        cx.update(|w, cx| view.read(cx).before.clone().focus(w, cx));
+        press(cx, "tab");
+        assert_eq!(
+            focused(&view, cx),
+            Some(1),
+            "Tab lands on the first Available option, not the disabled one"
+        );
+        view.read_with(cx, |v, cx| assert_eq!(v.state.selected(cx), None));
+    }
+
+    #[gpui::test]
+    fn space_chooses_the_focused_option(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx, &[]);
+        cx.update(|w, cx| view.read(cx).before.clone().focus(w, cx));
+        press(cx, "tab");
+        assert_eq!(focused(&view, cx), Some(0));
+        press(cx, "space");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), Some(0), "Space chooses");
+            assert_eq!(*v.chosen.borrow(), vec![0]);
+        });
+    }
+
+    #[gpui::test]
+    fn a_modified_arrow_does_not_move_the_choice(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx, &[]);
+        cx.update(|w, cx| view.read(cx).before.clone().focus(w, cx));
+        press(cx, "tab");
+        press(cx, "alt-down");
+        press(cx, "ctrl-right");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), None, "modified arrows are not ours");
+            assert!(v.chosen.borrow().is_empty());
+        });
+    }
+
+    #[gpui::test]
+    fn a_held_group_stays_focusable_and_refuses_every_choice(cx: &mut TestAppContext) {
+        struct Held {
+            state: SelectionState,
+            chosen: Rc<RefCell<Vec<usize>>>,
+        }
+        impl Render for Held {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let chosen = self.chosen.clone();
+                RadioGroup::new("outcome", "Outcome", options(), &self.state, environment())
+                    .unavailable("Importing\u{2026}")
+                    .on_select(move |i, _, _| chosen.borrow_mut().push(i))
+            }
+        }
+        cx.update(crate::init).unwrap();
+        let chosen: Rc<RefCell<Vec<usize>>> = Rc::default();
+        let (view, cx) = cx.add_window_view({
+            let chosen = chosen.clone();
+            move |_, cx| Held {
+                state: SelectionState::new(choices(&options(), &[]), Some(1), cx),
+                chosen,
+            }
+        });
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+        let state = view.read_with(cx, |v, _| v.state.clone());
+        let handle = cx.update(|_, cx| state.radio_view(cx).focus[1].clone());
+        cx.update(|w, cx| handle.focus(w, cx));
+        press(cx, "down");
+        assert!(
+            cx.update(|w, _| handle.is_focused(w)),
+            "an arrow neither moves focus nor chooses"
+        );
+        let bounds = cx
+            .debug_bounds("radio-outcome-0")
+            .expect("options stay drawn");
+        cx.simulate_click(bounds.center(), gpui::Modifiers::default());
+        assert!(chosen.borrow().is_empty(), "no choice is reported");
+        view.read_with(cx, |v, cx| {
+            assert_eq!(v.state.selected(cx), Some(1), "the choice is unchanged");
+        });
+    }
+
+    #[gpui::test]
     fn a_click_chooses_an_option(cx: &mut TestAppContext) {
         let (view, cx) = open(cx, &[]);
         assert!(
             cx.debug_bounds("chip-Recommended").is_some(),
             "the badge is a chip after the label"
         );
-        let bounds = cx.debug_bounds("radio-2").expect("the option is drawn");
+        let bounds = cx.debug_bounds("radio-outcome-2").expect("the option is drawn");
         cx.simulate_click(bounds.center(), gpui::Modifiers::default());
         view.read_with(cx, |v, cx| {
             assert_eq!(v.state.selected(cx), Some(2));
