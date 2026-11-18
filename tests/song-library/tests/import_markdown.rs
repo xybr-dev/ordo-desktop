@@ -357,7 +357,7 @@ fn ac2_every_markdown_fixture_parses_to_its_expectation() {
         assert_eq!(actual, expected, "{}", path.display());
         checked += 1;
     }
-    assert_eq!(checked, 8, "the corpus has eight Markdown fixtures");
+    assert_eq!(checked, 9, "the corpus has nine Markdown fixtures");
 }
 
 /// Marker and front matter edge cases, one table: the body starts on line 5

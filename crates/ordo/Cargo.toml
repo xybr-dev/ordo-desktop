@@ -48,6 +48,8 @@ gpui = { workspace = true, features = ["test-support"] }
 # Fault hooks (injected panic) for the supervision tests only; the normal
 # `storage` edge above never enables them (`cargo xtask architecture`).
 storage = { workspace = true, features = ["fault-injection"] }
+# The E2E checks its seeded Library against tests/fixtures/song-import/batch/seed.json.
+serde_json = "=1.0.151"
 
 [lints]
 workspace = true

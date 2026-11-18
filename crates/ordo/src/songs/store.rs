@@ -1650,6 +1650,12 @@ impl LibraryStore {
         (self.writing, self.queue.len())
     }
 
+    /// How many writes (or replacements of the library) have completed.
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Replaces the library and tells observers. A test-only seam: production
     /// changes go through the Choir write methods, which write to storage first.
     #[cfg(test)]

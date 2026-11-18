@@ -1342,7 +1342,8 @@ without Ordo interpreting arbitrary PowerPoint files.
 `contracts/song-import/`, `tests/fixtures/song-import/`,
 `crates/storage/src/exchange/`, `crates/storage/src/parish_store/import.rs`,
 `crates/storage/src/revisions/write.rs`, `crates/ordo/src/songs/store/import.rs`,
-`crates/ordo/src/history/compare.rs`, `crates/ordo/src/shell.rs`,
+`crates/ordo/src/songs/store.rs` (the write generation and the background import verdict),
+`crates/ordo/src/history/compare.rs`, `crates/ordo/src/history/model.rs`, `crates/ordo/src/shell.rs`,
 `crates/ordo/src/songs/library/list.rs`, `crates/ui/src/primitives/radio.rs`,
 the icon assets, `contracts/container/manifest.v1.schema.json`,
 `docs/contracts/README.md`, `tests/song-library/tests/import_*.rs`,
@@ -1402,7 +1403,8 @@ save, and assert the exact linked Sequence and Slide boundaries.
 
 Evidence: `crates/ordo/src/songs/e2e.rs`,
 `t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_save`
-(also reopens the parish).
+(also reopens the parish; the Markdown song is
+`tests/fixtures/song-import/markdown/forward-repeat-unresolved.md`).
 
 ### Phase 2 gate
 

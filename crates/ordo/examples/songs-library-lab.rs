@@ -308,8 +308,10 @@ const BATCH: [(&str, &[u8]); 5] = [
     ),
 ];
 
-/// A Markdown song whose forward repeat names a section that does not exist.
-const FORWARD_REPEAT: &str = "---\ntitle: Koro sa Kabuntagon\nlanguage: Cebuano\n---\n[Bersikulo 1]\nSa kabuntagon ako moawit\n\nsa imong dakong gugma\n[Repeat: Korro]\n\n[Koro]\nSalamat, Ginoo\n";
+/// A Markdown song with a forward `[Repeat: Koro]` that resolves and a
+/// `[Repeat: Korro]` that names no section.
+const FORWARD_REPEAT: &str =
+    include_str!("../../../tests/fixtures/song-import/markdown/forward-repeat-unresolved.md");
 
 /// An id for the nth thing, distinct from every other n.
 fn entity(n: u64) -> EntityId {
@@ -614,14 +616,21 @@ fn time_import() -> Result<(), Failure> {
     let (clone_ms, _) = best_of(20, || library.clone());
     println!("  library snapshot clone {clone_ms:8.3} ms   (on the GPUI thread)");
     // The Markdown draft ranks its title against the whole library on every
-    // recompute: a title that resembles many Songs is the worst case.
-    for (name, title) in [
-        ("no resemblance", "Zzzz unrelated title"),
-        ("one exact title", "Awit nga Numero 500"),
-        ("resembles many", "Awit nga Numero"),
+    // recompute. Matching is by identity key, so a title that is only a prefix
+    // of many titles finds none of them; the cost is the scan over every Song
+    // either way, and each label says what the case actually finds.
+    for (name, title, aliases) in [
+        ("no resemblance", "Zzzz unrelated title", vec![]),
+        ("one exact title", "Awit nga Numero 500", vec![]),
+        ("a prefix of many titles", "Awit nga Numero", vec![]),
+        (
+            "one alias match",
+            "Zzzz unrelated title",
+            vec!["Song 500".to_owned()],
+        ),
     ] {
         let draft = SongDraft {
-            aliases: vec!["Song 500".to_owned()],
+            aliases,
             original_attribution: Some("Composer 20".to_owned()),
             ..SongDraft::titled(title)
         };
@@ -727,11 +736,12 @@ fn main() -> Result<(), Failure> {
     println!("  - Open the updated Arrangement's History: its row reads Replaced from an import.");
     println!("  - Import the same folder again: every valid document is Skip unchanged and");
     println!("    Import approved stays off with nothing to import.");
+    println!("Markdown path: Library > Songs > Import .ordo, choose forward-repeat-unresolved.md:");
+    println!("  - The draft resolves the forward [Repeat: Koro] and flags the misspelled");
     println!(
-        "Markdown path: Library > Songs > Import Markdown, choose forward-repeat-unresolved.md:"
+        "    [Repeat: Korro]; correct it to Koro or leave it, then Save: an unresolved repeat"
     );
-    println!("  - The draft flags the misspelled forward repeat [Repeat: Korro]; correct it to");
-    println!("    Koro or leave it, then Save: an unresolved repeat saves as an empty placeholder");
+    println!("    saves as an empty placeholder");
     println!("    section; possible existing Songs show under the title as in New song.");
     println!(
         "Timing check: cargo run --release -p ordo --example songs-library-lab -- --time-import"

@@ -1869,7 +1869,8 @@ fn decoded(payload: &[u8]) -> ImportDocument {
     }
 }
 
-/// What tests/fixtures/song-import/batch/seed.json describes: Salamat, Ginoo
+/// What tests/fixtures/song-import/batch/seed.json describes (checked by
+/// the_library_seed_is_what_seed_json_describes): Salamat, Ginoo
 /// with its Koro San Roque Arrangement, and Bread of Life as it was before the
 /// batch reworded it, both under the fixtures' own ids.
 fn library_seed() -> Vec<ImportDocument> {
@@ -1933,19 +1934,124 @@ fn sung(content: &ArrangementContent) -> Vec<usize> {
         .collect()
 }
 
-/// Every Song and Arrangement revision the batch could have touched.
-fn edit_revisions(executor: &gpui::ForegroundExecutor, slot: &super::StorageSlot) -> usize {
-    let songs = [100, 200, 300].map(|n| RevisionEntity::Song(seed_song(n)));
-    let arrangements =
-        [101, 111, 201, 301].map(|n| RevisionEntity::Arrangement(seed_arrangement(n)));
-    songs
+/// Every Song and Arrangement revision the Library's entities hold, so a
+/// stray revision on any entity shows.
+fn edit_revisions(
+    executor: &gpui::ForegroundExecutor,
+    slot: &super::StorageSlot,
+    library: &domain::song_library::SongLibrary,
+) -> usize {
+    let songs: Vec<_> = library.songs().map(|song| song.id()).collect();
+    let mut entities: Vec<_> = songs.iter().copied().map(RevisionEntity::Song).collect();
+    for song in &songs {
+        entities.extend(
+            library
+                .arrangements_for_song(*song)
+                .expect("a listed Song")
+                .iter()
+                .map(|arrangement| RevisionEntity::Arrangement(arrangement.id())),
+        );
+    }
+    entities
         .into_iter()
-        .chain(arrangements)
         .map(|entity| history_of(executor, slot, entity).len())
         .sum()
 }
 
-const FORWARD_REPEAT: &str = "---\ntitle: Koro sa Kabuntagon\nlanguage: Cebuano\n---\n[Bersikulo 1]\nSa kabuntagon ako moawit\n\nsa imong dakong gugma\n[Repeat: Korro]\n\n[Koro]\nSalamat, Ginoo\n";
+/// The Library the store holds now.
+fn library_now(
+    store: &Entity<super::LibraryStore>,
+    cx: &impl gpui::AppContext,
+) -> domain::song_library::SongLibrary {
+    store.read_with(cx, |store, _| store.library().clone())
+}
+
+/// A Markdown song with a forward `[Repeat: Koro]` that resolves and a
+/// `[Repeat: Korro]` that names no section.
+const FORWARD_REPEAT: &str =
+    include_str!("../../../../tests/fixtures/song-import/markdown/forward-repeat-unresolved.md");
+
+/// The library seed.json describes is the one `library_seed` builds from the
+/// batch documents: the same Songs, Arrangements, sections, Sequences and
+/// Choirs.
+#[test]
+fn the_library_seed_is_what_seed_json_describes() {
+    let seed: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/song-import/batch/seed.json"
+    ))
+    .expect("seed.json is JSON");
+    let text = |value: &serde_json::Value| value.as_str().expect("a string").to_owned();
+    let strings = |value: &serde_json::Value| -> Vec<String> {
+        value
+            .as_array()
+            .expect("an array")
+            .iter()
+            .map(text)
+            .collect()
+    };
+    let documents = library_seed();
+    let songs = seed["songs"].as_array().expect("songs");
+    assert_eq!(songs.len(), documents.len());
+    let mut choir_names = std::collections::BTreeSet::new();
+    for (json, document) in songs.iter().zip(&documents) {
+        assert_eq!(text(&json["id"]), document.id.to_string());
+        assert_eq!(text(&json["title"]), document.song.title);
+        assert_eq!(
+            json.get("original_attribution").map(text),
+            document.song.original_attribution
+        );
+        let arrangements = json["arrangements"].as_array().expect("arrangements");
+        assert_eq!(arrangements.len(), document.arrangements.len());
+        for (json, arrangement) in arrangements.iter().zip(&document.arrangements) {
+            assert_eq!(text(&json["id"]), arrangement.id.to_string());
+            assert_eq!(json.get("title").map(text), arrangement.title);
+            assert_eq!(strings(&json["languages"]), arrangement.languages);
+            assert_eq!(strings(&json["choirs"]), arrangement.choirs);
+            choir_names.extend(arrangement.choirs.iter().cloned());
+            let sections: Vec<_> = json["sections"]
+                .as_array()
+                .expect("sections")
+                .iter()
+                .map(|section| (text(&section["label"]), text(&section["lyrics"])))
+                .collect();
+            assert_eq!(
+                sections,
+                arrangement
+                    .sections
+                    .iter()
+                    .map(|section| (
+                        section.label.clone().unwrap_or_default(),
+                        section.lyrics.clone()
+                    ))
+                    .collect::<Vec<_>>()
+            );
+            let sequence: Vec<_> = json["sequence"]
+                .as_array()
+                .expect("sequence")
+                .iter()
+                .map(|at| usize::try_from(at.as_u64().expect("an index")).expect("small"))
+                .collect();
+            assert_eq!(
+                sequence,
+                arrangement
+                    .sequence
+                    .iter()
+                    .map(|entry| match entry {
+                        domain::song_library::import::SequenceEntry::Section(at) => *at,
+                        other => panic!("a machine document has no {other:?}"),
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    let seeded: std::collections::BTreeSet<_> = seed["choirs"]
+        .as_array()
+        .expect("choirs")
+        .iter()
+        .map(|choir| text(&choir["name"]))
+        .collect();
+    assert_eq!(seeded, choir_names);
+}
 
 #[gpui::test]
 fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_save(
@@ -1976,7 +2082,7 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
         .store
         .read_with(vcx, |store, _| store.library().choirs().count());
     assert_eq!(choirs_before, 1, "Koro San Roque");
-    let revisions_before = edit_revisions(&executor, &rig.slot);
+    let revisions_before = edit_revisions(&executor, &rig.slot, &library_now(&rig.store, vcx));
 
     // 2. The five documents, packed into the picker's folder; Import .ordo.
     let paths: Vec<_> = batch()
@@ -2149,6 +2255,23 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
             .is_err()),
         "nothing from the invalid file"
     );
+    // The stored records equal documents 01, 03 and 04, field for field.
+    let held = library_now(&rig.store, vcx);
+    assert_library_holds(&held, &decoded(batch()[0].1), "01-new-song", true);
+    assert_library_holds(&held, &decoded(batch()[2].1), "03-attachable", false);
+    assert_library_holds(
+        &held,
+        &decoded(batch()[3].1),
+        "04-ambiguous-replacement",
+        false,
+    );
+    assert_eq!(
+        held.choirs()
+            .map(|choir| choir.name().to_owned())
+            .collect::<std::collections::BTreeSet<_>>(),
+        ["Adult Choir".to_owned(), "Koro San Roque".to_owned()].into(),
+        "the new Choir is the attached Arrangement's"
+    );
     let song = history_of(&executor, &rig.slot, RevisionEntity::Song(seed_song(300)));
     assert_eq!(song.len(), 1);
     assert_eq!(song[0].record.kind, RevisionKind::Creation);
@@ -2248,7 +2371,7 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
         1,
         "the unchanged Arrangement gained no revision"
     );
-    let after_commit = edit_revisions(&executor, &rig.slot);
+    let after_commit = edit_revisions(&executor, &rig.slot, &library_now(&rig.store, vcx));
     assert_eq!(
         after_commit,
         revisions_before + 4,
@@ -2256,6 +2379,7 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
     );
 
     // 7. Reopen the parish: the same records and the History rows.
+    let before_stop = library_now(&rig.store, vcx);
     stop(vcx, &rig.slot);
     let (slot, store) = open_parish(cx, &rig.dir);
     let (shell, vcx) = open_store(cx, store.clone());
@@ -2292,10 +2416,14 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
         rows[0].what, "Created arrangement",
         "an imported new Arrangement reads as a creation"
     );
-    assert_eq!(edit_revisions(&executor, &slot), after_commit);
     assert_eq!(
-        store.read_with(vcx, |store, _| store.library().songs().count()),
-        3
+        edit_revisions(&executor, &slot, &library_now(&store, vcx)),
+        after_commit
+    );
+    assert_eq!(
+        library_now(&store, vcx),
+        before_stop,
+        "the reopened Library is the committed one, record for record"
     );
 
     // 8. The same five files again: a no-op.
@@ -2342,7 +2470,7 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
         !rig.shell.read_with(vcx, |shell, _| shell.has_frame())
     });
     assert_eq!(
-        edit_revisions(&executor, &rig.slot),
+        edit_revisions(&executor, &rig.slot, &library_now(&rig.store, vcx)),
         after_commit,
         "nothing was written"
     );
@@ -2360,9 +2488,19 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
     draft.read_with(vcx, |draft, _| {
         assert_eq!(
             draft_probe::issue_rows(draft),
-            ["Line 9 \u{b7} No section is called Korro."]
+            ["Line 10 \u{b7} No section is called Korro."]
         );
         assert_eq!(draft.parsed().document.song.title, "Koro sa Kabuntagon");
+        assert_eq!(
+            draft_probe::sequence_lines(draft),
+            [
+                "01 Bersikulo 1",
+                "02 Koro",
+                "03 [Repeat: Korro] \u{b7} not found",
+                "04 Koro \u{b7} repeat"
+            ],
+            "the forward Koro resolves, the Korro does not"
+        );
     });
     let source = draft.read_with(vcx, |draft, _| draft.source().clone());
     let at = FORWARD_REPEAT.find("Korro").expect("the typo");
@@ -2379,10 +2517,15 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
     });
     draft.read_with(vcx, |draft, _| {
         let lines = draft_probe::sequence_lines(draft);
-        assert_eq!(lines.len(), 3, "{lines:?}");
-        assert!(
-            lines.iter().all(|line| !line.contains("not found")),
-            "{lines:?}"
+        assert_eq!(
+            lines,
+            [
+                "01 Bersikulo 1",
+                "02 Koro",
+                "03 Koro \u{b7} repeat",
+                "04 Koro \u{b7} repeat"
+            ],
+            "both repeats now resolve"
         );
     });
 
@@ -2421,12 +2564,14 @@ fn t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_s
                 ),
             ]
         );
-        assert_eq!(sung(content), [0, 1, 1]);
+        assert_eq!(sung(content), [0, 1, 1, 1]);
         assert_eq!(
             content.sequence[1].section, content.sequence[2].section,
             "the repeat is a second occurrence of the same section"
         );
+        assert_eq!(content.sequence[2].section, content.sequence[3].section);
         assert_ne!(content.sequence[1].id, content.sequence[2].id);
+        assert_ne!(content.sequence[2].id, content.sequence[3].id);
     };
     verify(&executor, &rig.slot);
     stop(vcx, &rig.slot);
@@ -2726,11 +2871,165 @@ fn phase_2_gate_create_encode_repeat_search_revise_import_then_recover_after_rel
     let _ = std::fs::remove_dir_all(&rig.files);
 }
 
-/// The gate's parish round-trip leg: a batch planned through the domain,
-/// committed, read back equal to its documents and to a reopened parish, and
-/// then classified as nothing but Skip unchanged. (The fixtures' own
-/// round-trip is gate_every_valid_fixture_round_trips_through_ordo; a failed
-/// commit changing nothing is ac9_a_failed_commit_at_any_step_changes_nothing.)
+/// The valid contract fixtures, by file name.
+fn contract_valid() -> [(&'static str, &'static [u8]); 3] {
+    [
+        (
+            "minimal.ordo",
+            &include_bytes!("../../../../tests/fixtures/song-import/contract/minimal.valid.json")[..],
+        ),
+        (
+            "representative.ordo",
+            &include_bytes!(
+                "../../../../tests/fixtures/song-import/contract/representative.valid.json"
+            )[..],
+        ),
+        (
+            "boundary.ordo",
+            &include_bytes!("../../../../tests/fixtures/song-import/contract/boundary.valid.json")
+                [..],
+        ),
+    ]
+}
+
+/// Asserts the Library holds exactly what one valid document says: every Song
+/// field, and every Arrangement field with its sections, Sequence and Choir
+/// names. `first` is whether this is the first document of its Song in the
+/// batch; a later document attaching to the same Song leaves the Song's own
+/// fields to the first one.
+fn assert_library_holds(
+    held: &domain::song_library::SongLibrary,
+    document: &ImportDocument,
+    source: &str,
+    first: bool,
+) {
+    use std::collections::BTreeSet;
+
+    let song = held.song(document.id).expect("the Song");
+    if first {
+        assert_eq!(song.title(), document.song.title, "{source}: title");
+        assert_eq!(song.aliases(), document.song.aliases, "{source}: aliases");
+        assert_eq!(
+            song.original_attribution(),
+            document.song.original_attribution.as_deref(),
+            "{source}: original attribution"
+        );
+        assert_eq!(
+            song.provenance(),
+            document.song.provenance.as_deref(),
+            "{source}: provenance"
+        );
+        assert_eq!(
+            song.rights_notes(),
+            document.song.rights_notes.as_deref(),
+            "{source}: rights notes"
+        );
+        assert_eq!(
+            song.liturgical_moments(),
+            &document
+                .song
+                .liturgical_moments
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            "{source}: liturgical moments"
+        );
+        assert_eq!(
+            song.occasions(),
+            &document
+                .song
+                .occasions
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            "{source}: occasions"
+        );
+    }
+    for arrangement in &document.arrangements {
+        let stored = held.arrangement(arrangement.id).expect("the Arrangement");
+        assert_eq!(stored.song(), document.id, "{source}: the owning Song");
+        assert_eq!(
+            stored.title(),
+            arrangement.title.as_deref(),
+            "{source}: Arrangement title"
+        );
+        assert_eq!(
+            stored.rendition_attribution(),
+            arrangement.rendition_attribution.as_deref(),
+            "{source}: rendition attribution"
+        );
+        assert_eq!(
+            stored.occasions(),
+            &arrangement
+                .occasions
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            "{source}: Arrangement occasions"
+        );
+        assert_eq!(
+            stored.notes(),
+            arrangement.notes.as_deref(),
+            "{source}: notes"
+        );
+        let lyrics = stored.lyrics();
+        assert_eq!(
+            lyrics
+                .sections
+                .iter()
+                .map(|section| (section.label.clone(), section.lyrics.clone()))
+                .collect::<Vec<_>>(),
+            arrangement
+                .sections
+                .iter()
+                .map(|section| (section.label.clone(), section.lyrics.clone()))
+                .collect::<Vec<_>>(),
+            "{source}: the sections"
+        );
+        let sung: Vec<_> = lyrics
+            .sequence
+            .iter()
+            .map(|occurrence| {
+                lyrics
+                    .sections
+                    .iter()
+                    .position(|section| section.id == occurrence.section)
+            })
+            .collect();
+        let wanted: Vec<_> = arrangement
+            .sequence
+            .iter()
+            .map(|entry| match entry {
+                domain::song_library::import::SequenceEntry::Section(at) => Some(*at),
+                other => panic!("a machine document has no {other:?}"),
+            })
+            .collect();
+        assert_eq!(sung, wanted, "{source}: the Sequence");
+        assert_eq!(
+            stored.languages(),
+            arrangement.languages,
+            "{source}: languages"
+        );
+        let names: BTreeSet<_> = stored
+            .choirs()
+            .iter()
+            .map(|choir| held.choir(*choir).expect("a Choir").name().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            arrangement.choirs.iter().cloned().collect::<BTreeSet<_>>(),
+            "{source}: the Choirs"
+        );
+    }
+}
+
+/// The gate's parish round-trip leg: every valid fixture (batch 01-04 and the
+/// valid contract corpus) planned through the domain, committed into one
+/// parish, read back equal to its documents in every Song and Arrangement
+/// field and to a reopened parish, and then classified as nothing but Skip
+/// unchanged. (The fixtures' own round-trip is
+/// gate_every_valid_fixture_round_trips_through_ordo; a failed commit changing
+/// nothing is ac9_a_failed_commit_at_any_step_changes_nothing.)
 #[gpui::test]
 fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
     cx: &mut TestAppContext,
@@ -2741,8 +3040,9 @@ fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
     };
 
     let (rig, vcx) = import::open_shell(cx, "t210-roundtrip", &[]);
-    let paths: Vec<_> = batch()[..3]
+    let paths: Vec<_> = batch()[..4]
         .iter()
+        .chain(contract_valid().iter())
         .map(|(name, payload)| rig.file(name, &packed(payload)))
         .collect();
     let staging = {
@@ -2751,7 +3051,7 @@ fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
             .update(vcx, |store, cx| store.stage_import(paths.clone(), cx));
         vcx.foreground_executor().block_test(task)
     };
-    assert_eq!(staging.documents.len(), 3);
+    assert_eq!(staging.documents.len(), 7);
 
     // Plan through the domain, and check it against the library.
     let mut next = 0u8;
@@ -2771,10 +3071,10 @@ fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
     assert_eq!(library.check_import(&planned), Ok(()));
     assert_eq!(
         planned.songs.len(),
-        2,
-        "Awit ng Pasasalamat and Salamat, Ginoo"
+        6,
+        "Salamat, Ginoo; Bread of Life; Awit ng Pasasalamat; and the three contract Songs"
     );
-    assert_eq!(planned.arrangements.len(), 3);
+    assert_eq!(planned.arrangements.len(), 8);
 
     // Commit it; the Library holds exactly the documents.
     let task = rig.store.update(vcx, |store, cx| {
@@ -2784,71 +3084,16 @@ fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
         .foreground_executor()
         .block_test(task)
         .expect("the batch commits");
-    assert_eq!(outcome.songs.len(), 2);
-    assert_eq!(outcome.arrangements.len(), 3);
+    assert_eq!(outcome.songs.len(), 6);
+    assert_eq!(outcome.arrangements.len(), 8);
     let held = rig.store.read_with(vcx, |store, _| store.library().clone());
+    let mut seen = std::collections::BTreeSet::new();
     for staged in &staging.documents {
         let domain::song_library::import::Staged::Valid(document) = &staged.content else {
             panic!("{} should be valid", staged.source);
         };
-        assert_eq!(
-            held.song(document.id).expect("the Song").title(),
-            document.song.title,
-            "{}",
-            staged.source
-        );
-        for arrangement in &document.arrangements {
-            let stored = held.arrangement(arrangement.id).expect("the Arrangement");
-            let lyrics = stored.lyrics();
-            assert_eq!(
-                lyrics
-                    .sections
-                    .iter()
-                    .map(|section| (section.label.clone(), section.lyrics.clone()))
-                    .collect::<Vec<_>>(),
-                arrangement
-                    .sections
-                    .iter()
-                    .map(|section| (section.label.clone(), section.lyrics.clone()))
-                    .collect::<Vec<_>>(),
-                "{}: the sections",
-                staged.source
-            );
-            let sung: Vec<_> = lyrics
-                .sequence
-                .iter()
-                .map(|occurrence| {
-                    lyrics
-                        .sections
-                        .iter()
-                        .position(|section| section.id == occurrence.section)
-                })
-                .collect();
-            let wanted: Vec<_> = arrangement
-                .sequence
-                .iter()
-                .map(|entry| match entry {
-                    domain::song_library::import::SequenceEntry::Section(at) => Some(*at),
-                    other => panic!("a machine document has no {other:?}"),
-                })
-                .collect();
-            assert_eq!(sung, wanted, "{}: the Sequence", staged.source);
-            assert_eq!(
-                stored.languages(),
-                arrangement.languages,
-                "{}",
-                staged.source
-            );
-            let mut names: Vec<_> = stored
-                .choirs()
-                .iter()
-                .map(|choir| held.choir(*choir).expect("a Choir").name().to_owned())
-                .collect();
-            names.sort();
-            let mut wanted_names = arrangement.choirs.clone();
-            wanted_names.sort();
-            assert_eq!(names, wanted_names, "{}: the Choirs", staged.source);
-        }
+        let first = seen.insert(document.id);
+        assert_library_holds(&held, document, &staged.source, first);
     }
 
     // The same after reopening the parish from disk.
@@ -2864,7 +3109,7 @@ fn phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip(
         store.reclassify(staging.documents.clone(), Default::default(), cx)
     });
     let again = cx.foreground_executor().block_test(task);
-    assert_eq!(again.reviews.len(), 3);
+    assert_eq!(again.reviews.len(), 7);
     for review in &again.reviews {
         let Review::Valid(review) = review else {
             panic!("a valid document, not {review:?}");

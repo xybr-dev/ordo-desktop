@@ -3248,6 +3248,69 @@ fn import_and_autosave_share_one_queue(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&files);
 }
 
+#[gpui::test]
+fn a_write_queued_during_the_background_verdict_runs_after_the_import_exactly_once(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-queued-verdict");
+    let files = temp_dir("store-import-queued-verdict-files");
+    let (slot, store) = open_parish(cx, &dir);
+    let document = import_doc(song_id(0xb2), arrangement_id(0xc2), "Verdict Hymn", "Words");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "v.ordo", &document)]);
+    let changes = count_changes(cx, &store);
+    let generation = store.read_with(cx, |store, _| store.generation());
+
+    // The details save names an Arrangement only the import creates: it can
+    // succeed only if the queue runs it after the import, and only once.
+    let details = ArrangementDetails {
+        title: Some("Retitled while the verdict ran".to_owned()),
+        languages: vec!["English".to_owned()],
+        ..ArrangementDetails::default()
+    };
+    let (import, save) = store.update(cx, |store, cx| {
+        let import = store.commit_import(&staging, Choices::default(), cx);
+        let save = store.save_arrangement_details(document.arrangements[0].id, details, cx);
+        (import, save)
+    });
+    store.read_with(cx, |store, _| {
+        assert_eq!(
+            store.write_state(),
+            (true, 1),
+            "the verdict holds the queue; the save waits behind it"
+        );
+        assert!(
+            store.library().song(document.id).is_err(),
+            "nothing is applied before the verdict lands"
+        );
+    });
+    assert!(run(cx, import).is_ok());
+    assert_eq!(run(cx, save), Ok(document.arrangements[0].id));
+    store.read_with(cx, |store, _| {
+        assert_eq!(store.write_state(), (false, 0));
+        assert_eq!(
+            store.generation(),
+            generation + 2,
+            "exactly one completion per write"
+        );
+        assert_eq!(
+            store
+                .library()
+                .arrangement(document.arrangements[0].id)
+                .expect("the imported Arrangement")
+                .title(),
+            Some("Retitled while the verdict ran")
+        );
+    });
+    assert_eq!(*changes.borrow(), 2, "each write announced once");
+    let revisions = history(cx, &slot, document.arrangements[0].id);
+    assert_eq!(revisions.len(), 2, "the creation, then the one edit");
+    assert_eq!(revisions[0].kind, RevisionKind::Creation);
+    assert_eq!(revisions[1].parent, Some(revisions[0].id));
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
+
 fn reclassify_with(
     cx: &mut TestAppContext,
     store: &Entity<LibraryStore>,

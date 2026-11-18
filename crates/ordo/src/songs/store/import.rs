@@ -320,9 +320,9 @@ impl LibraryStore {
     ) -> Task<ImportStaging> {
         cx.spawn(async move |this, cx| {
             loop {
-                let Ok(Some(snapshot)) = this.update(cx, |this, _| {
+                let Ok(Some((generation, snapshot))) = this.update(cx, |this, _| {
                     let idle = !this.writing && this.queue.is_empty();
-                    idle.then(|| this.library.clone())
+                    idle.then(|| (this.generation, this.library.clone()))
                 }) else {
                     // The store is gone, or a write is in flight: wait a moment.
                     if this.upgrade().is_none() {
@@ -346,8 +346,11 @@ impl LibraryStore {
                 };
                 let reads = this
                     .update(cx, |this, _| {
+                        // Every change to the library bumps `generation`, so
+                        // comparing it replaces a deep library comparison on
+                        // the GPUI thread.
                         let unchanged =
-                            !this.writing && this.queue.is_empty() && this.library == snapshot;
+                            !this.writing && this.queue.is_empty() && this.generation == generation;
                         unchanged.then(|| {
                             this.storage
                                 .with(|storage| {
@@ -537,9 +540,14 @@ impl LibraryStore {
     }
 
     /// Runs a batch import's verdict on a snapshot of the library in the
-    /// background, then starts the storage write. The queue is held
-    /// (`writing`) meanwhile, so nothing else writes; the generation check
-    /// still refuses the commit if the library was replaced under it.
+    /// background, then starts the storage write.
+    ///
+    /// The guarantee is the queue hold: `writing` stays set meanwhile, so no
+    /// other write is validated, dispatched or applied and the library cannot
+    /// change under the verdict. The generation check is only a backstop for a
+    /// library replaced outside the queue (an open or a reload); it is not the
+    /// primary guard and nothing should be built to rely on it instead of the
+    /// hold.
     pub(super) fn verdict_in_background(
         &mut self,
         write: LibraryWrite,

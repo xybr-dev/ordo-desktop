@@ -1751,7 +1751,34 @@ fn ac1_no_import_path_reads_powerpoint() {
             include_str!("markdown/preview.rs"),
         ),
         ("store import", include_str!("../store/import.rs")),
+        (
+            "storage parish_store import",
+            include_str!("../../../../storage/src/parish_store/import.rs"),
+        ),
     ];
+    // A new source file in one of these directories must be added to the
+    // list above: the file count per directory is pinned (tests.rs files are
+    // the refusal tests themselves and stay unread).
+    for (dir, files) in [
+        ("../storage/src/exchange", 4),
+        ("../domain/src/song_library/import", 8),
+        ("src/songs/import_review", 8),
+        ("src/songs/import_review/markdown", 3),
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
+        let found = std::fs::read_dir(&path)
+            .expect("an import source directory")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.ends_with(".rs") && name != "tests.rs"
+            })
+            .count();
+        assert_eq!(
+            found, files,
+            "{dir} has a source file the PowerPoint check does not read"
+        );
+    }
     for (name, source) in sources {
         let lowered = source.to_lowercase();
         for needle in ["pptx", "ppt", "powerpoint"] {
