@@ -23,6 +23,7 @@
 //! reports likely duplicates.
 
 mod duplicate_evidence;
+pub mod import;
 mod interface;
 mod languages;
 mod lifecycle;

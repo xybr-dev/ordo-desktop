@@ -11,6 +11,9 @@ publish.workspace = true
 # internal dependencies at all.
 [dev-dependencies]
 domain.workspace = true
+# The Markdown fixture expectations are JSON (T2.10 WP2); the pin matches the
+# other test crates.
+serde_json = "=1.0.151"
 
 [lints]
 workspace = true
