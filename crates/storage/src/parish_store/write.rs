@@ -147,7 +147,7 @@ pub(crate) fn require_distinct<T: PartialEq>(
 }
 
 /// The Choir field rules shared by create and edit.
-fn validate_choir_fields(
+pub(crate) fn validate_choir_fields(
     name: &str,
     short_label: Option<&str>,
     languages: &[String],
@@ -168,7 +168,7 @@ fn validate_choir_fields(
 }
 
 /// Validates the Song before any statement runs.
-fn validate_song(song: &NewSong) -> Result<(), StorageError> {
+pub(crate) fn validate_song(song: &NewSong) -> Result<(), StorageError> {
     validate_song_fields(
         &song.title,
         &song.aliases,
@@ -354,29 +354,9 @@ fn insert_choir(
     let mut steps = WriteSteps::new(fault);
 
     let id = insert_entity(ids, &mut steps, RecordKind::Choir, |id, steps| {
-        write(
-            &tx,
-            steps,
-            "INSERT INTO choir (id, name, short_label, notes, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                id.to_string(),
-                choir.name,
-                choir.short_label.as_deref(),
-                choir.notes.as_deref(),
-                created
-            ],
-        )
+        insert_choir_row(&tx, steps, &id.to_string(), &choir, &created)
     })?;
-    let choir_text = id.to_string();
-    for (position, language) in choir.languages.iter().enumerate() {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO choir_language (choir_id, position, language) VALUES (?1, ?2, ?3)",
-            params![choir_text, position as i64, language],
-        )?;
-    }
+    insert_choir_languages(&tx, &mut steps, &id.to_string(), &choir.languages)?;
     tx.commit().map_err(map_error)?;
     Ok(ChoirRecord {
         id: ChoirId::from_entity(id),
@@ -387,6 +367,47 @@ fn insert_choir(
         created_at: at,
         archived_at: None,
     })
+}
+
+/// Writes the Choir row; shared by create and by the import commit.
+pub(crate) fn insert_choir_row(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    choir: &NewChoir,
+    created: &str,
+) -> Result<usize, StorageError> {
+    write(
+        tx,
+        steps,
+        "INSERT INTO choir (id, name, short_label, notes, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            choir.name,
+            choir.short_label.as_deref(),
+            choir.notes.as_deref(),
+            created
+        ],
+    )
+}
+
+/// Writes a Choir's preferred languages in authored order.
+pub(crate) fn insert_choir_languages(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    languages: &[String],
+) -> Result<(), StorageError> {
+    for (position, language) in languages.iter().enumerate() {
+        write(
+            tx,
+            steps,
+            "INSERT INTO choir_language (choir_id, position, language) VALUES (?1, ?2, ?3)",
+            params![id, position as i64, language],
+        )?;
+    }
+    Ok(())
 }
 
 /// Replaces one Choir's details and preferred languages in one transaction.
@@ -530,6 +551,64 @@ pub(crate) fn pagination_text(state: PaginationState) -> &'static str {
     }
 }
 
+/// Writes the Song row; shared by create and by the import commit.
+pub(crate) fn insert_song_row(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    song: &NewSong,
+    created: &str,
+) -> Result<usize, StorageError> {
+    write(
+        tx,
+        steps,
+        "INSERT INTO song (id, title, original_attribution, provenance, rights_notes, \
+         created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            song.title,
+            song.original_attribution.as_deref(),
+            song.provenance.as_deref(),
+            song.rights_notes.as_deref(),
+            created
+        ],
+    )
+}
+
+/// Writes a Song's aliases, liturgical moments and occasions.
+pub(crate) fn insert_song_links(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    song: &NewSong,
+) -> Result<(), StorageError> {
+    for (position, alias) in song.aliases.iter().enumerate() {
+        write(
+            tx,
+            steps,
+            "INSERT INTO song_alias (song_id, position, alias) VALUES (?1, ?2, ?3)",
+            params![id, position as i64, alias],
+        )?;
+    }
+    for moment in &song.liturgical_moments {
+        write(
+            tx,
+            steps,
+            "INSERT INTO song_liturgical_moment (song_id, moment) VALUES (?1, ?2)",
+            params![id, moment],
+        )?;
+    }
+    for occasion in &song.occasions {
+        write(
+            tx,
+            steps,
+            "INSERT INTO song_occasion (song_id, occasion) VALUES (?1, ?2)",
+            params![id, occasion],
+        )?;
+    }
+    Ok(())
+}
+
 fn insert_song(
     conn: &mut Connection,
     ids: &mut Sources,
@@ -545,47 +624,9 @@ fn insert_song(
     let mut steps = WriteSteps::new(fault);
 
     let id = insert_entity(ids, &mut steps, RecordKind::Song, |id, steps| {
-        write(
-            &tx,
-            steps,
-            "INSERT INTO song (id, title, original_attribution, provenance, rights_notes, \
-             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                id.to_string(),
-                song.title,
-                song.original_attribution.as_deref(),
-                song.provenance.as_deref(),
-                song.rights_notes.as_deref(),
-                created
-            ],
-        )
+        insert_song_row(&tx, steps, &id.to_string(), &song, &created)
     })?;
-    let song_text = id.to_string();
-
-    for (position, alias) in song.aliases.iter().enumerate() {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO song_alias (song_id, position, alias) VALUES (?1, ?2, ?3)",
-            params![song_text, position as i64, alias],
-        )?;
-    }
-    for moment in &song.liturgical_moments {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO song_liturgical_moment (song_id, moment) VALUES (?1, ?2)",
-            params![song_text, moment],
-        )?;
-    }
-    for occasion in &song.occasions {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO song_occasion (song_id, occasion) VALUES (?1, ?2)",
-            params![song_text, occasion],
-        )?;
-    }
+    insert_song_links(&tx, &mut steps, &id.to_string(), &song)?;
     revisions::append_creation(
         &tx,
         ids,
@@ -620,6 +661,124 @@ fn insert_song(
         created_at: at,
         archived_at: None,
     })
+}
+
+/// The scalar fields of an Arrangement row.
+pub(crate) struct ArrangementFields<'a> {
+    pub(crate) title: Option<&'a str>,
+    pub(crate) notes: Option<&'a str>,
+    pub(crate) rendition_attribution: Option<&'a str>,
+}
+
+/// Writes the Arrangement row; shared by create and by the import commit.
+pub(crate) fn insert_arrangement_row(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    song: &str,
+    fields: ArrangementFields<'_>,
+    created: &str,
+) -> Result<usize, StorageError> {
+    write(
+        tx,
+        steps,
+        "INSERT INTO arrangement (id, song_id, title, notes, rendition_attribution, \
+         created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            song,
+            fields.title,
+            fields.notes,
+            fields.rendition_attribution,
+            created
+        ],
+    )
+}
+
+/// Writes an Arrangement's languages, Choir links and occasions.
+pub(crate) fn insert_arrangement_links(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    languages: &[String],
+    choirs: &[ChoirId],
+    occasions: &[String],
+) -> Result<(), StorageError> {
+    for (position, language) in languages.iter().enumerate() {
+        write(
+            tx,
+            steps,
+            "INSERT INTO arrangement_language (arrangement_id, position, language) \
+             VALUES (?1, ?2, ?3)",
+            params![id, position as i64, language],
+        )?;
+    }
+    for choir in choirs {
+        write(
+            tx,
+            steps,
+            "INSERT INTO arrangement_choir (arrangement_id, choir_id) VALUES (?1, ?2)",
+            params![id, choir.to_string()],
+        )?;
+    }
+    for occasion in occasions {
+        write(
+            tx,
+            steps,
+            "INSERT INTO arrangement_occasion (arrangement_id, occasion) VALUES (?1, ?2)",
+            params![id, occasion],
+        )?;
+    }
+    Ok(())
+}
+
+/// Writes one section row with its pagination state.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_section_row(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    arrangement: &str,
+    position: usize,
+    label: Option<&str>,
+    lyrics: &str,
+    pagination: PaginationState,
+    created: &str,
+) -> Result<usize, StorageError> {
+    write(
+        tx,
+        steps,
+        "INSERT INTO arrangement_section (id, arrangement_id, position, label, lyrics, \
+         pagination_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            arrangement,
+            position as i64,
+            label,
+            lyrics,
+            pagination_text(pagination),
+            created
+        ],
+    )
+}
+
+/// Writes one Sequence occurrence row.
+pub(crate) fn insert_occurrence_row(
+    tx: &Transaction<'_>,
+    steps: &mut WriteSteps,
+    id: &str,
+    arrangement: &str,
+    section: &str,
+    position: usize,
+    created: &str,
+) -> Result<usize, StorageError> {
+    write(
+        tx,
+        steps,
+        "INSERT INTO section_occurrence (id, arrangement_id, section_id, position, \
+         created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, arrangement, section, position as i64, created],
+    )
 }
 
 fn insert_arrangement(
@@ -670,65 +829,43 @@ fn insert_arrangement(
     }
 
     let id = insert_entity(ids, &mut steps, RecordKind::Arrangement, |id, steps| {
-        write(
+        insert_arrangement_row(
             &tx,
             steps,
-            "INSERT INTO arrangement (id, song_id, title, notes, rendition_attribution, \
-             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                id.to_string(),
-                arrangement.song.to_string(),
-                arrangement.title.as_deref(),
-                arrangement.notes.as_deref(),
-                arrangement.rendition_attribution.as_deref(),
-                created
-            ],
+            &id.to_string(),
+            &arrangement.song.to_string(),
+            ArrangementFields {
+                title: arrangement.title.as_deref(),
+                notes: arrangement.notes.as_deref(),
+                rendition_attribution: arrangement.rendition_attribution.as_deref(),
+            },
+            &created,
         )
     })?;
     let arrangement_text = id.to_string();
 
-    for (position, language) in arrangement.languages.iter().enumerate() {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO arrangement_language (arrangement_id, position, language) \
-             VALUES (?1, ?2, ?3)",
-            params![arrangement_text, position as i64, language],
-        )?;
-    }
-    for choir in &arrangement.choirs {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO arrangement_choir (arrangement_id, choir_id) VALUES (?1, ?2)",
-            params![arrangement_text, choir.to_string()],
-        )?;
-    }
-    for occasion in &arrangement.occasions {
-        write(
-            &tx,
-            &mut steps,
-            "INSERT INTO arrangement_occasion (arrangement_id, occasion) VALUES (?1, ?2)",
-            params![arrangement_text, occasion],
-        )?;
-    }
+    insert_arrangement_links(
+        &tx,
+        &mut steps,
+        &arrangement_text,
+        &arrangement.languages,
+        &arrangement.choirs,
+        &arrangement.occasions,
+    )?;
 
     let mut section_ids = Vec::with_capacity(arrangement.sections.len());
     for (position, section) in arrangement.sections.iter().enumerate() {
         let section_id = insert_entity(ids, &mut steps, RecordKind::Section, |id, steps| {
-            write(
+            insert_section_row(
                 &tx,
                 steps,
-                "INSERT INTO arrangement_section (id, arrangement_id, position, label, lyrics, \
-                 pagination_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'draft', ?6)",
-                params![
-                    id.to_string(),
-                    arrangement_text,
-                    position as i64,
-                    section.label.as_deref(),
-                    section.lyrics,
-                    created
-                ],
+                &id.to_string(),
+                &arrangement_text,
+                position,
+                section.label.as_deref(),
+                &section.lyrics,
+                PaginationState::Draft,
+                &created,
             )
         })?;
         section_ids.push(SectionId::from_entity(section_id));
@@ -738,18 +875,14 @@ fn insert_arrangement(
     for (position, section_index) in arrangement.sequence.iter().enumerate() {
         let section_id = section_ids[*section_index];
         let occurrence_id = insert_entity(ids, &mut steps, RecordKind::Occurrence, |id, steps| {
-            write(
+            insert_occurrence_row(
                 &tx,
                 steps,
-                "INSERT INTO section_occurrence (id, arrangement_id, section_id, position, \
-                 created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    id.to_string(),
-                    arrangement_text,
-                    section_id.to_string(),
-                    position as i64,
-                    created
-                ],
+                &id.to_string(),
+                &arrangement_text,
+                &section_id.to_string(),
+                position,
+                &created,
             )
         })?;
         occurrence_ids.push(occurrence_id);

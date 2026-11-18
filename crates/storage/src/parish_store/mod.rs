@@ -5,10 +5,14 @@
 //! multi-row create is one immediate transaction that commits only after the
 //! last row is written, so a failure leaves earlier committed state unchanged.
 
+mod import;
 mod read;
 mod records;
 pub(crate) mod write;
 
+pub use import::{
+    ArrangementReplacement, ImportBatch, ImportCommittedRecords, ImportedArrangement,
+};
 pub(crate) use read::{read_arrangement, read_song};
 pub use records::{
     ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
@@ -23,6 +27,7 @@ mod tests {
         let sources = [
             ("records.rs", include_str!("records.rs")),
             ("write.rs", include_str!("write.rs")),
+            ("import.rs", include_str!("import.rs")),
             ("read.rs", include_str!("read.rs")),
             (
                 "revisions/content.rs",

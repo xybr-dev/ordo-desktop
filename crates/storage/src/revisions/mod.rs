@@ -18,7 +18,10 @@ pub use content::{
     SongContent,
 };
 pub(crate) use read::revision_ids;
-pub(crate) use write::append_creation;
+pub(crate) use write::{
+    append_creation, append_first, replace_arrangement_in, validate_arrangement_content,
+    validate_link,
+};
 
 /// The metadata of one stored revision; its content is read separately.
 #[derive(Clone, Debug, Eq, PartialEq)]
