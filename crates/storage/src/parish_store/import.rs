@@ -61,10 +61,11 @@ pub struct ImportBatch {
     pub replacements: Vec<ArrangementReplacement>,
     /// The kind the batch asks for on each new entity's first revision:
     /// `Import` for a `.ordo` document, `Creation` for a Markdown draft; any
-    /// other kind is refused. Migration 0004's `edit_revision` CHECK allows a
-    /// revision with no parent only when its kind is `creation`, so both are
-    /// stored as `creation` until a migration relaxes it (see
-    /// `stored_first_kind`). Replacements are always `replacement`.
+    /// other kind is refused. It records the caller's intent only: migration
+    /// 0004's `edit_revision` CHECK allows a revision with no parent only when
+    /// its kind is `creation`, so every first revision is stored as
+    /// `creation` (History reads **Created**) until a migration relaxes it.
+    /// Replacements are always `replacement`.
     pub first_kind: RevisionKind,
 }
 
@@ -125,26 +126,6 @@ fn require_live(
     }
 }
 
-fn require_choir(tx: &Transaction<'_>, choir: ChoirId) -> Result<(), StorageError> {
-    let found = tx
-        .query_row(
-            "SELECT 1 FROM choir WHERE id = ?1",
-            params![choir.to_string()],
-            |_row| Ok(()),
-        )
-        .optional()
-        .map_err(map_error)?
-        .is_some();
-    if found {
-        Ok(())
-    } else {
-        Err(StorageError::MissingReference {
-            kind: RecordKind::Choir,
-            id: choir.entity(),
-        })
-    }
-}
-
 /// Everything that can be refused without opening a transaction.
 fn validate(batch: &ImportBatch) -> Result<(), StorageError> {
     if !matches!(
@@ -177,12 +158,6 @@ fn validate(batch: &ImportBatch) -> Result<(), StorageError> {
     Ok(())
 }
 
-/// The kind a first (parentless) revision is stored with. The schema CHECK
-/// `(kind = 'creation') = (parent_id IS NULL)` leaves no other choice today.
-fn stored_first_kind(_requested: RevisionKind) -> RevisionKind {
-    RevisionKind::Creation
-}
-
 fn song_content(song: &NewSong) -> SongContent {
     SongContent {
         title: song.title.clone(),
@@ -203,13 +178,12 @@ impl Core {
     ) -> Result<ImportCommittedRecords, StorageError> {
         validate(&batch)?;
         let at = self.timestamp();
-        timestamp_text(at)?;
+        let created = timestamp_text(at)?;
         let (conn, ids, fault) = self.write_parts()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_error)?;
         let mut steps = WriteSteps::new(fault);
-        let created = timestamp_text(at)?;
         let mut revisions_written: Vec<RevisionRecord> = Vec::new();
 
         let mut choirs = Vec::with_capacity(batch.choirs.len());
@@ -243,7 +217,6 @@ impl Core {
                 &mut steps,
                 at,
                 RevisionEntity::Song(*id),
-                stored_first_kind(batch.first_kind),
                 &RevisionContent::Song(song_content(song)),
             )?);
             songs.push(*id);
@@ -258,7 +231,6 @@ impl Core {
                 at,
                 &created,
                 imported,
-                stored_first_kind(batch.first_kind),
                 &mut revisions_written,
             )?;
             arrangements.push(imported.id);
@@ -323,7 +295,6 @@ fn write_new_arrangement(
     at: Timestamp,
     created: &str,
     imported: &ImportedArrangement,
-    first_kind: RevisionKind,
     written: &mut Vec<RevisionRecord>,
 ) -> Result<(), StorageError> {
     let content = &imported.content;
@@ -341,7 +312,13 @@ fn write_new_arrangement(
         "song",
     )?;
     for choir in &content.choirs {
-        require_choir(tx, *choir)?;
+        require_live(
+            tx,
+            "SELECT archived_at FROM choir WHERE id = ?1",
+            choir.entity(),
+            RecordKind::Choir,
+            "choir",
+        )?;
     }
     for section in &content.sections {
         require_free(
@@ -411,7 +388,6 @@ fn write_new_arrangement(
         steps,
         at,
         RevisionEntity::Arrangement(imported.id),
-        first_kind,
         &RevisionContent::Arrangement(content.clone()),
     )?);
     Ok(())

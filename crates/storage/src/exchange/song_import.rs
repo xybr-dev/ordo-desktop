@@ -9,11 +9,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use domain::identity::{ArrangementId, SongId};
+use domain::song_library::SongDraft;
 use domain::song_library::import::{
     DocumentProblem, ImportArrangement, ImportDocument, ImportSection, SequenceEntry,
     rendition_attribution, resolve_language, validate_document,
 };
-use domain::song_library::{Field, SongDraft};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -64,9 +64,11 @@ pub fn read_song_import(path: &Path, limits: &InspectLimits) -> SongImportRead {
 }
 
 fn unreadable(error: &std::io::Error) -> SongImportRead {
-    SongImportRead::Invalid(vec![Finding::container(format!(
-        "The file could not be read: {error}"
-    ))])
+    SongImportRead::Invalid(vec![Finding::new(
+        FindingCode::Unreadable,
+        "",
+        format!("The file could not be read: {error}"),
+    )])
 }
 
 /// The bytes variant of [`read_song_import`]; the path variant reads the file
@@ -347,7 +349,7 @@ fn decode_value(value: &Value) -> Result<ImportDocument, Vec<Finding>> {
         )]);
     };
     let mut converted = Vec::with_capacity(arrangements.len());
-    for (position, arrangement) in arrangements.iter().enumerate() {
+    for (position, arrangement) in arrangements.into_iter().enumerate() {
         match convert(arrangement) {
             Some(arrangement) => converted.push(arrangement),
             None => {
@@ -553,7 +555,7 @@ fn content_hash<'a>(lines: impl Iterator<Item = &'a str>) -> String {
         .collect()
 }
 
-fn convert(raw: &RawArrangement) -> Option<ImportArrangement> {
+fn convert(raw: RawArrangement) -> Option<ImportArrangement> {
     let sections: Vec<&str> = raw.sections.iter().map(|s| s.id.as_str()).collect();
     let sequence = raw
         .sequence
@@ -565,28 +567,25 @@ fn convert(raw: &RawArrangement) -> Option<ImportArrangement> {
                 .map(SequenceEntry::Section)
         })
         .collect::<Option<Vec<_>>>()?;
+    let id = ArrangementId::parse(&raw.id).ok()?;
+    let rendition = rendition_attribution(raw.translator.as_deref(), raw.adapter.as_deref());
     Some(ImportArrangement {
-        id: ArrangementId::parse(&raw.id).ok()?,
-        title: raw.title.clone(),
+        id,
+        title: raw.title,
         languages: raw
             .languages
-            .iter()
-            .map(|language| {
-                resolve_language(language).map_or_else(|| language.clone(), str::to_owned)
-            })
+            .into_iter()
+            .map(|language| resolve_language(&language).map_or(language, str::to_owned))
             .collect(),
-        choirs: raw.choirs.clone(),
-        rendition_attribution: rendition_attribution(
-            raw.translator.as_deref(),
-            raw.adapter.as_deref(),
-        ),
-        occasions: raw.occasions.clone(),
-        notes: raw.notes.clone(),
+        choirs: raw.choirs,
+        rendition_attribution: rendition,
+        occasions: raw.occasions,
+        notes: raw.notes,
         sections: raw
             .sections
-            .iter()
+            .into_iter()
             .map(|section| ImportSection {
-                label: section.label.clone(),
+                label: section.label,
                 lyrics: section
                     .slides
                     .iter()
@@ -596,73 +595,22 @@ fn convert(raw: &RawArrangement) -> Option<ImportArrangement> {
             })
             .collect(),
         sequence,
-        warnings: raw.warnings.clone(),
+        warnings: raw.warnings,
     })
 }
 
 /// The pointer a Song or Arrangement field lives at in the payload.
-fn field_pointer(arrangement: Option<usize>, field: Field) -> String {
-    let member = match field {
-        Field::OriginalAttribution => "composer",
-        Field::Provenance => "source",
-        Field::RightsNotes => "rights",
-        Field::Aliases => "aliases",
-        Field::LiturgicalMoment => "liturgical_moments",
-        Field::Occasion => "occasions",
-        Field::Language => "languages",
-        Field::ArrangementTitle => "title",
-        Field::RenditionAttribution => "translator",
-        Field::ArrangementNotes => "notes",
-        Field::Choir => "choirs",
-        Field::SectionLabel => "sections",
-        _ => "",
-    };
-    let base = arrangement.map_or_else(String::new, |index| at("/arrangements", index));
-    if member.is_empty() {
-        base
-    } else {
-        child(&base, member)
-    }
-}
-
 fn problem_finding(problem: &DocumentProblem) -> Finding {
-    let (pointer, message) = match problem {
-        DocumentProblem::BlankTitle => ("/title".to_owned(), "the title is blank".to_owned()),
-        DocumentProblem::UnlistedLanguage { arrangement, value } => (
-            child(&at("/arrangements", *arrangement), "languages"),
-            format!("{value:?} is not one of Ordo's languages"),
-        ),
-        DocumentProblem::NoLanguage { arrangement } => (
-            child(&at("/arrangements", *arrangement), "languages"),
-            "names no language".to_owned(),
-        ),
-        DocumentProblem::UnknownSection {
-            arrangement,
-            position,
-        } => (
-            at(
-                &child(&at("/arrangements", *arrangement), "sequence"),
-                *position,
-            ),
-            "names a section the Arrangement does not have".to_owned(),
-        ),
-        DocumentProblem::BlankField { arrangement, field } => (
-            field_pointer(*arrangement, *field),
-            format!("{field:?} is blank"),
-        ),
-        DocumentProblem::Duplicate { arrangement, field } => (
-            field_pointer(*arrangement, *field),
-            format!("{field:?} repeats a value"),
-        ),
-        DocumentProblem::DuplicateArrangement(id) => (
-            "/arrangements".to_owned(),
-            format!("Arrangement {id} appears twice"),
-        ),
-    };
-    Finding::new(FindingCode::Schema, pointer, message)
+    Finding::new(FindingCode::Schema, problem.pointer(), problem.to_string())
 }
 
 /// The canonical v2 payload of `document`, for the round-trip gate test.
+///
+/// The encoding is canonical for the *document*, not for the source JSON it
+/// was read from: a rendition attribution that joined a translator and an
+/// adapter ("{translator}; {adapter}") comes back as a translator only, and
+/// section ids are derived rather than kept. Decoding the encoding gives an
+/// equal document, and encoding that again gives the same bytes.
 ///
 /// Section ids are derived from the Arrangement id and the section's position
 /// (a machine document's section ids are never kept locally), so the same

@@ -18,6 +18,8 @@ pub enum FindingCode {
     WrongKind,
     /// A song-import container lists assets, which it never carries.
     Assets,
+    /// The file could not be read from disk.
+    Unreadable,
 }
 
 /// One reason a file cannot be imported.

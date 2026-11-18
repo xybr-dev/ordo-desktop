@@ -480,3 +480,169 @@ fn non_empty_assets_are_refused_for_song_import() {
     assert_eq!(codes(&findings), vec![FindingCode::Assets]);
     assert_eq!(findings[0].message, "song-import v2 carries no assets");
 }
+
+const SCHEMA_V2: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../contracts/song-import/v2.schema.json"
+);
+
+/// Fixtures the schema accepts but the Rust reader refuses: rules JSON Schema
+/// cannot state: identity uniqueness (duplicate-id), references between
+/// records (missing-reference) and the recorded content hash (tampered-hash).
+const RUST_ONLY_REJECTIONS: &[&str] = &[
+    "duplicate-id.reject.json",
+    "missing-reference.reject.json",
+    "tampered-hash.reject.json",
+];
+
+#[test]
+fn ac1_v2_schema_and_rust_validator_agree_on_every_contract_fixture() {
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(SCHEMA_V2).expect("schema")).expect("schema json");
+    let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+    let mut checked = 0;
+    for path in fixture_files("contract", ".json") {
+        let name = path
+            .file_name()
+            .expect("name")
+            .to_string_lossy()
+            .into_owned();
+        let bytes = fs::read(&path).expect("fixture");
+        let Ok(document) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        let schema_ok = validator.is_valid(&document);
+        let rust_ok = matches!(read(&bytes), SongImportRead::Valid(_));
+        if RUST_ONLY_REJECTIONS.contains(&name.as_str()) {
+            assert!(schema_ok && !rust_ok, "{name}: schema-valid, Rust-invalid");
+        } else {
+            assert_eq!(
+                schema_ok, rust_ok,
+                "{name}: schema {schema_ok}, Rust {rust_ok}"
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked >= 8, "only {checked} fixtures compared");
+}
+
+#[test]
+fn ac1_contract_example_is_the_minimal_fixture() {
+    let fixture = Path::new(FIXTURES).join("contract/minimal.valid.json");
+    let fixture: Value =
+        serde_json::from_str(&fs::read_to_string(fixture).expect("fixture")).expect("json");
+    assert_eq!(example(), fixture);
+}
+
+#[test]
+fn ac8_container_limits_and_manifest_faults_name_their_cause() {
+    let payload = bytes_of(&example());
+    let good = pack(&payload);
+    let message_of = |bytes: &[u8], limits: &InspectLimits| -> String {
+        let findings = invalid(read_song_import_bytes(bytes, limits));
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.code == FindingCode::Container),
+            "{findings:?}"
+        );
+        findings
+            .iter()
+            .map(|finding| finding.message.clone())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+
+    let small_entry = InspectLimits {
+        max_entry: 10,
+        ..limits()
+    };
+    assert!(message_of(&good, &small_entry).contains("uncompressed; the limit is 10"));
+    let small_total = InspectLimits {
+        max_total: 10,
+        ..limits()
+    };
+    assert!(message_of(&good, &small_total).contains("The entries expand to"));
+    let small_payload = InspectLimits {
+        max_payload: 10,
+        ..limits()
+    };
+    assert!(message_of(&good, &small_payload).contains("The payload is"));
+
+    // A manifest that lists an unsafe path, or one path twice.
+    let manifest = |assets: Value, size: usize| -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let sha: String = Sha256::digest(&payload)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        bytes_of(&json!({
+            "format": "ordo-container",
+            "format_version": 1,
+            "kind": "song-import",
+            "schema_version": 2,
+            "artifact_id": "test-artifact",
+            "created_at": "2026-10-10T00:00:00Z",
+            "payload": { "path": "payload.json", "sha256": sha, "size": size },
+            "assets": assets,
+        }))
+    };
+    let entry = |path: &str| json!({ "path": path, "sha256": "0".repeat(64), "size": 1 });
+    let unsafe_path = manifest(json!([entry("../x")]), payload.len());
+    let found = message_of(
+        &pack_raw_for_tests(&[
+            RawEntry::file("manifest.json", &unsafe_path),
+            RawEntry::file("payload.json", &payload),
+        ]),
+        &limits(),
+    );
+    assert!(found.contains("listed path ../x"), "{found}");
+    let twice = manifest(json!([entry("payload.json")]), payload.len());
+    let found = message_of(
+        &pack_raw_for_tests(&[
+            RawEntry::file("manifest.json", &twice),
+            RawEntry::file("payload.json", &payload),
+        ]),
+        &limits(),
+    );
+    assert!(found.contains("more than once"), "{found}");
+    let wrong_size = manifest(json!([]), payload.len() + 1);
+    let found = message_of(
+        &pack_raw_for_tests(&[
+            RawEntry::file("manifest.json", &wrong_size),
+            RawEntry::file("payload.json", &payload),
+        ]),
+        &limits(),
+    );
+    assert!(found.contains("the manifest says"), "{found}");
+
+    // A newer container format on a known kind is unsupported, not invalid.
+    let newer = pack_for_tests(
+        &ManifestOverrides {
+            format_version: Some(2),
+            ..ManifestOverrides::default()
+        },
+        &payload,
+        &[],
+    );
+    assert!(
+        matches!(
+            read_song_import_bytes(&newer, &limits()),
+            SongImportRead::Unsupported { .. }
+        ),
+        "a newer format_version"
+    );
+
+    // An entry stored with a compressed size of zero but content.
+    let mut zeroed = good.clone();
+    let mut patched = 0;
+    for at in 0..zeroed.len().saturating_sub(24) {
+        if zeroed[at..at + 4] == *b"PK\x01\x02" {
+            zeroed[at + 20..at + 24].copy_from_slice(&[0, 0, 0, 0]);
+            patched += 1;
+        }
+    }
+    assert!(patched >= 2);
+    let found = message_of(&zeroed, &limits());
+    assert!(found.contains("expands by more than"), "{found}");
+}

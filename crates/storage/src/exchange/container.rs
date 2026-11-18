@@ -62,6 +62,10 @@ pub struct InspectLimits {
     pub max_entry: u64,
     /// Largest sum of declared uncompressed sizes across the archive.
     pub max_total: u64,
+    /// Largest `payload.json` accepted, by its declared sizes. A song-import
+    /// payload is lyrics text, and a read holds it three times over (bytes,
+    /// parsed JSON, typed document), so it is held well below `max_entry`.
+    pub max_payload: u64,
     /// Largest declared uncompressed/compressed ratio for one entry.
     pub max_ratio: u64,
 }
@@ -73,6 +77,7 @@ impl Default for InspectLimits {
             max_entries: 4096,
             max_entry: 64 * MIB,
             max_total: 4 * GIB,
+            max_payload: 8 * MIB,
             max_ratio: 200,
         }
     }
@@ -225,6 +230,14 @@ pub(super) fn open(
         .get(manifest.payload.path.as_str())
         .copied()
         .ok_or_else(|| Finding::container("payload.json is missing"))?;
+    let declared_payload = manifest.payload.size.max(entry.size);
+    if declared_payload > limits.max_payload {
+        return Err(Finding::container(format!(
+            "The payload is {declared_payload} bytes; the limit is {}.",
+            limits.max_payload
+        ))
+        .into());
+    }
     let payload = read_bounded(&mut zip, entry, PAYLOAD_PATH)?;
     if payload.len() as u64 != manifest.payload.size {
         return Err(Finding::container(format!(
@@ -525,7 +538,7 @@ fn parse_manifest(value: &Value, kind: &str, version: u64) -> Result<Parsed, Ref
             kind_text, found, version,
         )));
     }
-    let manifest: Manifest = serde_json::from_value(value.clone())
+    let manifest = Manifest::deserialize(value)
         .map_err(|error| bad_manifest(format!("does not match the container format: {error}")))?;
     if manifest.payload.path != PAYLOAD_PATH {
         return Err(bad_manifest("payload.path must be \"payload.json\"").into());

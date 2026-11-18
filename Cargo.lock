@@ -5835,6 +5835,7 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "futures-lite",
+ "jsonschema",
  "rusqlite",
  "serde_json",
  "sha2",

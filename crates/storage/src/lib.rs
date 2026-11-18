@@ -569,7 +569,8 @@ impl Storage {
     ///
     /// Identities are never regenerated: one that is already taken refuses the
     /// batch with `IdentityCollision`. Inside the transaction the target Songs
-    /// and Arrangements are checked present and not archived, Choirs present,
+    /// and Arrangements are checked present and not archived, Choirs present and
+    /// not archived,
     /// and each replacement's `expected_parent` must still be the head
     /// (`StaleRevision`). The returned records are what was written.
     pub fn commit_import(

@@ -107,25 +107,20 @@ pub(crate) fn append_creation(
 }
 
 /// Appends the first revision of an entity the caller has just written
-/// (no parent): `Creation` for authored content, `Import` for a document.
+/// (no parent) and returns it. It is always a `Creation`: the schema CHECK
+/// `(kind = 'creation') = (parent_id IS NULL)` allows no other parentless
+/// kind, so an imported entity's history begins as an ordinary creation.
 pub(crate) fn append_first(
     tx: &Transaction<'_>,
     ids: &mut Sources,
     steps: &mut WriteSteps,
     at: Timestamp,
     entity: RevisionEntity,
-    kind: RevisionKind,
     revision: &RevisionContent,
 ) -> Result<RevisionRecord, StorageError> {
-    if !matches!(kind, RevisionKind::Creation | RevisionKind::Import) {
-        return Err(StorageError::InvalidInput {
-            field: "kind",
-            reason: "not allowed",
-        });
-    }
     let link = Link {
         parent: None,
-        kind,
+        kind: RevisionKind::Creation,
         session: None,
         restored_from: None,
     };

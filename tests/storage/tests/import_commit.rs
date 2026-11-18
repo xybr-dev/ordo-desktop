@@ -810,3 +810,28 @@ fn a_reopened_parish_shows_the_committed_batch() {
     }
     shutdown(reopened);
 }
+
+#[test]
+fn ac9_an_archived_choir_refuses_the_whole_batch() {
+    let dir = TempDir::new("archived-choir");
+    let storage = open(&dir);
+    let seed = seed(&storage);
+    bounded(storage.archive_choir(seed.choir)).expect("archive choir");
+    let before = snapshot(&raw(&dir));
+
+    let mut input = batch(RevisionKind::Import);
+    input.arrangements.push(ImportedArrangement {
+        id: ArrangementId::from_entity(eid(3, 0)),
+        song: seed.song,
+        content: content(0x10, &["One"], vec![seed.choir]),
+    });
+    assert_eq!(
+        bounded(storage.commit_import(input)),
+        Err(StorageError::InvalidInput {
+            field: "choir",
+            reason: "archived"
+        })
+    );
+    assert_eq!(snapshot(&raw(&dir)), before);
+    shutdown(storage);
+}
