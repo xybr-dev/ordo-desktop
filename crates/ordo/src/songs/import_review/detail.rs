@@ -712,7 +712,10 @@ fn arrangement_block(
         Availability::Disabled
     } else {
         Availability::Available
-    });
+    })
+    .on_activate(ImportReview::act(cx, move |review, window, cx| {
+        review.open_compare(index, at, window, cx);
+    }));
     div()
         .debug_selector(move || format!("import-arrangement-{at}"))
         .flex()

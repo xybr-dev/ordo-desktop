@@ -12,11 +12,15 @@ use domain::{
 use gpui::{Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Task, Window};
 use ui::{
     accessibility::RegionRegistry,
+    overlay::OverlayHost,
     primitives::{disclosure::DisclosureState, selection::SelectionState},
     scroll::Scroll,
 };
 
-use super::picker::FilePicker;
+use super::{
+    compare::{ImportCompare, open_compare},
+    picker::FilePicker,
+};
 use crate::songs::store::{ImportOutcome, ImportStaging, LibraryStore};
 
 /// What the review tells its owner.
@@ -48,6 +52,10 @@ pub struct ImportReview {
     pub(super) controls: BTreeMap<ControlKey, SelectionState>,
     pub(super) technical: DisclosureState,
     pub(super) busy: bool,
+    /// The shell's overlay layer, which hosts Compare contents.
+    overlays: Option<OverlayHost>,
+    /// The open comparison and the id its host gave it, while it is open.
+    compare: Option<(usize, Entity<ImportCompare>)>,
     pub(super) refusal: Option<SharedString>,
     /// Which restage or pick is current; an older answer is dropped.
     generation: u64,
@@ -116,11 +124,61 @@ impl ImportReview {
             controls: BTreeMap::new(),
             technical: DisclosureState::new(cx),
             busy: false,
+            overlays: None,
+            compare: None,
             refusal: None,
             generation: 0,
             pending: None,
             focus: cx.focus_handle(),
         }
+    }
+
+    /// Hands the review the shell's overlay layer, which hosts **Compare
+    /// contents**. Without it the comparison cannot open.
+    pub fn set_overlays(&mut self, overlays: OverlayHost) {
+        self.overlays = Some(overlays);
+    }
+
+    /// The open comparison, while it is open.
+    pub fn compare(&self) -> Option<&Entity<ImportCompare>> {
+        self.compare.as_ref().map(|(_, compare)| compare)
+    }
+
+    /// The id the host gave the open comparison, while it is open.
+    pub fn compare_id(&self) -> Option<usize> {
+        self.compare.as_ref().map(|(id, _)| *id)
+    }
+
+    /// **Compare contents** / **Preview document**: opens the read-only
+    /// comparison of Arrangement `arrangement` of document `document`. One at
+    /// a time; the review's choices, selection and scroll are not touched.
+    pub(super) fn open_compare(
+        &mut self,
+        document: usize,
+        arrangement: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(host), None) = (self.overlays.clone(), &self.compare) else {
+            return;
+        };
+        let weak = cx.weak_entity();
+        let closed = move |_: &mut Window, cx: &mut gpui::App| {
+            let _ = weak.update(cx, |review, cx| review.compare_closed(cx));
+        };
+        let opened = open_compare(self, document, arrangement, host, closed, window, cx);
+        let Some((id, compare)) = opened else {
+            return;
+        };
+        self.compare = Some((id, compare));
+        cx.notify();
+    }
+
+    /// Lets go of the comparison once its surface has closed, however it was
+    /// dismissed.
+    pub(super) fn compare_closed(&mut self, cx: &mut Context<Self>) {
+        self.compare = None;
+        cx.notify();
     }
 
     /// The index of the document on the right.

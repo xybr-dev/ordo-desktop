@@ -31,7 +31,7 @@ use storage::{HistoryRevision, RevisionContent};
 use ui::overlay::{Overlay, OverlayHost, Toast, TwoStage};
 
 use self::{
-    compare::{ArrangementSide, CompareView, Sides},
+    compare::{ArrangementSide, ColumnTitles, CompareView, Sides},
     list::Item,
     model::SessionRow,
     slides::SlideFrames,
@@ -405,6 +405,7 @@ impl HistoryView {
         let compare = CompareView::new(
             sides,
             choirs,
+            ColumnTitles::history(),
             (current_time, revision_time),
             self.frames.clone(),
             cx,

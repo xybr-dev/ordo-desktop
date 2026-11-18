@@ -11,11 +11,14 @@ use domain::{
     },
 };
 use gpui::{
-    App, AppContext as _, Context, Entity, FocusHandle, IntoElement, Render, Task, TestAppContext,
-    VisualTestContext, Window,
+    App, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement as _, Render,
+    Styled as _, Task, TestAppContext, VisualTestContext, Window,
 };
 use storage::exchange::{ManifestOverrides, encode_song_import, pack_for_tests};
-use ui::environment::{ResolvedAppearance, UiEnvironment, UiPreferences};
+use ui::{
+    environment::{ResolvedAppearance, UiEnvironment, UiPreferences},
+    overlay::OverlayHost,
+};
 
 use super::{FilePicker, ImportReview, ImportReviewEvent, evidence, list};
 use crate::songs::{
@@ -99,14 +102,19 @@ impl FilePicker for FakePicker {
 struct Host {
     review: Entity<ImportReview>,
     invoker: FocusHandle,
+    overlays: OverlayHost,
 }
 
 impl Render for Host {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
-        self.review.update(cx, |review, cx| {
+        let frame = self.review.update(cx, |review, cx| {
             review.render_frame(environment, window, cx)
-        })
+        });
+        gpui::div()
+            .size_full()
+            .child(frame)
+            .child(self.overlays.layer(environment, window, cx))
     }
 }
 
@@ -119,6 +127,7 @@ struct Rig {
     events: Rc<RefCell<Vec<ImportReviewEvent>>>,
     picker: Rc<FakePicker>,
     invoker: FocusHandle,
+    overlays: OverlayHost,
 }
 
 impl Rig {
@@ -184,7 +193,9 @@ fn open<'a>(
     let for_window = (store.clone(), picker.clone(), events.clone());
     let (host, cx) = cx.add_window_view(move |window, cx| {
         let (store, picker, events) = for_window;
+        let overlays = OverlayHost::new(cx);
         let review = cx.new(|cx| ImportReview::new(staging, store, picker, window, cx));
+        review.update(cx, |review, _| review.set_overlays(overlays.clone()));
         cx.observe(&review, |_, _, cx| cx.notify()).detach();
         let invoker = cx.focus_handle();
         let log = events.clone();
@@ -199,13 +210,22 @@ fn open<'a>(
             },
         )
         .detach();
-        Host { review, invoker }
+        Host {
+            review,
+            invoker,
+            overlays,
+        }
     });
     cx.update(|window, _| window.activate_window());
     cx.simulate_resize(gpui::size(gpui::px(1600.0), gpui::px(1000.0)));
     cx.run_until_parked();
-    let (review, invoker) =
-        host.read_with(cx, |host, _| (host.review.clone(), host.invoker.clone()));
+    let (review, invoker, overlays) = host.read_with(cx, |host, _| {
+        (
+            host.review.clone(),
+            host.invoker.clone(),
+            host.overlays.clone(),
+        )
+    });
     (
         Rig {
             review,
@@ -216,6 +236,7 @@ fn open<'a>(
             events,
             picker,
             invoker,
+            overlays,
         },
         cx,
     )
@@ -614,5 +635,267 @@ fn the_review_is_keyboard_reachable_by_f6_regions(cx: &mut TestAppContext) {
             "Primary list"
         ]
     );
+    rig.finish(cx);
+}
+
+// ---- WP9: Compare contents ----
+
+/// A second Arrangement of the seeded Song, with its own title, language and
+/// words, so the Song has two local Arrangements and nothing resembles it.
+fn second_arrangement() -> ImportDocument {
+    let mut second = doc(1, 0x13, "Tinapay sa Langit", "Another verse entirely");
+    second.arrangements[0].title = Some("Second".to_owned());
+    second.arrangements[0].languages = vec!["Cebuano".to_owned()];
+    second
+}
+
+fn two_arrangement_seed() -> Vec<ImportDocument> {
+    vec![
+        doc(1, 0x11, "Tinapay sa Langit", "Bread from heaven"),
+        second_arrangement(),
+    ]
+}
+
+/// Lets an overlay slide finish so its controls are where they will stay.
+fn settle(cx: &mut VisualTestContext) {
+    for _ in 0..10 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(60));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+}
+
+/// A click, then the motion it started finished.
+fn tap(cx: &mut VisualTestContext, selector: &'static str) {
+    click(cx, selector);
+    settle(cx);
+}
+
+fn depth(rig: &Rig, cx: &mut VisualTestContext) -> usize {
+    cx.update(|_, cx| rig.overlays.depth(cx))
+}
+
+/// Opens Compare contents from the document's detail with a real click.
+fn open_comparison(rig: &Rig, cx: &mut VisualTestContext, button: &'static str) {
+    tap(cx, button);
+    assert_eq!(depth(rig, cx), 1, "one slideover is open");
+}
+
+fn comparison(rig: &Rig, cx: &mut VisualTestContext) -> Entity<super::ImportCompare> {
+    rig.review
+        .read_with(cx, |review, _| review.compare().cloned())
+        .expect("the comparison is open")
+}
+
+#[gpui::test]
+fn ac6_compare_contents_opens_one_read_only_wide_slideover(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp9-open", &tinapay_seed(), &reworded_batch());
+    open_comparison(&rig, cx, "button-Compare contents");
+    assert!(present(cx, "overlay-body-Compare contents"));
+    assert!(present(cx, "compare-body"));
+    let description = cx.update(|_, cx| rig.overlays.top_description(cx));
+    assert_eq!(
+        description.as_deref(),
+        Some("Read-only \u{b7} the staged action doesn\u{2019}t change here")
+    );
+    // The slideover is wide: wider than a default one, which is 480 px.
+    let width = cx
+        .debug_bounds("overlay-body-Compare contents")
+        .expect("body")
+        .size
+        .width;
+    assert!(f32::from(width) > 600.0, "wide: {width:?}");
+    // Asking again does not stack a second comparison.
+    rig.review.update_in(cx, |review, window, cx| {
+        review.open_compare(0, 0, window, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(depth(&rig, cx), 1);
+    let titles =
+        comparison(&rig, cx).read_with(cx, |compare, cx| compare.view().read(cx).titles().clone());
+    assert_eq!(titles.left, "Imported \u{b7} reworded.ordo");
+    assert_eq!(titles.right, "Library \u{b7} Imported");
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_it_has_overview_lyrics_sequence_and_slides(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp9-tabs", &tinapay_seed(), &reworded_batch());
+    open_comparison(&rig, cx, "button-Compare contents");
+    let view = comparison(&rig, cx).read_with(cx, |compare, _| compare.view().clone());
+    let tab = |cx: &mut VisualTestContext| view.read_with(cx, |view, cx| view.tab(cx));
+    assert_eq!(tab(cx), "Lyrics");
+    for (selector, name) in [
+        ("tab-0", "Overview"),
+        ("tab-1", "Lyrics"),
+        ("tab-2", "Sequence"),
+        ("tab-3", "Slides"),
+    ] {
+        tap(cx, selector);
+        assert_eq!(tab(cx), name);
+    }
+    tap(cx, "tab-2");
+    assert!(present(cx, "compare-current-seq-0"));
+    assert!(present(cx, "compare-revision-seq-1"));
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_changed_lines_and_occurrences_are_marked_against_the_nearest_candidate(
+    cx: &mut TestAppContext,
+) {
+    let (rig, cx) = open(cx, "wp9-marks", &tinapay_seed(), &reworded_batch());
+    open_comparison(&rig, cx, "button-Compare contents");
+    tap(cx, "tab-1");
+    // The Verse is reworded; its section ids were aligned, so only its line
+    // is marked and the Chorus is not.
+    assert!(present(cx, "compare-current-line-0-0-changed"));
+    assert!(present(cx, "compare-revision-line-0-0-changed"));
+    assert!(present(cx, "compare-current-line-1-0"));
+    assert!(!present(cx, "compare-current-line-1-0-changed"));
+    tap(cx, "tab-2");
+    assert!(
+        !present(cx, "compare-current-seq-0-changed")
+            && !present(cx, "compare-current-seq-1-changed"),
+        "the Sequence is the same"
+    );
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_nearest_match_switches_the_library_column(cx: &mut TestAppContext) {
+    let (rig, cx) = open(
+        cx,
+        "wp9-nearest",
+        &two_arrangement_seed(),
+        &reworded_batch(),
+    );
+    open_comparison(&rig, cx, "button-Compare contents");
+    let compare = comparison(&rig, cx);
+    assert_eq!(
+        compare.read_with(cx, |compare, _| compare.candidates()),
+        ["Imported", "Second"]
+    );
+    let view = compare.read_with(cx, |compare, _| compare.view().clone());
+    let right = |cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.titles().right.clone());
+    assert_eq!(right(cx), "Library \u{b7} Imported");
+    let before = rig.review.read_with(cx, |review, _| {
+        (review.selected_document(), review.choices().clone())
+    });
+    tap(cx, "button-Nearest match: Imported");
+    tap(cx, "choice-1");
+    assert_eq!(right(cx), "Library \u{b7} Second");
+    assert_eq!(
+        compare.read_with(cx, |compare, cx| compare.nearest(cx)),
+        Some(arrangement_id(0x13))
+    );
+    let after = rig.review.read_with(cx, |review, _| {
+        (review.selected_document(), review.choices().clone())
+    });
+    assert_eq!(before, after, "only the right column changed");
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_no_field_or_edit_control_exists_in_the_comparison(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp9-readonly", &tinapay_seed(), &reworded_batch());
+    open_comparison(&rig, cx, "button-Compare contents");
+    assert!(!present(cx, "text-area-control"));
+    let outcomes = rig
+        .review
+        .read_with(cx, |review, _| review.choices().arrangements.clone());
+    // Clicking every line of the comparison changes nothing.
+    for selector in [
+        "compare-current-line-0-0-changed",
+        "compare-revision-line-0-0-changed",
+        "compare-current-line-1-0",
+    ] {
+        tap(cx, selector);
+    }
+    assert_eq!(
+        rig.review
+            .read_with(cx, |review, _| review.choices().arrangements.clone()),
+        outcomes
+    );
+    assert_eq!(depth(&rig, cx), 1);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_closing_keeps_the_staged_action_selection_and_scroll(cx: &mut TestAppContext) {
+    let batch = vec![
+        ("a.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing"))),
+        ("same.ordo", ordo_bytes(&tinapay_seed()[0])),
+    ];
+    let (rig, cx) = open(cx, "wp9-close", &tinapay_seed(), &batch);
+    rig.review.update(cx, |review, cx| review.select(1, cx));
+    cx.run_until_parked();
+    tap(cx, "button-Staged action: Skip unchanged");
+    tap(cx, "choice-1");
+    let state = |rig: &Rig, cx: &mut VisualTestContext| {
+        rig.review.read_with(cx, |review, _| {
+            (
+                review.selected_document(),
+                review.choices().clone(),
+                review.can_commit(),
+            )
+        })
+    };
+    let scroll = |rig: &Rig, cx: &mut VisualTestContext| {
+        rig.review
+            .read_with(cx, |review, _| review.detail_scroll.handle().offset())
+    };
+    let (before, offset) = (state(&rig, cx), scroll(&rig, cx));
+    open_comparison(&rig, cx, "button-Compare contents");
+    tap(cx, "button-Back to review");
+    settle(cx);
+    assert_eq!(depth(&rig, cx), 0, "the comparison closed");
+    assert!(
+        rig.review
+            .read_with(cx, |review, _| review.compare().is_none())
+    );
+    assert_eq!(state(&rig, cx), before);
+    assert_eq!(scroll(&rig, cx), offset);
+    assert_eq!(chips(&rig, cx)[1], "Attach Arrangement");
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_slides_compose_off_the_gpui_thread(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx, "wp9-slides", &tinapay_seed(), &reworded_batch());
+    open_comparison(&rig, cx, "button-Compare contents");
+    tap(cx, "tab-3");
+    wait(cx, |cx| {
+        cx.update(|window, _| window.refresh());
+        present(cx, "compare-current-slide-0") && present(cx, "compare-revision-slide-0")
+    });
+    let frames =
+        comparison(&rig, cx).read_with(cx, |compare, cx| compare.view().read(cx).frames().clone());
+    assert!(frames.read_with(cx, |frames, _| frames.held()) > 0);
+    assert_eq!(frames.read_with(cx, |frames, _| frames.pending()), 0);
+    rig.finish(cx);
+}
+
+#[gpui::test]
+fn ac6_a_new_song_document_previews_with_no_match(cx: &mut TestAppContext) {
+    let batch = vec![("new.ordo", ordo_bytes(&doc(7, 0x17, "Alleluia", "Sing")))];
+    let (rig, cx) = open(cx, "wp9-new", &[], &batch);
+    assert!(!present(cx, "button-Compare contents"));
+    open_comparison(&rig, cx, "button-Preview document");
+    let view = comparison(&rig, cx).read_with(cx, |compare, _| compare.view().clone());
+    let (titles, none) = view.read_with(cx, |view, _| (view.titles().clone(), view.no_match()));
+    assert_eq!(titles.left, "Imported \u{b7} new.ordo");
+    assert_eq!(titles.right, "Library");
+    assert!(none, "the right column says No match.");
+    assert!(
+        !comparison(&rig, cx).read_with(cx, |compare, _| compare.candidates().len() > 1),
+        "no Nearest match select without candidates"
+    );
+    assert!(!present(cx, "button-Nearest match: Imported"));
+    // Nothing on the left is marked against nothing.
+    tap(cx, "tab-1");
+    assert!(present(cx, "compare-current-line-0-0"));
+    assert!(!present(cx, "compare-current-line-0-0-changed"));
     rig.finish(cx);
 }

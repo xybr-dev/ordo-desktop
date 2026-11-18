@@ -6,6 +6,7 @@
 //! closes it on [`ImportReviewEvent`]. Nothing here writes: staging,
 //! re-classification and the commit all go through the `LibraryStore`.
 
+mod compare;
 mod detail;
 mod evidence;
 mod footer;
@@ -18,6 +19,7 @@ mod tests;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px, rgb};
 use ui::{environment::UiEnvironment, tokens};
 
+pub use compare::{ImportCompare, imported_side, open_compare};
 pub use evidence::{arrangement_sentence, song_sentence, summary};
 pub use picker::FilePicker;
 pub use review::{ImportReview, ImportReviewEvent};
