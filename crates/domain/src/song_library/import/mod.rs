@@ -7,10 +7,24 @@
 //! typed values and plain text only. Nothing here reads a clock, draws
 //! randomness or performs I/O: callers pass identities in.
 
+mod classify;
 mod document;
+mod evidence;
 mod front_matter;
 pub mod markdown;
+mod plan;
 mod validate;
+
+pub use classify::{
+    ArrangementReview, Classification, DocumentReview, InvalidReason, ResolvedSong, Review,
+    SongIdentity, Staged, StagedDocument, classify_arrangements, classify_batch, same_content,
+};
+pub use evidence::{ArrangementDifference, ArrangementEvidence, DetailField, SongEvidence};
+pub use plan::{
+    Choices, ImportCommitted, ImportPlan, Outcome, PlanError, PlannedArrangement,
+    PlannedReplacement, ReplacedArrangement, SongChoice, Tally, align_sections, can_commit, plan,
+    plan_markdown, tally,
+};
 
 pub use document::{
     ImportArrangement, ImportDocument, ImportSection, SequenceEntry, rendition_attribution,
