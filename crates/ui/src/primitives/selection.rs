@@ -446,6 +446,69 @@ impl SelectionState {
     pub fn is_open(&self, cx: &App) -> bool {
         self.0.read(cx).open
     }
+    /// What a radio group draws from: each option's availability, the chosen
+    /// option, the one the roving tab stop rests on, and the option focus
+    /// handles. Only [`super::radio::RadioGroup`] reads it.
+    pub(super) fn radio_view(&self, cx: &App) -> RadioView {
+        let state = self.0.read(cx);
+        RadioView {
+            availability: state
+                .choices
+                .iter()
+                .map(|c| c.availability.clone())
+                .collect(),
+            selected: state.selected,
+            stop: state.selected.or(state.active),
+            focus: state.focus.clone(),
+        }
+    }
+    /// Moves a radio group's choice one arrow press (or Home / End) and
+    /// focuses it, skipping options that are not Available. Returns the newly
+    /// chosen index, or `None` when nothing moved.
+    pub(super) fn radio_step(&self, key: &str, window: &mut Window, cx: &mut App) -> Option<usize> {
+        self.0.update(cx, |state, cx| {
+            let eligible: Vec<usize> = (0..state.choices.len())
+                .filter(|&i| state.choices[i].availability.is_available())
+                .collect();
+            if eligible.is_empty() {
+                return None;
+            }
+            let from = state.selected.or(state.active);
+            let position = eligible.iter().position(|&i| Some(i) == from).unwrap_or(0);
+            let next = match key {
+                "home" => 0,
+                "end" => eligible.len() - 1,
+                "up" | "left" => (position + eligible.len() - 1) % eligible.len(),
+                _ => (position + 1) % eligible.len(),
+            };
+            let index = eligible[next];
+            let moved = state.selected != Some(index);
+            state.selected = Some(index);
+            state.active = Some(index);
+            state.focus[index].focus(window, cx);
+            cx.notify();
+            moved.then_some(index)
+        })
+    }
+    /// Chooses option `index` as a click or Space does, and focuses it.
+    /// Returns whether it changed; a disabled or unavailable option does not.
+    pub(super) fn radio_choose(&self, index: usize, window: &mut Window, cx: &mut App) -> bool {
+        self.0.update(cx, |state, cx| {
+            if !state
+                .choices
+                .get(index)
+                .is_some_and(|c| c.availability.is_available())
+            {
+                return false;
+            }
+            let moved = state.selected != Some(index);
+            state.selected = Some(index);
+            state.active = Some(index);
+            state.focus[index].focus(window, cx);
+            cx.notify();
+            moved
+        })
+    }
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.0.read(cx).trigger.clone().focus(window, cx);
     }
@@ -459,6 +522,14 @@ impl SelectionState {
             handle.clone().focus(window, cx);
         }
     }
+}
+
+/// A radio group's read of the shared state; see [`SelectionState::radio_view`].
+pub(super) struct RadioView {
+    pub(super) availability: Vec<Availability>,
+    pub(super) selected: Option<usize>,
+    pub(super) stop: Option<usize>,
+    pub(super) focus: Vec<FocusHandle>,
 }
 
 /// A Combobox trigger's Field, showing the committed value it starts on.
