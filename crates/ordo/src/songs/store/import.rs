@@ -20,7 +20,7 @@ use domain::{
         import::{
             Choices, ImportCommitted, ImportPlan, InvalidReason, MarkdownDraft, Outcome, PlanError,
             ReplacedArrangement, Review, SongChoice, SongIdentity, Staged, StagedDocument,
-            classify_batch, markdown, plan, plan_markdown,
+            markdown, plan, plan_markdown, review_with_choices,
         },
     },
 };
@@ -128,6 +128,7 @@ fn reason_of(finding: &Finding) -> InvalidReason {
         FindingCode::HashMismatch => "hash-mismatch",
         FindingCode::WrongKind => "wrong-kind",
         FindingCode::Assets => "assets",
+        FindingCode::Unreadable => "unreadable",
     };
     let message = if finding.pointer.is_empty() {
         finding.message.clone()
@@ -201,29 +202,29 @@ fn head_targets(library: &SongLibrary, reviews: &[Review]) -> BTreeSet<Arrangeme
 
 /// The stored content of a planned Arrangement.
 fn content_of(
-    draft: &ArrangementDraft,
-    choirs: &[domain::identity::ChoirId],
+    draft: ArrangementDraft,
+    choirs: Vec<domain::identity::ChoirId>,
 ) -> ArrangementContent {
     ArrangementContent {
-        title: draft.title.clone(),
-        languages: draft.languages.clone(),
-        choirs: choirs.to_vec(),
-        rendition_attribution: draft.rendition_attribution.clone(),
-        occasions: draft.occasions.clone(),
-        notes: draft.notes.clone(),
+        title: draft.title,
+        languages: draft.languages,
+        choirs,
+        rendition_attribution: draft.rendition_attribution,
+        occasions: draft.occasions,
+        notes: draft.notes,
         sections: draft
             .sections
-            .iter()
+            .into_iter()
             .map(|section| SectionContent {
                 id: section.id,
-                label: section.label.clone(),
-                lyrics: section.lyrics.clone(),
+                label: section.label,
+                lyrics: section.lyrics,
                 pagination: section.pagination,
             })
             .collect(),
         sequence: draft
             .sequence
-            .iter()
+            .into_iter()
             .map(|occurrence| OccurrenceContent {
                 id: occurrence.id,
                 section: occurrence.section,
@@ -255,7 +256,9 @@ impl LibraryStore {
                     documents
                 })
                 .await;
-            let task = this.update(cx, |this, cx| this.classify_task(documents, cx));
+            let task = this.update(cx, |this, cx| {
+                this.classify_task(documents, BTreeMap::new(), cx)
+            });
             match task {
                 Ok(task) => task.await,
                 Err(_) => ImportStaging::default(),
@@ -264,61 +267,105 @@ impl LibraryStore {
     }
 
     /// Re-classifies after **Remove from review**, **Choose another file** or
-    /// a Song choice, against the current library.
+    /// a Song choice, against the current library. `songs` are the Song
+    /// choices made so far (by document index): the reviews come from
+    /// [`review_with_choices`], the same function the commit's stale check
+    /// uses, so a Song choice never makes the commit stale.
     pub fn reclassify(
         &self,
         documents: Vec<StagedDocument>,
+        songs: BTreeMap<usize, SongChoice>,
         cx: &mut Context<Self>,
     ) -> Task<ImportStaging> {
-        self.classify_task(documents, cx)
+        self.classify_task(documents, songs, cx)
     }
 
-    /// Classifies on a clone of the library in the background, then reads the
-    /// heads the review may replace from storage (a read: nothing is
+    /// Classifies on a snapshot of the library in the background, with the
+    /// heads the review may replace read from storage (a read: nothing is
     /// backfilled or written).
+    ///
+    /// The snapshot is taken only while no write is queued or in flight, and
+    /// the head reads are queued in the same turn, so no write can land
+    /// between the library the review saw and the heads it records: a head
+    /// can only be older than what the review saw, which storage refuses as
+    /// stale, never newer. If the library moved while the snapshot was being
+    /// classified, it is taken again.
     fn classify_task(
         &self,
         documents: Vec<StagedDocument>,
+        songs: BTreeMap<usize, SongChoice>,
         cx: &mut Context<Self>,
     ) -> Task<ImportStaging> {
-        let snapshot = self.library.clone();
         cx.spawn(async move |this, cx| {
-            let (documents, reviews, targets) = cx
-                .background_spawn(async move {
-                    let reviews = classify_batch(&snapshot, &documents);
-                    let targets = head_targets(&snapshot, &reviews);
-                    (documents, reviews, targets)
-                })
-                .await;
-            let reads = this
-                .update(cx, |this, _| {
-                    this.storage.with(|storage| {
-                        targets
-                            .iter()
-                            .map(|id| (*id, storage.revisions(RevisionEntity::Arrangement(*id))))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let heads = cx
-                .background_spawn(async move {
-                    let mut heads = BTreeMap::new();
-                    for (id, read) in reads {
-                        // A failed read leaves no head: a commit that needs
-                        // it is then refused as changed, never guessed.
-                        if let Ok(revisions) = read.await {
-                            heads.insert(id, revisions.last().map(|revision| revision.id));
-                        }
+            loop {
+                let Ok(Some(snapshot)) = this.update(cx, |this, _| {
+                    let idle = !this.writing && this.queue.is_empty();
+                    idle.then(|| this.library.clone())
+                }) else {
+                    // The store is gone, or a write is in flight: wait a moment.
+                    if this.upgrade().is_none() {
+                        return ImportStaging::default();
                     }
-                    heads
-                })
-                .await;
-            ImportStaging {
-                documents,
-                reviews,
-                heads,
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(10))
+                        .await;
+                    continue;
+                };
+                let (documents_back, reviews, targets) = {
+                    let documents = documents.clone();
+                    let songs = songs.clone();
+                    let snapshot = snapshot.clone();
+                    cx.background_spawn(async move {
+                        let reviews = review_with_choices(&snapshot, &documents, &songs);
+                        let targets = head_targets(&snapshot, &reviews);
+                        (documents, reviews, targets)
+                    })
+                    .await
+                };
+                let reads = this
+                    .update(cx, |this, _| {
+                        let unchanged =
+                            !this.writing && this.queue.is_empty() && this.library == snapshot;
+                        unchanged.then(|| {
+                            this.storage
+                                .with(|storage| {
+                                    targets
+                                        .iter()
+                                        .map(|id| {
+                                            (
+                                                *id,
+                                                storage.revisions(RevisionEntity::Arrangement(*id)),
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default()
+                        })
+                    })
+                    .ok()
+                    .flatten();
+                let Some(reads) = reads else {
+                    // The library moved while it was classified: start over.
+                    continue;
+                };
+                let heads = cx
+                    .background_spawn(async move {
+                        let mut heads = BTreeMap::new();
+                        for (id, read) in reads {
+                            // A failed read leaves no head: a commit that needs
+                            // it is then refused as changed, never guessed.
+                            if let Ok(revisions) = read.await {
+                                heads.insert(id, revisions.last().map(|revision| revision.id));
+                            }
+                        }
+                        heads
+                    })
+                    .await;
+                return ImportStaging {
+                    documents: documents_back,
+                    reviews,
+                    heads,
+                };
             }
         })
     }
@@ -327,6 +374,10 @@ impl LibraryStore {
     /// write queue as one storage transaction. An open decision, or a Library
     /// that moved since staging, is refused without I/O; a plan with nothing
     /// to write resolves to an empty outcome without I/O.
+    ///
+    /// `staging` is borrowed because the caller keeps it: a refused commit
+    /// leaves the operator in the review, which still needs the documents,
+    /// reviews and heads. The request clones them once into the queue.
     pub fn commit_import(
         &mut self,
         staging: &ImportStaging,
@@ -418,8 +469,18 @@ impl LibraryStore {
                 ..
             } => {
                 // The review is only as good as the Library it saw: a
-                // different classification now means it must be redone.
-                if classify_batch(&self.library, documents) != *reviews {
+                // different classification now, with the same Song choices
+                // applied, means it must be redone.
+                //
+                // Shaping-constraint exception: this verdict (classify,
+                // plan, whole-library check) runs on the GPUI thread. It has
+                // to see exactly the library this write commits against,
+                // and nothing else writes in between; off the thread it would
+                // need a snapshot plus a generation re-check, the same work
+                // again. The cost is linear and small at parish scale. T2.10c
+                // times 50 documents against about 1,000 Songs in release and
+                // moves this to `background_spawn` if it exceeds 16 ms.
+                if review_with_choices(&self.library, documents, &choices.songs) != *reviews {
                     return Err(STALE_IMPORT.into());
                 }
                 let plan = plan(&self.library, documents, reviews, choices, &mut mint)
@@ -443,7 +504,7 @@ impl LibraryStore {
             Source::Batch { heads, .. } => Some(heads),
             Source::Markdown { .. } => None,
         };
-        let (batch, outcome) = batch_of(&plan, heads, first_kind)?;
+        let (batch, outcome) = batch_of(plan, heads, first_kind)?;
         request.outcome = outcome;
         Ok(Verdict::Write(Prepared::CommitImport(Box::new(batch))))
     }
@@ -504,72 +565,72 @@ impl LibraryStore {
 /// The storage batch for a plan, with what it will write. A replacement
 /// whose reviewed head is unknown is refused as changed.
 fn batch_of(
-    plan: &ImportPlan,
+    plan: ImportPlan,
     heads: Option<&BTreeMap<ArrangementId, Option<RevisionId>>>,
     first_kind: RevisionKind,
 ) -> Result<(ImportBatch, ImportOutcome), SharedString> {
+    let outcome = ImportOutcome {
+        songs: plan.songs.iter().map(|(id, _)| *id).collect(),
+        arrangements: plan.arrangements.iter().map(|planned| planned.id).collect(),
+        replaced: plan.replacements.iter().map(|r| r.id).collect(),
+    };
     let mut replacements = Vec::with_capacity(plan.replacements.len());
-    for replacement in &plan.replacements {
+    for replacement in plan.replacements {
         let Some(expected_parent) = heads.and_then(|heads| heads.get(&replacement.id)).copied()
         else {
             return Err(STALE_IMPORT.into());
         };
         replacements.push(storage::ArrangementReplacement {
             id: replacement.id,
-            content: content_of(&replacement.draft, &replacement.choirs),
+            content: content_of(replacement.draft, replacement.choirs),
             expected_parent,
         });
     }
     let batch = ImportBatch {
         choirs: plan
             .choirs
-            .iter()
+            .into_iter()
             .map(|(id, draft)| {
                 (
-                    *id,
+                    id,
                     NewChoir {
-                        name: draft.name.clone(),
-                        short_label: draft.short_label.clone(),
-                        languages: draft.languages.clone(),
-                        notes: draft.notes.clone(),
+                        name: draft.name,
+                        short_label: draft.short_label,
+                        languages: draft.languages,
+                        notes: draft.notes,
                     },
                 )
             })
             .collect(),
         songs: plan
             .songs
-            .iter()
+            .into_iter()
             .map(|(id, draft)| {
                 (
-                    *id,
+                    id,
                     NewSong {
-                        title: draft.title.clone(),
-                        aliases: draft.aliases.clone(),
-                        original_attribution: draft.original_attribution.clone(),
-                        provenance: draft.provenance.clone(),
-                        rights_notes: draft.rights_notes.clone(),
-                        liturgical_moments: draft.liturgical_moments.clone(),
-                        occasions: draft.occasions.clone(),
+                        title: draft.title,
+                        aliases: draft.aliases,
+                        original_attribution: draft.original_attribution,
+                        provenance: draft.provenance,
+                        rights_notes: draft.rights_notes,
+                        liturgical_moments: draft.liturgical_moments,
+                        occasions: draft.occasions,
                     },
                 )
             })
             .collect(),
         arrangements: plan
             .arrangements
-            .iter()
+            .into_iter()
             .map(|planned| ImportedArrangement {
                 id: planned.id,
                 song: planned.song,
-                content: content_of(&planned.draft, &planned.choirs),
+                content: content_of(planned.draft, planned.choirs),
             })
             .collect(),
         replacements,
         first_kind,
-    };
-    let outcome = ImportOutcome {
-        songs: plan.songs.iter().map(|(id, _)| *id).collect(),
-        arrangements: plan.arrangements.iter().map(|planned| planned.id).collect(),
-        replaced: plan.replacements.iter().map(|r| r.id).collect(),
     };
     Ok((batch, outcome))
 }

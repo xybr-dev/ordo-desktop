@@ -7,6 +7,10 @@
 //! [`LibraryState::Unavailable`] with a message the Library screen shows; the
 //! rest of the app keeps working. The store never opens for Presenter Mode.
 
+mod import;
+
+pub use import::{ImportOutcome, ImportStaging};
+
 use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 
 use domain::{
@@ -21,9 +25,6 @@ use domain::{
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
-mod import;
-
-pub use import::{ImportOutcome, ImportStaging};
 
 use storage::{
     ArrangementContent, ArrangementMetadata, ArrangementRecord, ChoirDetails, ChoirRecord,

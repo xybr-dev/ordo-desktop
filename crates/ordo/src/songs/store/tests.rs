@@ -3188,3 +3188,73 @@ fn import_and_autosave_share_one_queue(cx: &mut TestAppContext) {
     finish(cx, &slot, &dir);
     let _ = std::fs::remove_dir_all(&files);
 }
+
+fn reclassify_with(
+    cx: &mut TestAppContext,
+    store: &Entity<LibraryStore>,
+    staging: &ImportStaging,
+    songs: std::collections::BTreeMap<usize, SongChoice>,
+) -> ImportStaging {
+    let documents = staging.documents.clone();
+    let task = store.update(cx, |store, cx| store.reclassify(documents, songs, cx));
+    run(cx, task)
+}
+
+#[gpui::test]
+fn ac5_a_song_choice_then_commit_writes_under_the_chosen_song(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let dir = temp_dir("store-import-song-choice");
+    let files = temp_dir("store-import-song-choice-files");
+    let (slot, store) = open_parish(cx, &dir);
+    // Two Songs with the same title: the second is forced in as new.
+    let first = import_doc(song_id(0x31), arrangement_id(0x41), "Twin Hymn", "One");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "a.ordo", &first)]);
+    commit(cx, &store, &staging, Choices::default()).expect("first song");
+    let second = import_doc(song_id(0x32), arrangement_id(0x42), "Twin Hymn", "Two");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "b.ordo", &second)]);
+    let mut songs = std::collections::BTreeMap::new();
+    songs.insert(0, SongChoice::New);
+    let staging = reclassify_with(cx, &store, &staging, songs.clone());
+    let choices = Choices {
+        songs,
+        ..Choices::default()
+    };
+    commit(cx, &store, &staging, choices).expect("second song");
+
+    // A third document now has two exact candidates and needs a decision.
+    let third = import_doc(song_id(0x33), arrangement_id(0x43), "Twin Hymn", "Three");
+    let staging = stage(cx, &store, vec![write_ordo(&files, "c.ordo", &third)]);
+    let Review::Valid(review) = &staging.reviews[0] else {
+        panic!("valid");
+    };
+    assert!(matches!(
+        review.identity,
+        SongIdentity::NeedsDecision { .. }
+    ));
+
+    // Choosing a Song and re-reviewing must not make the commit stale.
+    let mut songs = std::collections::BTreeMap::new();
+    songs.insert(0, SongChoice::Existing(song_id(0x32)));
+    let staging = reclassify_with(cx, &store, &staging, songs.clone());
+    let Review::Valid(review) = &staging.reviews[0] else {
+        panic!("valid");
+    };
+    // The chosen Song already has a similar Arrangement: add this one too.
+    assert!(review.arrangements[0].offered.contains(&Outcome::AddAsNew));
+    let mut choices = Choices {
+        songs,
+        ..Choices::default()
+    };
+    choices.arrangements.insert((0, 0), Outcome::AddAsNew);
+    let outcome = commit(cx, &store, &staging, choices).expect("commit under the chosen Song");
+    assert_eq!(outcome.arrangements, vec![arrangement_id(0x43)]);
+    store.read_with(cx, |store, _| {
+        let arrangement = store
+            .library()
+            .arrangement(arrangement_id(0x43))
+            .expect("the imported Arrangement");
+        assert_eq!(arrangement.song(), song_id(0x32));
+    });
+    finish(cx, &slot, &dir);
+    let _ = std::fs::remove_dir_all(&files);
+}
