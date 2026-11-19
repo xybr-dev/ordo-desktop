@@ -9,10 +9,12 @@
 //! answered and a send after close fails fast in `submit`.
 
 use std::any::Any;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use async_channel::{Receiver, Sender};
+use domain::identity::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::migrations::{self, Migration};
@@ -50,10 +52,61 @@ enum Stop {
     Disconnected,
 }
 
+/// Where new identity bytes and creation times come from.
+///
+/// Production uses OS randomness and the system clock. The fault-injection
+/// build can script the first identity bytes and fix the clock.
+pub(crate) struct Sources {
+    scripted: VecDeque<[u8; 16]>,
+    fixed_now: Option<Timestamp>,
+}
+
+impl Sources {
+    /// OS randomness and the system clock.
+    pub(crate) fn system() -> Self {
+        Self {
+            scripted: VecDeque::new(),
+            fixed_now: None,
+        }
+    }
+
+    /// Scripted identity bytes (used in order, then OS randomness) and a fixed clock.
+    #[cfg(feature = "fault-injection")]
+    pub(crate) fn scripted(ids: Vec<[u8; 16]>, now: Timestamp) -> Self {
+        Self {
+            scripted: ids.into(),
+            fixed_now: Some(now),
+        }
+    }
+
+    /// The next 16 identity bytes.
+    pub(crate) fn next_bytes(&mut self) -> [u8; 16] {
+        self.scripted
+            .pop_front()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().into_bytes())
+    }
+
+    /// The current time; a pre-epoch system clock maps to 0.
+    fn now(&self) -> Timestamp {
+        if let Some(fixed) = self.fixed_now {
+            return fixed;
+        }
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| {
+                i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+            });
+        Timestamp::from_millis(millis)
+    }
+}
+
 /// Worker-owned state. Never leaves the worker thread.
 pub(crate) struct Core {
     conn: Option<Connection>,
     status: Result<SchemaStatus, StorageError>,
+    sources: Sources,
+    /// Scripted 1-based write step at which the next write transaction fails.
+    fault: Option<usize>,
 }
 
 /// Queues `op` and returns a future for its result. Never blocks.
@@ -104,9 +157,10 @@ where
 pub(crate) fn run(
     config: StorageConfig,
     migrations: Vec<Migration>,
+    sources: Sources,
     requests: Receiver<Message>,
 ) -> Exit {
-    let mut core = Core::open(&config, &migrations);
+    let mut core = Core::open(&config, &migrations, sources);
     let stop = serve(&mut core, &requests);
     if let Stop::Shutdown = stop {
         core.checkpoint();
@@ -164,13 +218,15 @@ impl Core {
     /// A failed open (including `Busy`) is permanent for that Storage handle:
     /// the connection is never retried. Callers that want to retry must spawn
     /// a new Storage handle.
-    fn open(config: &StorageConfig, migrations: &[Migration]) -> Core {
+    fn open(config: &StorageConfig, migrations: &[Migration], sources: Sources) -> Core {
         let mut conn = match Connection::open(&config.path) {
             Ok(conn) => conn,
             Err(error) => {
                 return Core {
                     conn: None,
                     status: Err(map_error(error)),
+                    sources,
+                    fault: None,
                 };
             }
         };
@@ -182,16 +238,44 @@ impl Core {
             Ok(status) => Core {
                 conn: Some(conn),
                 status: Ok(status),
+                sources,
+                fault: None,
             },
             Err(error) => Core {
                 conn: None,
                 status: Err(error),
+                sources,
+                fault: None,
             },
         }
     }
 
     fn conn(&self) -> Result<&Connection, StorageError> {
         self.conn.as_ref().ok_or(StorageError::NotReady)
+    }
+
+    /// The connection, id source and fault slot for one write transaction.
+    pub(crate) fn write_parts(
+        &mut self,
+    ) -> Result<(&mut Connection, &mut Sources, &mut Option<usize>), StorageError> {
+        let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
+        Ok((conn, &mut self.sources, &mut self.fault))
+    }
+
+    /// The connection for a read transaction.
+    pub(crate) fn connection_mut(&mut self) -> Result<&mut Connection, StorageError> {
+        self.conn.as_mut().ok_or(StorageError::NotReady)
+    }
+
+    /// One time reading for one operation.
+    pub(crate) fn timestamp(&self) -> Timestamp {
+        self.sources.now()
+    }
+
+    /// Scripts the next write transaction to fail at its `step`-th statement.
+    #[cfg(feature = "fault-injection")]
+    pub(crate) fn inject_write_failure(&mut self, step: usize) {
+        self.fault = Some(step);
     }
 
     /// Checkpoint failure is not data loss: the WAL is replayed on next open.
