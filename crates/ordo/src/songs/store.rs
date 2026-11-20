@@ -10,12 +10,13 @@
 use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 
 use domain::{
-    identity::{ChoirId, EntityId, Timestamp},
-    song_library::{ChoirDraft, RecordRef, SongLibrary, SongLibraryError, match_key},
+    identity::{ChoirId, EntityId, SongId, Timestamp},
+    song_library::{ChoirDraft, RecordRef, SongDraft, SongLibrary, SongLibraryError, match_key},
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
 use storage::{
-    ChoirDetails, ChoirRecord, NewChoir, ShutdownOutcome, Storage, StorageConfig, StorageError,
+    ChoirDetails, ChoirRecord, NewChoir, NewSong, ShutdownOutcome, SongRecord, Storage,
+    StorageConfig, StorageError,
 };
 
 /// Where the parish library is in its life.
@@ -102,32 +103,48 @@ pub struct LibraryStore {
     /// The app-level owner of the database handle. The slot, not this entity,
     /// shuts the worker down.
     storage: StorageSlot,
-    /// Choir writes waiting for the one in flight to finish.
-    queue: VecDeque<(ChoirWrite, Reply)>,
+    /// Library writes (Choir and Song alike) waiting for the one in flight to
+    /// finish, in submission order.
+    queue: VecDeque<(LibraryWrite, Reply)>,
     /// Whether a write is currently in flight.
     writing: bool,
 }
 
-type Reply = async_channel::Sender<Result<ChoirId, SharedString>>;
+/// The id of the record a write created or changed.
+type Reply = async_channel::Sender<Result<EntityId, SharedString>>;
 
-/// One Choir change the store can make.
-enum ChoirWrite {
+/// One change the store can make. Choir and Song writes share one queue, so
+/// the order they were submitted in is the order they run in.
+enum LibraryWrite {
     Create(ChoirDraft),
     Edit(ChoirId, ChoirDraft),
     Archive(ChoirId),
     Restore(ChoirId),
+    CreateSong(SongDraft),
+}
+
+/// What storage returned for a write.
+enum Stored {
+    Choir(ChoirRecord),
+    Song(SongRecord),
 }
 
 /// The text shown when a write cannot reach the parish store.
 const NOT_OPEN: &str = "The parish store is not open.";
 
-/// A boxed storage future, so the four operations share one type.
-type StoredChoir = Pin<Box<dyn Future<Output = Result<ChoirRecord, StorageError>> + Send>>;
+/// A boxed storage future, so every write shares one type.
+type StoredWrite = Pin<Box<dyn Future<Output = Result<Stored, StorageError>> + Send>>;
 
 fn boxed(
     future: impl Future<Output = Result<ChoirRecord, StorageError>> + Send + 'static,
-) -> StoredChoir {
-    Box::pin(future)
+) -> StoredWrite {
+    Box::pin(async move { future.await.map(Stored::Choir) })
+}
+
+fn boxed_song(
+    future: impl Future<Output = Result<SongRecord, StorageError>> + Send + 'static,
+) -> StoredWrite {
+    Box::pin(async move { future.await.map(Stored::Song) })
 }
 
 fn refusal(error: SongLibraryError) -> SharedString {
@@ -141,6 +158,28 @@ fn check_draft(draft: &ChoirDraft) -> Result<(), SharedString> {
         .create_choir(probe, Timestamp::from_millis(0), draft.clone())
         .map(|_| ())
         .map_err(refusal)
+}
+
+/// Checks a Song draft against the domain's own rules without touching the
+/// library. An exact duplicate title is not a refusal: the operator decides.
+fn check_song_draft(draft: &SongDraft) -> Result<(), SharedString> {
+    let probe = SongId::from_entity(EntityId::from_random_bytes([1; 16]));
+    SongLibrary::new()
+        .create_song(probe, Timestamp::from_millis(0), draft.clone())
+        .map(|_| ())
+        .map_err(refusal)
+}
+
+fn song_draft_of(record: &SongRecord) -> SongDraft {
+    SongDraft {
+        title: record.title.clone(),
+        aliases: record.aliases.clone(),
+        original_attribution: record.original_attribution.clone(),
+        provenance: record.provenance.clone(),
+        rights_notes: record.rights_notes.clone(),
+        liturgical_moments: record.liturgical_moments.clone(),
+        occasions: record.occasions.clone(),
+    }
 }
 
 fn draft_of(record: &ChoirRecord) -> ChoirDraft {
@@ -267,7 +306,20 @@ impl LibraryStore {
         draft: ChoirDraft,
         cx: &mut Context<Self>,
     ) -> Task<Result<ChoirId, SharedString>> {
-        self.submit(ChoirWrite::Create(draft), cx)
+        self.submit(LibraryWrite::Create(draft), ChoirId::from_entity, cx)
+    }
+
+    /// Creates a Song with no Arrangement, through the same queue as the
+    /// Choir writes. The domain checks the draft first (a draft the domain
+    /// refuses is refused without I/O), the write runs off the GPUI thread, and only then does the returned
+    /// record enter the in-memory library under the id and timestamp storage
+    /// gave it. An exact duplicate title is allowed: the operator decides.
+    pub fn create_song(
+        &mut self,
+        draft: SongDraft,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<SongId, SharedString>> {
+        self.submit(LibraryWrite::CreateSong(draft), SongId::from_entity, cx)
     }
 
     /// Replaces a Choir's details; an archived Choir is refused.
@@ -277,7 +329,7 @@ impl LibraryStore {
         draft: ChoirDraft,
         cx: &mut Context<Self>,
     ) -> Task<Result<ChoirId, SharedString>> {
-        self.submit(ChoirWrite::Edit(id, draft), cx)
+        self.submit(LibraryWrite::Edit(id, draft), ChoirId::from_entity, cx)
     }
 
     /// Archives a Choir.
@@ -286,7 +338,7 @@ impl LibraryStore {
         id: ChoirId,
         cx: &mut Context<Self>,
     ) -> Task<Result<ChoirId, SharedString>> {
-        self.submit(ChoirWrite::Archive(id), cx)
+        self.submit(LibraryWrite::Archive(id), ChoirId::from_entity, cx)
     }
 
     /// Restores an archived Choir.
@@ -295,20 +347,23 @@ impl LibraryStore {
         id: ChoirId,
         cx: &mut Context<Self>,
     ) -> Task<Result<ChoirId, SharedString>> {
-        self.submit(ChoirWrite::Restore(id), cx)
+        self.submit(LibraryWrite::Restore(id), ChoirId::from_entity, cx)
     }
 
-    fn submit(
+    fn submit<T: 'static>(
         &mut self,
-        write: ChoirWrite,
+        write: LibraryWrite,
+        convert: fn(EntityId) -> T,
         cx: &mut Context<Self>,
-    ) -> Task<Result<ChoirId, SharedString>> {
+    ) -> Task<Result<T, SharedString>> {
         let (reply, result) = async_channel::bounded(1);
         self.queue.push_back((write, reply));
         self.pump(cx);
         cx.spawn(async move |_, _| {
             let outcome = result.recv().await;
-            outcome.unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
+            outcome
+                .unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
+                .map(convert)
         })
     }
 
@@ -327,13 +382,22 @@ impl LibraryStore {
                 continue;
             }
             let started = self.storage.with(|storage| match &write {
-                ChoirWrite::Create(draft) => boxed(storage.create_choir(NewChoir {
+                LibraryWrite::CreateSong(draft) => boxed_song(storage.create_song(NewSong {
+                    title: draft.title.clone(),
+                    aliases: draft.aliases.clone(),
+                    original_attribution: draft.original_attribution.clone(),
+                    provenance: draft.provenance.clone(),
+                    rights_notes: draft.rights_notes.clone(),
+                    liturgical_moments: draft.liturgical_moments.clone(),
+                    occasions: draft.occasions.clone(),
+                })),
+                LibraryWrite::Create(draft) => boxed(storage.create_choir(NewChoir {
                     name: draft.name.clone(),
                     short_label: draft.short_label.clone(),
                     languages: draft.languages.clone(),
                     notes: draft.notes.clone(),
                 })),
-                ChoirWrite::Edit(id, draft) => boxed(storage.edit_choir(
+                LibraryWrite::Edit(id, draft) => boxed(storage.edit_choir(
                     *id,
                     ChoirDetails {
                         name: draft.name.clone(),
@@ -342,8 +406,8 @@ impl LibraryStore {
                         notes: draft.notes.clone(),
                     },
                 )),
-                ChoirWrite::Archive(id) => boxed(storage.archive_choir(*id)),
-                ChoirWrite::Restore(id) => boxed(storage.restore_choir(*id)),
+                LibraryWrite::Archive(id) => boxed(storage.archive_choir(*id)),
+                LibraryWrite::Restore(id) => boxed(storage.restore_choir(*id)),
             });
             let Some(future) = started else {
                 let _ = reply.try_send(Err(NOT_OPEN.into()));
@@ -375,9 +439,9 @@ impl LibraryStore {
     }
 
     /// The domain's verdict on a write, before any I/O.
-    fn validate(&self, write: &ChoirWrite) -> Result<(), SharedString> {
+    fn validate(&self, write: &LibraryWrite) -> Result<(), SharedString> {
         match write {
-            ChoirWrite::Create(draft) => {
+            LibraryWrite::Create(draft) => {
                 check_draft(draft)?;
                 // One Choir per name, however it is cased or spaced, archived
                 // Choirs included: the Module refuses a duplicate itself.
@@ -399,13 +463,14 @@ impl LibraryStore {
                     None => Ok(()),
                 }
             }
-            ChoirWrite::Edit(id, draft) => {
+            LibraryWrite::CreateSong(draft) => check_song_draft(draft),
+            LibraryWrite::Edit(id, draft) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     return Err(refusal(SongLibraryError::Archived(RecordRef::Choir(*id))));
                 }
                 check_draft(draft)
             }
-            ChoirWrite::Archive(id) => {
+            LibraryWrite::Archive(id) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     return Err(refusal(SongLibraryError::AlreadyArchived(
                         RecordRef::Choir(*id),
@@ -413,7 +478,7 @@ impl LibraryStore {
                 }
                 Ok(())
             }
-            ChoirWrite::Restore(id) => {
+            LibraryWrite::Restore(id) => {
                 if self.library.choir(*id).map_err(refusal)?.is_archived() {
                     Ok(())
                 } else {
@@ -430,19 +495,21 @@ impl LibraryStore {
     /// example an archive stamp is missing): the operator sees the failure
     /// while the database is ahead of memory until the next open re-hydrates
     /// it.
-    fn apply(&mut self, write: &ChoirWrite, record: &ChoirRecord) -> Result<ChoirId, SharedString> {
-        match write {
-            ChoirWrite::Create(_) => {
+    fn apply(&mut self, write: &LibraryWrite, stored: &Stored) -> Result<EntityId, SharedString> {
+        match (write, stored) {
+            (LibraryWrite::Create(_), Stored::Choir(record)) => {
                 self.library
                     .create_choir(record.id, record.created_at, draft_of(record))
                     .map_err(refusal)?;
+                Ok(record.id.entity())
             }
-            ChoirWrite::Edit(id, _) => {
+            (LibraryWrite::Edit(id, _), Stored::Choir(record)) => {
                 self.library
                     .edit_choir(*id, draft_of(record))
                     .map_err(refusal)?;
+                Ok(record.id.entity())
             }
-            ChoirWrite::Archive(id) => {
+            (LibraryWrite::Archive(id), Stored::Choir(record)) => {
                 // Storage always stamps an archived record; one without a stamp
                 // is a storage fault, not something to paper over.
                 let at = record.archived_at.ok_or_else(|| {
@@ -451,10 +518,30 @@ impl LibraryStore {
                     )
                 })?;
                 self.library.archive_choir(*id, at).map_err(refusal)?;
+                Ok(record.id.entity())
             }
-            ChoirWrite::Restore(id) => self.library.restore_choir(*id).map_err(refusal)?,
+            (LibraryWrite::Restore(id), Stored::Choir(record)) => {
+                self.library.restore_choir(*id).map_err(refusal)?;
+                Ok(record.id.entity())
+            }
+            (LibraryWrite::CreateSong(_), Stored::Song(record)) => {
+                // The id and timestamp are the ones storage wrote, so memory
+                // and disk agree.
+                self.library
+                    .create_song(record.id, record.created_at, song_draft_of(record))
+                    .map_err(refusal)?;
+                Ok(record.id.entity())
+            }
+            _ => Err(SharedString::from(
+                "The parish store returned a record of the wrong kind.",
+            )),
         }
-        Ok(record.id)
+    }
+
+    /// Whether a write is in flight, and how many more are queued behind it.
+    #[cfg(test)]
+    pub(crate) fn write_state(&self) -> (bool, usize) {
+        (self.writing, self.queue.len())
     }
 
     /// Replaces the library and tells observers. A test-only seam: production
@@ -467,3 +554,6 @@ impl LibraryStore {
         cx.notify();
     }
 }
+
+#[cfg(test)]
+mod tests;
