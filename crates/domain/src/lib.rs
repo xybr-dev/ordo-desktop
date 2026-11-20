@@ -12,7 +12,11 @@
 //!
 //! T2.2 adds [`revisions`]: pure edit-safety mechanics (text coalescing, the
 //! editor Undo stack, History sessions and grouping) with time passed in.
+//!
+//! T2.3 adds [`song_library`]: Song works, Arrangements, Choirs, and their
+//! repertoire, pagination, and authored-content invariants.
 
 pub mod identity;
 pub mod presentation;
 pub mod revisions;
+pub mod song_library;

@@ -323,6 +323,24 @@ fn invalid_input_writes_nothing() {
     let mut blank_alias = song_input("T");
     blank_alias.aliases = vec!["ok".to_owned(), "  ".to_owned()];
     cases.push((blank_alias, invalid("alias", "blank")));
+    let mut duplicate_alias = song_input("T");
+    duplicate_alias.aliases = vec!["ok".to_owned(), "ok".to_owned()];
+    cases.push((duplicate_alias, invalid("alias", "duplicate")));
+    let mut title_alias = song_input("T");
+    title_alias.aliases = vec!["T".to_owned()];
+    cases.push((title_alias, invalid("alias", "duplicate")));
+    let mut blank_original_attribution = song_input("T");
+    blank_original_attribution.original_attribution = Some(" \t ".to_owned());
+    cases.push((
+        blank_original_attribution,
+        invalid("original_attribution", "blank"),
+    ));
+    let mut blank_provenance = song_input("T");
+    blank_provenance.provenance = Some(" ".to_owned());
+    cases.push((blank_provenance, invalid("provenance", "blank")));
+    let mut blank_rights_notes = song_input("T");
+    blank_rights_notes.rights_notes = Some(String::new());
+    cases.push((blank_rights_notes, invalid("rights_notes", "blank")));
     let mut blank_moment = song_input("T");
     blank_moment.liturgical_moments = vec![String::new()];
     cases.push((blank_moment, invalid("liturgical_moment", "blank")));
@@ -376,6 +394,12 @@ fn invalid_input_writes_nothing() {
     let mut duplicate_choir = arrangement_input(song.id);
     duplicate_choir.choirs = vec![choir.id, choir.id];
     arrangement_cases.push((duplicate_choir, invalid("choir", "duplicate")));
+    let mut blank_rendition_attribution = arrangement_input(song.id);
+    blank_rendition_attribution.rendition_attribution = Some("  ".to_owned());
+    arrangement_cases.push((
+        blank_rendition_attribution,
+        invalid("rendition_attribution", "blank"),
+    ));
     let mut bad_sequence = arrangement_input(song.id);
     bad_sequence.sections = vec![section(None, "a")];
     bad_sequence.sequence = vec![0, 1];
