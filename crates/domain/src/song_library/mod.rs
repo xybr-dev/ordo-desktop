@@ -25,6 +25,7 @@
 
 mod interface;
 mod model;
+mod search;
 
 pub use interface::{
     ArrangementVisibility, DeletionBlocker, DeletionVerdict, DuplicateEvidence, DurableReference,
@@ -34,4 +35,7 @@ pub use interface::{
 pub use model::{
     ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, Occurrence, OccurrenceDraft,
     PaginationState, Section, SectionDraft, SongDraft, SongWork,
+};
+pub use search::{
+    AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
