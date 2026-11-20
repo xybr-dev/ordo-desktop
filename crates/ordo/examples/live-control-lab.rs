@@ -97,7 +97,7 @@ fn key_help() -> String {
     use ordo::commands::registry::{ENTRIES, Scope};
     let mut help: Vec<String> = ENTRIES
         .iter()
-        .filter(|entry| entry.scope != Scope::Surface)
+        .filter(|entry| !matches!(entry.scope, Scope::Surface | Scope::Editing))
         .map(|entry| format!("{} {}", entry.keycaps, entry.label.to_lowercase()))
         .collect();
     help.extend(["E enable output", "D display lost", "R display returned"].map(String::from));

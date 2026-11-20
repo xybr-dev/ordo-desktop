@@ -16,6 +16,6 @@ pub mod store;
 
 pub use arrangement_details::ArrangementDetailsPanel;
 pub use choirs::ChoirsWorkspace;
-pub use library::{ArrangementOverview, SongsWorkspace};
+pub use library::SongsWorkspace;
 pub use new_song::NewSongPanel;
 pub use store::{LibraryEvent, LibraryState, LibraryStore, StorageSlot};

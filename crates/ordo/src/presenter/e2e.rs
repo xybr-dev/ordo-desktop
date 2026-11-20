@@ -359,7 +359,11 @@ fn arrange(open: &Open, cx: &mut VisualTestContext, place: Where, now: &mut u64)
 fn bound_keys() -> Vec<(&'static registry::Entry, &'static str)> {
     registry::ENTRIES
         .iter()
-        .filter(|entry| entry.scope != Scope::Surface || entry.id == CommandId::ToggleReference)
+        .filter(|entry| match entry.scope {
+            Scope::Surface => entry.id == CommandId::ToggleReference,
+            Scope::Editing => false,
+            Scope::Output | Scope::Operating => true,
+        })
         .flat_map(|entry| entry.keys.iter().map(move |keys| (entry, *keys)))
         .collect()
 }

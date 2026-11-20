@@ -219,7 +219,7 @@ fn t2_4_e2e_query_filters_selection_and_scroll_survive_an_arrangement_round_trip
         .expect("selected row painted");
 
     click(vcx, "arrangement-open-0");
-    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "focused-editor") && present(vcx, "arrangement-lyrics"));
     click(vcx, "button-Back to Songs");
     vcx.run_until_parked();
 
@@ -308,7 +308,7 @@ fn t2_4_e2e_no_match_keeps_its_query_and_filter_across_a_repertoire_round_trip(
     click(vcx, "tab-3");
     click(vcx, "choirs-row-0");
     click(vcx, "arrangement-open-0");
-    assert!(present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "arrangement-lyrics"));
     click(vcx, "button-Back to Choirs");
     assert!(present(vcx, "choirs-detail"));
     click(vcx, "tab-0");
@@ -348,7 +348,7 @@ fn t2_4_e2e_archived_only_keeps_evidence_scroll_and_selection_across_a_round_tri
     let before = summary(vcx);
     assert!(before.0.include_archived && before.1.is_some() && !before.3.is_empty());
     click(vcx, "arrangement-open-0");
-    assert!(present(vcx, "arrangement-overview"));
+    assert!(present(vcx, "arrangement-lyrics"));
     click(vcx, "button-Back to Songs");
     vcx.run_until_parked();
     assert_eq!(

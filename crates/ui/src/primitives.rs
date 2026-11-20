@@ -12,6 +12,7 @@ pub mod list;
 pub mod nav;
 pub mod record;
 pub mod selection;
+pub mod text_area;
 
 use std::{
     cell::{Cell, RefCell},

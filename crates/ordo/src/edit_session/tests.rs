@@ -351,14 +351,10 @@ fn save_states_follow_the_commit_and_a_failure_blocks_history(cx: &mut TestAppCo
     assert_eq!(SaveState::Saving.label(), "Saving\u{2026}");
     assert_eq!(SaveState::CouldntSave.label(), "Couldn't save");
 
-    // Held: Saving, and history is refused until it settles.
+    // Held: Saving, and Undo is refused until it settles.
     rig.port.hold.set(true);
     assert!(structural(&rig, cx, EditPoint::Structural, (0, 1)));
     assert_eq!(state(&rig, cx), SaveState::Saving);
-    assert!(
-        !structural(&rig, cx, EditPoint::Structural, (1, 2)),
-        "refused while saving"
-    );
     assert!(!rig.session.update(cx, |s, cx| s.undo(cx)));
     assert!(!rig.session.read_with(cx, |s, _| s.can_undo()));
     rig.port.hold.set(false);
@@ -377,7 +373,10 @@ fn save_states_follow_the_commit_and_a_failure_blocks_history(cx: &mut TestAppCo
         kept
     );
     assert!(!rig.session.update(cx, |s, cx| s.undo(cx)));
-    assert!(!structural(&rig, cx, EditPoint::Structural, (0, 1)));
+    assert!(
+        !structural(&rig, cx, EditPoint::Structural, (0, 1)),
+        "refused after a failed save"
+    );
     advance(cx, Duration::from_secs(10));
     cx.run_until_parked();
     assert_eq!(rig.port.log().len(), 2, "no automatic retry loop");
@@ -391,6 +390,29 @@ fn save_states_follow_the_commit_and_a_failure_blocks_history(cx: &mut TestAppCo
         kept
     );
     assert_eq!(rig.port.log().last().unwrap().0, kept);
+}
+
+#[gpui::test]
+fn structural_edits_during_a_held_commit_both_land_in_order(cx: &mut TestAppContext) {
+    let (rig, cx) = open(cx);
+    focus_container(&rig, cx);
+    rig.port.hold.set(true);
+    assert!(structural(&rig, cx, EditPoint::Structural, (0, 1)));
+    assert!(
+        structural(&rig, cx, EditPoint::Structural, (1, 2)),
+        "queued behind the save in flight"
+    );
+    assert_eq!(rig.port.log().len(), 1, "commits stay serialized");
+    assert_eq!(state(&rig, cx), SaveState::Saving);
+    rig.port.hold.set(false);
+    rig.port.release();
+    cx.run_until_parked();
+    let log = rig.port.log();
+    assert_eq!(log.len(), 2, "two revisions");
+    assert_eq!(log[0].0.items, vec!["b", "a", "c"]);
+    assert_eq!(log[1].0.items, vec!["b", "c", "a"]);
+    assert_eq!(state(&rig, cx), SaveState::Saved);
+    assert_eq!(content(&rig, cx).items, vec!["b", "c", "a"]);
 }
 
 #[gpui::test]

@@ -23,6 +23,7 @@ use crate::{
         field::{Field, FieldState},
         list::{Badge, ListRow},
         selection::{Choice, Combobox, Menu, Select, SelectionState, Tabs},
+        text_area::{TextArea, TextAreaState},
     },
     resolved_appearance, tokens,
 };
@@ -164,6 +165,10 @@ static SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "list",
         render: render_list,
+    },
+    Scenario {
+        name: "text-area",
+        render: render_text_area,
     },
 ];
 
@@ -629,6 +634,42 @@ fn render_fields(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
         .child(
             Field::new("song", "Song file", &song, environment)
                 .availability(Availability::unavailable("The Song file is missing"))
+                .on_surface(stage),
+        )
+        .into_any_element()
+}
+
+/// The multi-line value: empty, long multilingual lyrics that wrap, and the
+/// Read-only state. The state is window-keyed, like the Fields above, and seeded
+/// once so later typing sticks.
+fn render_text_area(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let mut area = |id: &'static str, value: &'static str| {
+        let state = TextAreaState::keyed(id, window, cx);
+        if !value.is_empty() && state.value(cx).is_empty() {
+            state.set_value(value, window, cx);
+        }
+        state
+    };
+    let (empty, lyrics, recorded) = (
+        area("lab-lyrics-empty", ""),
+        area("lab-lyrics", fixtures::LONG_MULTILINGUAL_BODY),
+        area("lab-lyrics-read-only", fixtures::LONG_MULTILINGUAL_BODY),
+    );
+    let stage = tokens::palette(environment.appearance()).surface;
+    row("scenario-text-area", environment)
+        .child(
+            TextArea::new("lyrics-empty", "Lyrics", &empty, environment)
+                .placeholder("Type or paste the lyrics")
+                .on_surface(stage),
+        )
+        .child(
+            TextArea::new("lyrics", "Verse 1", &lyrics, environment)
+                .rows(3, 6)
+                .on_surface(stage),
+        )
+        .child(
+            TextArea::new("lyrics-read-only", "Chorus", &recorded, environment)
+                .read_only("The Arrangement is archived")
                 .on_surface(stage),
         )
         .into_any_element()

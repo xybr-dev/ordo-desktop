@@ -124,6 +124,15 @@ impl RegionRegistry {
             .on_action(move |_: &PreviousRegion, window, cx| cycle(&visible, true, window, cx))
     }
 
+    /// The name of the region that holds focus, if any (tests assert the F6
+    /// order through it).
+    pub fn focused_region(&self, window: &Window, cx: &App) -> Option<SharedString> {
+        self.regions
+            .iter()
+            .find(|(_, region)| region.focus.contains_focused(window, cx))
+            .map(|(name, _)| name.clone())
+    }
+
     /// Asks the next render to return focus to a region's remembered target,
     /// or its first tab stop. It waits for that render because the tab order
     /// comes from the last rendered tree, and every caller is a view changing

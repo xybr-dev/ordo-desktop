@@ -21,6 +21,8 @@ pub mod icon {
 
     lucide! {
         ACTIVITY => "activity.svg",
+        ARROW_DOWN => "arrow-down.svg",
+        ARROW_UP => "arrow-up.svg",
         CALENDAR_DAYS => "calendar-days.svg",
         CHECK => "check.svg",
         CHEVRON_DOWN => "chevron-down.svg",
@@ -29,6 +31,7 @@ pub mod icon {
         CIRCLE_ALERT => "circle-alert.svg",
         CIRCLE_OFF => "circle-off.svg",
         CIRCLE_QUESTION_MARK => "circle-question-mark.svg",
+        CORNER_DOWN_LEFT => "corner-down-left.svg",
         ELLIPSIS => "ellipsis.svg",
         GRIP_VERTICAL => "grip-vertical.svg",
         HARD_DRIVE_DOWNLOAD => "hard-drive-download.svg",
