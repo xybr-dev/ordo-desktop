@@ -47,6 +47,16 @@ impl Choir {
         Ok(())
     }
 
+    /// Archives the Choir; an already archived Choir keeps its original time.
+    pub(crate) fn archive(&mut self, at: Timestamp) {
+        self.archive_state.archive(at);
+    }
+
+    /// Restores the Choir to active; an active Choir is unchanged.
+    pub(crate) fn restore(&mut self) {
+        self.archive_state.restore();
+    }
+
     /// The canonical identity of this Choir.
     pub fn id(&self) -> ChoirId {
         self.id

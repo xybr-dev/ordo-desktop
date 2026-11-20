@@ -85,6 +85,16 @@ impl SongWork {
         Ok(())
     }
 
+    /// Archives the Song work; an already archived work keeps its original time.
+    pub(crate) fn archive(&mut self, at: Timestamp) {
+        self.archive_state.archive(at);
+    }
+
+    /// Restores the Song work to active; an active work is unchanged.
+    pub(crate) fn restore(&mut self) {
+        self.archive_state.restore();
+    }
+
     /// The canonical identity of this Song work.
     pub fn id(&self) -> SongId {
         self.id

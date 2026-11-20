@@ -44,4 +44,18 @@ impl ArchiveState {
             Self::Archived(at) => Some(at),
         }
     }
+
+    /// Archives an active state; an archived state keeps its original time.
+    pub(crate) fn archive(&mut self, at: Timestamp) {
+        if !self.is_archived() {
+            *self = Self::Archived(at);
+        }
+    }
+
+    /// Restores an archived state to active; an active state is unchanged.
+    pub(crate) fn restore(&mut self) {
+        if self.is_archived() {
+            *self = Self::Active;
+        }
+    }
 }

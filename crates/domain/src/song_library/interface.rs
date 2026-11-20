@@ -12,12 +12,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
+use crate::identity::{
+    ArrangementId, ChoirId, EntityId, OccurrenceId, SectionId, SongId, Timestamp,
+};
 
 use super::model::text;
-use super::model::{
-    Arrangement, ArrangementDraft, Choir, Occurrence, Section, SongDraft, SongWork,
-};
+use super::model::{Arrangement, ArrangementDraft, Choir, SongDraft, SongWork};
 
 /// One authored field that failed a Song Library validation rule.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -102,6 +102,15 @@ pub enum SongLibraryError {
         /// The section the occurrence names.
         section: SectionId,
     },
+    /// The entity is already archived.
+    AlreadyArchived(RecordRef),
+    /// The entity is active, so there is nothing to restore.
+    NotArchived(RecordRef),
+    /// The entity (or, for an Arrangement, its Song) is archived and therefore
+    /// inspect-only until restored.
+    Archived(RecordRef),
+    /// Permanent deletion is refused; nothing changed. Lists every blocker.
+    DeletionBlocked(Vec<DeletionBlocker>),
 }
 
 impl fmt::Display for SongLibraryError {
@@ -128,11 +137,148 @@ impl fmt::Display for SongLibraryError {
                 f,
                 "occurrence section {section} does not belong to Arrangement {arrangement}"
             ),
+            Self::AlreadyArchived(record) => write!(f, "{record} is already archived"),
+            Self::NotArchived(record) => write!(f, "{record} is not archived"),
+            Self::Archived(record) => {
+                write!(f, "{record} is archived and inspect-only until restored")
+            }
+            Self::DeletionBlocked(blockers) => {
+                write!(f, "permanent deletion is blocked: {blockers:?}")
+            }
         }
     }
 }
 
 impl std::error::Error for SongLibraryError {}
+
+/// Names one archivable Song Library record in an error or verdict.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RecordRef {
+    /// A Song work.
+    Song(SongId),
+    /// An Arrangement.
+    Arrangement(ArrangementId),
+    /// A Choir.
+    Choir(ChoirId),
+}
+
+impl fmt::Display for RecordRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Song(id) => write!(f, "Song work {id}"),
+            Self::Arrangement(id) => write!(f, "Arrangement {id}"),
+            Self::Choir(id) => write!(f, "Choir {id}"),
+        }
+    }
+}
+
+/// How one Arrangement appears to ordinary planning and selection.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ArrangementVisibility {
+    /// The Arrangement and its Song are both active.
+    Active,
+    /// The Arrangement is archived in its own right, whatever its Song's state.
+    Archived,
+    /// The Arrangement is itself active but its Song is archived.
+    SuppressedBySong,
+}
+
+/// Which archive states a Song listing includes.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum StatusFilter {
+    /// Only active entities.
+    Active,
+    /// Only archived entities.
+    Archived,
+    /// Both.
+    All,
+}
+
+impl StatusFilter {
+    /// Whether an entity whose archived flag is `archived` passes the filter.
+    const fn includes(self, archived: bool) -> bool {
+        match self {
+            Self::Active => !archived,
+            Self::Archived => archived,
+            Self::All => true,
+        }
+    }
+}
+
+/// A durable record outside the Song Library that names a Song or Arrangement.
+///
+/// The domain cannot see Mass plans or snapshots; callers report them.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum DurableReference {
+    /// A Mass plan.
+    MassPlan(EntityId),
+    /// An immutable Presentation snapshot.
+    PresentationSnapshot(EntityId),
+    /// A Celebration package.
+    CelebrationPackage(EntityId),
+    /// Any other durable record kind.
+    Other {
+        /// The record kind, for display.
+        kind: &'static str,
+        /// The record's identity.
+        id: EntityId,
+    },
+}
+
+/// One reason permanent deletion is refused.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeletionBlocker {
+    /// The entity is not archived; archive it first.
+    NotArchived,
+    /// The Song still owns Arrangements (active or archived); each needs its
+    /// own review. Deletion never cascades.
+    HasArrangements(Vec<ArrangementId>),
+    /// Durable records still name the entity.
+    Referenced(Vec<DurableReference>),
+}
+
+/// Whether permanent deletion may proceed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeletionVerdict {
+    /// No blocker applies.
+    Allowed,
+    /// Every blocker that applies, in the order `NotArchived`,
+    /// `HasArrangements`, `Referenced`.
+    Blocked(Vec<DeletionBlocker>),
+}
+
+/// Case-insensitive match key for duplicate evidence.
+///
+/// Unicode lowercase (`str::to_lowercase`), whitespace runs collapsed to one
+/// space, trimmed. Nothing else is folded: digits, ordinals, punctuation and
+/// diacritics stay significant, so "Kyrie — 8th Mass" never matches
+/// "Kyrie — 13th Mass".
+pub fn match_key(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// Which title of a Song matched.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MatchedOn {
+    /// The primary title.
+    Title,
+    /// The alias at this index of the aliases list.
+    Alias(usize),
+}
+
+/// One shared match key between a candidate Song draft and a stored Song.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DuplicateEvidence {
+    /// The stored Song that shares a key.
+    pub song: SongId,
+    /// Which candidate title matched.
+    pub candidate_on: MatchedOn,
+    /// Which stored title matched.
+    pub existing_on: MatchedOn,
+}
 
 /// The Song works, Arrangements, and Choirs of one Parish.
 ///
@@ -149,8 +295,13 @@ pub struct SongLibrary {
     songs: BTreeMap<SongId, SongWork>,
     arrangements: BTreeMap<ArrangementId, Arrangement>,
     choirs: BTreeMap<ChoirId, Choir>,
-    section_ids: BTreeSet<SectionId>,
-    occurrence_ids: BTreeSet<OccurrenceId>,
+    /// Reserved section identities and the Arrangement that first used each.
+    /// An entry is never removed, not by an edit that drops the section and
+    /// not by deleting the Arrangement, because earlier revisions and snapshots
+    /// may still name it.
+    section_ids: BTreeMap<SectionId, ArrangementId>,
+    /// Reserved occurrence identities, with the same rules as `section_ids`.
+    occurrence_ids: BTreeMap<OccurrenceId, ArrangementId>,
 }
 
 impl SongLibrary {
@@ -162,6 +313,17 @@ impl SongLibrary {
     /// Every Song work, in identity order.
     pub fn songs(&self) -> impl Iterator<Item = &SongWork> {
         self.songs.values()
+    }
+
+    /// The Song works passing `filter`, in creation-time then identity order.
+    pub fn songs_with_status(&self, filter: StatusFilter) -> Vec<&SongWork> {
+        let mut songs: Vec<&SongWork> = self
+            .songs
+            .values()
+            .filter(|song| filter.includes(song.is_archived()))
+            .collect();
+        songs.sort_by_key(|song| (song.created_at(), song.id()));
+        songs
     }
 
     /// One Song work.
@@ -189,7 +351,12 @@ impl SongLibrary {
 
     /// Replaces the authored content of one Song work.
     ///
-    /// Identity, creation time, and archive state are preserved.
+    /// Identity, creation time, and archive state are preserved. An archived
+    /// Song is inspect-only: editing it is refused with
+    /// [`SongLibraryError::Archived`] until it is restored.
+    ///
+    /// Editing never consults [`Self::duplicate_evidence`] and never changes
+    /// authored capitalization.
     pub fn edit_song(
         &mut self,
         id: SongId,
@@ -199,6 +366,9 @@ impl SongLibrary {
             .songs
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownSong(id))?;
+        if song.is_archived() {
+            return Err(SongLibraryError::Archived(RecordRef::Song(id)));
+        }
         song.replace_content(draft)?;
         Ok(song)
     }
@@ -260,6 +430,8 @@ impl SongLibrary {
     /// `choirs` must exist and be distinct, and every section and occurrence
     /// identity must be free. A new Arrangement starts with
     /// [`super::PaginationState::Draft`] pagination and an active archive state.
+    /// An archived Song accepts no new Arrangement ([`SongLibraryError::Archived`]
+    /// naming the Song), and an archived Choir cannot be associated.
     ///
     /// `draft` carries authored content only; Choir associations change only
     /// through [`Self::set_arrangement_choirs`],
@@ -276,32 +448,48 @@ impl SongLibrary {
         if self.arrangements.contains_key(&id) {
             return Err(SongLibraryError::DuplicateArrangement(id));
         }
-        if !self.songs.contains_key(&song) {
-            return Err(SongLibraryError::UnknownSong(song));
+        let owner = self
+            .songs
+            .get(&song)
+            .ok_or(SongLibraryError::UnknownSong(song))?;
+        if owner.is_archived() {
+            return Err(SongLibraryError::Archived(RecordRef::Song(song)));
         }
         text::require_distinct(Field::Choir, &choirs)?;
         self.require_choirs_exist(&choirs)?;
+        for choir in &choirs {
+            self.require_choir_active(*choir)?;
+        }
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
             &draft,
-            None,
+            id,
         )?;
         let arrangement = Arrangement::new(id, song, created_at, draft, choirs)?;
         self.section_ids
-            .extend(arrangement.sections().iter().map(Section::id));
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
         self.occurrence_ids
-            .extend(arrangement.sequence().iter().map(Occurrence::id));
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
         self.arrangements.insert(id, arrangement);
         self.arrangement(id)
     }
 
     /// Replaces the authored content of one Arrangement.
     ///
+    /// Refused with [`SongLibraryError::Archived`] when the Arrangement is
+    /// archived (naming it) or its Song is archived (naming the Song).
+    ///
     /// The owning Song, identity, creation time, Choir associations, and
-    /// archive state are preserved. Section and occurrence identities that
-    /// already belong to this Arrangement may be reused; an identity owned by
-    /// another Arrangement is refused.
+    /// archive state are preserved.
+    ///
+    /// Section and occurrence identities are reserved for the Arrangement that
+    /// first used them, permanently: an identity this edit drops stays
+    /// reserved to this Arrangement (earlier revisions still name it, and
+    /// restoring such a revision must never collide with another
+    /// Arrangement). A later edit of this same Arrangement may bring a dropped
+    /// identity back; any other Arrangement is refused with
+    /// `DuplicateSection` or `DuplicateOccurrence`.
     ///
     /// Adding or removing a section, changing a section's lyrics or label, or
     /// changing the Sequence moves an approved Arrangement to
@@ -316,41 +504,18 @@ impl SongLibrary {
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
-        let previous_sections = arrangement
-            .sections()
-            .iter()
-            .map(Section::id)
-            .collect::<BTreeSet<_>>();
-        let previous_occurrences = arrangement
-            .sequence()
-            .iter()
-            .map(Occurrence::id)
-            .collect::<BTreeSet<_>>();
+        Self::require_editable(&self.songs, arrangement)?;
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
             &draft,
-            Some((&previous_sections, &previous_occurrences)),
+            id,
         )?;
         arrangement.replace_content(draft)?;
-        let next_sections = arrangement
-            .sections()
-            .iter()
-            .map(Section::id)
-            .collect::<Vec<_>>();
-        let next_occurrences = arrangement
-            .sequence()
-            .iter()
-            .map(Occurrence::id)
-            .collect::<Vec<_>>();
-        for section in previous_sections {
-            self.section_ids.remove(&section);
-        }
-        self.section_ids.extend(next_sections);
-        for occurrence in previous_occurrences {
-            self.occurrence_ids.remove(&occurrence);
-        }
-        self.occurrence_ids.extend(next_occurrences);
+        self.section_ids
+            .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
+        self.occurrence_ids
+            .extend(arrangement.sequence().iter().map(|o| (o.id(), id)));
         Ok(arrangement)
     }
 
@@ -390,11 +555,18 @@ impl SongLibrary {
             .choirs
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownChoir(id))?;
+        if choir.is_archived() {
+            return Err(SongLibraryError::Archived(RecordRef::Choir(id)));
+        }
         choir.rename(name)?;
         Ok(choir)
     }
 
     /// Replaces the Choir associations of one Arrangement.
+    ///
+    /// The inspect-only rules of [`Self::edit_arrangement`] apply. An archived
+    /// Choir cannot be newly associated ([`SongLibraryError::Archived`]), but
+    /// an archived Choir that is already associated may stay in the set.
     ///
     /// Duplicate Choir identities and unknown Choirs are refused. The
     /// Arrangement may end with no Choir.
@@ -407,10 +579,15 @@ impl SongLibrary {
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        Self::require_editable(&self.songs, arrangement)?;
         text::require_distinct(Field::Choir, &choirs)?;
         for choir in &choirs {
-            if !self.choirs.contains_key(choir) {
-                return Err(SongLibraryError::UnknownChoir(*choir));
+            let stored = self
+                .choirs
+                .get(choir)
+                .ok_or(SongLibraryError::UnknownChoir(*choir))?;
+            if stored.is_archived() && !arrangement.choirs().contains(choir) {
+                return Err(SongLibraryError::Archived(RecordRef::Choir(*choir)));
             }
         }
         arrangement.replace_choirs(choirs);
@@ -430,8 +607,13 @@ impl SongLibrary {
             .arrangements
             .get_mut(&arrangement)
             .ok_or(SongLibraryError::UnknownArrangement(arrangement))?;
-        if !self.choirs.contains_key(&choir) {
-            return Err(SongLibraryError::UnknownChoir(choir));
+        Self::require_editable(&self.songs, stored)?;
+        let known = self
+            .choirs
+            .get(&choir)
+            .ok_or(SongLibraryError::UnknownChoir(choir))?;
+        if known.is_archived() && !stored.choirs().contains(&choir) {
+            return Err(SongLibraryError::Archived(RecordRef::Choir(choir)));
         }
         stored.add_choir(choir);
         Ok(())
@@ -451,6 +633,7 @@ impl SongLibrary {
             .arrangements
             .get_mut(&arrangement)
             .ok_or(SongLibraryError::UnknownArrangement(arrangement))?;
+        Self::require_editable(&self.songs, arrangement)?;
         arrangement.remove_choir(choir);
         Ok(())
     }
@@ -485,7 +668,332 @@ impl SongLibrary {
             .arrangements
             .get_mut(&id)
             .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        Self::require_editable(&self.songs, arrangement)?;
         arrangement.approve_pagination();
+        Ok(())
+    }
+
+    /// Archives one Song work at `at`. Reversible; never touches its
+    /// Arrangements, whose own archive states stay exactly as they were.
+    pub fn archive_song(&mut self, id: SongId, at: Timestamp) -> Result<(), SongLibraryError> {
+        let song = self
+            .songs
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownSong(id))?;
+        if song.is_archived() {
+            return Err(SongLibraryError::AlreadyArchived(RecordRef::Song(id)));
+        }
+        song.archive(at);
+        Ok(())
+    }
+
+    /// Restores one archived Song work. Only Arrangements that were
+    /// independently active become selectable again, because archiving the Song
+    /// never changed them.
+    pub fn restore_song(&mut self, id: SongId) -> Result<(), SongLibraryError> {
+        let song = self
+            .songs
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownSong(id))?;
+        if !song.is_archived() {
+            return Err(SongLibraryError::NotArchived(RecordRef::Song(id)));
+        }
+        song.restore();
+        Ok(())
+    }
+
+    /// Archives one Arrangement at `at`. Reversible; the Song is untouched.
+    pub fn archive_arrangement(
+        &mut self,
+        id: ArrangementId,
+        at: Timestamp,
+    ) -> Result<(), SongLibraryError> {
+        let arrangement = self
+            .arrangements
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        if arrangement.is_archived() {
+            return Err(SongLibraryError::AlreadyArchived(RecordRef::Arrangement(
+                id,
+            )));
+        }
+        arrangement.archive(at);
+        Ok(())
+    }
+
+    /// Restores one archived Arrangement. If its Song is archived it stays
+    /// suppressed until the Song is restored.
+    pub fn restore_arrangement(&mut self, id: ArrangementId) -> Result<(), SongLibraryError> {
+        let arrangement = self
+            .arrangements
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))?;
+        if !arrangement.is_archived() {
+            return Err(SongLibraryError::NotArchived(RecordRef::Arrangement(id)));
+        }
+        arrangement.restore();
+        Ok(())
+    }
+
+    /// Archives one Choir at `at`. Reversible; its associations stay and no
+    /// Arrangement is invalidated.
+    pub fn archive_choir(&mut self, id: ChoirId, at: Timestamp) -> Result<(), SongLibraryError> {
+        let choir = self
+            .choirs
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownChoir(id))?;
+        if choir.is_archived() {
+            return Err(SongLibraryError::AlreadyArchived(RecordRef::Choir(id)));
+        }
+        choir.archive(at);
+        Ok(())
+    }
+
+    /// Restores one archived Choir.
+    pub fn restore_choir(&mut self, id: ChoirId) -> Result<(), SongLibraryError> {
+        let choir = self
+            .choirs
+            .get_mut(&id)
+            .ok_or(SongLibraryError::UnknownChoir(id))?;
+        if !choir.is_archived() {
+            return Err(SongLibraryError::NotArchived(RecordRef::Choir(id)));
+        }
+        choir.restore();
+        Ok(())
+    }
+
+    /// How one Arrangement appears to ordinary selection.
+    pub fn arrangement_visibility(
+        &self,
+        id: ArrangementId,
+    ) -> Result<ArrangementVisibility, SongLibraryError> {
+        let arrangement = self.arrangement(id)?;
+        if arrangement.is_archived() {
+            return Ok(ArrangementVisibility::Archived);
+        }
+        if self.song(arrangement.song())?.is_archived() {
+            return Ok(ArrangementVisibility::SuppressedBySong);
+        }
+        Ok(ArrangementVisibility::Active)
+    }
+
+    /// Whether ordinary planning and selection may offer the Arrangement: it is
+    /// active and so is its Song.
+    pub fn is_selectable(&self, id: ArrangementId) -> Result<bool, SongLibraryError> {
+        Ok(self.arrangement_visibility(id)? == ArrangementVisibility::Active)
+    }
+
+    /// The selectable Arrangements of one Song, in creation-time then identity
+    /// order. Empty when the Song is archived.
+    pub fn selectable_arrangements(
+        &self,
+        song: SongId,
+    ) -> Result<Vec<&Arrangement>, SongLibraryError> {
+        if self.song(song)?.is_archived() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .arrangements_in_creation_order()
+            .into_iter()
+            .filter(|arrangement| arrangement.song() == song && !arrangement.is_archived())
+            .collect())
+    }
+
+    /// The selectable Arrangements one Choir sings, in creation-time then
+    /// identity order.
+    ///
+    /// The Choir itself may be archived: repertoire membership is not
+    /// availability, so an archived Choir still lists what it sings.
+    pub fn selectable_choir_arrangements(
+        &self,
+        choir: ChoirId,
+    ) -> Result<Vec<&Arrangement>, SongLibraryError> {
+        self.choir(choir)?;
+        Ok(self
+            .arrangements_in_creation_order()
+            .into_iter()
+            .filter(|arrangement| {
+                arrangement.choirs().contains(&choir)
+                    && !arrangement.is_archived()
+                    && self
+                        .songs
+                        .get(&arrangement.song())
+                        .is_some_and(|song| !song.is_archived())
+            })
+            .collect())
+    }
+
+    /// Reference-safety verdict for permanently deleting a Song.
+    ///
+    /// Allowed only when the Song is archived, owns no Arrangement at all
+    /// (active or archived; deletion never cascades) and `references` is empty.
+    pub fn song_deletion_verdict(
+        &self,
+        id: SongId,
+        references: &[DurableReference],
+    ) -> Result<DeletionVerdict, SongLibraryError> {
+        let song = self.song(id)?;
+        let mut blockers = Vec::new();
+        if !song.is_archived() {
+            blockers.push(DeletionBlocker::NotArchived);
+        }
+        let owned: Vec<ArrangementId> = self
+            .arrangements_in_creation_order()
+            .into_iter()
+            .filter(|arrangement| arrangement.song() == id)
+            .map(Arrangement::id)
+            .collect();
+        if !owned.is_empty() {
+            blockers.push(DeletionBlocker::HasArrangements(owned));
+        }
+        Ok(Self::verdict(blockers, references))
+    }
+
+    /// Reference-safety verdict for permanently deleting an Arrangement.
+    ///
+    /// Allowed only when the Arrangement is archived in its own right (its
+    /// Song's state is irrelevant) and `references` is empty.
+    pub fn arrangement_deletion_verdict(
+        &self,
+        id: ArrangementId,
+        references: &[DurableReference],
+    ) -> Result<DeletionVerdict, SongLibraryError> {
+        let arrangement = self.arrangement(id)?;
+        let mut blockers = Vec::new();
+        if !arrangement.is_archived() {
+            blockers.push(DeletionBlocker::NotArchived);
+        }
+        Ok(Self::verdict(blockers, references))
+    }
+
+    /// Permanently deletes one Song when [`Self::song_deletion_verdict`]
+    /// allows it; otherwise refuses with [`SongLibraryError::DeletionBlocked`]
+    /// and changes nothing.
+    pub fn delete_song(
+        &mut self,
+        id: SongId,
+        references: &[DurableReference],
+    ) -> Result<SongWork, SongLibraryError> {
+        if let DeletionVerdict::Blocked(blockers) = self.song_deletion_verdict(id, references)? {
+            return Err(SongLibraryError::DeletionBlocked(blockers));
+        }
+        self.songs
+            .remove(&id)
+            .ok_or(SongLibraryError::UnknownSong(id))
+    }
+
+    /// Permanently deletes one Arrangement when
+    /// [`Self::arrangement_deletion_verdict`] allows it; otherwise refuses with
+    /// [`SongLibraryError::DeletionBlocked`] and changes nothing.
+    ///
+    /// The deleted Arrangement's section and occurrence identities stay
+    /// reserved: revisions and snapshots may still name them, so no later
+    /// Arrangement can reuse them.
+    pub fn delete_arrangement(
+        &mut self,
+        id: ArrangementId,
+        references: &[DurableReference],
+    ) -> Result<Arrangement, SongLibraryError> {
+        if let DeletionVerdict::Blocked(blockers) =
+            self.arrangement_deletion_verdict(id, references)?
+        {
+            return Err(SongLibraryError::DeletionBlocked(blockers));
+        }
+        self.arrangements
+            .remove(&id)
+            .ok_or(SongLibraryError::UnknownArrangement(id))
+    }
+
+    /// Existing Songs whose title or alias shares a [`match_key`] with the
+    /// candidate's title or alias.
+    ///
+    /// Reports only: it never mutates, unites, or blocks anything, and creating
+    /// or editing a Song never consults it. Archived Songs are included (the
+    /// caller can flag them via [`Self::song`]); `except` omits the Song being
+    /// edited. Ordered by Song creation time then identity, then candidate
+    /// title, then stored title. Blank values never match.
+    pub fn duplicate_evidence(
+        &self,
+        candidate: &SongDraft,
+        except: Option<SongId>,
+    ) -> Vec<DuplicateEvidence> {
+        let keys = |title: &str, aliases: &[String]| -> Vec<(MatchedOn, String)> {
+            std::iter::once((MatchedOn::Title, match_key(title)))
+                .chain(
+                    aliases
+                        .iter()
+                        .enumerate()
+                        .map(|(index, alias)| (MatchedOn::Alias(index), match_key(alias))),
+                )
+                .filter(|(_, key)| !key.is_empty())
+                .collect()
+        };
+        let candidate_keys = keys(&candidate.title, &candidate.aliases);
+        let mut evidence = Vec::new();
+        for song in self.songs_with_status(StatusFilter::All) {
+            if Some(song.id()) == except {
+                continue;
+            }
+            let existing_keys = keys(song.title(), song.aliases());
+            for (candidate_on, candidate_key) in &candidate_keys {
+                for (existing_on, existing_key) in &existing_keys {
+                    if candidate_key == existing_key {
+                        evidence.push(DuplicateEvidence {
+                            song: song.id(),
+                            candidate_on: *candidate_on,
+                            existing_on: *existing_on,
+                        });
+                    }
+                }
+            }
+        }
+        evidence
+    }
+
+    /// Builds a verdict from the structural blockers plus the references.
+    fn verdict(
+        mut blockers: Vec<DeletionBlocker>,
+        references: &[DurableReference],
+    ) -> DeletionVerdict {
+        if !references.is_empty() {
+            let mut sorted = references.to_vec();
+            sorted.sort();
+            sorted.dedup();
+            blockers.push(DeletionBlocker::Referenced(sorted));
+        }
+        if blockers.is_empty() {
+            DeletionVerdict::Allowed
+        } else {
+            DeletionVerdict::Blocked(blockers)
+        }
+    }
+
+    /// Refuses an Arrangement that is archived, or whose Song is archived.
+    fn require_editable(
+        songs: &BTreeMap<SongId, SongWork>,
+        arrangement: &Arrangement,
+    ) -> Result<(), SongLibraryError> {
+        if arrangement.is_archived() {
+            return Err(SongLibraryError::Archived(RecordRef::Arrangement(
+                arrangement.id(),
+            )));
+        }
+        if songs
+            .get(&arrangement.song())
+            .is_some_and(SongWork::is_archived)
+        {
+            return Err(SongLibraryError::Archived(RecordRef::Song(
+                arrangement.song(),
+            )));
+        }
+        Ok(())
+    }
+
+    /// Refuses a Choir that is archived (the Choir is already known to exist).
+    fn require_choir_active(&self, choir: ChoirId) -> Result<(), SongLibraryError> {
+        if self.choirs.get(&choir).is_some_and(Choir::is_archived) {
+            return Err(SongLibraryError::Archived(RecordRef::Choir(choir)));
+        }
         Ok(())
     }
 
@@ -499,34 +1007,32 @@ impl SongLibrary {
         Ok(())
     }
 
-    /// Refuses section or occurrence identities that another Arrangement
-    /// already owns.
+    /// Refuses section or occurrence identities reserved by an Arrangement
+    /// other than `owner`.
     ///
-    /// `previous` names the identities the edited Arrangement is giving up, so
-    /// an ordinary edit that keeps its own identities succeeds. This is an
+    /// Reservations are never released, so an identity `owner` dropped earlier
+    /// may return to `owner` but never moves to another Arrangement. This is an
     /// associated function rather than a method so the caller can hold the
     /// Arrangement's mutable borrow while validating against the library's
-    /// identity sets.
+    /// identity maps.
     fn require_free_section_and_occurrence_ids(
-        section_ids: &BTreeSet<SectionId>,
-        occurrence_ids: &BTreeSet<OccurrenceId>,
+        section_ids: &BTreeMap<SectionId, ArrangementId>,
+        occurrence_ids: &BTreeMap<OccurrenceId, ArrangementId>,
         draft: &ArrangementDraft,
-        previous: Option<(&BTreeSet<SectionId>, &BTreeSet<OccurrenceId>)>,
+        owner: ArrangementId,
     ) -> Result<(), SongLibraryError> {
-        let empty_sections = BTreeSet::new();
-        let empty_occurrences = BTreeSet::new();
-        let (previous_sections, previous_occurrences) = match previous {
-            Some((sections, occurrences)) => (sections, occurrences),
-            None => (&empty_sections, &empty_occurrences),
-        };
         for section in &draft.sections {
-            if section_ids.contains(&section.id) && !previous_sections.contains(&section.id) {
+            if section_ids
+                .get(&section.id)
+                .is_some_and(|held| *held != owner)
+            {
                 return Err(SongLibraryError::DuplicateSection(section.id));
             }
         }
         for occurrence in &draft.sequence {
-            if occurrence_ids.contains(&occurrence.id)
-                && !previous_occurrences.contains(&occurrence.id)
+            if occurrence_ids
+                .get(&occurrence.id)
+                .is_some_and(|held| *held != owner)
             {
                 return Err(SongLibraryError::DuplicateOccurrence(occurrence.id));
             }

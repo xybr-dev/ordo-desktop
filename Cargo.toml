@@ -14,6 +14,7 @@ members = [
     "tests/display",
     "tests/presentation",
     "tests/storage",
+    "tests/song-library",
     "tests/artifact-container",
     "tests/powerpoint",
     "tests/performance",
