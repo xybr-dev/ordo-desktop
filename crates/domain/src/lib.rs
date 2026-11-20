@@ -15,8 +15,12 @@
 //!
 //! T2.3 adds [`song_library`]: Song works, Arrangements, Choirs, and their
 //! repertoire, pagination, and authored-content invariants.
+//!
+//! T2.7 adds [`pagination`]: the manual slide boundary that a blank lyric line
+//! creates, and the Split and Join edits over it.
 
 pub mod identity;
+pub mod pagination;
 pub mod presentation;
 pub mod revisions;
 pub mod song_library;

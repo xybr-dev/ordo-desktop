@@ -572,6 +572,32 @@ impl Storage {
         })
     }
 
+    /// Replaces only an Arrangement's sections, Sequence and pagination state
+    /// and appends one `edit` revision.
+    ///
+    /// The head revision and the stored metadata are read in the same immediate
+    /// transaction and kept as they are there, so a details commit that landed
+    /// since the caller last looked is never overwritten. An Arrangement with
+    /// no revisions first gets its `creation` revision in that transaction.
+    /// `pagination` is the resulting review state, computed by the caller with
+    /// the domain rule (the editor restores an earlier state on Undo). At least
+    /// one language is required, as for any Edit. The archive state is not
+    /// checked: the caller gates that. Returns the whole stored Arrangement and
+    /// the new revision.
+    pub fn commit_arrangement_lyrics(
+        &self,
+        arrangement: ArrangementId,
+        sections: Vec<SectionContent>,
+        sequence: Vec<OccurrenceContent>,
+        pagination: PaginationState,
+        session: HistorySessionId,
+    ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
+    {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_arrangement_lyrics(arrangement, sections, sequence, pagination, session)
+        })
+    }
+
     /// Commits an earlier revision's content as a new `restoration` revision.
     /// `expected_parent` must be the entity's latest revision, else
     /// `StaleRevision`; an entity with no revisions is refused with

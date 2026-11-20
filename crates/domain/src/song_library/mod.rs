@@ -28,6 +28,7 @@ mod interface;
 mod languages;
 mod model;
 mod search;
+mod sections;
 
 pub use duplicate_evidence::{
     DuplicateEvidence, IdentityEvidence, MatchStrength, MatchedOn, PossibleSong, identity_key,
@@ -45,3 +46,4 @@ pub use model::{
 pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
+pub use sections::{ArrangementLyrics, Step, section_name_suggestions};

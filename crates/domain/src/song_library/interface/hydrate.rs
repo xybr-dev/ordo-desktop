@@ -193,7 +193,8 @@ impl SongLibrary {
         Self::require_free_section_and_occurrence_ids(
             &self.section_ids,
             &self.occurrence_ids,
-            &stored.draft,
+            &stored.draft.sections,
+            &stored.draft.sequence,
             id,
         )
         .map_err(breach)?;

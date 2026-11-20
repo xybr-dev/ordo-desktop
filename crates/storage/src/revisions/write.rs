@@ -23,7 +23,10 @@ use crate::worker::{Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
 use super::RevisionRecord;
-use super::content::{self, ArrangementContent, ArrangementMetadata, RevisionContent, SongContent};
+use super::content::{
+    self, ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent,
+    SectionContent, SongContent,
+};
 use super::read::{latest_in, load_content};
 
 /// How a new revision links to the chain.
@@ -673,6 +676,66 @@ impl Core {
             metadata.notes.as_deref(),
             std::iter::empty(),
         )?;
+        self.commit_arrangement_partial(arrangement, session, true, |content, stored| {
+            content.title = metadata.title;
+            content.languages = metadata.languages;
+            content.choirs = metadata.choirs;
+            content.rendition_attribution = metadata.rendition_attribution;
+            content.occasions = metadata.occasions;
+            content.notes = metadata.notes;
+            stored.pagination
+        })
+    }
+
+    /// Replaces only an Arrangement's sections, Sequence and pagination state
+    /// and appends one Edit revision, reading the head revision and the stored
+    /// metadata in the same immediate transaction. A row with no history first
+    /// gets its `creation` revision in that transaction.
+    pub(crate) fn commit_arrangement_lyrics(
+        &mut self,
+        arrangement: ArrangementId,
+        sections: Vec<SectionContent>,
+        sequence: Vec<OccurrenceContent>,
+        pagination: PaginationState,
+        session: HistorySessionId,
+    ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
+        // Refuse the shapes that need no stored data before opening the
+        // transaction; the whole content is checked again once the stored
+        // metadata is read.
+        let section_ids: Vec<SectionId> = sections.iter().map(|section| section.id).collect();
+        require_distinct("section", &section_ids)?;
+        let occurrence_ids: Vec<OccurrenceId> =
+            sequence.iter().map(|occurrence| occurrence.id).collect();
+        require_distinct("occurrence", &occurrence_ids)?;
+        for occurrence in &sequence {
+            if !section_ids.contains(&occurrence.section) {
+                return Err(StorageError::InvalidInput {
+                    field: "sequence",
+                    reason: "unknown section",
+                });
+            }
+        }
+        // The lyrics commit does not author the metadata, so it does not
+        // require a language the details commit owns.
+        self.commit_arrangement_partial(arrangement, session, false, |content, _| {
+            content.sections = sections;
+            content.sequence = sequence;
+            pagination
+        })
+    }
+
+    /// The shared skeleton of the partial Arrangement commits: one immediate
+    /// transaction reads the head revision (backfilling a `creation` revision
+    /// for a row with no history) and the stored Arrangement, `apply` changes
+    /// the part this commit owns and returns the pagination state to store,
+    /// and one Edit revision is appended.
+    fn commit_arrangement_partial(
+        &mut self,
+        arrangement: ArrangementId,
+        session: HistorySessionId,
+        require_language_now: bool,
+        apply: impl FnOnce(&mut ArrangementContent, &ArrangementRecord) -> PaginationState,
+    ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
         let at = self.timestamp();
         timestamp_text(at)?;
         let (conn, ids, fault) = self.write_parts()?;
@@ -691,13 +754,8 @@ impl Core {
             id: arrangement.entity(),
         })?;
         let mut content = ArrangementContent::of(&stored);
-        content.title = metadata.title;
-        content.languages = metadata.languages;
-        content.choirs = metadata.choirs;
-        content.rendition_attribution = metadata.rendition_attribution;
-        content.occasions = metadata.occasions;
-        content.notes = metadata.notes;
-        validate_arrangement_content(&content, true)?;
+        let pagination = apply(&mut content, &stored);
+        validate_arrangement_content(&content, require_language_now)?;
         let link = Link {
             parent: Some(head),
             kind: RevisionKind::Edit,
@@ -710,7 +768,7 @@ impl Core {
             &mut steps,
             at,
             arrangement,
-            (&content, stored.pagination),
+            (&content, pagination),
             &link,
         )?;
         tx.commit().map_err(map_error)?;
