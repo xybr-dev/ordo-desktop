@@ -82,7 +82,6 @@ use domain::identity::{
     ArrangementId, ChoirId, EntityId, HistorySessionId, ManagedAssetId, RevisionId, SongId, ThemeId,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
-use domain::song_library::PaginationState;
 use migrations::Migration;
 use worker::{Core, Exit, Message, Sources};
 
@@ -472,17 +471,6 @@ impl Storage {
         })
     }
 
-    /// Sets an Arrangement's pagination state; `NotFound` when absent.
-    pub fn set_pagination_state(
-        &self,
-        id: ArrangementId,
-        state: PaginationState,
-    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
-        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.set_pagination_state(id, state)
-        })
-    }
-
     /// Reads every Song, Arrangement and Choir in one read transaction, each
     /// list ordered by creation time and identity.
     pub fn library(&self) -> impl Future<Output = Result<LibraryRecords, StorageError>> + use<> {
@@ -524,37 +512,29 @@ impl Storage {
     /// `InvalidInput { field: "expected_parent" }`: call
     /// [`Storage::latest_revision`] first.
     ///
-    /// `pagination` is the Arrangement's resulting pagination state, computed
-    /// by the caller with the domain rule. It is written in the same
-    /// transaction as the content and the revision, so a failure at any step
-    /// leaves content, history and pagination unchanged.
+    /// Each section carries its own pagination state, computed by the caller
+    /// with the domain rule. It is written in the same transaction as the
+    /// content and the revision, so a failure at any step leaves content,
+    /// history and section states unchanged.
     pub fn commit_arrangement_edit(
         &self,
         arrangement: ArrangementId,
         content: ArrangementContent,
-        pagination: PaginationState,
         kind: RevisionKind,
         session: Option<HistorySessionId>,
         expected_parent: RevisionId,
     ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
     {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.commit_arrangement_edit(
-                arrangement,
-                content,
-                pagination,
-                kind,
-                session,
-                expected_parent,
-            )
+            core.commit_arrangement_edit(arrangement, content, kind, session, expected_parent)
         })
     }
 
     /// Replaces only an Arrangement's metadata (title, notes, languages,
     /// Choirs, attribution, occasions) and appends one `edit` revision.
     ///
-    /// The head revision, sections, Sequence and pagination state are read in
-    /// the same immediate transaction and kept as they are there, so a commit
+    /// The head revision, sections (with their pagination states) and Sequence
+    /// are read in the same immediate transaction and kept as they are there, so a commit
     /// that landed since the caller last looked is never overwritten. An
     /// Arrangement with no revisions first gets its `creation` revision in
     /// that transaction. At least one language is required. The archive state
@@ -572,29 +552,28 @@ impl Storage {
         })
     }
 
-    /// Replaces only an Arrangement's sections, Sequence and pagination state
-    /// and appends one `edit` revision.
+    /// Replaces only an Arrangement's sections (each carrying its pagination
+    /// state) and Sequence and appends one `edit` revision.
     ///
     /// The head revision and the stored metadata are read in the same immediate
     /// transaction and kept as they are there, so a details commit that landed
     /// since the caller last looked is never overwritten. An Arrangement with
     /// no revisions first gets its `creation` revision in that transaction.
-    /// `pagination` is the resulting review state, computed by the caller with
-    /// the domain rule (the editor restores an earlier state on Undo). At least
-    /// one language is required, as for any Edit. The archive state is not
-    /// checked: the caller gates that. Returns the whole stored Arrangement and
+    /// The section states are computed by the caller with the domain rule (the
+    /// editor restores an earlier state on Undo). At least one language is
+    /// required, as for any Edit. The archive state is not checked: the
+    /// caller gates that. Returns the whole stored Arrangement and
     /// the new revision.
     pub fn commit_arrangement_lyrics(
         &self,
         arrangement: ArrangementId,
         sections: Vec<SectionContent>,
         sequence: Vec<OccurrenceContent>,
-        pagination: PaginationState,
         session: HistorySessionId,
     ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
     {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.commit_arrangement_lyrics(arrangement, sections, sequence, pagination, session)
+            core.commit_arrangement_lyrics(arrangement, sections, sequence, session)
         })
     }
 
@@ -604,17 +583,15 @@ impl Storage {
     /// `InvalidInput { field: "expected_parent" }` (call
     /// [`Storage::latest_revision`] first).
     ///
-    /// Restoring an Arrangement revision also writes `pagination`, the
-    /// resulting state the caller computed with the domain rule, in the same
-    /// transaction. It is ignored when the revision belongs to a Song.
+    /// An Arrangement restore brings back each section's pagination state
+    /// from the revision (formats 1 and 2 predate it and restore as Draft).
     pub fn restore_revision(
         &self,
         revision: RevisionId,
         expected_parent: RevisionId,
-        pagination: PaginationState,
     ) -> impl Future<Output = Result<(RevisionContent, RevisionRecord), StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
-            core.restore_revision(revision, expected_parent, pagination)
+            core.restore_revision(revision, expected_parent)
         })
     }
 
@@ -1016,7 +993,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(6));
+        assert_eq!(status.map(|s| s.version), Ok(7));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

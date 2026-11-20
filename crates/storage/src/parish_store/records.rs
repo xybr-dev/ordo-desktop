@@ -167,6 +167,8 @@ pub struct SectionRecord {
     pub label: Option<String>,
     /// Lyrics exactly as authored.
     pub lyrics: String,
+    /// Whether this section's pagination is a draft, approved, or needs review.
+    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
 }
@@ -205,8 +207,6 @@ pub struct ArrangementRecord {
     pub sections: Vec<SectionRecord>,
     /// Sequence occurrences by performance position.
     pub sequence: Vec<OccurrenceRecord>,
-    /// Whether the pagination is a draft, approved, or needs review.
-    pub pagination: PaginationState,
     /// Creation time.
     pub created_at: Timestamp,
     /// When the Arrangement was archived, if it has been.
@@ -273,7 +273,6 @@ impl From<ArrangementRecord> for HydrateArrangement {
             id: record.id,
             song: record.song,
             created_at: record.created_at,
-            pagination_state: record.pagination,
             archive_state: archive_state(record.archived_at),
             choirs: record.choirs,
             draft: ArrangementDraft {
@@ -289,6 +288,7 @@ impl From<ArrangementRecord> for HydrateArrangement {
                         id: section.id,
                         label: section.label,
                         lyrics: section.lyrics,
+                        pagination: section.pagination,
                     })
                     .collect(),
                 sequence: record

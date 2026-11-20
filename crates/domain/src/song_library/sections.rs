@@ -6,7 +6,9 @@
 //! enforce the rules that can be decided inside the working copy and never
 //! touch storage; the review rule runs separately in
 //! [`ArrangementLyrics::reviewed_against`], so an edit and its Undo can both be
-//! committed with the state the editor intends.
+//! committed with the states the editor intends.
+
+use std::collections::BTreeMap;
 
 use crate::identity::SectionId;
 use crate::pagination::{join_with_previous, slides, split_after, split_point};
@@ -23,21 +25,18 @@ pub enum Step {
     Down,
 }
 
-/// What the Lyrics editor edits: sections, Sequence, review state.
+/// What the Lyrics editor edits: sections, Sequence, per-section review state.
 ///
-/// Sections are in authoring order, occurrences in performance order. The
-/// pagination state is carried here because the revision payload does not
-/// store it: a forward edit applies the review rule with
-/// [`Self::reviewed_against`], and Undo commits the earlier snapshot with its
-/// state intact.
+/// Sections are in authoring order, occurrences in performance order. Each
+/// section carries its own pagination state: a forward edit applies the review
+/// rule with [`Self::reviewed_against`], and Undo commits the earlier snapshot
+/// with its states intact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArrangementLyrics {
     /// Reusable sections in authored order.
     pub sections: Vec<SectionDraft>,
     /// Section placements in performance order.
     pub sequence: Vec<OccurrenceDraft>,
-    /// The pagination review state this content is committed with.
-    pub pagination: PaginationState,
 }
 
 impl ArrangementLyrics {
@@ -168,19 +167,50 @@ impl ArrangementLyrics {
         Ok(true)
     }
 
-    /// Applies the review rule against `baseline`.
+    /// Applies the lyric-change review rule against `baseline`.
     ///
-    /// An approved Arrangement returns to [`PaginationState::NeedsReview`]
-    /// when any section's lyrics differ by identity, when the set of section
-    /// identities differs, or when the Sequence differs. Renaming a section
-    /// and reordering the Lyrics list alone do not count. Draft and
-    /// already-needs-review states pass through unchanged.
+    /// A section that was Approved in `baseline` and whose lyrics differ by
+    /// identity becomes [`PaginationState::NeedsReview`]. Every other section
+    /// keeps the state it has in `self`, so an approval made with
+    /// [`Self::approve_section`] survives this call; a section identity that
+    /// is not in `baseline` keeps its own state (Draft by construction).
+    /// Renaming a section, reordering the Lyrics list, and every Sequence edit
+    /// leave every approval as it is. Unlike whole-content edits, which ignore
+    /// caller-supplied states, editor edits keep `self`'s states.
     #[must_use]
     pub fn reviewed_against(mut self, baseline: &Self) -> Self {
-        if self.pagination == PaginationState::Approved && lyrics_content_changed(baseline, &self) {
-            self.pagination = PaginationState::NeedsReview;
+        let previous: BTreeMap<SectionId, (&str, PaginationState)> = baseline
+            .sections
+            .iter()
+            .map(|section| (section.id, (section.lyrics.as_str(), section.pagination)))
+            .collect();
+        for section in &mut self.sections {
+            if let Some((lyrics, PaginationState::Approved)) = previous.get(&section.id)
+                && *lyrics != section.lyrics
+            {
+                section.pagination = PaginationState::NeedsReview;
+            }
         }
         self
+    }
+
+    /// Approves one section's current slide pagination.
+    ///
+    /// Returns whether the state changed; an already-approved section is
+    /// `Ok(false)`. A section with no slides cannot be approved and is refused
+    /// with [`SongLibraryError::SectionWithoutSlides`], and an identity that
+    /// names no section here is [`SongLibraryError::UnknownSection`]. Other
+    /// sections and the Sequence are untouched.
+    pub fn approve_section(&mut self, id: SectionId) -> Result<bool, SongLibraryError> {
+        let index = self.position(id)?;
+        if self.sections[index].pagination == PaginationState::Approved {
+            return Ok(false);
+        }
+        if slides(&self.sections[index].lyrics).is_empty() {
+            return Err(SongLibraryError::SectionWithoutSlides(id));
+        }
+        self.sections[index].pagination = PaginationState::Approved;
+        Ok(true)
     }
 
     /// The position of one section, or [`SongLibraryError::UnknownSection`].
@@ -244,24 +274,6 @@ pub(crate) fn require_present_labels(sections: &[SectionDraft]) -> Result<(), So
         }
     }
     Ok(())
-}
-
-/// Whether `next` changes content that affects slide pagination, compared by
-/// section identity.
-fn lyrics_content_changed(baseline: &ArrangementLyrics, next: &ArrangementLyrics) -> bool {
-    if baseline.sequence != next.sequence {
-        return true;
-    }
-    lyrics_by_section(baseline) != lyrics_by_section(next)
-}
-
-/// The lyrics of each section keyed by identity.
-fn lyrics_by_section(lyrics: &ArrangementLyrics) -> std::collections::BTreeMap<SectionId, &str> {
-    lyrics
-        .sections
-        .iter()
-        .map(|section| (section.id, section.lyrics.as_str()))
-        .collect()
 }
 
 /// Rejects a name another section already holds, ignoring `except`.

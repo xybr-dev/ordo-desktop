@@ -14,8 +14,7 @@ use domain::{
     song_library::{
         ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, ArrangementLyrics,
         ChoirDraft, Field, HydrateArrangement, HydrateChoir, HydrateSong, OccurrenceDraft,
-        PaginationState, RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError,
-        match_key,
+        RecordRef, SectionDraft, SongDraft, SongLibrary, SongLibraryError, match_key,
     },
 };
 use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
@@ -131,8 +130,8 @@ enum LibraryWrite {
     CreateArrangement(SongId, ArrangementDetails),
     /// Replaces an Arrangement's details, keeping its sections and Sequence.
     SaveArrangementDetails(ArrangementId, ArrangementDetails),
-    /// Replaces an Arrangement's sections, Sequence and pagination state as one
-    /// Edit revision of the given History session.
+    /// Replaces an Arrangement's sections, Sequence and each section's
+    /// pagination state as one Edit revision of the given History session.
     SaveArrangementLyrics(ArrangementId, ArrangementLyrics, HistorySessionId),
     /// Copies the stored Arrangement into a new one under the same Song.
     DuplicateArrangement(ArrangementId),
@@ -251,7 +250,6 @@ fn check_arrangement_details(
             ..ArrangementDraft::default()
         },
         choirs: held_choirs,
-        pagination_state: PaginationState::Draft,
         archive_state: ArchiveState::Active,
     };
     let mut scratch = SongLibrary::hydrate(
@@ -294,6 +292,7 @@ fn arrangement_draft_of(record: &ArrangementRecord) -> ArrangementDraft {
                 id: section.id,
                 label: section.label.clone(),
                 lyrics: section.lyrics.clone(),
+                pagination: section.pagination,
             })
             .collect(),
         sequence: record
@@ -541,17 +540,16 @@ impl LibraryStore {
         )
     }
 
-    /// Replaces an Arrangement's sections, Sequence and pagination state as one
-    /// History session's `Edit` revision, leaving its metadata and Choirs as
-    /// stored. It is an atomic lyrics-only commit, the mirror of
-    /// [`Self::save_arrangement_details`]: storage reads the head revision and
-    /// the metadata in the same transaction and returns the whole stored
-    /// Arrangement, which memory then takes, so a lyrics autosave never
+    /// Replaces an Arrangement's sections, Sequence and each section's
+    /// pagination state as one History session's `Edit` revision, leaving its
+    /// metadata and Choirs as stored. It is an atomic lyrics-only commit, the
+    /// mirror of [`Self::save_arrangement_details`]: storage reads the head
+    /// revision and the metadata in the same transaction and returns the whole
+    /// stored Arrangement, which memory then takes, so a lyrics autosave never
     /// overwrites newer details. The domain checks the edit first on the whole
     /// library (a blank section name or a foreign identity is refused without
-    /// I/O). Lyrics equal to the
-    /// stored ones write nothing and resolve to the id. A storage error leaves
-    /// memory unchanged.
+    /// I/O). Lyrics equal to the stored ones write nothing and resolve to the
+    /// id. A storage error leaves memory unchanged.
     pub fn save_arrangement_lyrics(
         &mut self,
         id: ArrangementId,
@@ -664,17 +662,14 @@ impl LibraryStore {
                     boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
                 }
                 Prepared::SaveLyrics(id, lyrics, session) => {
-                    let ArrangementLyrics {
-                        sections,
-                        sequence,
-                        pagination,
-                    } = *lyrics;
+                    let ArrangementLyrics { sections, sequence } = *lyrics;
                     let sections = sections
                         .into_iter()
                         .map(|section| SectionContent {
                             id: section.id,
                             label: section.label,
                             lyrics: section.lyrics,
+                            pagination: section.pagination,
                         })
                         .collect();
                     let sequence = sequence
@@ -684,8 +679,7 @@ impl LibraryStore {
                             section: occurrence.section,
                         })
                         .collect();
-                    let commit = storage
-                        .commit_arrangement_lyrics(id, sections, sequence, pagination, session);
+                    let commit = storage.commit_arrangement_lyrics(id, sections, sequence, session);
                     boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
                 }
             });
@@ -954,15 +948,11 @@ impl LibraryStore {
                 Stored::Arrangement(record),
             ) => {
                 // The record is the whole stored Arrangement, so memory takes it
-                // as stored (content, Choirs and pagination state), even when
-                // another writer changed them since this library was loaded.
+                // as stored (content, Choirs and each section's pagination
+                // state), even when another writer changed them since this
+                // library was loaded.
                 self.library
-                    .refresh_arrangement(
-                        *id,
-                        arrangement_draft_of(record),
-                        record.choirs.clone(),
-                        record.pagination,
-                    )
+                    .refresh_arrangement(*id, arrangement_draft_of(record), record.choirs.clone())
                     .map_err(refusal)?;
                 Ok(record.id.entity())
             }

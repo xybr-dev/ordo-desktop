@@ -49,6 +49,8 @@ struct Selected {
     slide: usize,
     count: usize,
     bodies: Vec<String>,
+    /// The selected section's own pagination review state.
+    pagination: PaginationState,
 }
 
 impl Selected {
@@ -85,6 +87,7 @@ fn selected(editor: &ArrangementEditor, content: &ArrangementLyrics, cx: &App) -
         slide: editor.lyrics.slide.min(generated.len().saturating_sub(1)),
         count: generated.len(),
         bodies,
+        pagination: content.sections[at].pagination,
     })
 }
 
@@ -280,7 +283,7 @@ pub(super) fn inspector_body(
                 ))
                 .child(row(
                     "Pagination",
-                    pagination_label(content.pagination).to_owned(),
+                    pagination_label(chosen.pagination).to_owned(),
                 )),
         )
         .into_any_element()

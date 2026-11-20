@@ -315,8 +315,8 @@ pub(crate) fn read_arrangement(
 ) -> Result<Option<ArrangementRecord>, StorageError> {
     let row = tx
         .query_row(
-            "SELECT song_id, title, notes, rendition_attribution, created_at, archived_at, \
-             pagination_state FROM arrangement WHERE id = ?1",
+            "SELECT song_id, title, notes, rendition_attribution, created_at, archived_at \
+             FROM arrangement WHERE id = ?1",
             params![id.to_string()],
             |row| {
                 Ok((
@@ -326,22 +326,12 @@ pub(crate) fn read_arrangement(
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
-                    row.get::<_, String>(6)?,
                 ))
             },
         )
         .optional()
         .map_err(map_error)?;
-    let Some((
-        song_id,
-        title,
-        notes,
-        rendition_attribution,
-        created_at,
-        archived_at,
-        pagination_text,
-    )) = row
-    else {
+    let Some((song_id, title, notes, rendition_attribution, created_at, archived_at)) = row else {
         return Ok(None);
     };
     let id_text = id.to_string();
@@ -375,7 +365,7 @@ pub(crate) fn read_arrangement(
     {
         let mut statement = tx
             .prepare(
-                "SELECT id, label, lyrics, created_at FROM arrangement_section \
+                "SELECT id, label, lyrics, pagination_state, created_at FROM arrangement_section \
                  WHERE arrangement_id = ?1 ORDER BY position",
             )
             .map_err(map_error)?;
@@ -386,15 +376,18 @@ pub(crate) fn read_arrangement(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .map_err(map_error)?;
         for row in rows {
-            let (section_id, label, lyrics, section_created) = row.map_err(map_error)?;
+            let (section_id, label, lyrics, section_pagination, section_created) =
+                row.map_err(map_error)?;
             sections.push(SectionRecord {
                 id: entity(&section_id, "corrupt id")?,
                 label,
                 lyrics,
+                pagination: pagination(&section_pagination)?,
                 created_at: time(&section_created, "corrupt created_at")?,
             });
         }
@@ -436,7 +429,6 @@ pub(crate) fn read_arrangement(
         notes,
         sections,
         sequence,
-        pagination: pagination(&pagination_text)?,
         created_at: time(&created_at, "corrupt created_at")?,
         archived_at: match archived_at {
             Some(text) => Some(time(&text, "corrupt archived_at")?),

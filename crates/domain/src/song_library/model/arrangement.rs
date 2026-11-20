@@ -2,10 +2,10 @@
 //!
 //! An Arrangement belongs to exactly one Song work and independently owns its
 //! title, languages, Choir associations, rendition attribution, occasion
-//! applicability, reusable sections, performance Sequence, pagination review
-//! state, and archive state. A translated or choir-specific rendition is a
-//! separate Arrangement even when it retains the underlying composition, and
-//! several Choirs may share one exact Arrangement.
+//! applicability, reusable sections (each with its own pagination review
+//! state), performance Sequence, and archive state. A translated or
+//! choir-specific rendition is a separate Arrangement even when it retains the
+//! underlying composition, and several Choirs may share one exact Arrangement.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,13 +17,12 @@ use crate::song_library::sections::ArrangementLyrics;
 use super::ArchiveState;
 use super::text;
 
-/// The review state of one Arrangement's slide pagination.
+/// The review state of one section's slide pagination.
 ///
-/// A new Arrangement starts in [`PaginationState::Draft`]. Approving it moves
-/// it to [`PaginationState::Approved`]. While it is approved, adding or
-/// removing a section, changing a section's lyrics, or changing the Sequence
-/// moves it to [`PaginationState::NeedsReview`]; title, language, Choir,
-/// attribution, occasion, section-label, and section-order changes do not.
+/// A new section starts in [`PaginationState::Draft`]. Approving it moves it to
+/// [`PaginationState::Approved`]. While it is approved, changing its lyrics
+/// (Split and Join included) moves it to [`PaginationState::NeedsReview`];
+/// renaming it, reordering the Lyrics list, and every Sequence edit do not.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaginationState {
     /// Pagination has not been reviewed yet.
@@ -43,25 +42,39 @@ pub struct SectionDraft {
     pub label: Option<String>,
     /// Lyrics exactly as authored; an empty value is a section without words.
     pub lyrics: String,
+    /// The review state of this section's slide pagination.
+    pub pagination: PaginationState,
 }
 
 impl SectionDraft {
-    /// An unlabeled section with lyrics.
+    /// An unlabeled section with lyrics and a draft pagination state.
     pub fn new(id: SectionId, lyrics: impl Into<String>) -> Self {
         Self {
             id,
             label: None,
             lyrics: lyrics.into(),
+            pagination: PaginationState::Draft,
         }
     }
 
-    /// A labeled section with lyrics.
+    /// A labeled section with lyrics and a draft pagination state.
     pub fn labeled(id: SectionId, label: impl Into<String>, lyrics: impl Into<String>) -> Self {
         Self {
             id,
             label: Some(label.into()),
             lyrics: lyrics.into(),
+            pagination: PaginationState::Draft,
         }
+    }
+
+    /// The same section with the pagination state given.
+    ///
+    /// Storage rehydration uses this to take a stored state exactly; forward
+    /// edits go through the review rule instead.
+    #[must_use]
+    pub fn with_pagination(mut self, pagination: PaginationState) -> Self {
+        self.pagination = pagination;
+        self
     }
 }
 
@@ -88,6 +101,7 @@ pub struct Section {
     id: SectionId,
     label: Option<String>,
     lyrics: String,
+    pagination: PaginationState,
 }
 
 impl Section {
@@ -104,6 +118,11 @@ impl Section {
     /// The lyrics exactly as authored.
     pub fn lyrics(&self) -> &str {
         &self.lyrics
+    }
+
+    /// The review state of this section's slide pagination.
+    pub fn pagination(&self) -> PaginationState {
+        self.pagination
     }
 }
 
@@ -129,8 +148,9 @@ impl Occurrence {
 /// The authored content of an Arrangement.
 ///
 /// Callers reuse this type for creation and for whole-content replacement.
-/// The owning Song, identity, Choir associations, creation time, pagination
-/// review state, and archive state are owned by [`Arrangement`] itself.
+/// The owning Song, identity, Choir associations, creation time, and archive
+/// state are owned by [`Arrangement`] itself. Each section carries its own
+/// pagination review state.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ArrangementDraft {
     /// The display title exactly as authored; `None` when there is none, in
@@ -223,13 +243,16 @@ pub struct Arrangement {
     song: SongId,
     content: ArrangementContent,
     choirs: BTreeSet<ChoirId>,
-    pagination_state: PaginationState,
     created_at: Timestamp,
     archive_state: ArchiveState,
 }
 
 impl Arrangement {
-    /// Builds a new draft-pagination Arrangement after validating its content.
+    /// Builds an Arrangement, with each section's pagination state taken as
+    /// given, after validating its content.
+    ///
+    /// Creation through the Interface normalizes every section to Draft;
+    /// hydration from storage takes the stored states.
     pub(crate) fn new(
         id: ArrangementId,
         song: SongId,
@@ -242,40 +265,33 @@ impl Arrangement {
             song,
             content: ArrangementContent::validate(id, draft)?,
             choirs: choirs.into_iter().collect(),
-            pagination_state: PaginationState::Draft,
             created_at,
             archive_state: ArchiveState::Active,
         })
     }
 
-    /// Sets the pagination and archive state of an Arrangement being rebuilt
-    /// from storage.
-    pub(crate) fn with_states(
-        mut self,
-        pagination_state: PaginationState,
-        archive_state: ArchiveState,
-    ) -> Self {
-        self.pagination_state = pagination_state;
+    /// Sets the archive state of an Arrangement being rebuilt from storage.
+    pub(crate) fn with_archive_state(mut self, archive_state: ArchiveState) -> Self {
         self.archive_state = archive_state;
         self
     }
 
-    /// Replaces the authored content and applies the pagination review rule.
+    /// Replaces the authored content and applies the pagination review rule per
+    /// section.
     ///
-    /// Adding or removing a section, changing a section's lyrics, or changing
-    /// the Sequence moves an approved Arrangement to
-    /// [`PaginationState::NeedsReview`]. Draft and already-needs-review states
-    /// stay as they are. Identity, owning Song, Choir associations, creation
-    /// time, and archive state are preserved.
+    /// A section whose identity is new starts Draft. A stored section keeps its
+    /// state unless it was Approved and its lyrics change, in which case it
+    /// becomes [`PaginationState::NeedsReview`]. Adding or removing other
+    /// sections, renaming, reordering the Lyrics list, and changing the
+    /// Sequence never move a stored section's state. Identity, owning Song,
+    /// Choir associations, creation time, and archive state are preserved.
     pub(crate) fn replace_content(
         &mut self,
         draft: ArrangementDraft,
     ) -> Result<(), SongLibraryError> {
-        let next = ArrangementContent::validate(self.id, draft)?;
-        let pagination_changed = pagination_content_changed(&self.content, &next);
-        if pagination_changed && self.pagination_state == PaginationState::Approved {
-            self.pagination_state = PaginationState::NeedsReview;
-        }
+        let previous = section_states(&self.content);
+        let mut next = ArrangementContent::validate(self.id, draft)?;
+        apply_review_rule(&mut next.sections, &previous);
         self.content = next;
         Ok(())
     }
@@ -291,19 +307,17 @@ impl Arrangement {
             .map(|_| ())
     }
 
-    /// Replaces sections, Sequence, and pagination state as given, keeping the
-    /// metadata, Choir associations, identity, creation time, and archive
-    /// state. Applies no review rule.
+    /// Replaces sections and Sequence as given, keeping the metadata, Choir
+    /// associations, identity, creation time, and archive state. Applies no
+    /// review rule: each section's pagination state is the one supplied.
     ///
     /// Nothing changes on refusal.
     pub(crate) fn replace_lyrics(
         &mut self,
         sections: Vec<SectionDraft>,
         sequence: Vec<OccurrenceDraft>,
-        pagination_state: PaginationState,
     ) -> Result<(), SongLibraryError> {
         self.content = self.lyrics_content(sections, sequence)?;
-        self.pagination_state = pagination_state;
         Ok(())
     }
 
@@ -326,19 +340,19 @@ impl Arrangement {
         ArrangementContent::validate(self.id, draft)
     }
 
-    /// Replaces the authored content, the Choir associations and the pagination
-    /// state with values that storage already holds, applying no review rule.
+    /// Replaces the authored content and the Choir associations with values
+    /// that storage already holds, applying no review rule: each section's
+    /// pagination state is the one supplied.
+    ///
     /// Nothing changes on refusal.
     pub(crate) fn refresh(
         &mut self,
         draft: ArrangementDraft,
         choirs: Vec<ChoirId>,
-        pagination_state: PaginationState,
     ) -> Result<(), SongLibraryError> {
         let next = ArrangementContent::validate(self.id, draft)?;
         self.content = next;
         self.choirs = choirs.into_iter().collect();
-        self.pagination_state = pagination_state;
         Ok(())
     }
 
@@ -378,11 +392,6 @@ impl Arrangement {
     /// Drops one Choir association; a missing association is unchanged.
     pub(crate) fn remove_choir(&mut self, choir: ChoirId) {
         self.choirs.remove(&choir);
-    }
-
-    /// Marks the current pagination as reviewed and approved.
-    pub(crate) fn approve_pagination(&mut self) {
-        self.pagination_state = PaginationState::Approved;
     }
 
     /// Archives the Arrangement; an already archived one keeps its original
@@ -439,8 +448,8 @@ impl Arrangement {
     /// [`crate::song_library::SongLibrary::edit_arrangement_lyrics`].
     ///
     /// Sections are in authored order, Sequence occurrences in performance
-    /// order, and the review state is included so an edit can commit the state
-    /// it computed.
+    /// order, and each section carries its own pagination review state so an
+    /// edit can commit the state it computed.
     pub fn lyrics(&self) -> ArrangementLyrics {
         ArrangementLyrics {
             sections: self
@@ -451,6 +460,7 @@ impl Arrangement {
                     id: section.id(),
                     label: section.label().map(str::to_owned),
                     lyrics: section.lyrics().to_owned(),
+                    pagination: section.pagination(),
                 })
                 .collect(),
             sequence: self
@@ -459,7 +469,6 @@ impl Arrangement {
                 .iter()
                 .map(|occurrence| OccurrenceDraft::new(occurrence.id(), occurrence.section()))
                 .collect(),
-            pagination: self.pagination_state,
         }
     }
 
@@ -491,11 +500,6 @@ impl Arrangement {
     /// Section placements in performance order.
     pub fn sequence(&self) -> &[Occurrence] {
         &self.content.sequence
-    }
-
-    /// The pagination review state.
-    pub fn pagination_state(&self) -> PaginationState {
-        self.pagination_state
     }
 
     /// When the Arrangement was created.
@@ -647,6 +651,7 @@ impl ArrangementContent {
                     id: section.id,
                     label: section.label,
                     lyrics: section.lyrics,
+                    pagination: section.pagination,
                 })
                 .collect(),
             sequence: draft
@@ -661,23 +666,39 @@ impl ArrangementContent {
     }
 }
 
-/// Whether an edit changed content that affects slide pagination.
-///
-/// Sections are compared by identity and lyrics rather than by position, so
-/// reordering the section list alone does not affect pagination. Labels are
-/// outside the slide content (Decision 18) and never do.
-fn pagination_content_changed(previous: &ArrangementContent, next: &ArrangementContent) -> bool {
-    if previous.sequence != next.sequence {
-        return true;
-    }
-    lyrics_by_section(previous) != lyrics_by_section(next)
-}
-
-/// The lyrics of each section keyed by identity.
-fn lyrics_by_section(content: &ArrangementContent) -> BTreeMap<SectionId, &str> {
+/// The pagination state each stored section holds, keyed by identity.
+fn section_states(content: &ArrangementContent) -> BTreeMap<SectionId, (String, PaginationState)> {
     content
         .sections
         .iter()
-        .map(|section| (section.id(), section.lyrics()))
+        .map(|section| {
+            (
+                section.id(),
+                (section.lyrics().to_owned(), section.pagination()),
+            )
+        })
         .collect()
+}
+
+/// Applies Decision 4 to replacement sections.
+///
+/// Unlike `ArrangementLyrics::reviewed_against`, which keeps the states of the
+/// editor's own content, a whole-content edit ignores caller-supplied states
+/// and uses the stored ones by id.
+///
+/// A section identity that was not stored before starts Draft. A stored
+/// section keeps its state unless it was Approved and its lyrics changed.
+fn apply_review_rule(
+    sections: &mut [Section],
+    previous: &BTreeMap<SectionId, (String, PaginationState)>,
+) {
+    for section in sections {
+        section.pagination = match previous.get(&section.id) {
+            None => PaginationState::Draft,
+            Some((lyrics, PaginationState::Approved)) if *lyrics != section.lyrics => {
+                PaginationState::NeedsReview
+            }
+            Some((_, state)) => *state,
+        };
+    }
 }

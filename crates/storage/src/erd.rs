@@ -164,7 +164,7 @@ const NOTES: &[(&str, &str, &str)] = &[
     (
         "arrangement_section",
         "Song Library",
-        "Owned by its arrangement; ordered by position; a blank line in lyrics is a slide boundary.",
+        "Owned by its arrangement; ordered by position; a blank line in lyrics is a slide boundary; pagination_state is the section's own review state (draft, approved, needs_review).",
     ),
     (
         "section_occurrence",

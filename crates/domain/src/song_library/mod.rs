@@ -6,15 +6,14 @@
 //! - A Song work needs only a primary title. Authored text is kept verbatim.
 //! - An Arrangement belongs to exactly one Song work and independently owns
 //!   its title, languages, Choir associations, rendition attribution, occasion
-//!   applicability, sections, Sequence, pagination review state, and archive
-//!   state.
+//!   applicability, reusable sections (each with its own pagination review
+//!   state), Sequence, and archive state.
 //! - Several Choirs may share one exact Arrangement, and Songs and Arrangements
 //!   stay valid with no Choir at all.
 //! - Numbered settings such as Kyrie 8th and Kyrie 13th are separate Song
 //!   works, while translated renditions retaining one composition are separate
 //!   Arrangements of the same work.
-//! - An approved pagination returns to review when content that affects slides
-//!   changes.
+//! - An approved section returns to review when its slide content changes.
 //!
 //! The module is pure. Callers pass identities from [`crate::identity`] and
 //! creation times in; it reads no clock, draws no randomness, and performs no
@@ -29,6 +28,7 @@ mod languages;
 mod model;
 mod search;
 mod sections;
+mod sequence;
 
 pub use duplicate_evidence::{
     DuplicateEvidence, IdentityEvidence, MatchStrength, MatchedOn, PossibleSong, identity_key,
@@ -47,3 +47,7 @@ pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
 pub use sections::{ArrangementLyrics, Step, section_name_suggestions};
+pub use sequence::{
+    ArrangementReadiness, Finding, FindingKind, FlatSlide, ReadinessState, flatten, position_label,
+    readiness, selection_after_replace,
+};

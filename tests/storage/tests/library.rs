@@ -213,6 +213,31 @@ fn fixture(dir: &TempDir) -> Fixture {
     }
 }
 
+/// Every section state of an Arrangement, in section order.
+fn states(record: &ArrangementRecord) -> Vec<PaginationState> {
+    record.sections.iter().map(|s| s.pagination).collect()
+}
+
+/// Commits one lyrics revision that sets every section to `state`.
+fn set_state(
+    storage: &Storage,
+    record: &ArrangementRecord,
+    state: PaginationState,
+) -> ArrangementRecord {
+    let mut content = ArrangementContent::of(record);
+    for section in &mut content.sections {
+        section.pagination = state;
+    }
+    bounded(storage.commit_arrangement_lyrics(
+        record.id,
+        content.sections,
+        content.sequence,
+        HistorySessionId::from_entity(entity_id(0xE0)),
+    ))
+    .expect("set the section states")
+    .0
+}
+
 fn library(storage: &Storage) -> LibraryRecords {
     bounded(storage.library()).expect("library")
 }
@@ -221,22 +246,14 @@ fn library(storage: &Storage) -> LibraryRecords {
 fn library_returns_everything_with_exact_states_after_restart() {
     let dir = TempDir::new("restart");
     let f = fixture(&dir);
-    assert_eq!(f.first.pagination, PaginationState::Draft);
+    assert_eq!(states(&f.first), vec![PaginationState::Draft; 2]);
 
     let archived_choir = bounded(f.storage.archive_choir(f.adult.id)).expect("archive");
     let archived_song = bounded(f.storage.archive_song(f.other_song.id)).expect("archive");
     let archived_arrangement =
         bounded(f.storage.archive_arrangement(f.second.id)).expect("archive");
-    let approved = bounded(
-        f.storage
-            .set_pagination_state(f.first.id, PaginationState::Approved),
-    )
-    .expect("approve");
-    let review = bounded(
-        f.storage
-            .set_pagination_state(f.second.id, PaginationState::NeedsReview),
-    )
-    .expect("review");
+    let approved = set_state(&f.storage, &f.first, PaginationState::Approved);
+    let review = set_state(&f.storage, &f.second, PaginationState::NeedsReview);
     assert_eq!(archived_choir.archived_at, Some(fixed_now()));
     assert_eq!(archived_song.archived_at, Some(fixed_now()));
     assert_eq!(archived_arrangement.archived_at, Some(fixed_now()));
@@ -269,13 +286,15 @@ fn library_returns_everything_with_exact_states_after_restart() {
             .expect("arrangement present")
     };
     assert_eq!(
-        arrangement(f.first.id).pagination,
-        PaginationState::Approved
+        states(arrangement(f.first.id)),
+        vec![PaginationState::Approved; 2]
     );
     assert_eq!(arrangement(f.first.id).archived_at, None);
-    assert_eq!(
-        arrangement(f.second.id).pagination,
-        PaginationState::NeedsReview
+    assert!(
+        arrangement(f.second.id)
+            .sections
+            .iter()
+            .all(|s| s.pagination == PaginationState::NeedsReview)
     );
     assert_eq!(arrangement(f.second.id).archived_at, Some(fixed_now()));
     // Arrangements carry sections, Sequence and Choirs like `arrangement()`.
@@ -404,10 +423,13 @@ fn archive_and_restore_each_kind() {
         })
     );
     assert_eq!(
-        bounded(f.storage.set_pagination_state(
+        bounded(f.storage.commit_arrangement_lyrics(
             ArrangementId::from_entity(unknown),
-            PaginationState::Approved
-        )),
+            Vec::new(),
+            Vec::new(),
+            HistorySessionId::from_entity(entity_id(0xE1)),
+        ))
+        .map(|_| ()),
         Err(StorageError::NotFound {
             kind: RecordKind::Arrangement,
             id: unknown
@@ -588,18 +610,6 @@ fn injected_write_failures_change_nothing() {
     bounded(f.storage.restore_choir(f.adult.id)).expect("restore");
     assert_eq!(library(&f.storage), before);
 
-    // set_pagination_state: one write statement.
-    bounded(f.storage.inject_write_failure(1)).expect("arm");
-    assert_eq!(
-        bounded(
-            f.storage
-                .set_pagination_state(f.first.id, PaginationState::Approved)
-        )
-        .map(|_| ()),
-        injected
-    );
-    assert_eq!(library(&f.storage), before);
-
     // edit_choir: UPDATE, DELETE, then one INSERT per language (2 here).
     let replacement = details("Changed", Some("C"), &["fil", "en"], Some("n"));
     for step in 1..=4 {
@@ -693,7 +703,9 @@ fn assert_hydrated(library: &SongLibrary, records: &LibraryRecords) {
             assert_eq!(got.id(), want.id);
             assert_eq!(got.section(), want.section);
         }
-        assert_eq!(a.pagination_state(), record.pagination);
+        for (got, want) in a.sections().iter().zip(&record.sections) {
+            assert_eq!(got.pagination(), want.pagination);
+        }
         assert_eq!(a.created_at(), record.created_at);
         assert_eq!(a.archive_state(), archive_of(record.archived_at));
     }
@@ -706,11 +718,7 @@ fn a_mixed_library_hydrates_to_exactly_what_was_written() {
     bounded(f.storage.archive_choir(f.adult.id)).expect("archive choir");
     bounded(f.storage.archive_song(f.other_song.id)).expect("archive song");
     bounded(f.storage.archive_arrangement(f.second.id)).expect("archive arrangement");
-    bounded(
-        f.storage
-            .set_pagination_state(f.first.id, PaginationState::Approved),
-    )
-    .expect("approve");
+    set_state(&f.storage, &f.first, PaginationState::Approved);
     shutdown(f.storage);
 
     let storage = open(&dir);
@@ -736,6 +744,7 @@ fn draft_of(record: &ArrangementRecord) -> ArrangementDraft {
                 id: s.id,
                 label: s.label.clone(),
                 lyrics: s.lyrics.clone(),
+                pagination: s.pagination,
             })
             .collect(),
         sequence: record
@@ -763,7 +772,6 @@ fn identities_edited_away_stay_reserved_after_a_restart() {
     bounded(f.storage.commit_arrangement_edit(
         f.first.id,
         content,
-        PaginationState::NeedsReview,
         RevisionKind::Edit,
         Some(HistorySessionId::from_entity(entity_id(7))),
         head,
@@ -857,6 +865,9 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
     let creation = bounded(f.storage.latest_revision(entity)).expect("head");
     let mut content = ArrangementContent::of(&f.first);
     content.title = Some("Edited".to_owned());
+    for section in &mut content.sections {
+        section.pagination = PaginationState::Approved;
+    }
     let injected = StorageError::Sqlite("injected write failure".to_owned());
 
     // Commit: every injected failure leaves content, history and pagination alone.
@@ -868,7 +879,6 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
         match bounded(f.storage.commit_arrangement_edit(
             f.first.id,
             content.clone(),
-            PaginationState::Approved,
             RevisionKind::Edit,
             Some(HistorySessionId::from_entity(entity_id(7))),
             creation,
@@ -886,7 +896,7 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
         }
     };
     assert!(step > 2, "the commit has several write steps");
-    assert_eq!(committed.0.pagination, PaginationState::Approved);
+    assert_eq!(states(&committed.0), vec![PaginationState::Approved; 2]);
     assert_eq!(committed.0.title.as_deref(), Some("Edited"));
 
     // Restore the creation revision: same guarantee.
@@ -895,11 +905,7 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
     let mut step = 1;
     let restored = loop {
         bounded(f.storage.inject_write_failure(step)).expect("arm");
-        match bounded(f.storage.restore_revision(
-            creation,
-            committed.1.id,
-            PaginationState::NeedsReview,
-        )) {
+        match bounded(f.storage.restore_revision(creation, committed.1.id)) {
             Err(error) => {
                 assert_eq!(error, injected);
                 assert_eq!(library(&f.storage), before, "after failure at {step}");
@@ -914,7 +920,7 @@ fn an_arrangement_edit_and_restore_write_pagination_in_the_same_transaction() {
     };
     assert!(step > 2);
     let after = bounded(f.storage.arrangement(f.first.id)).expect("read");
-    assert_eq!(after.pagination, PaginationState::NeedsReview);
+    assert_eq!(states(&after), states(&f.first));
     assert_eq!(after.title, f.first.title);
     assert_ne!(restored.1.id, committed.1.id);
     shutdown(f.storage);
@@ -1118,10 +1124,10 @@ fn v4_database_with_t2_1_data_upgrades_to_v5() {
         }
     }
 
-    // Opening migrates 4 -> 6 and the legacy rows read back with defaults.
+    // Opening migrates 4 -> 7 and the legacy rows read back with defaults.
     let storage = Storage::spawn(config(&dir.db()));
     let status = bounded(storage.ready()).expect("ready");
-    assert_eq!(status.version, 6);
+    assert_eq!(status.version, 7);
     let all = library(&storage);
     assert_eq!(all.choirs.len(), 1);
     assert_eq!(all.choirs[0].name, "Legacy Choir");
@@ -1132,7 +1138,10 @@ fn v4_database_with_t2_1_data_upgrades_to_v5() {
     assert_eq!(all.songs.len(), 1);
     assert_eq!(all.songs[0].title, "Legacy");
     assert_eq!(all.arrangements.len(), 1);
-    assert_eq!(all.arrangements[0].pagination, PaginationState::Draft);
+    assert_eq!(
+        states(&all.arrangements[0]),
+        vec![PaginationState::Draft; 2]
+    );
     assert_eq!(all.arrangements[0].choirs, vec![choir]);
     assert_eq!(all.arrangements[0].sections.len(), 2);
 
@@ -1143,8 +1152,7 @@ fn v4_database_with_t2_1_data_upgrades_to_v5() {
     ))
     .expect("edit");
     assert_eq!(edited.languages, vec!["en".to_owned()]);
-    let approved = bounded(storage.set_pagination_state(arrangement, PaginationState::Approved))
-        .expect("approve");
-    assert_eq!(approved.pagination, PaginationState::Approved);
+    let approved = set_state(&storage, &all.arrangements[0], PaginationState::Approved);
+    assert_eq!(states(&approved), vec![PaginationState::Approved; 2]);
     shutdown(storage);
 }

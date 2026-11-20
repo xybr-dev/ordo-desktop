@@ -12,8 +12,7 @@ use std::fmt;
 use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
 
 use super::super::model::{
-    ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, PaginationState, SongDraft,
-    SongWork,
+    ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, SongDraft, SongWork,
 };
 use super::{RecordRef, SongLibrary, SongLibraryError, text};
 
@@ -39,12 +38,11 @@ pub struct HydrateArrangement {
     pub song: SongId,
     /// The stored creation time.
     pub created_at: Timestamp,
-    /// The stored authored content, including section and occurrence identities.
+    /// The stored authored content, including section and occurrence
+    /// identities and each section's pagination state.
     pub draft: ArrangementDraft,
     /// The Choirs that perform it.
     pub choirs: Vec<ChoirId>,
-    /// The stored pagination review state.
-    pub pagination_state: PaginationState,
     /// The stored archive state.
     pub archive_state: ArchiveState,
 }
@@ -206,7 +204,7 @@ impl SongLibrary {
             stored.choirs,
         )
         .map_err(breach)?
-        .with_states(stored.pagination_state, stored.archive_state);
+        .with_archive_state(stored.archive_state);
         self.section_ids
             .extend(arrangement.sections().iter().map(|s| (s.id(), id)));
         self.occurrence_ids
