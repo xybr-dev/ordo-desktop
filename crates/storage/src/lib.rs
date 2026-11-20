@@ -71,29 +71,33 @@ use std::time::Duration;
 mod assets;
 #[cfg(test)]
 mod erd;
+mod lifecycle;
 mod migrations;
 #[cfg(test)]
 mod parish_schema_tests;
 mod parish_store;
 mod revisions;
+mod song_references;
 mod worker;
 
 use domain::identity::{
     ArrangementId, ChoirId, EntityId, HistorySessionId, ManagedAssetId, RevisionId, SongId, ThemeId,
 };
 use domain::revisions::{RevisionEntity, RevisionKind};
+use domain::song_library::DurableReference;
 use migrations::Migration;
 use worker::{Core, Exit, Message, Sources};
 
 pub use domain::presentation::ContentHash;
+pub use lifecycle::{Deleted, DeletionFacts};
 pub use parish_store::{
     ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
     ManagedAssetRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme,
     OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
-    ArrangementContent, ArrangementMetadata, OccurrenceContent, RevisionContent, RevisionRecord,
-    SectionContent, SongContent,
+    ArrangementContent, ArrangementMetadata, HistoryRevision, OccurrenceContent, RevisionContent,
+    RevisionRecord, SectionContent, SongContent,
 };
 
 /// Where the database, managed assets and disposable cache live, and how long
@@ -246,6 +250,15 @@ pub enum StorageError {
     RevisionIntegrity { id: RevisionId },
     /// The edit was based on a revision that is no longer the entity's latest.
     StaleRevision { entity_latest: RevisionId },
+    /// Permanent deletion is still refused: durable records name the target,
+    /// the Song still owns Arrangements, or both. Re-checked inside the
+    /// deleting transaction.
+    DeletionBlocked {
+        /// Durable records that still name the target.
+        references: Vec<DurableReference>,
+        /// Arrangements the Song still owns.
+        children: Vec<ArrangementId>,
+    },
 }
 
 impl fmt::Display for StorageError {
@@ -293,6 +306,17 @@ impl fmt::Display for StorageError {
             }
             Self::StaleRevision { .. } => {
                 write!(f, "the entity changed since this edit was based on it")
+            }
+            Self::DeletionBlocked {
+                references,
+                children,
+            } => {
+                write!(
+                    f,
+                    "permanent deletion is blocked by {} reference(s) and {} arrangement(s)",
+                    references.len(),
+                    children.len()
+                )
             }
         }
     }
@@ -405,7 +429,7 @@ impl Storage {
     /// Archives a Choir, stamping `archived_at` with the worker clock.
     ///
     /// `AlreadyArchived` when it already is. Archive never cascades and
-    /// appends no revision (archive History is T2.9).
+    /// appends no revision or History row: it changes visibility, not content.
     pub fn archive_choir(
         &self,
         id: ChoirId,
@@ -428,7 +452,8 @@ impl Storage {
     /// Archives a Song work, stamping `archived_at` with the worker clock.
     ///
     /// `AlreadyArchived` when it already is. Its Arrangements are untouched
-    /// and no revision is appended (archive History is T2.9).
+    /// and no revision or History row is appended: archiving changes
+    /// visibility, not content.
     pub fn archive_song(
         &self,
         id: SongId,
@@ -450,8 +475,8 @@ impl Storage {
 
     /// Archives an Arrangement, stamping `archived_at` with the worker clock.
     ///
-    /// `AlreadyArchived` when it already is. No revision is appended
-    /// (archive History is T2.9).
+    /// `AlreadyArchived` when it already is. No revision or History row is
+    /// appended: archiving changes visibility, not content.
     pub fn archive_arrangement(
         &self,
         id: ArrangementId,
@@ -583,8 +608,12 @@ impl Storage {
     /// `InvalidInput { field: "expected_parent" }` (call
     /// [`Storage::latest_revision`] first).
     ///
-    /// An Arrangement restore brings back each section's pagination state
-    /// from the revision (formats 1 and 2 predate it and restore as Draft).
+    /// An Arrangement restore brings back each section's pagination state from
+    /// the revision. Formats 1 and 2 recorded none: each restored section takes
+    /// the current section's state, an Approved section whose words differ
+    /// returns to NeedsReview, and an identity the current Arrangement no
+    /// longer has stays Draft (Decision 5). The current rows are read in the
+    /// restoring transaction, and the returned content is what was written.
     pub fn restore_revision(
         &self,
         revision: RevisionId,
@@ -613,6 +642,33 @@ impl Storage {
     ) -> impl Future<Output = Result<Vec<RevisionRecord>, StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
             core.revisions(entity)
+        })
+    }
+
+    /// An entity's revisions with every document's verified content, oldest
+    /// first; empty when it has none.
+    ///
+    /// Each revision is read through the same strict, hash-checked path as a
+    /// restore, in one read transaction. `pagination_recorded` is false for a
+    /// format 1 or 2 Arrangement document (it never recorded section states);
+    /// it is always true for a Song.
+    pub fn history(
+        &self,
+        entity: RevisionEntity,
+    ) -> impl Future<Output = Result<Vec<HistoryRevision>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.history(entity)
+        })
+    }
+
+    /// The Song or Arrangement a revision belongs to; the revision is verified
+    /// first, as a restore would.
+    pub fn revision_entity(
+        &self,
+        revision: RevisionId,
+    ) -> impl Future<Output = Result<RevisionEntity, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.revision_entity(revision)
         })
     }
 

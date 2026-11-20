@@ -8,7 +8,10 @@
 
 use domain::identity::{ChoirId, OccurrenceId, RevisionId, SectionId};
 use domain::presentation::ContentHash;
-use domain::song_library::PaginationState;
+use domain::song_library::{
+    ArrangementDetails, ArrangementLyrics, OccurrenceDraft, PaginationState, SectionDraft,
+    SongDraft,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::StorageError;
@@ -132,6 +135,19 @@ impl SongContent {
             occasions: record.occasions.clone(),
         }
     }
+
+    /// The Song draft this revision restored, ready for the domain.
+    pub fn draft(&self) -> SongDraft {
+        SongDraft {
+            title: self.title.clone(),
+            aliases: self.aliases.clone(),
+            original_attribution: self.original_attribution.clone(),
+            provenance: self.provenance.clone(),
+            rights_notes: self.rights_notes.clone(),
+            liturgical_moments: self.liturgical_moments.clone(),
+            occasions: self.occasions.clone(),
+        }
+    }
 }
 
 impl ArrangementContent {
@@ -163,6 +179,62 @@ impl ArrangementContent {
                 })
                 .collect(),
         }
+    }
+
+    /// The Arrangement metadata this revision restores.
+    pub fn details(&self) -> ArrangementDetails {
+        ArrangementDetails {
+            title: self.title.clone(),
+            languages: self.languages.clone(),
+            choirs: self.choirs.clone(),
+            rendition_attribution: self.rendition_attribution.clone(),
+            occasions: self.occasions.clone(),
+            notes: self.notes.clone(),
+        }
+    }
+
+    /// The sections, Sequence and pagination states this revision restores.
+    pub fn lyrics(&self) -> ArrangementLyrics {
+        ArrangementLyrics {
+            sections: self
+                .sections
+                .iter()
+                .map(|section| SectionDraft {
+                    id: section.id,
+                    label: section.label.clone(),
+                    lyrics: section.lyrics.clone(),
+                    pagination: section.pagination,
+                })
+                .collect(),
+            sequence: self
+                .sequence
+                .iter()
+                .map(|occurrence| OccurrenceDraft::new(occurrence.id, occurrence.section))
+                .collect(),
+        }
+    }
+
+    /// Replaces the sections and Sequence with a domain working copy, as a
+    /// legacy restore does after carrying review states (Decision 5).
+    pub(crate) fn replace_lyrics(&mut self, lyrics: &ArrangementLyrics) {
+        self.sections = lyrics
+            .sections
+            .iter()
+            .map(|section| SectionContent {
+                id: section.id,
+                label: section.label.clone(),
+                lyrics: section.lyrics.clone(),
+                pagination: section.pagination,
+            })
+            .collect();
+        self.sequence = lyrics
+            .sequence
+            .iter()
+            .map(|occurrence| OccurrenceContent {
+                id: occurrence.id,
+                section: occurrence.section,
+            })
+            .collect();
     }
 }
 
@@ -306,6 +378,12 @@ impl DecodedArrangement {
     /// True for the format this build writes.
     pub(crate) fn current(&self) -> bool {
         self.format == ARRANGEMENT_FORMAT
+    }
+
+    /// True when the format records per-section approval states (3 and any
+    /// later format).
+    pub(crate) fn records_states(&self) -> bool {
+        self.format >= ARRANGEMENT_FORMAT
     }
 }
 

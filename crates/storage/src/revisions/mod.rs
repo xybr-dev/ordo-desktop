@@ -40,3 +40,15 @@ pub struct RevisionRecord {
     /// When the revision was committed.
     pub created_at: Timestamp,
 }
+
+/// One revision with its verified content, oldest first.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HistoryRevision {
+    /// The stored revision metadata.
+    pub record: RevisionRecord,
+    /// The verified, decoded content.
+    pub content: RevisionContent,
+    /// Whether the document recorded per-section pagination states (format 3
+    /// or later for an Arrangement; always true for a Song).
+    pub pagination_recorded: bool,
+}

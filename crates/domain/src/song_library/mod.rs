@@ -25,7 +25,10 @@
 mod duplicate_evidence;
 mod interface;
 mod languages;
+mod lifecycle;
 mod model;
+mod reference_safety;
+mod revision_changes;
 mod search;
 mod sections;
 mod sequence;
@@ -34,19 +37,30 @@ pub use duplicate_evidence::{
     DuplicateEvidence, IdentityEvidence, MatchStrength, MatchedOn, PossibleSong, identity_key,
 };
 pub use interface::{
-    ArrangementVisibility, DeletionBlocker, DeletionVerdict, DurableReference, Field,
-    HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError, RecordRef,
-    SongLibrary, SongLibraryError, StatusFilter, match_key,
+    ArrangementVisibility, Field, HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong,
+    HydrationError, RecordRef, SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
 pub use languages::{Language, LanguageMatch, find_language, is_listed, languages};
+pub use lifecycle::{
+    AfterArchive, LifecycleAction, arrangement_lifecycle_actions, can_restore_arrangement_revision,
+    can_restore_song_revision, selection_after_archive, song_lifecycle_actions,
+};
 pub use model::{
     ArchiveState, Arrangement, ArrangementDetails, ArrangementDraft, Choir, ChoirDraft, Occurrence,
     OccurrenceDraft, PaginationState, Section, SectionDraft, SongDraft, SongWork,
 };
+pub use reference_safety::{
+    BlockerGroup, DeletionBlocker, DeletionVerdict, DurableReference, blocker_groups,
+};
+pub use revision_changes::{
+    ArrangementChange, ArrangementComparison, ArrangementState, LineMark, OverviewMarks,
+    SectionMarks, SessionTopic, SongField, arrangement_change, compare_arrangements, session_topic,
+    song_changed_fields,
+};
 pub use search::{
     AttributionField, Evidence, FilterValue, LibraryQuery, SongHit, search, search_key,
 };
-pub use sections::{ArrangementLyrics, Step, section_name_suggestions};
+pub use sections::{ArrangementLyrics, Step, carry_review_states, section_name_suggestions};
 pub use sequence::{
     ArrangementReadiness, Finding, FindingKind, FlatSlide, ReadinessState, flatten, position_label,
     readiness, selection_after_replace,
