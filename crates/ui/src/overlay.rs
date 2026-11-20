@@ -845,6 +845,18 @@ impl OverlayHost {
             .map(|entry| entry.overlay.title.clone())
     }
 
+    /// The description line of the topmost open surface, so a test can read
+    /// the copy an operator is shown rather than the function that built it.
+    pub fn top_description(&self, cx: &App) -> Option<SharedString> {
+        self.0
+            .read(cx)
+            .entries
+            .iter()
+            .rev()
+            .find(|entry| !entry.closing)
+            .and_then(|entry| entry.overlay.description.clone())
+    }
+
     pub fn close_top(&self, window: &mut Window, cx: &mut App) {
         let top = self
             .0

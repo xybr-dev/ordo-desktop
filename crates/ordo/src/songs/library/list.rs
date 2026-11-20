@@ -94,6 +94,7 @@ fn new_song_button(
     id: &'static str,
     label: &'static str,
     ready: bool,
+    focus: Option<&gpui::FocusHandle>,
     environment: UiEnvironment,
     cx: &Context<SongsWorkspace>,
 ) -> Button {
@@ -103,6 +104,10 @@ fn new_song_button(
         .on_activate(SongsWorkspace::act(cx, |workspace, window, cx| {
             workspace.open_new_song(window, cx);
         }));
+    let button = match focus {
+        Some(handle) => button.track_focus(handle),
+        None => button,
+    };
     if ready {
         button
     } else {
@@ -147,6 +152,7 @@ pub(super) fn render(
                     "songs-new-button",
                     "New song",
                     matches!(state, LibraryState::Ready),
+                    None,
                     environment,
                     cx,
                 )
@@ -194,7 +200,7 @@ fn ready(
 ) -> AnyElement {
     let library = store.read(cx).library();
     if library.songs().next().is_none() {
-        return empty_library(environment, cx).into_any_element();
+        return empty_library(&workspace.empty_focus, environment, cx).into_any_element();
     }
     let bar = filters::bar(workspace, environment, cx);
     let library = store.read(cx).library();
@@ -214,6 +220,7 @@ fn ready(
                         "Include archived",
                         environment,
                     )
+                    .track_focus(&workspace.empty_focus)
                     .on_activate(SongsWorkspace::act(cx, |workspace, _, cx| {
                         workspace.set_include_archived(true, cx);
                     }))
@@ -252,7 +259,11 @@ fn ready(
 }
 
 /// The empty library, in the same two-pane workspace.
-fn empty_library(environment: UiEnvironment, cx: &Context<SongsWorkspace>) -> Div {
+fn empty_library(
+    focus: &gpui::FocusHandle,
+    environment: UiEnvironment,
+    cx: &Context<SongsWorkspace>,
+) -> Div {
     notice(
         "songs-empty",
         "No songs yet",
@@ -264,6 +275,7 @@ fn empty_library(environment: UiEnvironment, cx: &Context<SongsWorkspace>) -> Di
                     "songs-create-button",
                     "Create song",
                     true,
+                    Some(focus),
                     environment,
                     cx,
                 ))
@@ -315,6 +327,7 @@ fn no_match(
                 "Clear search and filters",
                 environment,
             )
+            .track_focus(&workspace.empty_focus)
             .on_activate(SongsWorkspace::act(cx, |workspace, window, cx| {
                 workspace.clear_search_and_filters(window, cx);
             }))
@@ -354,11 +367,19 @@ fn rows(
                 .selected(workspace.selected == Some(id))
                 .on_surface(palette.background)
                 .on_activate(SongsWorkspace::act(cx, move |workspace, _, cx| {
+                    // A row chosen by hand ends the focus the last archive or
+                    // deletion arranged.
+                    workspace.focus_song = None;
                     workspace.select(id, cx);
                 }));
             let row = match evidence_line(hit) {
                 Some(line) => row.detail(line),
                 None => row,
+            };
+            let row = if workspace.focus_song == Some(id) {
+                row.track_focus(&workspace.row_focus)
+            } else {
+                row
             };
             div()
                 .debug_selector(move || format!("songs-row-{at}"))

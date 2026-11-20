@@ -1079,8 +1079,8 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     known.push(("Back to Songs", back));
     known.push(("Arrangement details", details));
     known.push(("History", history));
-    // The real header order is Back, Arrangement details, History, then the
-    // task tabs; each Tab moves one control.
+    // The real header order is Back, Arrangement details, History, the
+    // Arrangement actions menu, then the task tabs; each Tab moves one control.
     assert_eq!(focus(&known, vcx), Owner::Named("Back to Songs"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
@@ -1094,6 +1094,9 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
         focus(&known, vcx),
         Owner::Region("Workspace actions".into())
     );
+    learn(&mut known, "Arrangement actions", vcx);
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
     learn(&mut known, "Lyrics tab", vcx);
     vcx.simulate_keystrokes("right");
     settle(vcx);
@@ -1195,6 +1198,9 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     assert_eq!(focus(&known, vcx), Owner::Named("History"));
+    vcx.simulate_keystrokes("tab");
+    settle(vcx);
+    assert_eq!(focus(&known, vcx), Owner::Named("Arrangement actions"));
     vcx.simulate_keystrokes("tab");
     settle(vcx);
     vcx.simulate_keystrokes("left");
@@ -1468,4 +1474,323 @@ fn t2_8_e2e_build_repeat_edit_once_reorder_delete_undo_then_reload(cx: &mut Test
 
 fn area_value_after_reload(content: &domain::song_library::ArrangementLyrics) -> String {
     content.sections[1].lyrics.clone()
+}
+
+#[gpui::test]
+fn t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_delete(
+    cx: &mut TestAppContext,
+) {
+    use super::{
+        lyrics::tests::{dialog, open_editor, saved, toasts, type_into_area},
+        new_song::tests::{parish, settle, songs_of, stop},
+    };
+    use crate::songs::choirs::tests::wait;
+    use domain::{
+        revisions::{RevisionEntity, RevisionKind},
+        song_library::{DurableReference, RecordRef},
+    };
+
+    const FIRST: &str = "Ave Maria, gratia plena";
+    const SECOND: &str = "Ave Maria, Dominus tecum";
+
+    let (dir, slot, store, ids) = parish(cx, "t29-e2e");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let song = ids.exact;
+    let id = store.read_with(vcx, |store, _| {
+        store.library().arrangements_for_song(song).expect("song")[0].id()
+    });
+    let label = store.read_with(vcx, |store, _| {
+        store.library().arrangement_label(id).expect("label")
+    });
+    let history = |vcx: &mut VisualTestContext, slot: &super::StorageSlot, entity| {
+        let future = slot
+            .with(|storage| storage.history(entity))
+            .expect("storage is open");
+        vcx.foreground_executor().block_test(future)
+    };
+    let wait_toast =
+        |vcx: &mut VisualTestContext, shell: &Entity<crate::shell::ShellView>, text: &str| {
+            wait(vcx, |vcx| {
+                toasts(shell, vcx).iter().any(|toast| toast == text)
+            });
+            settle(vcx);
+        };
+    let wait_reviewed = |vcx: &mut VisualTestContext, shell: &Entity<crate::shell::ShellView>| {
+        // The loading line plays its exit on the executor clock.
+        wait(vcx, |vcx| {
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(500));
+            dialog(shell, vcx).is_some() && !present(vcx, "lifecycle-checking")
+        });
+        settle(vcx);
+    };
+    let archived = |vcx: &mut VisualTestContext| {
+        store.read_with(vcx, |store, _| {
+            store
+                .library()
+                .arrangement(id)
+                .expect("arrangement")
+                .is_archived()
+        })
+    };
+    let overflow = |vcx: &mut VisualTestContext, at: &'static str| {
+        click(vcx, "button-More Arrangement actions");
+        click(vcx, at);
+    };
+
+    // 1-2. Two editing sessions: open, edit, wait for Saved, go Back, repeat.
+    for text in [FIRST, SECOND] {
+        // Real keystrokes in the Lyrics editor, as the owner types. The seeded
+        // Arrangement has one section, Verse 1, so that is the one edited.
+        let editor = open_editor(&shell, id, vcx);
+        type_into_area(&editor, text, vcx);
+        saved(&editor, vcx);
+        click(vcx, "button-Back to Songs");
+        wait(vcx, |vcx| {
+            shell.read_with(vcx, |shell, _| shell.arrangement_editor().is_none())
+        });
+        settle(vcx);
+    }
+    let stored = history(vcx, &slot, RevisionEntity::Arrangement(id)).expect("history");
+    assert_eq!(stored.len(), 3, "created, then one edit per session");
+    assert_eq!(stored[0].record.kind, RevisionKind::Creation);
+    assert_eq!(stored[1].record.kind, RevisionKind::Edit);
+    assert_eq!(stored[2].record.kind, RevisionKind::Edit);
+    assert_ne!(
+        stored[1].record.session, stored[2].record.session,
+        "two History sessions"
+    );
+
+    // 3. History lists the three sessions, newest first.
+    open_editor(&shell, id, vcx);
+    click(vcx, "button-History");
+    wait(vcx, |vcx| {
+        dialog(&shell, vcx).as_deref() == Some("History") && present(vcx, "history-session-0")
+    });
+    settle(vcx);
+    for at in [
+        "history-session-0",
+        "history-session-1",
+        "history-session-2",
+    ] {
+        assert!(present(vcx, at), "{at}");
+    }
+    assert!(!present(vcx, "history-session-3"));
+
+    // 4. The older session's revision opens the read-only comparison.
+    click(vcx, "history-session-1");
+    click(vcx, "history-revision-1-0");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Compare revision"));
+    for at in ["tab-0", "tab-1", "tab-2", "tab-3"] {
+        assert!(present(vcx, at), "{at}");
+    }
+    assert!(!present(vcx, "tab-4"));
+    click(vcx, "tab-1");
+    assert!(present(vcx, "compare-current-line-0-0-changed"));
+    assert!(present(vcx, "compare-revision-line-0-0-changed"));
+    assert!(present(vcx, "button-Back to History"));
+    assert!(present(vcx, "button-Restore this revision"));
+
+    // 5. Restore the entire Arrangement: one later restoration revision.
+    click(vcx, "button-Restore this revision");
+    settle(vcx);
+    click(vcx, "button-Restore entire Arrangement");
+    wait(vcx, |vcx| {
+        history(vcx, &slot, RevisionEntity::Arrangement(id)).is_ok_and(|now| now.len() == 4)
+    });
+    let restored = history(vcx, &slot, RevisionEntity::Arrangement(id)).expect("history");
+    let head = restored.last().expect("head");
+    assert_eq!(head.record.kind, RevisionKind::Restoration);
+    assert_eq!(head.record.restored_from, Some(stored[1].record.id));
+    assert_eq!(head.content, stored[1].content);
+    for (before, now) in stored.iter().zip(&restored) {
+        assert_eq!(before.record.id, now.record.id, "earlier revisions stand");
+        assert_eq!(before.content, now.content);
+    }
+    wait(vcx, |vcx| {
+        toasts(&shell, vcx).iter().any(|toast| {
+            toast.starts_with("Restored the revision from ")
+                && toast.ends_with(". Every earlier revision is still in History.")
+        })
+    });
+    wait(vcx, |vcx| dialog(&shell, vcx).is_none());
+    settle(vcx);
+    let editor = shell.read_with(vcx, |shell, _| {
+        shell.arrangement_editor().expect("editor").clone()
+    });
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor
+            .content(cx)
+            .expect("content")
+            .sections[0]
+            .lyrics
+            .clone()),
+        FIRST,
+        "the rebuilt editor shows the restored Chorus text"
+    );
+
+    // 6. Archive the Arrangement from its overflow.
+    overflow(vcx, "choice-0");
+    assert_eq!(
+        dialog(&shell, vcx).as_deref().map(|t| t.is_empty()),
+        Some(false)
+    );
+    click(vcx, "button-Archive");
+    wait(vcx, |vcx| archived(vcx));
+    wait(vcx, |vcx| dialog(&shell, vcx).is_none());
+    settle(vcx);
+    assert!(
+        shell.read_with(vcx, |shell, _| shell.editing().is_none()),
+        "back on the Song"
+    );
+    wait_toast(
+        vcx,
+        &shell,
+        &format!("Archived {label}. Mass plans that use it keep it."),
+    );
+    assert!(present(vcx, "button-Undo"), "archive offers Undo");
+
+    // 7. Include archived, Inspect, restore from the banner, archive again.
+    let songs = songs_of(&shell, vcx);
+    songs.update(vcx, |songs, cx| {
+        songs.set_include_archived(true, cx);
+        songs.select(song, cx);
+    });
+    settle(vcx);
+    let at = store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangements_for_song(song)
+            .expect("song")
+            .iter()
+            .position(|arrangement| arrangement.id() == id)
+            .expect("listed")
+    });
+    let inspect: &'static str = Box::leak(format!("arrangement-open-{at}").into_boxed_str());
+    click(vcx, inspect);
+    settle(vcx);
+    assert!(present(vcx, "arrangement-archived-notice"));
+    click(vcx, "button-Restore");
+    wait(vcx, |vcx| !archived(vcx));
+    wait_toast(vcx, &shell, &format!("Restored {label}."));
+    overflow(vcx, "choice-0");
+    click(vcx, "button-Archive");
+    wait(vcx, |vcx| archived(vcx));
+    wait(vcx, |vcx| dialog(&shell, vcx).is_none());
+    settle(vcx);
+
+    // 8. A Mass plan reference blocks the deletion.
+    shell.update(vcx, |shell, cx| shell.open_arrangement(id, cx));
+    settle(vcx);
+    let target = RecordRef::Arrangement(id);
+    let reference =
+        DurableReference::MassPlan(domain::identity::EntityId::from_random_bytes([0x5a; 16]));
+    let planted = slot
+        .with(|storage| storage.plant_reference(target, reference.clone()))
+        .expect("storage is open");
+    vcx.foreground_executor()
+        .block_test(planted)
+        .expect("planted");
+    overflow(vcx, "choice-1");
+    wait_reviewed(vcx, &shell);
+    assert_eq!(
+        dialog(&shell, vcx),
+        Some(format!("Delete {label} permanently?"))
+    );
+    assert!(present(vcx, "lifecycle-group-Mass plans"));
+    assert!(!present(vcx, "button-Delete permanently"));
+    click(vcx, "button-Close");
+    wait(vcx, |vcx| dialog(&shell, vcx).is_none());
+    settle(vcx);
+    assert!(store.read_with(vcx, |store, _| store.library().arrangement(id).is_ok()));
+
+    // 9. Without the reference the dialog says what it erases.
+    let removed = slot
+        .with(|storage| storage.remove_reference(target, reference))
+        .expect("storage is open");
+    vcx.foreground_executor()
+        .block_test(removed)
+        .expect("removed");
+    let revisions = history(vcx, &slot, RevisionEntity::Arrangement(id))
+        .expect("history")
+        .len();
+    let sections = store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangement(id)
+            .expect("arrangement")
+            .lyrics()
+            .sections
+            .len()
+    });
+    assert_eq!(sections, 1, "the seeded Arrangement has only Verse 1");
+    overflow(vcx, "choice-1");
+    wait_reviewed(vcx, &shell);
+    assert_eq!(
+        dialog(&shell, vcx),
+        Some(format!("Delete {label} permanently?"))
+    );
+    assert!(!present(vcx, "lifecycle-blockers"));
+    assert!(present(vcx, "button-Cancel"));
+    // The copy the operator reads in the dialog, not the function behind it.
+    let said = shell.read_with(vcx, |shell, cx| {
+        shell
+            .overlays()
+            .top_description(cx)
+            .map(|text| text.to_string())
+    });
+    assert_eq!(
+        said,
+        Some(format!(
+            "This erases {label}, its 1 section, its Sequence and all {revisions} revisions of its History. This can\u{2019}t be undone."
+        ))
+    );
+    // Earlier toasts time out, so the deletion's is the only one left.
+    vcx.executor()
+        .advance_clock(std::time::Duration::from_secs(30));
+    settle(vcx);
+    click(vcx, "button-Delete permanently");
+    wait_toast(vcx, &shell, &format!("Deleted {label} permanently."));
+
+    // 10. Gone for good: no Undo, no Arrangement, no revisions; the Song stays.
+    assert!(!present(vcx, "button-Undo"));
+    assert!(store.read_with(vcx, |store, _| store.library().arrangement(id).is_err()));
+    assert!(store.read_with(vcx, |store, _| store.library().song(song).is_ok()));
+    assert!(
+        history(vcx, &slot, RevisionEntity::Arrangement(id)).is_ok_and(|rows| rows.is_empty()),
+        "its revisions are gone"
+    );
+    assert!(
+        !history(vcx, &slot, RevisionEntity::Song(song))
+            .expect("song history")
+            .is_empty()
+    );
+    stop(vcx, &slot);
+
+    // The same after reopening the parish from disk.
+    let (slot, store) = open_parish(cx, &dir);
+    assert!(store.read_with(cx, |store, _| store.library().arrangement(id).is_err()));
+    assert!(store.read_with(cx, |store, _| store.library().song(song).is_ok()));
+    let future = slot
+        .with(|storage| storage.history(RevisionEntity::Arrangement(id)))
+        .expect("storage is open");
+    assert!(
+        cx.foreground_executor()
+            .block_test(future)
+            .is_ok_and(|rows| rows.is_empty()),
+        "its revisions are still gone"
+    );
+    let future = slot
+        .with(|storage| storage.history(RevisionEntity::Song(song)))
+        .expect("storage is open");
+    assert!(
+        !cx.foreground_executor()
+            .block_test(future)
+            .expect("song history")
+            .is_empty()
+    );
+    let outcome = cx.foreground_executor().block_test(slot.shutdown());
+    assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
+    let _ = std::fs::remove_dir_all(&dir);
 }

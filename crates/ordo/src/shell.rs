@@ -26,7 +26,10 @@ pub mod rail;
 
 use std::{mem, rc::Rc, time::Instant};
 
-use domain::{identity::ArrangementId, song_library::SongLibrary};
+use domain::{
+    identity::ArrangementId,
+    song_library::{LifecycleAction, SongLibrary, arrangement_lifecycle_actions},
+};
 use fixtures::rows;
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
@@ -46,6 +49,10 @@ use crate::{
     songs::{
         ArrangementDetailsPanel, ChoirsWorkspace, LibraryStore, SongsWorkspace,
         arrangement_details,
+        lifecycle::{
+            self, AfterLifecycle, LifecycleOutcome, LifecycleTarget, confirm_archive, restore,
+            review_deletion,
+        },
         lyrics::{ArrangementEditor, TaskTab},
     },
 };
@@ -597,15 +604,20 @@ impl ShellView {
     /// Drops the editor (and its session) and returns to the screen the
     /// operator left.
     fn close_editor(&mut self, cx: &mut Context<Self>) {
-        self.editing = None;
-        self.editing_arrangement = None;
-        self.arrangement_editor = None;
-        self._editor_observer = None;
+        self.drop_editor();
         // The invoker unmounts with this screen, so the region hands back its
         // remembered target or its first tab stop, the Open control the
         // operator left from.
         self.registry.focus_region(MAIN_EDITOR);
         cx.notify();
+    }
+
+    /// Drops the editor and its session without choosing where focus goes.
+    fn drop_editor(&mut self) {
+        self.editing = None;
+        self.editing_arrangement = None;
+        self.arrangement_editor = None;
+        self._editor_observer = None;
     }
 
     /// Runs `then` once leaving the open Arrangement editor is safe.
@@ -810,6 +822,105 @@ impl ShellView {
             window,
             cx,
         );
+    }
+
+    /// Runs a lifecycle action on the open Arrangement (or, from the banner of
+    /// an Arrangement an archived Song suppresses, on that Song).
+    ///
+    /// Pending lyric text is flushed through the edit session first, and a
+    /// failed flush stops the action. Afterwards an archived or deleted
+    /// Arrangement closes its editor onto the Song's Arrangement list; a
+    /// restore rebuilds the editor on the same tab so it is editable.
+    pub fn run_arrangement_lifecycle(
+        &mut self,
+        target: LifecycleTarget,
+        action: LifecycleAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.editing_arrangement else {
+            return;
+        };
+        if self.navigation.is_some()
+            || self.arrangement_details.is_some()
+            || self.overlays.depth(cx) > 0
+        {
+            return;
+        }
+        let shell = cx.weak_entity();
+        let flush_shell = shell.clone();
+        // Read before the write: after a deletion the Arrangement is gone.
+        let song = self
+            .library_store
+            .read(cx)
+            .library()
+            .arrangement(id)
+            .ok()
+            .map(|arrangement| arrangement.song());
+        let after = AfterLifecycle::new(move |outcome, window, cx| {
+            let _ = shell.update(cx, |shell, cx| {
+                if shell.editing_arrangement != Some(id) {
+                    return;
+                }
+                match outcome {
+                    LifecycleOutcome::Archived(LifecycleTarget::Arrangement(_))
+                    | LifecycleOutcome::Deleted(LifecycleTarget::Arrangement(_)) => {
+                        shell.drop_editor();
+                        match song {
+                            // Back on the Songs screen: select the
+                            // Arrangement's own Song and put focus on its
+                            // Arrangement list, not on the region's
+                            // remembered control.
+                            Some(song) if shell.showing_songs(cx) => {
+                                shell.songs.update(cx, |songs, cx| {
+                                    songs.reveal(song, window, cx);
+                                    songs.focus_arrangements(window, cx);
+                                });
+                            }
+                            // Opened from elsewhere (the Choirs repertoire):
+                            // the screen the operator left comes back and
+                            // focus goes to its main region, as on Back.
+                            // The Songs screen is not drawn, so it keeps no
+                            // pending focus for a later visit.
+                            _ => shell.registry.focus_region(MAIN_EDITOR),
+                        }
+                        cx.notify();
+                    }
+                    LifecycleOutcome::Restored(_) => {
+                        let tab = shell
+                            .arrangement_editor
+                            .as_ref()
+                            .map_or(TaskTab::Lyrics, |editor| editor.read(cx).tab(cx));
+                        shell.open_arrangement_on(id, tab, cx);
+                    }
+                    _ => {}
+                }
+            });
+        })
+        .flushing(move |_, cx| {
+            // Only this Arrangement's own editor is settled: an Undo that
+            // runs after the operator opened another one must not be held
+            // back by that editor's failed save.
+            let editor = flush_shell.upgrade().and_then(|shell| {
+                let shell = shell.read(cx);
+                (shell.editing_arrangement == Some(id))
+                    .then(|| shell.arrangement_editor.clone())
+                    .flatten()
+            });
+            match editor {
+                Some(editor) => editor.update(cx, |editor, cx| editor.request_navigation(cx)),
+                None => gpui::Task::ready(NavigationGuard::Proceed),
+            }
+        });
+        let store = self.library_store.clone();
+        let host = self.overlays.clone();
+        match action {
+            LifecycleAction::Archive => confirm_archive(target, store, host, after, window, cx),
+            LifecycleAction::Restore => restore(target, store, host, after, window, cx),
+            LifecycleAction::DeletePermanently => {
+                review_deletion(target, store, host, after, window, cx);
+            }
+        }
     }
 
     /// Like [`Self::guarded`], but the editor stays open afterwards.
@@ -1758,6 +1869,38 @@ impl ShellView {
                 button
             }
         });
+        // The overflow follows History; Archive, Restore and Delete permanently
+        // are offered by the domain from the Arrangement's own state.
+        let overflow = self
+            .editing_arrangement
+            .and_then(|id| {
+                let library = self.library_store.read(cx).library();
+                library
+                    .arrangement(id)
+                    .ok()
+                    .map(|arrangement| (id, arrangement_lifecycle_actions(arrangement)))
+            })
+            .map(|(id, actions)| {
+                let shell = cx.entity().downgrade();
+                lifecycle::overflow(
+                    "arrangement-overflow",
+                    LifecycleTarget::Arrangement(id),
+                    actions,
+                    move |action, window, cx| {
+                        let _ = shell.update(cx, |shell, cx| {
+                            shell.run_arrangement_lifecycle(
+                                LifecycleTarget::Arrangement(id),
+                                action,
+                                window,
+                                cx,
+                            );
+                        });
+                    },
+                    environment,
+                    window,
+                    cx,
+                )
+            });
         let readiness = editor
             .as_ref()
             .and_then(|editor| editor.read(cx).readiness_label(environment, cx));
@@ -1801,27 +1944,68 @@ impl ShellView {
                     }
                 }))
         });
-        let archived = (read_only && self.editing_arrangement.is_some()).then(|| {
-            div()
-                .debug_selector(|| "arrangement-archived-notice".into())
-                .flex_none()
-                .mx(px(gutter))
-                .mb(px(scale.apply(tokens::spacing::RELATED)))
-                .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
-                .rounded(px(scale.apply(tokens::radius::CONTROL)))
-                .border(px(tokens::border::SEPARATOR))
-                .border_color(rgb(palette.border))
-                .bg(rgb(palette.surface_secondary))
-                .text_color(rgb(palette.text))
-                .flex()
-                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                .child(
-                    div()
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .child("Archived."),
-                )
-                .child("Inspect only until restored.")
+        // The Arrangement's own archive wins; otherwise an archived Song is
+        // what suppresses it, and that Song is what Restore brings back.
+        let banner_target = self.editing_arrangement.and_then(|id| {
+            let library = self.library_store.read(cx).library();
+            let arrangement = library.arrangement(id).ok()?;
+            if arrangement.is_archived() {
+                Some((LifecycleTarget::Arrangement(id), false))
+            } else {
+                library
+                    .song(arrangement.song())
+                    .ok()
+                    .filter(|song| song.is_archived())
+                    .map(|_| (LifecycleTarget::Song(arrangement.song()), true))
+            }
         });
+        let archived = banner_target
+            .filter(|_| read_only)
+            .map(|(target, song_note)| {
+                let shell = cx.entity().downgrade();
+                div()
+                    .debug_selector(|| "arrangement-archived-notice".into())
+                    .flex_none()
+                    .mx(px(gutter))
+                    .mb(px(scale.apply(tokens::spacing::RELATED)))
+                    .p(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+                    .rounded(px(scale.apply(tokens::radius::CONTROL)))
+                    .border(px(tokens::border::SEPARATOR))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.surface_secondary))
+                    .text_color(rgb(palette.text))
+                    .flex()
+                    .items_center()
+                    .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+                            .child(
+                                div()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(crate::songs::library::detail::ARCHIVED),
+                            )
+                            .child(crate::songs::library::detail::banner_note(song_note)),
+                    )
+                    .child(
+                        Button::new("arrangement-restore", "Restore", environment)
+                            .tone(Tone::Primary)
+                            .on_surface(palette.surface_secondary)
+                            .on_activate(move |window, cx| {
+                                let _ = shell.update(cx, |shell, cx| {
+                                    shell.run_arrangement_lifecycle(
+                                        target,
+                                        LifecycleAction::Restore,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    )
+            });
         let header = div()
             .flex_none()
             .flex()
@@ -1874,7 +2058,8 @@ impl ShellView {
                             .children(save_label)
                             .children(retry)
                             .children(details)
-                            .children(history),
+                            .children(history)
+                            .children(overflow),
                     ),
             )
             .children(archived)

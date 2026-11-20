@@ -1292,38 +1292,46 @@ verify exact flattened Cue order and canonical frames after reload.
 **Goal:** Make ordinary library evolution recoverable without introducing the
 deferred Song-merge system.
 
-**Changes:** `crates/ordo/src/history/`,
+**Changes:** `crates/ordo/src/history/`, `crates/ordo/src/songs/lifecycle/`,
 `crates/domain/src/song_library/lifecycle.rs`,
 `crates/domain/src/song_library/reference_safety.rs`,
-`crates/storage/src/song_references.rs`, `tests/e2e/songs/history-lifecycle.*`
+`crates/storage/src/song_references.rs`, `crates/storage/src/lifecycle.rs`,
+`tests/song-library/tests/lifecycle.rs`, `tests/storage/tests/lifecycle.rs`,
+`crates/ordo/src/songs/e2e.rs` and `crates/ordo/examples/songs-library-lab.rs`
+(`tests/e2e/songs/history-lifecycle.*` was not created: the E2E lives in
+`crates/ordo/src/songs/e2e.rs`)
 
 **Depends on:** T2.2, T2.3, T2.8.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Song and Arrangement headers expose their own History actions
+- [x] `[UI-AUTO]` Song and Arrangement headers expose their own History actions
       and full-app floating revision slideovers.
-- [ ] `[UI-AUTO]` Nested revision comparison is read-only; Arrangements provide
+- [x] `[UI-AUTO]` Nested revision comparison is read-only; Arrangements provide
       Overview, Lyrics, Sequence, and Slides views.
-- [ ] `[UI-AUTO]` Restore is whole-entity only and uses the adopted two-stage,
+- [x] `[UI-AUTO]` Restore is whole-entity only and uses the adopted two-stage,
       uncarded confirmation footer; restoration creates a later revision.
-- [ ] `[AUTO]` Song archive suppresses child selection without changing child
+- [x] `[AUTO]` Song archive suppresses child selection without changing child
       archive states; Arrangement archive is independent.
-- [ ] `[UI-AUTO]` Archived entities are inspect-only until restored and remain
+- [x] `[UI-AUTO]` Archived entities are inspect-only until restored and remain
       discoverable through explicit status filters.
-- [ ] `[AUTO]` Permanent Arrangement deletion and childless Song deletion are
+- [x] `[AUTO]` Permanent Arrangement deletion and childless Song deletion are
       blocked by any durable reference and never cascade; safe deletion removes
       owned revisions only after explicit non-undoable confirmation.
-- [ ] `[UI-AUTO]` Archive offers immediate Undo; permanent deletion does not.
-- [ ] `[UI-AUTO]` Archiving the selected Song chooses the next visible active
+- [x] `[UI-AUTO]` Archive offers immediate Undo; permanent deletion does not.
+- [x] `[UI-AUTO]` Archiving the selected Song chooses the next visible active
       result, otherwise the previous; when neither exists, the active-list empty
       state receives focus while Undo remains available.
-- [ ] `[AUTO]` No merge, survivor, redirect, or reversal action exists.
+- [x] `[AUTO]` No merge, survivor, redirect, or reversal action exists.
 
 **E2E** `[UI-AUTO]` — Edit an Arrangement across two History sessions, compare
 and restore an old revision, archive/restore it, attempt deletion with a fixture
 reference and observe the blocker, remove that reference, and complete the safe
 permanent-deletion path.
+
+Evidence: `crates/ordo/src/songs/e2e.rs`,
+`t2_9_e2e_two_sessions_compare_restore_archive_reference_blocks_then_safe_delete`
+(also reopens the parish).
 
 ### T2.10 — Automatic-first Song import review
 

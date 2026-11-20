@@ -680,6 +680,27 @@ mod tests {
         assert_eq!(ids.len(), ENTRIES.len(), "one row per command");
     }
 
+    /// The words no command may carry: the library has no merge, survivor,
+    /// redirect or reversal (T2.9 AC9, Decision 167).
+    const FORBIDDEN_WORDS: [&str; 4] = ["merge", "survivor", "redirect", "revers"];
+
+    #[test]
+    fn ac9_no_registry_command_merges_redirects_or_reverses() {
+        for entry in ENTRIES {
+            let id = format!("{:?}", entry.id);
+            for text in [id.as_str(), entry.label, entry.description, entry.keycaps] {
+                let lowered = text.to_lowercase();
+                for word in FORBIDDEN_WORDS {
+                    assert!(
+                        !lowered.contains(word),
+                        "{:?} carries \"{word}\" in {text:?}",
+                        entry.id
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn bindings_cover_every_entry_this_module_binds() {
         let bindings = key_bindings();

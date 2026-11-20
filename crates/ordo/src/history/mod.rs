@@ -106,6 +106,15 @@ pub const RESTORE_THIS: &str = "Restore this revision";
 pub const KEEP: &str = "Keep current";
 /// The shown for the Current column when the head is under a minute old.
 pub const SAVED_JUST_NOW: &str = "Saved just now";
+/// "Choir A and Choir B", or "no choir": how both the restore and the archive
+/// confirmation say which Choirs use an Arrangement.
+pub(crate) fn choir_list(names: &[&str]) -> String {
+    if names.is_empty() {
+        "no choir".to_owned()
+    } else {
+        names.join(" and ")
+    }
+}
 /// The refusal when nothing more specific is known.
 pub const COULDNT_SAVE: &str = "Couldn't save.";
 /// The toast when an Undo is held back by an edit that cannot be saved.
@@ -381,11 +390,7 @@ impl HistoryView {
                     .iter()
                     .filter_map(|id| choirs.get(id).map(String::as_str))
                     .collect();
-                if names.is_empty() {
-                    "no choir".to_owned()
-                } else {
-                    names.join(" and ")
-                }
+                choir_list(&names)
             }
             Sides::Song { .. } => String::new(),
         };

@@ -154,6 +154,30 @@ pub(crate) fn parish_with(
     (dir, slot, store, ids)
 }
 
+/// A temporary parish that holds only archived Songs, each without
+/// Arrangements, in the order of `titles`.
+pub(crate) fn parish_archived(
+    cx: &mut TestAppContext,
+    tag: &str,
+    titles: &[&str],
+) -> (PathBuf, StorageSlot, Entity<LibraryStore>, Vec<SongId>) {
+    cx.executor().allow_parking();
+    let dir = temp_dir(tag);
+    let seed = Storage::spawn(StorageConfig::in_directory(&dir));
+    let ids = cx.foreground_executor().block_test(async {
+        let mut ids = Vec::new();
+        for title in titles {
+            let id = song(&seed, title, None, &[]).await;
+            seed.archive_song(id).await.expect("archive");
+            ids.push(id);
+        }
+        ids
+    });
+    cx.foreground_executor().block_test(seed.shutdown());
+    let (slot, store) = open_parish(cx, &dir);
+    (dir, slot, store, ids)
+}
+
 /// Stops the storage worker cleanly and removes the folder.
 pub(crate) fn finish(cx: &mut VisualTestContext, slot: &StorageSlot, dir: &Path) {
     let outcome = cx.foreground_executor().block_test(slot.shutdown());

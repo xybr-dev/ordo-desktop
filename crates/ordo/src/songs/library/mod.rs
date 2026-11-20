@@ -10,7 +10,7 @@
 //! library. It runs synchronously when the query, a filter, the archived
 //! toggle or the library changes, never per frame, and never writes.
 
-mod detail;
+pub(crate) mod detail;
 mod filters;
 mod list;
 #[cfg(test)]
@@ -20,7 +20,9 @@ use std::rc::Rc;
 
 use domain::{
     identity::{ArrangementId, SongId},
-    song_library::{LibraryQuery, SongHit, search},
+    song_library::{
+        AfterArchive, LibraryQuery, LifecycleAction, SongHit, search, selection_after_archive,
+    },
 };
 use gpui::{AnyElement, App, Context, Entity, Pixels, Point, Subscription, Window};
 use ui::{
@@ -34,6 +36,10 @@ use crate::history::{AfterRestore, HistoryTarget, open_history};
 
 use super::{
     arrangement_details::{self, ArrangementDetailsPanel},
+    lifecycle::{
+        AfterLifecycle, LifecycleOutcome, LifecycleTarget, confirm_archive, restore,
+        review_deletion,
+    },
     new_song::{NewSongPanel, Outcome},
     store::{LibraryEvent, LibraryState, LibraryStore},
 };
@@ -41,6 +47,14 @@ pub use filters::FilterKind;
 
 /// How the detail pane asks the shell to open an Arrangement's focused view.
 pub type OpenArrangement = Rc<dyn Fn(ArrangementId, &mut Window, &mut App)>;
+
+/// The list as it was shown when an archive or deletion began: what the
+/// selection that follows is decided from, because the store's own refresh
+/// has already dropped the Song by the time the write is answered.
+struct Removal {
+    visible: Vec<(SongId, bool)>,
+    include_archived: bool,
+}
 
 /// Query, filters, selection and scroll of Library → Songs.
 pub struct SongsWorkspace {
@@ -54,6 +68,19 @@ pub struct SongsWorkspace {
     /// The detail header's History button, so closing History hands focus
     /// back to it.
     history_focus: gpui::FocusHandle,
+    /// The list row that follows an archive or deletion, carried by the row of
+    /// `focus_song`.
+    row_focus: gpui::FocusHandle,
+    focus_song: Option<SongId>,
+    /// The first action of the list's empty or no-match state.
+    empty_focus: gpui::FocusHandle,
+    /// The first control of the Arrangement list (its first row, or the Add
+    /// first Arrangement button), where focus lands after an Arrangement is
+    /// archived or deleted.
+    arrangement_focus: gpui::FocusHandle,
+    /// Set until the detail pane has drawn the Arrangement list that
+    /// `arrangement_focus` belongs to.
+    focus_arrangements_pending: bool,
     /// Which filter's option panel is open under the filter row.
     open_filter: Option<FilterKind>,
     /// The list offset to put back the next time the list is drawn, saved when
@@ -93,6 +120,11 @@ impl SongsWorkspace {
             list_scroll: Scroll::new(),
             detail_scroll: Scroll::new(),
             history_focus: cx.focus_handle(),
+            row_focus: cx.focus_handle(),
+            focus_song: None,
+            empty_focus: cx.focus_handle(),
+            arrangement_focus: cx.focus_handle(),
+            focus_arrangements_pending: false,
             open_filter: None,
             restore_scroll: None,
             overlays: None,
@@ -271,12 +303,159 @@ impl SongsWorkspace {
         );
     }
 
+    /// Runs a lifecycle action on the selected Song: Archive asks first,
+    /// Restore is immediate, Delete permanently reviews what still uses it.
+    /// Does nothing while the library is not readable or another surface is
+    /// open.
+    pub(crate) fn run_song_lifecycle(
+        &mut self,
+        song: SongId,
+        action: LifecycleAction,
+        open: OpenArrangement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(host) = self.overlays.clone() else {
+            return;
+        };
+        if host.depth(cx) > 0 || *self.store.read(cx).state() != LibraryState::Ready {
+            return;
+        }
+        let library = self.store.read(cx).library();
+        let visible = self
+            .hits
+            .iter()
+            .map(|hit| {
+                let active = library.song(hit.song).is_ok_and(|work| !work.is_archived());
+                (hit.song, active)
+            })
+            .collect();
+        // Each request carries its own snapshot, so a Cancel or a refusal
+        // leaves nothing behind for the next one.
+        let removal = Removal {
+            visible,
+            include_archived: self.query.include_archived,
+        };
+        let weak = cx.weak_entity();
+        let inspect_open = open.clone();
+        let after = AfterLifecycle::new(move |outcome, window, cx| {
+            let _ = weak.update(cx, |workspace, cx| {
+                workspace.after_lifecycle(outcome, &removal, window, cx);
+            });
+        })
+        .inspecting(move |id, window, cx| inspect_open(id, window, cx));
+        let target = LifecycleTarget::Song(song);
+        let store = self.store.clone();
+        match action {
+            LifecycleAction::Archive => confirm_archive(target, store, host, after, window, cx),
+            LifecycleAction::Restore => restore(target, store, host, after, window, cx),
+            LifecycleAction::DeletePermanently => {
+                review_deletion(target, store, host, after, window, cx);
+            }
+        }
+    }
+
+    /// Settles the list and the selection after a lifecycle write answered.
+    fn after_lifecycle(
+        &mut self,
+        outcome: LifecycleOutcome,
+        removal: &Removal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match outcome {
+            LifecycleOutcome::Archived(LifecycleTarget::Song(song))
+            | LifecycleOutcome::Deleted(LifecycleTarget::Song(song)) => {
+                let deleted = matches!(outcome, LifecycleOutcome::Deleted(_));
+                self.refresh(cx);
+                match selection_after_archive(
+                    &removal.visible,
+                    song,
+                    removal.include_archived && !deleted,
+                ) {
+                    AfterArchive::Select(next) => {
+                        self.select(next, cx);
+                        self.focus_song = Some(next);
+                        self.row_focus.focus(window, cx);
+                    }
+                    AfterArchive::Keep => {
+                        if !deleted {
+                            self.select(song, cx);
+                        }
+                    }
+                    AfterArchive::EmptyState => {
+                        self.selected = None;
+                        // Focus goes to a control that is drawn: the first
+                        // remaining row (nothing is selected, the domain rule
+                        // stands), else the empty or no-match state's action,
+                        // which is **Create song** for an empty library.
+                        if let Some(first) = self.hits.first() {
+                            self.focus_song = Some(first.song);
+                            self.row_focus.focus(window, cx);
+                        } else {
+                            self.empty_focus.focus(window, cx);
+                        }
+                        cx.notify();
+                    }
+                }
+            }
+            LifecycleOutcome::Restored(LifecycleTarget::Song(song)) => {
+                // The control that held focus (the empty state's action, the
+                // toast's Undo) is gone with the restore, so the restored
+                // Song's row takes it; `reveal` put the Song in the list.
+                self.reveal(song, window, cx);
+                self.focus_song = Some(song);
+                self.row_focus.focus(window, cx);
+            }
+            _ => self.refresh(cx),
+        }
+    }
+
+    /// The list row that carries focus after an archive or deletion.
+    #[cfg(test)]
+    pub(crate) fn row_focus(&self) -> &gpui::FocusHandle {
+        &self.row_focus
+    }
+
+    /// The Song whose row carries [`Self::row_focus`].
+    #[cfg(test)]
+    pub(crate) fn focus_song(&self) -> Option<SongId> {
+        self.focus_song
+    }
+
+    /// The first action of the list's empty state.
+    #[cfg(test)]
+    pub(crate) fn empty_focus(&self) -> &gpui::FocusHandle {
+        &self.empty_focus
+    }
+
+    /// The first control of the Arrangement list.
+    #[cfg(test)]
+    pub(crate) fn arrangement_focus(&self) -> &gpui::FocusHandle {
+        &self.arrangement_focus
+    }
+
+    /// Puts focus on the Arrangement list of the selected Song, once the
+    /// detail pane draws it. The shell calls this after it closes an editor
+    /// whose Arrangement was archived or deleted.
+    pub fn focus_arrangements(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = window;
+        self.focus_arrangements_pending = true;
+        cx.notify();
+    }
+
     /// Carries out what the panel decided: both outcomes select a Song, and a
     /// Song that is archived is only visible with Include archived on.
     fn apply(&mut self, outcome: Outcome, window: &mut Window, cx: &mut Context<Self>) {
         let song = match outcome {
             Outcome::Created(song) | Outcome::UseExisting(song) => song,
         };
+        self.reveal(song, window, cx);
+    }
+
+    /// Selects `song`, making it visible: an archived Song turns Include
+    /// archived on, and a Song the search or filters hide makes them give way.
+    pub(crate) fn reveal(&mut self, song: SongId, window: &mut Window, cx: &mut Context<Self>) {
         let archived = self
             .store
             .read(cx)
@@ -395,6 +574,16 @@ impl SongsWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if std::mem::take(&mut self.focus_arrangements_pending) {
+            // The handle is carried by controls this very render draws, so
+            // focus moves once they are in the frame.
+            let handle = self.arrangement_focus.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    cx.update(|window, cx| handle.focus(window, cx)).ok();
+                })
+                .detach();
+        }
         detail::render(self, environment, open, window, cx)
     }
 
