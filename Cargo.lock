@@ -4368,6 +4368,7 @@ dependencies = [
  "presentation",
  "rendering",
  "rustybuzz",
+ "serde_json",
  "storage",
  "sysinfo",
  "time",

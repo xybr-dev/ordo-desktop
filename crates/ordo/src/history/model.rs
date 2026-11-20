@@ -162,13 +162,19 @@ fn event(
                 format!("Created {}", content.draft().title),
             ),
         },
-        RevisionKind::Import | RevisionKind::Replacement => (
+        RevisionKind::Import => (
             "Imported".to_owned(),
             match revision.content {
                 RevisionContent::Arrangement(_) => "Import \u{b7} whole-Arrangement replacement",
                 RevisionContent::Song(_) => "Import",
             },
             "Imported".to_owned(),
+        ),
+        // Only an import's Update existing Arrangement writes one (Decision 8).
+        RevisionKind::Replacement => (
+            "Updated from import".to_owned(),
+            "Import \u{b7} whole-Arrangement replacement",
+            "Replaced from an import".to_owned(),
         ),
         RevisionKind::Restoration => {
             let from = revision

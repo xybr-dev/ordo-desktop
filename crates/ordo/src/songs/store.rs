@@ -123,6 +123,9 @@ pub struct LibraryStore {
     queue: VecDeque<(LibraryWrite, Reply)>,
     /// Whether a write is currently in flight.
     writing: bool,
+    /// Bumped whenever the held library changes, so a verdict computed on a
+    /// snapshot can tell the library moved before its write starts.
+    generation: u64,
 }
 
 /// What a finished write resolves to.
@@ -632,6 +635,7 @@ impl LibraryStore {
                 match opened {
                     Ok(library) => {
                         this.library = library;
+                        this.generation += 1;
                         this.state = LibraryState::Ready;
                     }
                     Err(message) => this.state = LibraryState::Unavailable(message.into()),
@@ -647,6 +651,7 @@ impl LibraryStore {
             storage: slot,
             queue: VecDeque::new(),
             writing: false,
+            generation: 0,
         }
     }
 
@@ -659,6 +664,7 @@ impl LibraryStore {
             storage: StorageSlot::new(),
             queue: VecDeque::new(),
             writing: false,
+            generation: 0,
         }
     }
 
@@ -671,6 +677,7 @@ impl LibraryStore {
             storage: StorageSlot::new(),
             queue: VecDeque::new(),
             writing: false,
+            generation: 0,
         }
     }
 
@@ -683,6 +690,7 @@ impl LibraryStore {
             storage: StorageSlot::new(),
             queue: VecDeque::new(),
             writing: false,
+            generation: 0,
         }
     }
 
@@ -1057,6 +1065,11 @@ impl LibraryStore {
                 let _ = reply.try_send(Err(NOT_OPEN.into()));
                 continue;
             }
+            if matches!(&write, LibraryWrite::CommitImport(request) if request.is_batch()) {
+                // The batch verdict is off the GPUI thread; it sets `writing`.
+                self.verdict_in_background(write, reply, cx);
+                continue;
+            }
             let prepared = match self.validate(&mut write) {
                 Ok(Verdict::Write(prepared)) => prepared,
                 Ok(Verdict::Unchanged(id)) => {
@@ -1072,134 +1085,139 @@ impl LibraryStore {
                     continue;
                 }
             };
-            let started = self.storage.with(|storage| match prepared {
-                Prepared::CreateSong(new) => boxed_song(storage.create_song(*new)),
-                Prepared::CreateChoir(new) => boxed(storage.create_choir(new)),
-                Prepared::EditChoir(id, details) => boxed(storage.edit_choir(id, details)),
-                Prepared::ArchiveChoir(id) => boxed(storage.archive_choir(id)),
-                Prepared::RestoreChoir(id) => boxed(storage.restore_choir(id)),
-                Prepared::CreateArrangement(new) | Prepared::Copy(new) => {
-                    boxed_arrangement(storage.create_arrangement(*new))
-                }
-                Prepared::ArchiveSong(id) => boxed_song(storage.archive_song(id)),
-                Prepared::RestoreSong(id) => boxed_song(storage.restore_song(id)),
-                Prepared::ArchiveArrangement(id) => {
-                    boxed_arrangement(storage.archive_arrangement(id))
-                }
-                Prepared::RestoreArrangement(id) => {
-                    boxed_arrangement(storage.restore_arrangement(id))
-                }
-                Prepared::DeleteSong(id) => {
-                    let delete = storage.delete_song(id);
-                    Box::pin(async move {
-                        delete
-                            .await
-                            .map(|deleted| Stored::Deleted(deleted.revisions))
-                    })
-                }
-                Prepared::DeleteArrangement(id) => {
-                    let delete = storage.delete_arrangement(id);
-                    Box::pin(async move {
-                        delete
-                            .await
-                            .map(|deleted| Stored::Deleted(deleted.revisions))
-                    })
-                }
-                Prepared::CommitImport(batch) => {
-                    let commit = storage.commit_import(*batch);
-                    let write: StoredWrite =
-                        Box::pin(
-                            async move { commit.await.map(|r| Stored::Imported(Box::new(r))) },
-                        );
-                    write
-                }
-                Prepared::RestoreRevision(revision, head) => {
-                    let restore = storage.restore_revision(revision, head);
-                    let write: StoredWrite = Box::pin(async move {
-                        let (content, record) = restore.await?;
-                        let restored = match content {
-                            RevisionContent::Song(song) => Restored::Song(song),
-                            RevisionContent::Arrangement(arrangement) => {
-                                Restored::Arrangement(arrangement)
-                            }
-                        };
-                        Ok(Stored::Restored(record.id, restored))
-                    });
-                    write
-                }
-                Prepared::SaveMetadata(id, metadata) => {
-                    let commit =
-                        storage.commit_arrangement_metadata(id, *metadata, fresh_session());
-                    boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
-                }
-                Prepared::SaveLyrics(id, lyrics, session) => {
-                    let ArrangementLyrics { sections, sequence } = *lyrics;
-                    let sections = sections
-                        .into_iter()
-                        .map(|section| SectionContent {
-                            id: section.id,
-                            label: section.label,
-                            lyrics: section.lyrics,
-                            pagination: section.pagination,
-                        })
-                        .collect();
-                    let sequence = sequence
-                        .into_iter()
-                        .map(|occurrence| OccurrenceContent {
-                            id: occurrence.id,
-                            section: occurrence.section,
-                        })
-                        .collect();
-                    let commit = storage.commit_arrangement_lyrics(id, sections, sequence, session);
-                    boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
-                }
-            });
-            let Some(started) = started else {
-                let _ = reply.try_send(Err(NOT_OPEN.into()));
-                continue;
-            };
-            self.writing = true;
-            let operator_copy = write.has_operator_copy();
-            let importing = matches!(write, LibraryWrite::CommitImport(_));
-            let restoring = matches!(
-                write,
-                LibraryWrite::Restore(_)
-                    | LibraryWrite::RestoreSong(_)
-                    | LibraryWrite::RestoreArrangement(_)
-            );
-            cx.spawn(async move |this, cx| {
-                let stored = cx
-                    .background_spawn(async move {
-                        started.await.map_err(|error| {
-                            if importing {
-                                import::import_copy(&error).to_owned()
-                            } else if restoring && matches!(error, StorageError::NotArchived { .. })
-                            {
-                                NOT_ARCHIVED_TO_RESTORE.to_owned()
-                            } else if operator_copy {
-                                storage_copy(&error, COULDNT_SAVE)
-                            } else {
-                                error.to_string()
-                            }
-                        })
-                    })
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    let outcome = match stored {
-                        Ok(record) => this.apply(&write, &record),
-                        Err(message) => Err(SharedString::from(message)),
-                    };
-                    this.writing = false;
-                    if outcome.is_ok() {
-                        cx.emit(LibraryEvent::Changed);
-                        cx.notify();
-                    }
-                    let _ = reply.try_send(outcome);
-                    this.pump(cx);
-                });
-            })
-            .detach();
+            self.dispatch(write, reply, prepared, cx);
         }
+    }
+
+    /// Starts the storage call for a validated write, and applies its result
+    /// when it lands. The write holds the queue (`writing`) until then.
+    fn dispatch(
+        &mut self,
+        write: LibraryWrite,
+        reply: Reply,
+        prepared: Prepared,
+        cx: &mut Context<Self>,
+    ) {
+        let started = self.storage.with(|storage| match prepared {
+            Prepared::CreateSong(new) => boxed_song(storage.create_song(*new)),
+            Prepared::CreateChoir(new) => boxed(storage.create_choir(new)),
+            Prepared::EditChoir(id, details) => boxed(storage.edit_choir(id, details)),
+            Prepared::ArchiveChoir(id) => boxed(storage.archive_choir(id)),
+            Prepared::RestoreChoir(id) => boxed(storage.restore_choir(id)),
+            Prepared::CreateArrangement(new) | Prepared::Copy(new) => {
+                boxed_arrangement(storage.create_arrangement(*new))
+            }
+            Prepared::ArchiveSong(id) => boxed_song(storage.archive_song(id)),
+            Prepared::RestoreSong(id) => boxed_song(storage.restore_song(id)),
+            Prepared::ArchiveArrangement(id) => boxed_arrangement(storage.archive_arrangement(id)),
+            Prepared::RestoreArrangement(id) => boxed_arrangement(storage.restore_arrangement(id)),
+            Prepared::DeleteSong(id) => {
+                let delete = storage.delete_song(id);
+                Box::pin(async move {
+                    delete
+                        .await
+                        .map(|deleted| Stored::Deleted(deleted.revisions))
+                })
+            }
+            Prepared::DeleteArrangement(id) => {
+                let delete = storage.delete_arrangement(id);
+                Box::pin(async move {
+                    delete
+                        .await
+                        .map(|deleted| Stored::Deleted(deleted.revisions))
+                })
+            }
+            Prepared::CommitImport(batch) => {
+                let commit = storage.commit_import(*batch);
+                let write: StoredWrite =
+                    Box::pin(async move { commit.await.map(|r| Stored::Imported(Box::new(r))) });
+                write
+            }
+            Prepared::RestoreRevision(revision, head) => {
+                let restore = storage.restore_revision(revision, head);
+                let write: StoredWrite = Box::pin(async move {
+                    let (content, record) = restore.await?;
+                    let restored = match content {
+                        RevisionContent::Song(song) => Restored::Song(song),
+                        RevisionContent::Arrangement(arrangement) => {
+                            Restored::Arrangement(arrangement)
+                        }
+                    };
+                    Ok(Stored::Restored(record.id, restored))
+                });
+                write
+            }
+            Prepared::SaveMetadata(id, metadata) => {
+                let commit = storage.commit_arrangement_metadata(id, *metadata, fresh_session());
+                boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
+            }
+            Prepared::SaveLyrics(id, lyrics, session) => {
+                let ArrangementLyrics { sections, sequence } = *lyrics;
+                let sections = sections
+                    .into_iter()
+                    .map(|section| SectionContent {
+                        id: section.id,
+                        label: section.label,
+                        lyrics: section.lyrics,
+                        pagination: section.pagination,
+                    })
+                    .collect();
+                let sequence = sequence
+                    .into_iter()
+                    .map(|occurrence| OccurrenceContent {
+                        id: occurrence.id,
+                        section: occurrence.section,
+                    })
+                    .collect();
+                let commit = storage.commit_arrangement_lyrics(id, sections, sequence, session);
+                boxed_arrangement(async move { commit.await.map(|(record, _)| record) })
+            }
+        });
+        let Some(started) = started else {
+            let _ = reply.try_send(Err(NOT_OPEN.into()));
+            return;
+        };
+        self.writing = true;
+        let operator_copy = write.has_operator_copy();
+        let importing = matches!(write, LibraryWrite::CommitImport(_));
+        let restoring = matches!(
+            write,
+            LibraryWrite::Restore(_)
+                | LibraryWrite::RestoreSong(_)
+                | LibraryWrite::RestoreArrangement(_)
+        );
+        cx.spawn(async move |this, cx| {
+            let stored = cx
+                .background_spawn(async move {
+                    started.await.map_err(|error| {
+                        if importing {
+                            import::import_copy(&error).to_owned()
+                        } else if restoring && matches!(error, StorageError::NotArchived { .. }) {
+                            NOT_ARCHIVED_TO_RESTORE.to_owned()
+                        } else if operator_copy {
+                            storage_copy(&error, COULDNT_SAVE)
+                        } else {
+                            error.to_string()
+                        }
+                    })
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let outcome = match stored {
+                    Ok(record) => this.apply(&write, &record),
+                    Err(message) => Err(SharedString::from(message)),
+                };
+                this.generation += 1;
+                this.writing = false;
+                if outcome.is_ok() {
+                    cx.emit(LibraryEvent::Changed);
+                    cx.notify();
+                }
+                let _ = reply.try_send(outcome);
+                this.pump(cx);
+            });
+        })
+        .detach();
     }
 
     /// The domain's verdict on a write, before any I/O, with the storage call
@@ -1335,7 +1353,9 @@ impl LibraryStore {
                 }
                 Prepared::RestoreChoir(*id)
             }
-            LibraryWrite::CommitImport(request) => return self.prepare_import(request),
+            LibraryWrite::CommitImport(request) => {
+                return Self::import_verdict(&self.library, request);
+            }
             lifecycle => self.validate_lifecycle(lifecycle)?,
         };
         Ok(Verdict::Write(prepared))
@@ -1630,11 +1650,18 @@ impl LibraryStore {
         (self.writing, self.queue.len())
     }
 
+    /// How many writes (or replacements of the library) have completed.
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Replaces the library and tells observers. A test-only seam: production
     /// changes go through the Choir write methods, which write to storage first.
     #[cfg(test)]
     pub(crate) fn replace_library(&mut self, library: SongLibrary, cx: &mut Context<Self>) {
         self.library = library;
+        self.generation += 1;
         self.state = LibraryState::Ready;
         cx.emit(LibraryEvent::Changed);
         cx.notify();

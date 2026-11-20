@@ -28,16 +28,16 @@ use crate::songs::{
 
 const COULDNT: &str = "Couldn't import. Nothing was changed.";
 
-fn song_id(byte: u8) -> SongId {
+pub(crate) fn song_id(byte: u8) -> SongId {
     SongId::from_entity(EntityId::from_random_bytes([byte; 16]))
 }
 
-fn arrangement_id(byte: u8) -> ArrangementId {
+pub(crate) fn arrangement_id(byte: u8) -> ArrangementId {
     ArrangementId::from_entity(EntityId::from_random_bytes([byte; 16]))
 }
 
 /// A one-Arrangement document: a Verse and a Chorus, sung Verse, Chorus.
-fn doc(song: u8, arrangement: u8, title: &str, verse: &str) -> ImportDocument {
+pub(crate) fn doc(song: u8, arrangement: u8, title: &str, verse: &str) -> ImportDocument {
     ImportDocument {
         id: song_id(song),
         song: domain::song_library::SongDraft::titled(title),
@@ -66,12 +66,12 @@ fn doc(song: u8, arrangement: u8, title: &str, verse: &str) -> ImportDocument {
     }
 }
 
-fn ordo_bytes(document: &ImportDocument) -> Vec<u8> {
+pub(crate) fn ordo_bytes(document: &ImportDocument) -> Vec<u8> {
     let payload = encode_song_import(document).to_string().into_bytes();
     pack_for_tests(&ManifestOverrides::default(), &payload, &[])
 }
 
-fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> PathBuf {
+pub(crate) fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> PathBuf {
     let path = dir.join(name);
     std::fs::write(&path, bytes).expect("write the file");
     path
@@ -1011,10 +1011,10 @@ fn ac6_a_new_song_document_previews_with_no_match(cx: &mut TestAppContext) {
 
 /// Answers each pick with the next scripted answer and counts the asks.
 #[derive(Default)]
-struct ScriptedPicker {
-    answers: RefCell<Vec<Option<Vec<PathBuf>>>>,
-    asked: std::cell::Cell<usize>,
-    multiple: std::cell::Cell<Option<bool>>,
+pub(crate) struct ScriptedPicker {
+    pub(crate) answers: RefCell<Vec<Option<Vec<PathBuf>>>>,
+    pub(crate) asked: std::cell::Cell<usize>,
+    pub(crate) multiple: std::cell::Cell<Option<bool>>,
 }
 
 impl FilePicker for ScriptedPicker {
@@ -1031,43 +1031,46 @@ impl FilePicker for ScriptedPicker {
 }
 
 /// A shell on Library → Songs over a real parish, with a scripted picker.
-struct ShellRig {
-    shell: Entity<crate::shell::ShellView>,
-    store: Entity<LibraryStore>,
-    slot: StorageSlot,
-    dir: PathBuf,
-    files: PathBuf,
-    picker: Rc<ScriptedPicker>,
+pub(crate) struct ShellRig {
+    pub(crate) shell: Entity<crate::shell::ShellView>,
+    pub(crate) store: Entity<LibraryStore>,
+    pub(crate) slot: StorageSlot,
+    pub(crate) dir: PathBuf,
+    pub(crate) files: PathBuf,
+    pub(crate) picker: Rc<ScriptedPicker>,
 }
 
 impl ShellRig {
-    fn answer(&self, paths: Vec<PathBuf>) {
+    pub(crate) fn answer(&self, paths: Vec<PathBuf>) {
         self.picker.answers.borrow_mut().push(Some(paths));
     }
 
-    fn file(&self, name: &str, bytes: &[u8]) -> PathBuf {
+    pub(crate) fn file(&self, name: &str, bytes: &[u8]) -> PathBuf {
         write(&self.files, name, bytes)
     }
 
-    fn songs(&self, cx: &mut VisualTestContext) -> usize {
+    pub(crate) fn songs(&self, cx: &mut VisualTestContext) -> usize {
         self.store
             .read_with(cx, |store, _| store.library().songs().count())
     }
 
-    fn workspace(&self, cx: &mut VisualTestContext) -> Entity<crate::songs::SongsWorkspace> {
+    pub(crate) fn workspace(
+        &self,
+        cx: &mut VisualTestContext,
+    ) -> Entity<crate::songs::SongsWorkspace> {
         self.shell.read_with(cx, |shell, _| shell.songs().clone())
     }
 
-    fn framed(&self, cx: &mut VisualTestContext) -> bool {
+    pub(crate) fn framed(&self, cx: &mut VisualTestContext) -> bool {
         self.shell.read_with(cx, |shell, _| shell.has_frame())
     }
 
-    fn toasts(&self, cx: &mut VisualTestContext) -> Vec<String> {
+    pub(crate) fn toasts(&self, cx: &mut VisualTestContext) -> Vec<String> {
         crate::songs::lyrics::tests::toasts(&self.shell, cx)
     }
 
     /// Clicks the header's Import and waits for the files to be read.
-    fn import_from_header(&self, cx: &mut VisualTestContext) {
+    pub(crate) fn import_from_header(&self, cx: &mut VisualTestContext) {
         click(cx, "songs-import-header");
         let workspace = self.workspace(cx);
         wait(cx, |cx| !workspace.read_with(cx, |ws, _| ws.reading()));
@@ -1075,7 +1078,7 @@ impl ShellRig {
 
     /// As [Self::import_from_header], then lets the frame finish rising so
     /// recorded bounds are where it rests.
-    fn import_settled(&self, cx: &mut VisualTestContext) {
+    pub(crate) fn import_settled(&self, cx: &mut VisualTestContext) {
         self.import_from_header(cx);
         for _ in 0..10 {
             cx.executor()
@@ -1085,7 +1088,7 @@ impl ShellRig {
         }
     }
 
-    fn finish(&self, cx: &mut VisualTestContext) {
+    pub(crate) fn finish(&self, cx: &mut VisualTestContext) {
         let outcome = cx.foreground_executor().block_test(self.slot.shutdown());
         assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
         let _ = std::fs::remove_dir_all(&self.dir);
@@ -1093,9 +1096,10 @@ impl ShellRig {
     }
 }
 
-const GLORIA: &str = "---\ntitle: Gloria\nlanguage: English\n---\n[Verse]\nGlory to God\n";
+pub(crate) const GLORIA: &str =
+    "---\ntitle: Gloria\nlanguage: English\n---\n[Verse]\nGlory to God\n";
 
-fn open_shell<'a>(
+pub(crate) fn open_shell<'a>(
     cx: &'a mut TestAppContext,
     tag: &str,
     seed: &[ImportDocument],
@@ -1671,4 +1675,117 @@ fn discarding_an_edited_draft_returns_focus_to_import(cx: &mut TestAppContext) {
         .read_with(cx, |ws, _| ws.import_focus().clone());
     assert!(cx.update(|window, _| focus.is_focused(window)));
     rig.finish(cx);
+}
+
+#[test]
+fn ac1_no_import_path_reads_powerpoint() {
+    // Every source that reads, validates, plans or reviews an import. The
+    // refusal itself is tested in this file, which is deliberately not read.
+    let sources = [
+        (
+            "storage exchange container",
+            include_str!("../../../../storage/src/exchange/container.rs"),
+        ),
+        (
+            "storage exchange findings",
+            include_str!("../../../../storage/src/exchange/findings.rs"),
+        ),
+        (
+            "storage exchange mod",
+            include_str!("../../../../storage/src/exchange/mod.rs"),
+        ),
+        (
+            "storage exchange song_import",
+            include_str!("../../../../storage/src/exchange/song_import.rs"),
+        ),
+        (
+            "domain import classify",
+            include_str!("../../../../domain/src/song_library/import/classify.rs"),
+        ),
+        (
+            "domain import document",
+            include_str!("../../../../domain/src/song_library/import/document.rs"),
+        ),
+        (
+            "domain import evidence",
+            include_str!("../../../../domain/src/song_library/import/evidence.rs"),
+        ),
+        (
+            "domain import front_matter",
+            include_str!("../../../../domain/src/song_library/import/front_matter.rs"),
+        ),
+        (
+            "domain import markdown",
+            include_str!("../../../../domain/src/song_library/import/markdown.rs"),
+        ),
+        (
+            "domain import mod",
+            include_str!("../../../../domain/src/song_library/import/mod.rs"),
+        ),
+        (
+            "domain import plan",
+            include_str!("../../../../domain/src/song_library/import/plan.rs"),
+        ),
+        (
+            "domain import validate",
+            include_str!("../../../../domain/src/song_library/import/validate.rs"),
+        ),
+        ("import_review compare", include_str!("compare.rs")),
+        ("import_review detail", include_str!("detail.rs")),
+        ("import_review evidence", include_str!("evidence.rs")),
+        ("import_review footer", include_str!("footer.rs")),
+        ("import_review list", include_str!("list.rs")),
+        ("import_review mod", include_str!("mod.rs")),
+        ("import_review picker", include_str!("picker.rs")),
+        ("import_review review", include_str!("review.rs")),
+        (
+            "import_review markdown mod",
+            include_str!("markdown/mod.rs"),
+        ),
+        (
+            "import_review markdown issues",
+            include_str!("markdown/issues.rs"),
+        ),
+        (
+            "import_review markdown preview",
+            include_str!("markdown/preview.rs"),
+        ),
+        ("store import", include_str!("../store/import.rs")),
+        (
+            "storage parish_store import",
+            include_str!("../../../../storage/src/parish_store/import.rs"),
+        ),
+    ];
+    // A new source file in one of these directories must be added to the
+    // list above: the file count per directory is pinned (tests.rs files are
+    // the refusal tests themselves and stay unread).
+    for (dir, files) in [
+        ("../storage/src/exchange", 4),
+        ("../domain/src/song_library/import", 8),
+        ("src/songs/import_review", 8),
+        ("src/songs/import_review/markdown", 3),
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
+        let found = std::fs::read_dir(&path)
+            .expect("an import source directory")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.ends_with(".rs") && name != "tests.rs"
+            })
+            .count();
+        assert_eq!(
+            found, files,
+            "{dir} has a source file the PowerPoint check does not read"
+        );
+    }
+    for (name, source) in sources {
+        let lowered = source.to_lowercase();
+        for needle in ["pptx", "ppt", "powerpoint"] {
+            assert!(
+                !lowered.contains(needle),
+                "{name} mentions {needle}: no import path may read PowerPoint"
+            );
+        }
+    }
 }

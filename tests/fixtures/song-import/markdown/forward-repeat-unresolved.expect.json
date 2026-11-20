@@ -1,0 +1,53 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "Cebuano"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": true,
+  "composer": null,
+  "issues": [
+    {
+      "blocking": false,
+      "kind": "UnresolvedRepeat(\"Korro\")",
+      "line": 10
+    }
+  ],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": "Bersikulo 1",
+      "slides": [
+        [
+          "Sa kabuntagon ako moawit"
+        ],
+        [
+          "sa imong dakong gugma"
+        ]
+      ]
+    },
+    {
+      "label": "Koro",
+      "slides": [
+        [
+          "Salamat, Ginoo"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0,
+    1,
+    "unresolved \"Korro\" line 10 candidates 0",
+    1
+  ],
+  "source": null,
+  "title": "Koro sa Kabuntagon"
+}

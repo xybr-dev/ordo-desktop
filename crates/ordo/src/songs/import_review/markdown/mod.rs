@@ -12,6 +12,27 @@ mod preview;
 #[cfg(test)]
 mod tests;
 
+/// Reads of the draft's private rows for the end-to-end tests.
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::{MarkdownDraftView, issues, preview};
+
+    /// The issue rows as the operator reads them.
+    pub(crate) fn issue_rows(view: &MarkdownDraftView) -> Vec<String> {
+        view.parsed().issues.iter().map(issues::row_text).collect()
+    }
+
+    /// The preview's Sequence lines, repeats resolved or marked not found.
+    pub(crate) fn sequence_lines(view: &MarkdownDraftView) -> Vec<String> {
+        view.parsed()
+            .document
+            .arrangements
+            .first()
+            .map(preview::sequence_lines)
+            .unwrap_or_default()
+    }
+}
+
 use domain::{
     identity::{ArrangementId, SongId},
     song_library::{
@@ -277,9 +298,9 @@ impl MarkdownDraftView {
     ///
     /// This runs on the GPUI thread, as the Library snapshot it ranks against
     /// lives there; the shaping constraint is that a parse lands once per edit
-    /// burst, not per frame. T2.10c's 16 ms timing check covers it with a
-    /// Library of realistic size; if it fails, the ranking moves to a snapshot
-    /// in the background like the import classification does.
+    /// burst, not per frame. T2.10c timed it in release against 1,000 Songs:
+    /// about 0.55 ms for any title, well under the 16 ms budget, so it stays
+    /// on the thread.
     fn recompute(&mut self, cx: &mut Context<Self>) {
         self.candidates = self
             .store

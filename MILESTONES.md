@@ -1340,36 +1340,59 @@ without Ordo interpreting arbitrary PowerPoint files.
 
 **Changes:** `crates/domain/src/song_library/import/`, `crates/ordo/src/songs/import_review/`,
 `contracts/song-import/`, `tests/fixtures/song-import/`,
-`tests/e2e/songs/import.*`
+`crates/storage/src/exchange/`, `crates/storage/src/parish_store/import.rs`,
+`crates/storage/src/revisions/write.rs`, `crates/ordo/src/songs/store/import.rs`,
+`crates/ordo/src/songs/store.rs` (the write generation and the background import verdict),
+`crates/ordo/src/history/compare.rs`, `crates/ordo/src/history/model.rs`, `crates/ordo/src/shell.rs`,
+`crates/ordo/src/songs/library/list.rs`, `crates/ui/src/primitives/radio.rs`,
+the icon assets, `contracts/container/manifest.v1.schema.json`,
+`docs/contracts/README.md`, `tests/song-library/tests/import_*.rs`,
+`tests/storage/tests/{song_import_read,import_commit}.rs`,
+`crates/ordo/src/songs/e2e.rs` and `crates/ordo/examples/songs-library-lab.rs`
+(`tests/e2e/songs/import.*` was not created: the E2E lives in
+`crates/ordo/src/songs/e2e.rs`). The E2E exposed one bug, fixed in
+`crates/ordo/src/history/model.rs`: a replacement revision read "Imported" in
+History; it now reads "Updated from import". Test-only probes
+(`import_review::probe`, the Markdown draft's) expose private rows to the E2E.
 
 **Depends on:** T0.8, T2.3, T2.5, T2.7, T2.8, T2.9.
 
 **AC**
 
-- [ ] `[AUTO]` Accept one or many `song-import` `.ordo` artifacts whose JSON
+- [x] `[AUTO]` Accept one or many `song-import` `.ordo` artifacts whose JSON
       payload obeys the published AI-authoring contract; never inspect PPT/PPTX.
-- [ ] `[AUTO]` Accept one `.md`/`.txt` as one Song plus one Arrangement with YAML
+      Evidence: `ac1_reads_one_valid_song_import`, `ac1_every_valid_contract_fixture_decodes`, `ac1_a_renamed_pptx_is_not_an_ordo_file_and_nothing_parses_it` (`tests/storage/tests/song_import_read.rs`); `ac1_several_ordo_files_open_one_review`, `ac1_a_mixed_or_powerpoint_selection_is_refused_with_a_toast_and_nothing_opens`, `ac1_no_import_path_reads_powerpoint` (`crates/ordo/src/songs/import_review/tests.rs`).
+- [x] `[AUTO]` Accept one `.md`/`.txt` as one Song plus one Arrangement with YAML
       front matter, bracket labels, hard blank-line Slide boundaries,
       `[Unlabeled]`, and uniquely resolved forward/backward `[Repeat: label]`
       references; unresolved repeats preserve a saveable but unready draft.
-- [ ] `[UI-AUTO]` Markdown opens directly as an unsaved Song/Arrangement editor
+      Evidence: `ac2_*` in `tests/song-library/tests/import_markdown.rs` (`ac2_repeat_resolves_forward_and_backward_case_insensitively_after_trimming`, `ac2_unresolved_and_ambiguous_repeats_are_non_blocking_issues_on_their_line`, `ac2_every_markdown_fixture_parses_to_its_expectation`); `ac2_an_unresolved_repeat_still_saves_as_an_incomplete_arrangement`, `ac2_save_writes_the_exact_sections_sequence_and_slide_boundaries`.
+- [x] `[UI-AUTO]` Markdown opens directly as an unsaved Song/Arrangement editor
       with inline validation and ordinary duplicate comparison; `.ordo` retains
       batch review, stable identity, and idempotent machine exchange.
-- [ ] `[AUTO]` Normalize identity comparisons case-insensitively and classify
+      Evidence: `ac3_a_markdown_file_opens_directly_as_an_unsaved_draft`, `ac3_inline_issues_name_their_line_and_move_the_caret`, `ac3_possible_existing_songs_show_the_ordinary_count_and_preview` (Markdown tests); `ac3_ordo_files_open_one_batch_review_with_every_document_listed`, `ac3_one_markdown_or_text_file_opens_the_draft`; `ac10_reimporting_after_commit_stages_only_skips_and_commits_nothing` (idempotent exchange).
+- [x] `[AUTO]` Normalize identity comparisons case-insensitively and classify
       Add new Song, Attach Arrangement, Skip unchanged, or Needs decision with
       concrete evidence.
-- [ ] `[AUTO]` Resolve Song identity once per document and classify contained
+      Evidence: `ac4_*` in `tests/song-library/tests/import_classify.rs` (`ac4_identity_comparison_folds_case_and_spacing`, `ac4_every_classification_carries_evidence`); `ac4_each_row_shows_its_classification_chip_and_the_detail_its_evidence`.
+- [x] `[AUTO]` Resolve Song identity once per document and classify contained
       Arrangements independently without distributing them across Song works.
-- [ ] `[UI-AUTO]` Imported document and nearest local candidate open in one
+      Evidence: `ac5_song_identity_resolves_once_per_document`, `ac5_no_choice_distributes_a_documents_arrangements_across_songs` (`import_classify.rs`); `ac5_a_song_identity_decision_is_made_once_for_the_document`.
+- [x] `[UI-AUTO]` Imported document and nearest local candidate open in one
       read-only nested comparison with Overview, Lyrics, Sequence, and Slides.
-- [ ] `[UI-AUTO]` A changed near-duplicate Arrangement offers Add as new,
+      Evidence: `ac6_compare_contents_opens_one_read_only_wide_slideover`, `ac6_it_has_overview_lyrics_sequence_and_slides`, `ac6_no_field_or_edit_control_exists_in_the_comparison`.
+- [x] `[UI-AUTO]` A changed near-duplicate Arrangement offers Add as new,
       Update existing, or Skip; Update replaces the whole Arrangement as one
       restorable revision after impact disclosure and never internally merges.
-- [ ] `[AUTO]` Invalid documents are inspectable but excluded; all Needs decision
+      Evidence: `ac7_a_near_duplicate_offers_add_as_new_update_existing_or_skip_with_recommended`, `ac7_update_existing_discloses_the_choirs_inline`, `ac7_update_plans_the_whole_imported_content` (`import_classify.rs`); `ac7_a_replacement_is_one_restorable_replacement_revision` (`tests/storage/tests/import_commit.rs`).
+- [x] `[AUTO]` Invalid documents are inspectable but excluded; all Needs decision
       rows must resolve before one atomic batch commit.
-- [ ] `[AUTO]` Any contained invalid Arrangement rejects its whole document; a
+      Evidence: `ac8_open_decisions_block_commit`, `ac8_invalid_documents_never_enter_the_plan` (`import_classify.rs`); `ac8_import_approved_is_disabled_until_every_decision_is_made`, `ac8_an_invalid_document_is_listed_with_its_reason_and_technical_details`.
+- [x] `[AUTO]` Any contained invalid Arrangement rejects its whole document; a
       commit failure leaves the entire approved batch unchanged.
-- [ ] `[AUTO]` Reimport of unchanged stable identities is idempotent.
+      Evidence: `ac9_any_invalid_arrangement_rejects_the_whole_document` (`tests/song-library/tests/import_validate.rs`); `ac9_a_failed_commit_at_any_step_changes_nothing`, `ac9_an_id_collision_refuses_the_whole_batch` (`import_commit.rs`); `ac9_a_failed_commit_keeps_the_review_open_with_the_refusal`.
+- [x] `[AUTO]` Reimport of unchanged stable identities is idempotent.
+      Evidence: `ac10_a_plan_after_committing_the_same_documents_is_empty` (`import_classify.rs`); `ac10_a_batch_of_unchanged_documents_has_nothing_to_import`; the E2E's no-op reimport; `phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip`.
 
 **E2E** `[UI-AUTO]` — Import a batch containing one new Song, one unchanged
 Arrangement, one attachable Arrangement, one ambiguous replacement, and one
@@ -1378,15 +1401,31 @@ results and revision evidence. Repeat unchanged as a no-op, then open a Markdown
 Song with a forward repeat and one unresolved label, repair it in the editor,
 save, and assert the exact linked Sequence and Slide boundaries.
 
+Evidence: `crates/ordo/src/songs/e2e.rs`,
+`t2_10_e2e_batch_review_commit_reload_noop_reimport_then_markdown_repair_and_save`
+(also reopens the parish; the Markdown song is
+`tests/fixtures/song-import/markdown/forward-repeat-unresolved.md`).
+
 ### Phase 2 gate
 
-- [ ] `[AUTO]` External JSON fixtures round-trip through `.ordo` without Ordo
+- [x] `[AUTO]` External JSON fixtures round-trip through `.ordo` without Ordo
       depending on PowerPoint interpretation.
-- [ ] `[UI-AUTO]` A user can create a Song, encode sections, build repeated
+      Evidence: `tests/storage/tests/song_import_read.rs`,
+      `gate_every_valid_fixture_round_trips_through_ordo`;
+      `ac1_no_import_path_reads_powerpoint`; and the parish leg,
+      `crates/ordo/src/songs/e2e.rs`,
+      `phase_2_gate_a_committed_batch_reads_back_equal_and_reclassifies_as_skip`.
+- [x] `[UI-AUTO]` A user can create a Song, encode sections, build repeated
       Sequence occurrences, search it, revise it, import another, and recover an
       earlier revision after application reload.
-- [ ] `[AUTO]` Lifecycle and import fault injection never leaves broken durable
+      Evidence: `crates/ordo/src/songs/e2e.rs`,
+      `phase_2_gate_create_encode_repeat_search_revise_import_then_recover_after_reload`.
+- [x] `[AUTO]` Lifecycle and import fault injection never leaves broken durable
       references or partial approved batches.
+      Evidence: `tests/storage/tests/import_commit.rs`,
+      `ac9_a_failed_commit_at_any_step_changes_nothing`;
+      `tests/storage/tests/lifecycle.rs`,
+      `ac6_a_failed_delete_at_any_step_changes_nothing`.
 
 ---
 

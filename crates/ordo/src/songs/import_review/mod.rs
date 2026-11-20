@@ -14,9 +14,6 @@ mod list;
 pub mod markdown;
 mod picker;
 mod review;
-#[cfg(test)]
-mod tests;
-
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px, rgb};
 use ui::{environment::UiEnvironment, tokens};
 
@@ -92,5 +89,93 @@ impl ImportReview {
     /// The region that currently holds focus, for tests.
     pub fn focused_region(&self, window: &Window, cx: &gpui::App) -> Option<gpui::SharedString> {
         self.regions.focused_region(window, cx)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests;
+
+/// Reads of the review's private surfaces for the end-to-end tests, so they
+/// ask what the operator is told without widening any visibility.
+#[cfg(test)]
+pub(crate) mod probe {
+    use domain::song_library::{
+        SongLibrary,
+        import::{Outcome, Staged},
+    };
+    use ui::primitives::Availability;
+
+    use super::{ImportReview, detail, evidence, footer, list};
+
+    /// The classification chip of a document row.
+    pub(crate) fn chip(review: &ImportReview, document: usize) -> &'static str {
+        list::chip(review, document)
+    }
+
+    /// The accessible name of a document row.
+    pub(crate) fn row_name(review: &ImportReview, document: usize) -> String {
+        list::row_name(review, document)
+    }
+
+    /// Whether **Import approved** is available, and why not.
+    pub(crate) fn gate(review: &ImportReview) -> Availability {
+        footer::import_availability(review)
+    }
+
+    /// The footer's summary sentence.
+    pub(crate) fn summary(review: &ImportReview) -> String {
+        evidence::summary(&review.tally())
+    }
+
+    /// The position of `outcome` among those offered for one Arrangement.
+    pub(crate) fn offered_at(
+        review: &ImportReview,
+        document: usize,
+        arrangement: usize,
+        outcome: Outcome,
+    ) -> Option<usize> {
+        review
+            .review_of(document)?
+            .arrangements
+            .get(arrangement)?
+            .offered
+            .iter()
+            .position(|offered| *offered == outcome)
+    }
+
+    /// The evidence sentence under one Arrangement.
+    pub(crate) fn evidence_of(
+        review: &ImportReview,
+        document: usize,
+        arrangement: usize,
+        library: &SongLibrary,
+    ) -> Option<String> {
+        let reviewed = review.review_of(document)?.arrangements.get(arrangement)?;
+        Some(evidence::arrangement_sentence(reviewed, library))
+    }
+
+    /// The reason an Invalid document gives, in the operator's words.
+    pub(crate) fn invalid_reason(review: &ImportReview, document: usize) -> Option<String> {
+        let staged = review.documents().get(document)?;
+        let Staged::Invalid(reasons) = &staged.content else {
+            return None;
+        };
+        Some(evidence::invalid_sentence(reasons, &staged.source))
+    }
+
+    /// The inline disclosure an Update states for one Arrangement's nearest
+    /// local match.
+    pub(crate) fn update_disclosure(
+        review: &ImportReview,
+        document: usize,
+        arrangement: usize,
+        library: &SongLibrary,
+    ) -> Option<String> {
+        let nearest = review
+            .review_of(document)?
+            .arrangements
+            .get(arrangement)?
+            .nearest;
+        Some(detail::update_text(library, nearest))
     }
 }
