@@ -1015,9 +1015,9 @@ every authoring Module.
 
 - [ ] `[AUTO]` Store canonical lowercase UUIDv4 identities and explicit creation
       times; titles never serve as identity.
-- [ ] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
+- [x] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
       Arrangement, section, occurrence, Theme placeholders, revision ledger,
-      managed asset, snapshot/package/backup placeholders, and schema metadata.
+      managed asset, and schema metadata. Snapshot, package, and backup tables are not placeholders here: the tasks that use them add them (T4.1, T4.4, T4.8).
 - [ ] `[AUTO]` Managed assets use stable IDs and hashes and commit consistently
       with database references; no committed record can reference a missing
       asset.
@@ -1027,7 +1027,7 @@ every authoring Module.
       cross records, and enforced foreign keys.
 - [ ] `[AUTO]` Storage errors preserve prior committed state and return a stable
       domain-relevant failure.
-- [ ] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
+- [x] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
       migrations: its Mermaid physical overview and per-table columns, types,
       null/default/constraint/index/FK/ownership/lifecycle details correspond
       directly to the schema rather than duplicating domain prose.
@@ -1553,6 +1553,7 @@ and instantiate an independent plan with exact copied structure.
 **Goal:** Implement the language-neutral Celebration and independently scheduled
 Mass-plan relationship that organizes all preparation.
 
+**Schema:** Mass-plan tables that snapshot and package rows will reference are added here. The snapshot and package placeholders were removed from T2.1 (PR #155).
 **Changes:** `crates/domain/src/mass_planning/interface.rs`,
 `crates/domain/src/mass_planning/celebrations/`, `crates/domain/src/mass_planning/plans/`,
 `tests/mass-planning/celebrations.*`
@@ -1951,6 +1952,7 @@ and the Parish can be backed up and restored without merging.
 **Goal:** Freeze exactly what will render before Presenter, transfer, or export
 can depend on mutable library content.
 
+**Schema:** Adds `presentation_snapshot`, removed from the T2.1 placeholders (PR #155).
 **Changes:** `crates/portability/src/snapshots/`, `contracts/snapshot/`,
 `crates/storage/src/snapshots/`, `tests/portability/snapshots.*`
 
@@ -2018,6 +2020,7 @@ initial output-disabled state, and exact preparation context after exit.
 **Goal:** Connect the Phase 1 recovery model to durable snapshots and local
 session records without exposing stale Program after restart.
 
+**Schema:** Session tables and any snapshot link are added here (see T4.1).
 **Changes:** `crates/presentation/src/sessions/`, `crates/presentation/src/journal/`,
 `crates/storage/src/presentation_sessions/`, `tests/e2e/presenter/durable-recovery.*`
 
@@ -2050,6 +2053,7 @@ snapshot with Program black.
 **Goal:** Publish one self-contained Celebration artifact safely, with all plans
 and no partial-export concept.
 
+**Schema:** Adds `celebration_package`, removed from the T2.1 placeholders (PR #155).
 **Changes:** `crates/portability/src/celebration_package/export.rs`,
 `crates/storage/src/package_history/`, `crates/ordo/src/transfer/export_celebration/`,
 `tests/portability/celebration-export.*`
@@ -2159,6 +2163,7 @@ church; assert anchors, auto-carry-forward, decisions, and all Package versions.
 **Goal:** Keep portable provenance inspectable without creating a second Mass
 navigation system.
 
+**Schema:** Package-history tables, if any, are added here (see T4.4).
 **Changes:** `crates/ordo/src/transfer/package_history/`,
 `crates/ordo/src/masses/package_provenance/`,
 `crates/storage/src/package_history/`, `tests/e2e/transfer/package_history.*`
@@ -2190,6 +2195,7 @@ versions remain independently usable.
 **Goal:** Protect the full authoritative Parish without confusing backups with
 Celebration transfer or device cloning.
 
+**Schema:** Adds `parish_backup`, removed from the T2.1 placeholders (PR #155).
 **Changes:** `crates/portability/src/parish_backup/create.rs`,
 `crates/storage/src/backups/`, `crates/ordo/src/transfer/protect_parish/`,
 `tests/portability/backup-create.*`

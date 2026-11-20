@@ -148,9 +148,9 @@ fn fresh_database_migrates_to_head_with_ordered_checksummed_ledger() {
     let storage = Storage::spawn(config(&dir.db()));
 
     let status = bounded(storage.ready()).expect("ready");
-    assert_eq!(status.version, 2);
+    assert_eq!(status.version, 3);
     let ids: Vec<u32> = status.applied.iter().map(|m| m.id).collect();
-    assert_eq!(ids, vec![1, 2]);
+    assert_eq!(ids, vec![1, 2, 3]);
     for applied in &status.applied {
         assert!(
             !applied.name.is_empty(),
@@ -169,9 +169,9 @@ fn fresh_database_migrates_to_head_with_ordered_checksummed_ledger() {
 
     let conn = raw(&dir.db());
     let rows = ledger_rows(&conn);
-    assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1, 2, 3]);
     assert!(rows.iter().all(|r| is_hex_sha256(&r.2)));
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
 }
 
 // --- AC: re-running at head is a no-op ---------------------------------------
@@ -189,7 +189,7 @@ fn respawn_at_head_is_a_noop_and_keeps_data() {
 
     let storage = Storage::spawn(config(&dir.db()));
     let status = bounded(storage.ready()).expect("second ready");
-    assert_eq!(status.version, 2);
+    assert_eq!(status.version, 3);
     assert_eq!(
         bounded(storage.parish_name()),
         Ok(Some("St Mary".to_owned()))
@@ -217,15 +217,15 @@ fn broken_next_migration_leaves_schema_data_and_ledger_at_last_valid_version() {
 
     let broken = Storage::spawn_with_extra_migration(
         config(&dir.db()),
-        3,
+        4,
         "broken_probe",
         "CREATE TABLE extra_probe (id INTEGER PRIMARY KEY); \
          SELECT * FROM table_that_does_not_exist;",
     );
     let outcome = bounded(broken.ready());
     assert!(
-        matches!(outcome, Err(StorageError::MigrationFailed { id: 3, .. })),
-        "expected MigrationFailed {{ id: 3 }}, got {outcome:?}"
+        matches!(outcome, Err(StorageError::MigrationFailed { id: 4, .. })),
+        "expected MigrationFailed {{ id: 4 }}, got {outcome:?}"
     );
     assert_eq!(bounded(broken.shutdown()), ShutdownOutcome::Clean);
 
@@ -256,10 +256,10 @@ fn broken_next_migration_leaves_schema_data_and_ledger_at_last_valid_version() {
     let ids: Vec<i64> = ledger_rows(&conn).iter().map(|r| r.0).collect();
     assert_eq!(
         ids,
-        vec![1, 2],
+        vec![1, 2, 3],
         "ledger still ends at the last valid migration"
     );
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
 }
 
 // --- AC: newer schema refused without mutation -------------------------------
@@ -290,7 +290,7 @@ fn newer_schema_is_refused_without_mutating_the_file() {
         outcome,
         Err(StorageError::NewerSchema {
             found: 999,
-            supported: 2
+            supported: 3
         })
     );
     assert_eq!(bounded(storage.shutdown()), ShutdownOutcome::Clean);
