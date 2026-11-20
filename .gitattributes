@@ -26,3 +26,8 @@ docs/mockups/vendor/** -text
 # manifest itself by the hash the E2E test pins. A CRLF checkout would break
 # those digests and the reader rejects carriage returns outright.
 tests/fixtures/presentations/** -text
+# Migration checksums are SHA-256 over the exact SQL bytes; a CRLF checkout
+# would give a Windows build different checksums from a Linux build.
+migrations/*.sql text eol=lf
+# ERD.md is byte-compared against the in-memory render; a CRLF checkout would drift.
+ERD.md text eol=lf
