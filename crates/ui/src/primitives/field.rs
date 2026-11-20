@@ -2,9 +2,9 @@
 
 use gpui::{
     App, ElementId, Entity, FocusHandle, IntoElement, ParentElement, RenderOnce, SharedString,
-    Styled, Window, div, prelude::*, px, rgb,
+    Styled, Subscription, Window, div, prelude::*, px, rgb,
 };
-use gpui_base::input::{Input, InputEditorStyle, InputState};
+use gpui_base::input::{Input, InputEditorStyle, InputEvent, InputState};
 use std::rc::Rc;
 
 use crate::{
@@ -18,6 +18,18 @@ use crate::{
 /// caller: emptying the text is all a plain field owes, while a Combobox also
 /// has a selection to give up.
 type Clear = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// What a [`FieldState`] reports to a caller that subscribes to it.
+///
+/// Ordo's own vocabulary: the base input's events never cross this Interface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldEvent {
+    /// The operator changed the value (typing, paste, or the field's own
+    /// native Undo/Redo). [`FieldState::set_value`] never reports this.
+    Changed,
+    /// Keyboard focus left the field.
+    FocusLeft,
+}
 
 /// The value, caret, selection, and edit history behind a [`Field`].
 ///
@@ -61,6 +73,21 @@ impl FieldState {
         let value: SharedString = value.into();
         self.input
             .update(cx, |input, cx| input.set_value(value, window, cx));
+    }
+
+    /// Calls `on` for every [`FieldEvent`] until the returned subscription is
+    /// dropped. Programmatic [`FieldState::set_value`] reports nothing, so a
+    /// caller that reloads the field from its own model is not told about it.
+    pub fn subscribe(
+        &self,
+        cx: &mut App,
+        mut on: impl FnMut(FieldEvent, &mut App) + 'static,
+    ) -> Subscription {
+        cx.subscribe(&self.input, move |_, event: &InputEvent, cx| match event {
+            InputEvent::Change => on(FieldEvent::Changed, cx),
+            InputEvent::Blur => on(FieldEvent::FocusLeft, cx),
+            InputEvent::PressEnter { .. } | InputEvent::Focus => {}
+        })
     }
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {

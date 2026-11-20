@@ -1051,16 +1051,16 @@ multiply.
 
 - [x] `[AUTO]` Every committed edit point creates a durable content-hashed Edit
       revision linked to its parent; restoration creates a later revision.
-- [ ] `[AUTO]` Continuous text edits coalesce after one second of inactivity or
+- [x] `[AUTO]` Continuous text edits coalesce after one second of inactivity or
       focus departure; structural add/remove/reorder and semantic replacement
       are discrete points.
-- [ ] `[AUTO]` Immediate Undo/Redo is scoped to the currently open entity and is
+- [x] `[AUTO]` Immediate Undo/Redo is scoped to the currently open entity and is
       cleared on entity departure or restart.
-- [ ] `[UI-AUTO]` Focused text fields consume native text Undo before committed
+- [x] `[UI-AUTO]` Focused text fields consume native text Undo before committed
       edit_session Undo.
-- [ ] `[AUTO]` History groups revisions from one entity editing session and ends
+- [x] `[AUTO]` History groups revisions from one entity editing session and ends
       on entity navigation, close, or 30 minutes without committed changes.
-- [ ] `[UI-AUTO]` Quiet Saving…, Saved, and Couldn't save states are accurate;
+- [x] `[UI-AUTO]` Quiet Saving…, Saved, and Couldn't save states are accurate;
       failed pending edits are retained and block silent navigation loss.
 
 **E2E** `[UI-AUTO]` — Type several fields, reorder twice, wait for autosave,
