@@ -93,7 +93,7 @@ fn ready_then_operations_then_clean_shutdown(cx: &mut TestAppContext) {
     let storage = spawn_on(&dir.db());
 
     let status = drive(cx, storage.ready());
-    assert_eq!(status.map(|s| s.version), Ok(4));
+    assert_eq!(status.map(|s| s.version), Ok(5));
 
     let count = drive(cx, storage.parish_note_count());
     assert_eq!(count, Ok(0));
@@ -143,6 +143,6 @@ fn dropping_without_shutdown_does_not_block_and_releases_the_file(cx: &mut TestA
     // A reopen of the same file succeeds once the dropped worker has closed it.
     let reopened = spawn_on(&dir.db());
     let status = drive(cx, reopened.ready());
-    assert_eq!(status.map(|s| s.version), Ok(4));
+    assert_eq!(status.map(|s| s.version), Ok(5));
     assert_eq!(drive(cx, reopened.shutdown()), ShutdownOutcome::Clean);
 }

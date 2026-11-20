@@ -95,6 +95,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }))?;
     let choir = block_on(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))?;
     let song = block_on(storage.create_song(NewSong {
         title: "Kyrie".to_owned(),

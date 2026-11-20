@@ -176,6 +176,9 @@ fn t2_1_e2e_parish_rehydrates_and_asset_failure_rolls_back() {
     .expect("parish");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let song = bounded(storage.create_song(NewSong {

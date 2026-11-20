@@ -9,6 +9,7 @@
 //! answered and a send after close fails fast in `submit`.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -59,7 +60,9 @@ enum Stop {
 /// build can script the first identity bytes and fix the clock.
 pub(crate) struct Sources {
     scripted: VecDeque<[u8; 16]>,
-    fixed_now: Option<Timestamp>,
+    fixed_now: Cell<Option<Timestamp>>,
+    /// Milliseconds the scripted clock advances after each reading.
+    step_millis: i64,
 }
 
 impl Sources {
@@ -67,16 +70,25 @@ impl Sources {
     pub(crate) fn system() -> Self {
         Self {
             scripted: VecDeque::new(),
-            fixed_now: None,
+            fixed_now: Cell::new(None),
+            step_millis: 0,
         }
     }
 
     /// Scripted identity bytes (used in order, then OS randomness) and a fixed clock.
     #[cfg(feature = "fault-injection")]
     pub(crate) fn scripted(ids: Vec<[u8; 16]>, now: Timestamp) -> Self {
+        Self::stepping(ids, now, 0)
+    }
+
+    /// Scripted identity bytes and a clock that starts at `now` and advances
+    /// by `step_millis` after every reading.
+    #[cfg(feature = "fault-injection")]
+    pub(crate) fn stepping(ids: Vec<[u8; 16]>, now: Timestamp, step_millis: i64) -> Self {
         Self {
             scripted: ids.into(),
-            fixed_now: Some(now),
+            fixed_now: Cell::new(Some(now)),
+            step_millis,
         }
     }
 
@@ -89,8 +101,11 @@ impl Sources {
 
     /// The current time; a pre-epoch system clock maps to 0.
     fn now(&self) -> Timestamp {
-        if let Some(fixed) = self.fixed_now {
-            return fixed;
+        if let Some(scripted) = self.fixed_now.get() {
+            self.fixed_now.set(Some(Timestamp::from_millis(
+                scripted.millis().saturating_add(self.step_millis),
+            )));
+            return scripted;
         }
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

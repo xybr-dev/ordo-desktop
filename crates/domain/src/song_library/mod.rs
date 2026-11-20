@@ -28,9 +28,10 @@ mod model;
 
 pub use interface::{
     ArrangementVisibility, DeletionBlocker, DeletionVerdict, DuplicateEvidence, DurableReference,
-    Field, MatchedOn, RecordRef, SongLibrary, SongLibraryError, StatusFilter, match_key,
+    Field, HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError,
+    MatchedOn, RecordRef, SongLibrary, SongLibraryError, StatusFilter, match_key,
 };
 pub use model::{
-    ArchiveState, Arrangement, ArrangementDraft, Choir, Occurrence, OccurrenceDraft,
+    ArchiveState, Arrangement, ArrangementDraft, Choir, ChoirDraft, Occurrence, OccurrenceDraft,
     PaginationState, Section, SectionDraft, SongDraft, SongWork,
 };

@@ -193,6 +193,18 @@ impl Arrangement {
         })
     }
 
+    /// Sets the pagination and archive state of an Arrangement being rebuilt
+    /// from storage.
+    pub(crate) fn with_states(
+        mut self,
+        pagination_state: PaginationState,
+        archive_state: ArchiveState,
+    ) -> Self {
+        self.pagination_state = pagination_state;
+        self.archive_state = archive_state;
+        self
+    }
+
     /// Replaces the authored content and applies the pagination review rule.
     ///
     /// Adding or removing a section, changing a section's lyrics or label, or

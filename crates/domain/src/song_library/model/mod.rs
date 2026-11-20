@@ -13,7 +13,7 @@ pub use arrangement::{
     Arrangement, ArrangementDraft, Occurrence, OccurrenceDraft, PaginationState, Section,
     SectionDraft,
 };
-pub use choir::Choir;
+pub use choir::{Choir, ChoirDraft};
 pub use song::{SongDraft, SongWork};
 
 use crate::identity::Timestamp;

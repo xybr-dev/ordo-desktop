@@ -78,6 +78,12 @@ impl SongWork {
         })
     }
 
+    /// Sets the archive state of a Song work being rebuilt from storage.
+    pub(crate) fn with_archive_state(mut self, archive_state: ArchiveState) -> Self {
+        self.archive_state = archive_state;
+        self
+    }
+
     /// Replaces the authored content, keeping identity, creation time, and
     /// archive state unchanged.
     pub(crate) fn replace_content(&mut self, draft: SongDraft) -> Result<(), SongLibraryError> {

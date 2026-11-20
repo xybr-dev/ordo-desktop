@@ -154,10 +154,16 @@ fn created_records_rehydrate_exactly_after_restart() {
     .expect("parish");
     let first_choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let second_choir = bounded(storage.create_choir(NewChoir {
         name: "Youth".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let song = bounded(storage.create_song(NewSong {
@@ -223,6 +229,9 @@ fn ids_are_canonical_v4_and_times_explicit() {
     .expect("parish");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let song = bounded(storage.create_song(song_input("Kyrie"))).expect("song");
@@ -310,6 +319,9 @@ fn invalid_input_writes_nothing() {
     let song = bounded(storage.create_song(song_input("Kyrie"))).expect("song");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
 
@@ -360,7 +372,10 @@ fn invalid_input_writes_nothing() {
     // Names.
     assert_eq!(
         bounded(storage.create_choir(NewChoir {
-            name: "   ".to_owned()
+            name: "   ".to_owned(),
+            short_label: None,
+            languages: Vec::new(),
+            notes: None,
         })),
         Err(invalid("name", "blank"))
     );
@@ -425,6 +440,9 @@ fn missing_choir_or_song_rolls_back() {
     let song = bounded(storage.create_song(song_input("Kyrie"))).expect("song");
     let choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let ghost_choir = ChoirId::from_entity(EntityId::from_random_bytes([9; 16]));
@@ -475,10 +493,16 @@ fn injected_failure_mid_arrangement_preserves_prior_state() {
     let song = bounded(storage.create_song(song_input("Kyrie"))).expect("song");
     let first_choir = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
     let second_choir = bounded(storage.create_choir(NewChoir {
         name: "Youth".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("choir");
 
@@ -539,10 +563,16 @@ fn colliding_id_is_regenerated() {
 
     let first = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("first choir");
     let second = bounded(storage.create_choir(NewChoir {
         name: "Youth".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("second choir");
 
@@ -560,11 +590,17 @@ fn exhausted_collisions_fail_cleanly() {
 
     let first = bounded(storage.create_choir(NewChoir {
         name: "Adults".to_owned(),
+        short_label: None,
+        languages: Vec::new(),
+        notes: None,
     }))
     .expect("first choir");
     assert_eq!(
         bounded(storage.create_choir(NewChoir {
-            name: "Youth".to_owned()
+            name: "Youth".to_owned(),
+            short_label: None,
+            languages: Vec::new(),
+            notes: None,
         })),
         Err(StorageError::IdentityExhausted {
             kind: RecordKind::Choir
@@ -623,13 +659,19 @@ fn validation_failure_leaves_the_injected_fault_armed() {
     bounded(storage.inject_write_failure(1)).expect("arm hook");
     assert_eq!(
         bounded(storage.create_choir(NewChoir {
-            name: " ".to_owned()
+            name: " ".to_owned(),
+            short_label: None,
+            languages: Vec::new(),
+            notes: None,
         })),
         Err(invalid("name", "blank"))
     );
     assert_eq!(
         bounded(storage.create_choir(NewChoir {
-            name: "Adults".to_owned()
+            name: "Adults".to_owned(),
+            short_label: None,
+            languages: Vec::new(),
+            notes: None,
         })),
         Err(StorageError::Sqlite("injected write failure".to_owned()))
     );

@@ -486,7 +486,13 @@ fn edit_session_over_real_storage(cx: &mut TestAppContext) {
             .clone();
         let (restored, record) = drive_in(
             cx,
-            storage.with(|s| s.restore_revision(first_title_revision, last_committed)),
+            storage.with(|s| {
+                s.restore_revision(
+                    first_title_revision,
+                    last_committed,
+                    domain::song_library::PaginationState::Draft,
+                )
+            }),
         )
         .expect("restore");
         assert_eq!(restored, target_content);

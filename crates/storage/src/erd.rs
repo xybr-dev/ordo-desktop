@@ -114,7 +114,12 @@ const NOTES: &[(&str, &str, &str)] = &[
     (
         "choir",
         "Song Library",
-        "Created by the operator; archived by setting archived_at; never cascades.",
+        "Created by the operator; details (short_label, notes, choir_language) edited in place; archived by setting archived_at; never cascades.",
+    ),
+    (
+        "choir_language",
+        "Song Library",
+        "Owned by its choir; preferred languages ordered by position; replaced with the choir's details.",
     ),
     (
         "song",
