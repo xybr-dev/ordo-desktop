@@ -533,3 +533,51 @@ fn typing_f_b_o_and_spaces_into_a_text_field_edits_the_field_only(cx: &mut TestA
         "the Cues get F back"
     );
 }
+
+/// The Recovery Drill replayed through `PresenterView::command` and
+/// `PresenterView::tick` on the injected clock: after every line the Engine
+/// state formats exactly as the committed `commands.expect` line. This is the
+/// behaviour half of `live-control-lab --run-drill`; it measures no time.
+#[gpui::test]
+fn the_recovery_drill_replays_through_the_presenter_with_no_mismatch(cx: &mut TestAppContext) {
+    use presentation::snapshot_reader::{DirectorySource, read_snapshot};
+    use presentation::test_support::drill::{
+        COMMAND_MS, Step, parse_step, script_lines, state_line,
+    };
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/presentations/recovery-drill");
+    let snapshot =
+        Arc::new(read_snapshot(&DirectorySource::new(dir.clone())).expect("drill loads"));
+    let script = std::fs::read_to_string(dir.join("commands.txt")).unwrap();
+    let expected = std::fs::read_to_string(dir.join("commands.expect")).unwrap();
+    let (open, cx) = open_snapshot(cx, SIZES[0], UiPreferences::default(), snapshot);
+    let mut clock = 0;
+    let mut mismatches = Vec::new();
+    for (index, (text, want)) in script_lines(&script).zip(expected.lines()).enumerate() {
+        let outcome = match parse_step(text).expect("a known drill line") {
+            Step::Command(command) => {
+                clock += COMMAND_MS;
+                open.now.set(clock);
+                run(&open, cx, command)
+            }
+            Step::Tick(ms) => {
+                clock += ms;
+                let before = engine_state(&open, cx);
+                settle(&open, cx, clock);
+                Ok(if before == engine_state(&open, cx) {
+                    Outcome::Unchanged
+                } else {
+                    Outcome::Changed
+                })
+            }
+        };
+        let got = open.view.read_with(cx, |view, _| {
+            state_line(index + 1, text, view.engine.state(), outcome)
+        });
+        if got != want {
+            mismatches.push(format!("expected `{want}`, got `{got}`"));
+        }
+    }
+    assert_eq!(script_lines(&script).count(), expected.lines().count());
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
+}

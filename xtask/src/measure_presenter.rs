@@ -150,6 +150,11 @@ const BASELINE_MEMORY_KEYS: [&str; 2] = ["private_bytes", "rss_bytes"];
 const MEASURE_TIMEOUT: Duration = Duration::from_secs(600);
 /// Every other lab process gets this long.
 const LAB_TIMEOUT: Duration = Duration::from_secs(180);
+/// The Recovery Drill replay (about 70 lines) takes well under a minute; the
+/// lab arms its own, shorter timeout, so this only bounds a hung process.
+const DRILL_TIMEOUT: Duration = Duration::from_secs(240);
+/// The committed Recovery Drill, relative to the repository root.
+const DRILL_FIXTURE: &str = "tests/fixtures/presentations/recovery-drill";
 /// A live-presenter run drives about 2,700 commands, 4 ms apart or more, and
 /// settles several times; the lab's own 420 s timeout fires before this kill.
 const LIVE_TIMEOUT: Duration = Duration::from_secs(480);
@@ -201,9 +206,18 @@ pub fn measure_presenter(root: &Path) -> XtaskResult<()> {
     let gate = animation_gate(&native, ci);
     if let Some(object) = native.as_object_mut() {
         object.insert("animations_verdict".to_owned(), gate.verdict());
+        if ci {
+            object.insert(
+                "recovery_drill_latency_verdict".to_owned(),
+                json!(DRILL_LATENCY_ON_CI),
+            );
+        }
     }
     for line in summary_lines(&native) {
         println!("{line}");
+    }
+    if ci {
+        println!("recovery drill: {DRILL_LATENCY_ON_CI}");
     }
     let mut document: Value = serde_json::from_str(&fs::read_to_string(&report)?)?;
     merge_native(&mut document, native.clone())?;
@@ -277,6 +291,9 @@ fn measure_native(root: &Path, ci: bool) -> XtaskResult<Value> {
             .unwrap_or_else(|error| json!({"error": error.to_string()}))
     };
 
+    let recovery_drill = measure_recovery_drill(root, &scratch)
+        .unwrap_or_else(|error| json!({"error": error.to_string()}));
+
     // Best effort: the scratch files are not part of the document.
     let _ = fs::remove_dir_all(&scratch);
     Ok(json!({
@@ -284,8 +301,108 @@ fn measure_native(root: &Path, ci: bool) -> XtaskResult<Value> {
         "display_path": display_path,
         "baselines": baselines,
         "live_presenter": live_presenter,
+        "recovery_drill": recovery_drill,
         "animations": animations,
     }))
+}
+
+/// The number of non-comment lines in a drill script: the lines a complete run
+/// must replay.
+fn drill_line_count(script: &str) -> usize {
+    script.lines().filter(|line| !line.starts_with('#')).count()
+}
+
+/// Runs `live-control-lab --run-drill` once in a fresh process over the
+/// committed Recovery Drill. The document gains `expected_commands`, the line
+/// count of the committed script, so the judge can tell a complete replay from
+/// a short one. A build or run failure is an `{"error": ...}` document.
+fn measure_recovery_drill(root: &Path, scratch: &Path) -> XtaskResult<Value> {
+    let script = fs::read_to_string(root.join(DRILL_FIXTURE).join("commands.txt"))?;
+    let executable = build_example(root, LIVE_LAB_EXAMPLE)?;
+    let mut document = run_lab(
+        &executable,
+        &["--run-drill"],
+        scratch,
+        "recovery-drill",
+        DRILL_TIMEOUT,
+    );
+    if let Some(object) = document.as_object_mut() {
+        object.insert(
+            "expected_commands".to_owned(),
+            json!(drill_line_count(&script)),
+        );
+    }
+    Ok(document)
+}
+
+/// Failures for the Recovery Drill run: it must have finished, replayed every
+/// line of the script with no state differing from `commands.expect`, kept
+/// keydown-to-paint p95 under the limit, stayed inside the 512 MiB
+/// qualification budget and the 1 GiB ceiling, and broken no hot-path rule.
+fn recovery_drill_failures(drill: &Value, ci: bool) -> Vec<String> {
+    const LABEL: &str = "recovery drill";
+    if drill.is_null() {
+        return vec![format!("{LABEL}: no result was recorded")];
+    }
+    if let Some(message) = error_message(drill) {
+        return vec![format!("{LABEL}: {message}")];
+    }
+    let mut failures = Vec::new();
+    if drill["ok"].as_bool() != Some(true) {
+        failures.push(format!("{LABEL}: the run did not finish"));
+    }
+    match (
+        drill["commands"].as_u64(),
+        drill["expected_commands"].as_u64(),
+    ) {
+        (Some(ran), Some(expected)) if ran == expected => {}
+        (Some(ran), Some(expected)) => failures.push(format!(
+            "{LABEL}: replayed {ran} lines but the script has {expected}"
+        )),
+        _ => failures.push(format!("{LABEL}: the line count was not recorded")),
+    }
+    match drill["mismatches"].as_u64() {
+        Some(0) => {}
+        Some(count) => {
+            let first = drill["first_mismatches"]
+                .as_array()
+                .and_then(|notes| notes.first())
+                .and_then(Value::as_str)
+                .unwrap_or("no detail");
+            failures.push(format!(
+                "{LABEL}: {count} state(s) differ from commands.expect; first: {first}"
+            ));
+        }
+        None => failures.push(format!("{LABEL}: mismatches were not recorded")),
+    }
+    match drill["p95_ms"].as_f64() {
+        Some(p95) if p95 < P95_LIMIT_MS => {}
+        // The drill times a real window paint, wait for the next frame
+        // included. A CI runner has no real display vsync and presents about
+        // every 110 ms, so the figure is recorded there but judged only on
+        // real hardware, like the animation pacing (DRILL_LATENCY_ON_CI).
+        Some(_) if ci => {}
+        Some(p95) => failures.push(format!(
+            "{LABEL}: keydown-to-paint p95 {p95:.3} ms is at or over the 50 ms limit"
+        )),
+        None => failures.push(format!("{LABEL}: no keydown-to-paint p95 was recorded")),
+    }
+    match drill["peak_bytes"].as_u64() {
+        Some(bytes) => {
+            let reading = Some(Reading {
+                bytes,
+                source: "peak_bytes",
+            });
+            failures.extend(memory_failures(LABEL, reading));
+        }
+        None => failures.push(format!("{LABEL}: peak memory was not sampled")),
+    }
+    match drill["hot_path_violations"].as_u64() {
+        Some(0) => {}
+        Some(count) => failures.push(format!("{LABEL}: {count} hot-path violation(s)")),
+        None => failures.push(format!("{LABEL}: hot-path violations not recorded")),
+    }
+    failures
 }
 
 /// Runs `live-control-lab --measure-animations` once at 1366x768, 100%, 500
@@ -528,6 +645,7 @@ fn native_failures_in(native: &Value, ci: bool) -> Vec<String> {
         None => failures.push("baselines: no runs were recorded".to_owned()),
     }
     failures.extend(live_presenter_failures(native));
+    failures.extend(recovery_drill_failures(&native["recovery_drill"], ci));
     let gate = animation_gate(native, ci);
     if gate.judged {
         failures.extend(gate.findings);
@@ -987,8 +1105,35 @@ fn summary_lines(native: &Value) -> Vec<String> {
             });
         }
     }
+    lines.push(recovery_drill_summary(&native["recovery_drill"]));
     lines.push(animation_summary(&native["animations"]));
     lines
+}
+
+/// One line for the Recovery Drill run: lines replayed, state mismatches, the
+/// keydown-to-paint tail, peak memory and hot-path violations.
+/// Why the drill's keydown-to-paint p95 is not judged on a CI runner.
+const DRILL_LATENCY_ON_CI: &str =
+    "latency recorded, not judged on CI: the runner has no real display vsync; judged locally only";
+
+fn recovery_drill_summary(drill: &Value) -> String {
+    if drill.is_null() {
+        return "recovery drill: no result".to_owned();
+    }
+    if let Some(message) = error_message(drill) {
+        return format!("recovery drill: {message}");
+    }
+    format!(
+        "recovery drill: {} of {} lines replayed, {} mismatches, keydown-to-paint p95 {} ms, max {} ms over {} timed commands, peak {}, hot-path violations {}",
+        drill["commands"],
+        drill["expected_commands"],
+        drill["mismatches"],
+        drill["p95_ms"],
+        drill["max_ms"],
+        drill["timed_commands"],
+        memory_text(drill, &["peak_bytes"]),
+        drill["hot_path_violations"],
+    )
 }
 
 /// One line for the animation run: the refresh, the worst interval p95 and the
@@ -1143,7 +1288,26 @@ mod tests {
                 live_run(2, 190 * MIB, 330 * MIB),
                 live_run(3, 190 * MIB, 330 * MIB),
             ],
+            "recovery_drill": passing_drill(),
             "animations": passing_animations()
+        })
+    }
+
+    /// A complete Recovery Drill run inside every budget.
+    fn passing_drill() -> Value {
+        json!({
+            "ok": true,
+            "mode": "recovery-drill",
+            "commands": 73,
+            "expected_commands": 73,
+            "timed_commands": 65,
+            "mismatches": 0,
+            "first_mismatches": [],
+            "samples": 65,
+            "p95_ms": 24.5,
+            "max_ms": 31.0,
+            "peak_bytes": 200 * MIB,
+            "hot_path_violations": 0,
         })
     }
 
@@ -1892,5 +2056,139 @@ mod tests {
         );
         assert_eq!(source(json!({"rss_bytes": 1})), Some("rss_bytes"));
         assert_eq!(source(json!({})), None);
+    }
+
+    fn drill_failures_with(change: impl FnOnce(&mut Value)) -> Vec<String> {
+        let mut drill = passing_drill();
+        change(&mut drill);
+        recovery_drill_failures(&drill, false)
+    }
+
+    #[test]
+    fn a_complete_drill_inside_every_budget_passes() {
+        assert!(native_failures(&passing_native()).is_empty());
+        assert!(recovery_drill_failures(&passing_drill(), false).is_empty());
+    }
+
+    #[test]
+    fn a_missing_or_failed_drill_fails() {
+        assert_eq!(
+            recovery_drill_failures(&Value::Null, false),
+            ["recovery drill: no result was recorded"]
+        );
+        assert_eq!(
+            recovery_drill_failures(&json!({"error": "timed out after 150 s"}), false),
+            ["recovery drill: timed out after 150 s"]
+        );
+        let failures = drill_failures_with(|drill| drill["ok"] = json!(false));
+        assert_eq!(failures, ["recovery drill: the run did not finish"]);
+        let mut native = passing_native();
+        native.as_object_mut().unwrap().remove("recovery_drill");
+        assert!(
+            native_failures(&native)
+                .iter()
+                .any(|failure| failure.contains("recovery drill: no result"))
+        );
+    }
+
+    #[test]
+    fn a_short_replay_or_a_state_mismatch_fails() {
+        let failures = drill_failures_with(|drill| drill["commands"] = json!(72));
+        assert_eq!(
+            failures,
+            ["recovery drill: replayed 72 lines but the script has 73"]
+        );
+        let failures = drill_failures_with(|drill| drill["expected_commands"] = Value::Null);
+        assert_eq!(
+            failures,
+            ["recovery drill: the line count was not recorded"]
+        );
+        let failures = drill_failures_with(|drill| {
+            drill["mismatches"] = json!(2);
+            drill["first_mismatches"] = json!(["expected a, got b"]);
+        });
+        assert_eq!(
+            failures,
+            ["recovery drill: 2 state(s) differ from commands.expect; first: expected a, got b"]
+        );
+    }
+
+    #[test]
+    fn on_ci_a_slow_drill_is_recorded_but_other_rules_still_hold() {
+        let mut slow = passing_drill();
+        slow["p95_ms"] = json!(112.7);
+        assert!(recovery_drill_failures(&slow, true).is_empty());
+        slow["mismatches"] = json!(1);
+        assert!(!recovery_drill_failures(&slow, true).is_empty());
+        let mut unmeasured = passing_drill();
+        unmeasured["p95_ms"] = Value::Null;
+        assert!(!recovery_drill_failures(&unmeasured, true).is_empty());
+    }
+
+    #[test]
+    fn a_slow_or_unmeasured_drill_fails_on_the_p95() {
+        let failures = drill_failures_with(|drill| drill["p95_ms"] = json!(50.0));
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("at or over the 50 ms limit"));
+        let failures = drill_failures_with(|drill| drill["p95_ms"] = Value::Null);
+        assert!(failures[0].contains("no keydown-to-paint p95"));
+        assert!(drill_failures_with(|drill| drill["p95_ms"] = json!(49.999)).is_empty());
+    }
+
+    #[test]
+    fn a_drill_over_the_memory_budget_or_ceiling_fails() {
+        let failures = drill_failures_with(|drill| drill["peak_bytes"] = json!(512 * MIB + 1));
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("512 MiB qualification budget"));
+        let failures = drill_failures_with(|drill| drill["peak_bytes"] = json!(GIB + 1));
+        assert_eq!(failures.len(), 2);
+        assert!(failures[1].contains("1 GiB absolute ceiling"));
+        assert!(drill_failures_with(|drill| drill["peak_bytes"] = json!(512 * MIB)).is_empty());
+        let failures = drill_failures_with(|drill| drill["peak_bytes"] = Value::Null);
+        assert_eq!(failures, ["recovery drill: peak memory was not sampled"]);
+    }
+
+    #[test]
+    fn a_drill_with_hot_path_violations_fails() {
+        let failures = drill_failures_with(|drill| drill["hot_path_violations"] = json!(3));
+        assert_eq!(failures, ["recovery drill: 3 hot-path violation(s)"]);
+        let failures = drill_failures_with(|drill| drill["hot_path_violations"] = Value::Null);
+        assert_eq!(
+            failures,
+            ["recovery drill: hot-path violations not recorded"]
+        );
+    }
+
+    #[test]
+    fn the_drill_summary_line_reports_the_numbers() {
+        let line = recovery_drill_summary(&passing_drill());
+        assert_eq!(
+            line,
+            "recovery drill: 73 of 73 lines replayed, 0 mismatches, keydown-to-paint p95 24.5 ms, max 31.0 ms over 65 timed commands, peak 200.0 MiB (peak_bytes), hot-path violations 0"
+        );
+        assert_eq!(
+            recovery_drill_summary(&json!({"error": "boom"})),
+            "recovery drill: boom"
+        );
+        assert!(
+            summary_lines(&passing_native())
+                .iter()
+                .any(|line| line.starts_with("recovery drill: 73 of 73"))
+        );
+    }
+
+    #[test]
+    fn the_line_count_skips_comments_only() {
+        assert_eq!(drill_line_count("# a\nnext\n# b\ntick 5\n"), 2);
+    }
+
+    #[test]
+    fn the_committed_script_has_a_line_count_the_judge_can_use() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let script = fs::read_to_string(root.join(DRILL_FIXTURE).join("commands.txt"))
+            .expect("the committed drill script is readable");
+        let expect = fs::read_to_string(root.join(DRILL_FIXTURE).join("commands.expect"))
+            .expect("the committed expected states are readable");
+        assert_eq!(drill_line_count(&script), expect.lines().count());
     }
 }
