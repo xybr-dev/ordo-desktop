@@ -1018,14 +1018,14 @@ every authoring Module.
 - [x] `[AUTO]` Initial migrations cover Parish, settings, Choir, Song,
       Arrangement, section, occurrence, Theme placeholders, revision ledger,
       managed asset, and schema metadata. Snapshot, package, and backup tables are not placeholders here: the tasks that use them add them (T4.1, T4.4, T4.8).
-- [ ] `[AUTO]` Managed assets use stable IDs and hashes and commit consistently
+- [x] `[AUTO]` Managed assets use stable IDs and hashes and commit consistently
       with database references; no committed record can reference a missing
       asset.
-- [ ] `[AUTO]` Cache files are clearly separate from authoritative assets and
+- [x] `[AUTO]` Cache files are clearly separate from authoritative assets and
       can be deleted and rebuilt without content loss.
 - [x] `[AUTO]` Every write uses parameterized SQL, transactions where invariants
       cross records, and enforced foreign keys.
-- [ ] `[AUTO]` Storage errors preserve prior committed state and return a stable
+- [x] `[AUTO]` Storage errors preserve prior committed state and return a stable
       domain-relevant failure.
 - [x] `[AUTO]` `ERD.md` is generated/maintained with these authoritative
       migrations: its Mermaid physical overview and per-table columns, types,

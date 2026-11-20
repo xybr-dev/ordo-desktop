@@ -10,8 +10,9 @@ mod records;
 mod write;
 
 pub use records::{
-    ArrangementRecord, ChoirRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong,
-    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
+    ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
+    NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
+    SectionRecord, SongRecord, ThemeRecord,
 };
 
 #[cfg(test)]

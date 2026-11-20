@@ -17,6 +17,7 @@ use async_channel::{Receiver, Sender};
 use domain::identity::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::assets::{self, AssetLayout};
 use crate::migrations::{self, Migration};
 use crate::{SchemaStatus, StorageConfig, StorageError, map_error};
 
@@ -107,6 +108,21 @@ pub(crate) struct Core {
     sources: Sources,
     /// Scripted 1-based write step at which the next write transaction fails.
     fault: Option<usize>,
+    /// Asset directory layout.
+    pub(crate) assets: AssetLayout,
+    /// The disposable cache directory.
+    pub(crate) cache_dir: std::path::PathBuf,
+    /// Armed by the fault hook: the next asset file write fails midway.
+    asset_fault: bool,
+}
+
+/// Borrowed parts of the worker for one asset-writing transaction.
+pub(crate) struct AssetWriteParts<'a> {
+    pub(crate) conn: &'a mut Connection,
+    pub(crate) ids: &'a mut Sources,
+    pub(crate) fault: &'a mut Option<usize>,
+    pub(crate) layout: &'a AssetLayout,
+    pub(crate) asset_fault: &'a mut bool,
 }
 
 /// Queues `op` and returns a future for its result. Never blocks.
@@ -217,37 +233,39 @@ impl Core {
     ///
     /// A failed open (including `Busy`) is permanent for that Storage handle:
     /// the connection is never retried. Callers that want to retry must spawn
-    /// a new Storage handle.
+    /// a new Storage handle. Asset directories are created and swept only after
+    /// migrations succeed.
     fn open(config: &StorageConfig, migrations: &[Migration], sources: Sources) -> Core {
-        let mut conn = match Connection::open(&config.path) {
-            Ok(conn) => conn,
-            Err(error) => {
-                return Core {
-                    conn: None,
-                    status: Err(map_error(error)),
-                    sources,
-                    fault: None,
-                };
-            }
+        let mut core = Core {
+            conn: None,
+            status: Err(StorageError::NotReady),
+            sources,
+            fault: None,
+            assets: AssetLayout::new(&config.assets_dir),
+            cache_dir: config.cache_dir.clone(),
+            asset_fault: false,
         };
-        let status = conn
-            .busy_timeout(config.busy_timeout)
-            .map_err(map_error)
-            .and_then(|()| migrations::open_and_migrate(&mut conn, migrations));
-        match status {
-            Ok(status) => Core {
-                conn: Some(conn),
-                status: Ok(status),
-                sources,
-                fault: None,
-            },
-            Err(error) => Core {
-                conn: None,
-                status: Err(error),
-                sources,
-                fault: None,
-            },
+        match Self::connect(config, migrations) {
+            Ok((mut conn, status)) => {
+                assets::prepare(&core.assets, &core.cache_dir, &mut conn);
+                core.conn = Some(conn);
+                core.status = Ok(status);
+            }
+            Err(error) => core.status = Err(error),
         }
+        core
+    }
+
+    /// Refuses unsafe directory layouts, opens the database and migrates it.
+    fn connect(
+        config: &StorageConfig,
+        migrations: &[Migration],
+    ) -> Result<(Connection, SchemaStatus), StorageError> {
+        assets::validate_dirs(&config.path, &config.assets_dir, &config.cache_dir)?;
+        let mut conn = Connection::open(&config.path).map_err(map_error)?;
+        conn.busy_timeout(config.busy_timeout).map_err(map_error)?;
+        let status = migrations::open_and_migrate(&mut conn, migrations)?;
+        Ok((conn, status))
     }
 
     fn conn(&self) -> Result<&Connection, StorageError> {
@@ -260,6 +278,33 @@ impl Core {
     ) -> Result<(&mut Connection, &mut Sources, &mut Option<usize>), StorageError> {
         let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
         Ok((conn, &mut self.sources, &mut self.fault))
+    }
+
+    /// Everything one asset-writing transaction needs. The caller clears
+    /// `asset_fault` when it fires.
+    pub(crate) fn asset_write_parts(&mut self) -> Result<AssetWriteParts<'_>, StorageError> {
+        let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
+        Ok(AssetWriteParts {
+            conn,
+            ids: &mut self.sources,
+            fault: &mut self.fault,
+            layout: &self.assets,
+            asset_fault: &mut self.asset_fault,
+        })
+    }
+
+    /// Scripts the next asset file write to fail midway.
+    #[cfg(feature = "fault-injection")]
+    pub(crate) fn inject_asset_write_failure(&mut self) {
+        self.asset_fault = true;
+    }
+
+    /// The connection and asset layout for a read that also reads files.
+    pub(crate) fn asset_read_parts(
+        &mut self,
+    ) -> Result<(&mut Connection, &AssetLayout), StorageError> {
+        let conn = self.conn.as_mut().ok_or(StorageError::NotReady)?;
+        Ok((conn, &self.assets))
     }
 
     /// The connection for a read transaction.
