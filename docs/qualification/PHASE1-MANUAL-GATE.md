@@ -141,8 +141,21 @@ clarity."
 ### F. T1.7 recheck — real kill and relaunch
 
 The T1.7 E2E restarts inside the test host. This script kills the real process.
-The `cargo xtask recovery-drill` command scripts the same check (Phase 1 gate,
-Recovery Drill); run it by hand at least once on the church PC.
+`cargo xtask recovery-drill` scripts the same check against the real packaged
+`ordo.exe` (Phase 1 gate, Recovery Drill). It needs two displays, because
+Enable Output is refused with one, so it is a local or church-kit check and
+not a CI job. It builds `ordo` in release, stages it with the Normal Mass
+fixture, runs every launch with `APPDATA` pointing at a temporary directory
+(never real Parish data), and for Live, Frozen and Blackout presses Present,
+Enable Output, Space (and F or B), waits for the journal on disk to show the
+state, hard-kills the process, relaunches, and checks that the app reopened in
+the recovered Presenter (a new session whose first point carries the
+interrupted state, no rejected journal) and that Space takes the recovered
+Preview live. It writes `target/ordo-recovery-drill/report.json` and exits
+non-zero on any failure. It does not look at the projector: steps 3 and 4
+below (black output, strip text) stay a human check. With one display,
+`cargo xtask recovery-drill --single-display` runs only an output-off case.
+Run the command, and then the steps by hand, at least once on the church PC.
 
 1. Present, Enable Output, take a Cue live.
 2. In a terminal: `taskkill /F /IM ordo.exe`.
