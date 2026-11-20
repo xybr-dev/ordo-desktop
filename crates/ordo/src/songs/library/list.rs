@@ -21,8 +21,8 @@ use ui::{
 use super::{SongsWorkspace, filters};
 use crate::songs::store::LibraryState;
 
-/// Why Song creation is unavailable in this build.
-pub(super) const CREATE_REASON: &str = "Song creation arrives in a later build";
+/// Why Song creation is unavailable until the library is readable.
+pub(super) const CREATE_REASON: &str = "The parish library is not open yet";
 /// Why `.ordo` import is unavailable in this build.
 pub(super) const IMPORT_REASON: &str = "Import arrives in a later build";
 
@@ -88,6 +88,28 @@ pub(super) fn count_line(hit: &SongHit, filtered: bool) -> Option<String> {
     })
 }
 
+/// The button that opens the New song panel; unavailable until the library is
+/// readable, because there is nothing to compare or write to before then.
+fn new_song_button(
+    id: &'static str,
+    label: &'static str,
+    ready: bool,
+    environment: UiEnvironment,
+    cx: &Context<SongsWorkspace>,
+) -> Button {
+    let button = Button::new(id, label, environment)
+        .icon(icon::PLUS)
+        .tone(Tone::Primary)
+        .on_activate(SongsWorkspace::act(cx, |workspace, window, cx| {
+            workspace.open_new_song(window, cx);
+        }));
+    if ready {
+        button
+    } else {
+        button.availability(Availability::unavailable(CREATE_REASON))
+    }
+}
+
 /// The pane the shell hosts in its list region.
 pub(super) fn render(
     workspace: &mut SongsWorkspace,
@@ -121,11 +143,14 @@ pub(super) fn render(
         )
         .child(
             div().debug_selector(|| "songs-new".into()).child(
-                Button::new("songs-new-button", "New song", environment)
-                    .icon(icon::PLUS)
-                    .tone(Tone::Primary)
-                    .availability(Availability::unavailable(CREATE_REASON))
-                    .on_surface(palette.surface),
+                new_song_button(
+                    "songs-new-button",
+                    "New song",
+                    matches!(state, LibraryState::Ready),
+                    environment,
+                    cx,
+                )
+                .on_surface(palette.surface),
             ),
         );
 
@@ -169,7 +194,7 @@ fn ready(
 ) -> AnyElement {
     let library = store.read(cx).library();
     if library.songs().next().is_none() {
-        return empty_library(environment).into_any_element();
+        return empty_library(environment, cx).into_any_element();
     }
     let bar = filters::bar(workspace, environment, cx);
     let library = store.read(cx).library();
@@ -227,7 +252,7 @@ fn ready(
 }
 
 /// The empty library, in the same two-pane workspace.
-fn empty_library(environment: UiEnvironment) -> Div {
+fn empty_library(environment: UiEnvironment, cx: &Context<SongsWorkspace>) -> Div {
     notice(
         "songs-empty",
         "No songs yet",
@@ -235,12 +260,13 @@ fn empty_library(environment: UiEnvironment) -> Div {
         vec![
             div()
                 .debug_selector(|| "songs-create".into())
-                .child(
-                    Button::new("songs-create-button", "Create song", environment)
-                        .icon(icon::PLUS)
-                        .tone(Tone::Primary)
-                        .availability(Availability::unavailable(CREATE_REASON)),
-                )
+                .child(new_song_button(
+                    "songs-create-button",
+                    "Create song",
+                    true,
+                    environment,
+                    cx,
+                ))
                 .into_any_element(),
             div()
                 .debug_selector(|| "songs-import".into())

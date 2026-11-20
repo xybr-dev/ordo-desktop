@@ -357,3 +357,104 @@ fn t2_4_e2e_archived_only_keeps_evidence_scroll_and_selection_across_a_round_tri
     );
     assert!(present(vcx, "songs-detail"));
 }
+
+/// T2.5: a near-duplicate title is inspected against two candidates and backed
+/// out of twice with the form untouched; then Create commits one Song with no
+/// Arrangements, and a reopen from disk finds it and leaves the candidates as
+/// they were.
+#[gpui::test]
+fn t2_5_e2e_near_duplicate_inspect_two_candidates_then_create_and_reload(cx: &mut TestAppContext) {
+    use super::new_song::tests::{
+        click as press, form_state, open_panel, seed_near_matches, settle_depth, songs_of, stop,
+        type_into,
+    };
+
+    cx.executor().allow_parking();
+    let dir = temp_dir("t25-e2e");
+    let seeding = Storage::spawn(StorageConfig::in_directory(&dir));
+    let ids = cx
+        .foreground_executor()
+        .block_test(seed_near_matches(&seeding));
+    cx.foreground_executor().block_test(seeding.shutdown());
+
+    let (slot, store) = open_parish(cx, &dir);
+    let (shell, vcx) = open_store(cx, store.clone());
+    let songs = songs_of(&shell, vcx);
+    let before = store.read_with(vcx, |store, _| store.library().clone());
+
+    let panel = open_panel(&shell, vcx);
+    vcx.simulate_input("Tinapay sa  Lang\u{ed}t");
+    type_into(vcx, "new-song-composer", "Fr. Manoling Francisco");
+    type_into(vcx, "new-song-aliases", "Bread from Heaven, Tinapay");
+    type_into(vcx, "new-song-moment", "Communion");
+
+    assert!(present(vcx, "button-3 possible existing Songs"));
+    press(vcx, "button-3 possible existing Songs");
+    let typed = form_state(&panel, vcx);
+    assert_eq!(typed.2, [ids.exact, ids.near, ids.archived]);
+
+    for (at, expected) in [(0, ids.exact), (1, ids.near)] {
+        let selector = ["new-song-candidate-0", "new-song-candidate-1"][at];
+        press(vcx, selector);
+        settle_depth(&songs, vcx, 2);
+        panel.read_with(vcx, |panel, _| {
+            assert_eq!(panel.previewed(), Some(expected))
+        });
+        assert!(present(vcx, "new-song-preview-arrangements"));
+        press(vcx, "button-Back");
+        settle_depth(&songs, vcx, 1);
+        assert_eq!(
+            form_state(&panel, vcx),
+            typed,
+            "Back leaves the form as typed"
+        );
+    }
+    store.read_with(vcx, |store, _| assert_eq!(store.library(), &before));
+    songs.read_with(vcx, |songs, _| assert_eq!(songs.selected(), None));
+
+    press(vcx, "button-Create song");
+    crate::songs::choirs::tests::wait(vcx, |cx| {
+        songs.read_with(cx, |songs, cx| songs.overlay_depth(cx)) == 0
+    });
+    settle_depth(&songs, vcx, 0);
+    let created = songs.read_with(vcx, |songs, _| songs.selected().expect("selected"));
+    assert!(![ids.exact, ids.near, ids.archived, ids.unrelated].contains(&created));
+    assert!(present(vcx, "songs-no-arrangements"));
+    store.read_with(vcx, |store, _| {
+        assert_eq!(store.library().songs().count(), before.songs().count() + 1);
+    });
+    stop(vcx, &slot);
+
+    // Reopen from disk.
+    let (slot, store) = open_parish(cx, &dir);
+    let (id, work) = store.read_with(cx, |store, _| {
+        let work = store
+            .library()
+            .song(created)
+            .expect("the created Song persisted");
+        (created, work.clone())
+    });
+    assert_eq!(work.title(), "Tinapay sa  Lang\u{ed}t");
+    assert_eq!(work.original_attribution(), Some("Fr. Manoling Francisco"));
+    assert_eq!(work.aliases(), ["Bread from Heaven", "Tinapay"]);
+    let moments: Vec<_> = work.liturgical_moments().iter().cloned().collect();
+    assert_eq!(moments, ["Communion"]);
+    store.read_with(cx, |store, _| {
+        let library = store.library();
+        assert!(library.arrangements_for_song(id).unwrap().is_empty());
+        assert_eq!(library.songs().count(), before.songs().count() + 1);
+        for (song, count) in [
+            (ids.exact, 2),
+            (ids.near, 1),
+            (ids.archived, 1),
+            (ids.unrelated, 1),
+        ] {
+            assert_eq!(library.arrangements_for_song(song).unwrap().len(), count);
+            assert_eq!(library.song(song).unwrap(), before.song(song).unwrap());
+        }
+    });
+    cx.foreground_executor()
+        .block_test(slot.shutdown())
+        .expect("shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}

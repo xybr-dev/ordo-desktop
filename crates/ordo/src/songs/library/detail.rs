@@ -12,7 +12,7 @@ use gpui::{
 };
 use ui::{
     environment::UiEnvironment,
-    primitives::{button::Button, list::Badge},
+    primitives::{Availability, button::Button, list::Badge},
     tokens,
 };
 
@@ -221,11 +221,7 @@ pub(super) fn render(
                 .flex_col()
                 .w_full()
                 .when(rows.is_empty(), |list| {
-                    list.child(
-                        div()
-                            .text_color(rgb(palette.text_muted))
-                            .child("This song has no Arrangements yet."),
-                    )
+                    list.child(no_arrangements(song.is_archived(), environment))
                 })
                 .children(rows),
         );
@@ -242,6 +238,49 @@ pub(super) fn render(
             .children(scroll.indicator("songs-detail-scroll", 0.0, window, cx, environment))
             .into_any_element(),
     )
+}
+
+/// Why Arrangement creation is unavailable in this build.
+const ADD_ARRANGEMENT_REASON: &str = "Arrangements arrive in a later build";
+
+/// A Song with no Arrangements: what one is, and the action that makes the
+/// first. An archived Song is inspect-only, so it offers no action.
+fn no_arrangements(archived: bool, environment: UiEnvironment) -> Div {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    div()
+        .debug_selector(|| "songs-no-arrangements".into())
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(px(scale.apply(tokens::spacing::RELATED)))
+        .py(px(scale.apply(tokens::spacing::GROUP)))
+        .child(
+            div()
+                .text_size(px(scale.apply(tokens::typography::HEADING.size)))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(palette.text))
+                .child("No Arrangements yet"),
+        )
+        .child(
+            div().text_color(rgb(palette.text_muted)).child(
+                "An Arrangement holds one rendition\u{2019}s lyrics, sections and Sequence for a language and choir.",
+            ),
+        )
+        .when(!archived, |block| {
+            block.child(
+                div()
+                    .debug_selector(|| "songs-add-arrangement".into())
+                    .child(
+                        Button::new(
+                            "songs-add-arrangement-button",
+                            "Add first Arrangement",
+                            environment,
+                        )
+                        .availability(Availability::unavailable(ADD_ARRANGEMENT_REASON)),
+                    ),
+            )
+        })
 }
 
 /// The Song's identity facts that exist: aliases, attribution, moments and

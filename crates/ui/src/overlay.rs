@@ -28,7 +28,10 @@ use gpui_base::{
 };
 
 use crate::{FocusNext, FocusPrevious, assets::icon, environment::UiEnvironment, scroll::Scroll};
-use crate::{primitives::button::Button, tokens};
+use crate::{
+    primitives::{Availability, button::Button},
+    tokens,
+};
 
 /// Below `gpui_base::POPUP_PRIORITY`, because a Select opened *inside* an
 /// overlay body has to paint over the surface that owns it, and the operator
@@ -86,6 +89,8 @@ pub enum Surface {
 
 type Body = Rc<dyn Fn(UiEnvironment, &mut Window, &mut App) -> AnyElement>;
 type Activate = Rc<dyn Fn(&mut Window, &mut App)>;
+/// Whether a gated primary action can be taken right now, asked every frame.
+type Gate = Rc<dyn Fn(&App) -> Availability>;
 
 /// One typed request for a temporary surface.
 #[derive(Clone)]
@@ -95,6 +100,9 @@ pub struct Overlay {
     description: Option<SharedString>,
     body: Body,
     primary: Option<(SharedString, Activate)>,
+    /// Set by [`Overlay::primary_gated`]: the primary's availability, and the
+    /// sign that taking it does not close the surface.
+    gate: Option<Gate>,
     secondary: Option<(SharedString, Activate)>,
     on_close: Option<Activate>,
     primary_focus: Option<FocusHandle>,
@@ -118,6 +126,7 @@ impl Overlay {
             description: None,
             body: Rc::new(|_, _, _| div().into_any_element()),
             primary: None,
+            gate: None,
             secondary: None,
             on_close: None,
             primary_focus: None,
@@ -149,6 +158,22 @@ impl Overlay {
         activate: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.primary = Some((label.into(), Rc::new(activate)));
+        self
+    }
+
+    /// A primary action that can be unavailable and that does not close the
+    /// surface when taken, for a decision that may be refused (a form whose
+    /// save can fail, or that has nothing to save yet). `gate` is asked every
+    /// frame; an unavailable primary cannot be activated. The caller closes the
+    /// surface itself, with [`OverlayHost::close_top`], once the decision stood.
+    pub fn primary_gated(
+        mut self,
+        label: impl Into<SharedString>,
+        gate: impl Fn(&App) -> Availability + 'static,
+        activate: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.primary = Some((label.into(), Rc::new(activate)));
+        self.gate = Some(Rc::new(gate));
         self
     }
 
@@ -734,7 +759,7 @@ impl OverlayHost {
             })
             .child(self.header(&overlay, id, environment))
             .child(body)
-            .children(self.footer(&overlay, id, &actions, environment));
+            .children(self.footer(&overlay, id, &actions, environment, cx));
         let surface = div()
             .absolute()
             .map(|d| match overlay.kind {
@@ -895,6 +920,18 @@ impl OverlayHost {
         })
     }
 
+    /// [`Self::take`] without the close: the caller decides whether the
+    /// decision stood. Still refused while the surface is only leaving.
+    /// The gate is asked again at activation, not trusted from the last paint.
+    fn guarded(&self, id: usize, gate: Gate, activate: Activate) -> Activate {
+        let host = self.clone();
+        Rc::new(move |window, cx| {
+            if host.holding(id, cx) && gate(cx).is_available() {
+                activate(window, cx);
+            }
+        })
+    }
+
     /// Whether a surface is still the operator's, rather than mounted only for
     /// the length of its own exit.
     fn holding(&self, id: usize, cx: &App) -> bool {
@@ -966,6 +1003,7 @@ impl OverlayHost {
         id: usize,
         actions: &[FocusHandle; 2],
         environment: UiEnvironment,
+        cx: &App,
     ) -> Option<impl IntoElement + use<>> {
         if overlay.primary.is_none() && overlay.secondary.is_none() {
             return None;
@@ -977,7 +1015,15 @@ impl OverlayHost {
         // the operator leaves.
         let action = |slot: Option<(SharedString, Activate)>, quiet: bool| {
             slot.map(|(label, activate)| {
-                let take = self.take(id, activate);
+                // A gated primary is asked whether it may be taken, and when
+                // taken leaves the surface to its caller.
+                let gate = (!quiet).then(|| overlay.gate.clone()).flatten();
+                let availability = gate.as_ref().map_or(Availability::Available, |g| g(cx));
+                let take = if let Some(gate) = gate.clone() {
+                    self.guarded(id, gate, activate)
+                } else {
+                    self.take(id, activate)
+                };
                 let tracked = actions[usize::from(!quiet)].clone();
                 Button::new(
                     (
@@ -992,6 +1038,7 @@ impl OverlayHost {
                     environment,
                 )
                 .when(quiet, Button::quiet)
+                .availability(availability)
                 .track_focus(&tracked)
                 .on_surface(palette.surface)
                 .on_activate(move |window, cx| take(window, cx))
@@ -1566,6 +1613,76 @@ mod tests {
                 assert_eq!(quit.is_focused(window), !expect_cancel, "after {key}");
             });
         }
+    }
+
+    #[gpui::test]
+    fn a_gated_primary_stays_inert_while_unavailable_and_never_closes_the_surface(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let open_gate = Rc::new(Cell::new(false));
+        let taken = Rc::new(Cell::new(0));
+        cx.update(|window, cx| {
+            let (gate, taken) = (open_gate.clone(), taken.clone());
+            host.open(
+                Overlay::dialog("Gated")
+                    .primary_gated(
+                        "Go",
+                        move |_| {
+                            if gate.get() {
+                                Availability::Available
+                            } else {
+                                Availability::unavailable("Not yet")
+                            }
+                        },
+                        move |_, _| taken.set(taken.get() + 1),
+                    )
+                    .secondary("Cancel", |_, _| {}),
+                window,
+                cx,
+            )
+        });
+        settle(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let go = cx.debug_bounds("button-Go").expect("the primary renders");
+        cx.simulate_click(go.center(), Modifiers::default());
+        cx.run_until_parked();
+        assert_eq!(taken.get(), 0, "an unavailable primary does nothing");
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 1);
+        open_gate.set(true);
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let go = cx.debug_bounds("button-Go").expect("the primary renders");
+        cx.simulate_click(go.center(), Modifiers::default());
+        settle(cx);
+        assert_eq!(taken.get(), 1);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            1,
+            "an available gated primary does not close"
+        );
+        // Escape and Cancel still leave a surface whose primary is unavailable.
+        open_gate.set(false);
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "Escape closes it");
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::dialog("Gated again")
+                    .primary_gated("Go", |_| Availability::unavailable("Not yet"), |_, _| {})
+                    .secondary("Cancel", |_, _| {}),
+                window,
+                cx,
+            )
+        });
+        settle(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let cancel = cx.debug_bounds("button-Cancel").expect("Cancel renders");
+        cx.simulate_click(cancel.center(), Modifiers::default());
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 0, "Cancel closes it");
     }
 
     #[gpui::test]

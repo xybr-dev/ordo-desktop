@@ -1144,23 +1144,24 @@ query, evidence, selection, and scroll; repeat from every empty-state variant.
 Arrangement data.
 
 **Changes:** `crates/ordo/src/songs/new_song/`,
-`crates/domain/src/song_library/duplicate_evidence.rs`, `tests/e2e/songs/create.*`
+`crates/domain/src/song_library/duplicate_evidence.rs`,
+`crates/ordo/src/songs/e2e.rs`
 
 **Depends on:** T2.3, T2.4.
 
 **AC**
 
-- [ ] `[UI-AUTO]` New Song requires only primary title and excludes lyrics,
+- [x] `[UI-AUTO]` New Song requires only primary title and excludes lyrics,
       language, Choir, section, Sequence, and slide-boundary fields.
-- [ ] `[UI-AUTO]` Optional identity metadata matches the adopted Song-work
+- [x] `[UI-AUTO]` Optional identity metadata matches the adopted Song-work
       ownership.
-- [ ] `[AUTO]` Possible existing Songs are ranked from normalized identity
+- [x] `[AUTO]` Possible existing Songs are ranked from normalized identity
       evidence without automatic selection.
-- [ ] `[UI-AUTO]` Evidence is collapsed to a compact count; choosing a candidate
+- [x] `[UI-AUTO]` Evidence is collapsed to a compact count; choosing a candidate
       opens a nested identity-only preview rather than the full Song page.
-- [ ] `[UI-AUTO]` Back preserves the staged form; Use this existing Song
+- [x] `[UI-AUTO]` Back preserves the staged form; Use this existing Song
       explicitly abandons it and selects the existing result.
-- [ ] `[UI-AUTO]` Create song commits once and lands on a valid No Arrangements
+- [x] `[UI-AUTO]` Create song commits once and lands on a valid No Arrangements
       yet detail with optional Add first Arrangement.
 
 **E2E** `[UI-AUTO]` — Enter a near-duplicate title and metadata, inspect two

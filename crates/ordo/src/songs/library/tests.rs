@@ -231,16 +231,25 @@ fn ac1_library_shows_four_views_and_songs_are_real(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn ac2_ac3_empty_library_keeps_two_panes_with_disabled_actions(cx: &mut TestAppContext) {
+fn ac2_ac3_empty_library_keeps_two_panes_and_creates_through_the_new_song_panel(
+    cx: &mut TestAppContext,
+) {
     let (_shell, cx) = open(cx, SongLibrary::new());
     assert!(present(cx, "songs-empty"));
     assert!(present(cx, "songs-create") && present(cx, "songs-import"));
     assert!(present(cx, "songs-new"));
     assert!(present(cx, "songs-detail-steps"));
     assert!(!present(cx, "songs-search"));
-    // Disabled controls do nothing when clicked.
+    // Import stays unavailable and does nothing when clicked.
+    click(cx, "songs-import");
+    assert!(!present(cx, "new-song-form"));
+    // Create song and New song both open the New song panel.
     click(cx, "songs-create");
+    assert!(present(cx, "new-song-form"));
+    click(cx, "button-Cancel");
+    cx.run_until_parked();
     click(cx, "songs-new");
+    assert!(present(cx, "new-song-form"));
     assert!(present(cx, "songs-empty"));
 }
 
