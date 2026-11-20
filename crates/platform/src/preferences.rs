@@ -31,6 +31,12 @@ pub fn installation_preferences_path() -> io::Result<PathBuf> {
     config_root().map(|root| root.join("ordo").join("preferences"))
 }
 
+/// The parish data folder: `config_root()/ordo/parish`, beside the
+/// installation preferences. It holds the database, `assets/` and `cache/`.
+pub fn parish_data_dir() -> io::Result<PathBuf> {
+    config_root().map(|root| root.join("ordo").join("parish"))
+}
+
 #[cfg(target_os = "windows")]
 fn config_root() -> io::Result<PathBuf> {
     std::env::var_os("APPDATA")
@@ -54,6 +60,20 @@ fn config_root() -> io::Result<PathBuf> {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn the_parish_folder_sits_beside_the_installation_preferences() {
+        // Both resolve through the same root, so one is the other's sibling.
+        let (Ok(preferences), Ok(parish)) = (installation_preferences_path(), parish_data_dir())
+        else {
+            // No config root in this environment: both report the same error.
+            assert!(installation_preferences_path().is_err());
+            assert!(parish_data_dir().is_err());
+            return;
+        };
+        assert_eq!(preferences.parent(), parish.parent());
+        assert_eq!(parish.file_name().and_then(|n| n.to_str()), Some("parish"));
+    }
 
     #[test]
     fn preferences_file_round_trips_in_a_temporary_location() {

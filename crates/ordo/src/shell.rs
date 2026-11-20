@@ -26,6 +26,7 @@ pub mod rail;
 
 use std::{mem, rc::Rc, time::Instant};
 
+use domain::{identity::ArrangementId, song_library::SongLibrary};
 use fixtures::rows;
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
@@ -39,6 +40,7 @@ use crate::{
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     presenter::PresenterView,
     settings,
+    songs::{ArrangementOverview, LibraryStore, SongsWorkspace},
 };
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
@@ -131,6 +133,15 @@ pub struct ShellView {
     /// included: the operator is working on one thing, and Back returns them to
     /// the screen they left rather than to a pane beside it.
     editing: Option<SharedString>,
+    /// Set beside `editing` when the focused editor is an Arrangement's
+    /// overview; `None` for the placeholder entities.
+    editing_arrangement: Option<ArrangementId>,
+    /// The parish library the Songs screens read.
+    library_store: Entity<LibraryStore>,
+    /// Query, filters, selection and scroll of Library → Songs. Owned here so
+    /// they outlive the screen that draws them.
+    songs: Entity<SongsWorkspace>,
+    _songs_observer: Subscription,
     list_scroll: Scroll,
     viewer_scroll: Scroll,
     /// The focused editor's body keeps its own scroll rather than sharing the
@@ -234,6 +245,11 @@ impl ShellView {
             Some(shell) => shell.update(cx, |shell, cx| shell.allow_close(window, cx)),
             None => true,
         });
+        // Shells built without the runtime read an empty, ready library; the
+        // runtime swaps in the real store with `set_library_store`.
+        let library_store = cx.new(|cx| LibraryStore::with_library(SongLibrary::new(), cx));
+        let songs = cx.new(|cx| SongsWorkspace::new(library_store.clone(), window, cx));
+        let songs_observer = cx.observe(&songs, |_, _, cx| cx.notify());
         Self {
             build_identity,
             destination: Destination::default(),
@@ -241,6 +257,10 @@ impl ShellView {
             library_views: views(Destination::Library, cx),
             selected_row: None,
             editing: None,
+            editing_arrangement: None,
+            library_store,
+            songs,
+            _songs_observer: songs_observer,
             list_scroll: Scroll::new(),
             viewer_scroll: Scroll::new(),
             editor_scroll: Scroll::new(),
@@ -403,6 +423,49 @@ impl ShellView {
         self.editing.as_ref()
     }
 
+    /// The Arrangement whose overview is open, if that is what the focused
+    /// editor shows.
+    pub fn editing_arrangement(&self) -> Option<ArrangementId> {
+        self.editing_arrangement
+    }
+
+    /// The Songs workspace entity.
+    pub fn songs(&self) -> &Entity<SongsWorkspace> {
+        &self.songs
+    }
+
+    /// The library store the Songs screens read.
+    pub fn library_store(&self) -> &Entity<LibraryStore> {
+        &self.library_store
+    }
+
+    /// Points the Songs screens at the real parish store.
+    pub fn set_library_store(
+        &mut self,
+        store: Entity<LibraryStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.songs = cx.new(|cx| SongsWorkspace::new(store.clone(), window, cx));
+        self._songs_observer = cx.observe(&self.songs, |_, _, cx| cx.notify());
+        self.library_store = store;
+        cx.notify();
+    }
+
+    /// Whether the list and viewer are Library → Songs.
+    fn showing_songs(&self, cx: &App) -> bool {
+        self.destination == Destination::Library && self.local_view(cx) == Some(rail::SONGS_VIEW)
+    }
+
+    /// Opens an Arrangement's overview in the focused-editor frame.
+    pub fn open_arrangement(&mut self, id: ArrangementId, cx: &mut Context<Self>) {
+        let title = ArrangementOverview::new(id).title(self.library_store.read(cx).library());
+        self.editing = Some(title.into());
+        self.editing_arrangement = Some(id);
+        self.registry.focus_region(WORKSPACE_ACTIONS);
+        cx.notify();
+    }
+
     pub fn environment(&self) -> UiEnvironment {
         self.environment
     }
@@ -426,6 +489,7 @@ impl ShellView {
         // row 2 of Upcoming means nothing in Songs.
         self.selected_row = None;
         self.editing = None;
+        self.editing_arrangement = None;
         if destination == Destination::Diagnostics {
             self.sample_memory(cx);
         }
@@ -771,6 +835,11 @@ impl ShellView {
     fn primary_list(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let environment = self.environment;
         let palette = tokens::palette(environment.appearance());
+        if self.showing_songs(cx) {
+            return self
+                .songs
+                .update(cx, |songs, cx| songs.render_list(environment, window, cx));
+        }
         let selected = self.selected_row;
         let scroll = self.list_scroll.clone();
         let rows = rows(self.context(cx))
@@ -856,6 +925,15 @@ impl ShellView {
                     self.destination.label()
                 ))
                 .into_any_element();
+        }
+        if self.showing_songs(cx) {
+            let shell = cx.entity().downgrade();
+            let open: crate::songs::library::OpenArrangement = Rc::new(move |id, _, cx| {
+                let _ = shell.update(cx, |shell, cx| shell.open_arrangement(id, cx));
+            });
+            return self.songs.update(cx, |songs, cx| {
+                songs.render_detail(environment, open, window, cx)
+            });
         }
         let view = cx.entity().downgrade();
         let Some(entry) = self
@@ -977,22 +1055,29 @@ impl ShellView {
         // of what it holds, with nothing saying so, is the one thing worse
         // than a scrollbar.
         let scroll = self.viewer_scroll.clone();
-        let viewer = self
+        let own_scroll = self.showing_songs(cx);
+        let viewer_region = self
             .registry
             .region(MAIN_EDITOR, window, cx)
             .flex_1()
             .min_w_0()
             .h_full()
             .relative()
-            .overflow_hidden()
-            .child(
-                scroll
-                    .bounded(div().id("viewer"))
-                    .size_full()
-                    .p(px(gutter))
-                    .child(viewer),
-            )
-            .children(scroll.indicator("viewer", 0.0, window, cx, environment));
+            .overflow_hidden();
+        // The Songs detail pane brings its own scroll region and padding.
+        let viewer = if own_scroll {
+            viewer_region.child(viewer)
+        } else {
+            viewer_region
+                .child(
+                    scroll
+                        .bounded(div().id("viewer"))
+                        .size_full()
+                        .p(px(gutter))
+                        .child(viewer),
+                )
+                .children(scroll.indicator("viewer", 0.0, window, cx, environment))
+        };
 
         let body = div()
             .size_full()
@@ -1170,6 +1255,7 @@ impl ShellView {
                             .on_activate(move |_, cx| {
                                 let _ = view.update(cx, |view, cx| {
                                     view.editing = None;
+                                    view.editing_arrangement = None;
                                     // The invoker unmounts with this screen, so
                                     // the region hands back its remembered
                                     // target or its first tab stop — the Open
@@ -1204,6 +1290,7 @@ impl ShellView {
             .flex_none()
             .child(header);
         let scroll = self.editor_scroll.clone();
+        let arrangement = self.editing_arrangement.map(ArrangementOverview::new);
         let body = self
             .registry
             .region(MAIN_EDITOR, window, cx)
@@ -1217,7 +1304,14 @@ impl ShellView {
                     .bounded(div().id("editor-body"))
                     .size_full()
                     .p(px(gutter))
-                    .child("This entity has no editor yet."),
+                    .child(match arrangement {
+                        Some(overview) => {
+                            overview.render(self.library_store.read(cx).library(), environment)
+                        }
+                        None => div()
+                            .child("This entity has no editor yet.")
+                            .into_any_element(),
+                    }),
             )
             .children(scroll.indicator("editor-body", 0.0, window, cx, environment));
 
@@ -2211,7 +2305,8 @@ mod tests {
         assert!(row.is_some(), "clicking a rail row focuses it");
         // Off the rail without leaving the destination, so the marker is still
         // over the row about to be clicked again.
-        click(cx, "row-Songs \u{b7} entry 1");
+        click(cx, "tab-3");
+        click(cx, "row-Choirs \u{b7} entry 1");
         assert_ne!(
             cx.update(|window, cx| window.focused(cx)),
             row,
@@ -2363,11 +2458,11 @@ mod tests {
 
         // The same list primitives as the lab, by keyboard: arrows move focus
         // between rows without changing the selection.
-        click(cx, "tab-0");
+        click(cx, "tab-3");
         shell.read_with(cx, |shell, cx| {
-            assert_eq!(shell.local_view(cx), Some("Songs"))
+            assert_eq!(shell.local_view(cx), Some("Choirs"))
         });
-        click(cx, "row-Songs \u{b7} entry 1");
+        click(cx, "row-Choirs \u{b7} entry 1");
         let first = cx.update(|window, cx| window.focused(cx));
         assert!(first.is_some(), "clicking a row focuses it");
         shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));

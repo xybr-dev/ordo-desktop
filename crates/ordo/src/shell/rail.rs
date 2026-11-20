@@ -14,6 +14,10 @@ use ui::{
     tokens,
 };
 
+/// The Library local view that hosts the persistent Songs workspace. The
+/// shell compares against this rather than a literal label.
+pub const SONGS_VIEW: &str = "Songs";
+
 /// A global destination. The first four are the parish's work; the last three
 /// are the installation's, and `DESIGN.md` anchors them at the bottom of the
 /// same rail rather than hiding them behind a menu.
@@ -82,7 +86,7 @@ impl Destination {
         match self {
             Self::Masses => &["Upcoming", "History", "Archive", "Templates"],
             Self::Library => &[
-                "Songs",
+                SONGS_VIEW,
                 "Responses & Prayers",
                 "General Presentations",
                 "Choirs",

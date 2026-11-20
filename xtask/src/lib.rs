@@ -525,23 +525,19 @@ fn validate_sqlite_ownership(
     }
 }
 
-/// Workspace crates that make up the Phase 1 Presenter runtime (`ordo.exe`).
-const PRESENTER_RUNTIME: &[&str] = &[
-    "ordo",
-    "presentation",
-    "rendering",
-    "domain",
-    "platform",
-    "ui",
-];
+/// Workspace crates that must stay free of SQLite: everything the Presenter
+/// reaches below the `ordo` application crate. `ordo` itself opens the parish
+/// store since T2.4, so it is no longer a root here.
+const PRESENTER_RUNTIME: &[&str] = &["presentation", "rendering", "domain", "platform", "ui"];
 
-/// Phase 1 gate: the Presenter runtime ships without SQLite. No crate in
-/// [`PRESENTER_RUNTIME`] may reach `storage` or a SQLite driver through
-/// normal dependencies, directly or through another workspace crate. Test
-/// and example code may still use `storage` as a dev-dependency.
+/// Gate: no crate in [`PRESENTER_RUNTIME`] may reach `storage` or a SQLite
+/// driver through normal dependencies, directly or through another workspace
+/// crate. Test and example code may still use `storage` as a dev-dependency.
 ///
-/// Phase 2 (Preparation over persistent storage) relaxes this for `ordo`
-/// when the runtime first opens the Library database.
+/// Phase 2 relaxed this for the `ordo` application crate when the runtime
+/// first opened the Library database (T2.4). Presenter Mode itself still never
+/// opens the parish store, and `presentation`, `rendering`, `domain`,
+/// `platform` and `ui` may never reach `storage`.
 fn validate_presenter_runtime_without_sqlite(
     normal_dependencies: &BTreeMap<&str, BTreeSet<&str>>,
 ) -> XtaskResult<()> {
@@ -1423,9 +1419,19 @@ mod tests {
         ]);
         assert!(validate_presenter_runtime_without_sqlite(&clean).is_ok());
 
+        // The application crate may open the parish store (T2.4) ...
+        let application = BTreeMap::from([
+            ("storage", BTreeSet::from(["rusqlite", "domain"])),
+            ("ordo", BTreeSet::from(["storage", "presentation"])),
+            ("presentation", BTreeSet::from(["domain"])),
+            ("domain", BTreeSet::new()),
+        ]);
+        assert!(validate_presenter_runtime_without_sqlite(&application).is_ok());
+
+        // ... but nothing below it may.
         let direct = BTreeMap::from([
             ("storage", BTreeSet::from(["rusqlite"])),
-            ("ordo", BTreeSet::from(["storage"])),
+            ("presentation", BTreeSet::from(["storage"])),
         ]);
         assert!(validate_presenter_runtime_without_sqlite(&direct).is_err());
 

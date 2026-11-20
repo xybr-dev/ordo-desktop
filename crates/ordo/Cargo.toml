@@ -13,6 +13,9 @@ platform.workspace = true
 presentation.workspace = true
 rendering.workspace = true
 ui.workspace = true
+# The parish store (T2.4): the application opens it at startup. The
+# `fault-injection` hook stays a dev-dependency feature only.
+storage.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 uuid.workspace = true
@@ -42,9 +45,8 @@ image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # The live-control-lab example writes a synthetic 500-Cue snapshot.
 presentation = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
-# Fault hooks (injected panic) for the supervision tests only. `storage` is a
-# dev-dependency only: the Phase 1 Presenter runtime ships without SQLite
-# (`cargo xtask architecture` enforces it until Phase 2 opens the Library).
+# Fault hooks (injected panic) for the supervision tests only; the normal
+# `storage` edge above never enables them (`cargo xtask architecture`).
 storage = { workspace = true, features = ["fault-injection"] }
 
 [lints]
