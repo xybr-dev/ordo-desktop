@@ -15,10 +15,10 @@ use crate::{
     environment::{
         EnvironmentChange, PreparationAppearance, ResolvedAppearance, UiEnvironment, UiPreferences,
     },
-    overlay::{Overlay, OverlayHost, Toast},
+    overlay::{Overlay, OverlayHost, Toast, TwoStage},
     primitives::{
         Availability,
-        button::Button,
+        button::{Button, Tone},
         disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
         list::{Badge, ListRow},
@@ -433,7 +433,40 @@ fn render_dialog(environment: UiEnvironment, window: &mut Window, cx: &mut App) 
                                 }),
                             window,
                             cx,
+                        );
+                    }
+                }),
+        )
+        // The two-stage footer: a wide, Back-led slideover whose body scrolls
+        // under a footer that turns into the confirmation in place.
+        .child(
+            Button::new("open-two-stage", "Compare revision", environment)
+                .on_surface(stage)
+                .on_activate({
+                    let host = host.clone();
+                    move |window, cx| {
+                        let stage = TwoStage::new(
+                            "Read-only comparison",
+                            "Back",
+                            "Restore this revision",
+                            cx,
                         )
+                        .confirmation(
+                            "Restore the whole Arrangement?",
+                            fixtures::LONG_CEBUANO_TITLE,
+                            "Keep current",
+                            "Restore entire Arrangement",
+                            |_, _| {},
+                        );
+                        host.clone().open(
+                            Overlay::slideover("Compare revision")
+                                .back("Back to History")
+                                .wide()
+                                .body(|environment, _, _| long_body(environment))
+                                .two_stage(stage),
+                            window,
+                            cx,
+                        );
                     }
                 }),
         )
@@ -491,7 +524,7 @@ fn render_slideover(environment: UiEnvironment, window: &mut Window, cx: &mut Ap
                                             Button::new("open-nested", "Open Song", environment)
                                                 .on_surface(stage)
                                                 .on_activate(move |window, cx| {
-                                                    host.clone().open(child(), window, cx)
+                                                    host.clone().open(child(), window, cx);
                                                 }),
                                         )
                                         .child(long_body(environment))
@@ -499,7 +532,7 @@ fn render_slideover(environment: UiEnvironment, window: &mut Window, cx: &mut Ap
                                 }),
                             window,
                             cx,
-                        )
+                        );
                     }
                 }),
         )
@@ -578,6 +611,11 @@ fn render_buttons(environment: UiEnvironment, _: &mut Window, _: &mut App) -> An
             Button::new("more", "More actions", environment)
                 .icon(assets::icon::ELLIPSIS)
                 .icon_only()
+                .on_surface(stage),
+        )
+        .child(
+            Button::new("delete", "Delete permanently", environment)
+                .tone(Tone::Danger)
                 .on_surface(stage),
         )
         .child(

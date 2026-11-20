@@ -22,6 +22,7 @@ pub mod icon {
     lucide! {
         ACTIVITY => "activity.svg",
         ARROW_DOWN => "arrow-down.svg",
+        ARROW_LEFT => "arrow-left.svg",
         ARROW_UP => "arrow-up.svg",
         CALENDAR_DAYS => "calendar-days.svg",
         CHECK => "check.svg",
@@ -54,6 +55,7 @@ pub mod icon {
         REPEAT => "repeat.svg",
         ROTATE_CCW_CLOCK => "rotate-ccw-clock.svg",
         SETTINGS => "settings.svg",
+        SLIDERS_HORIZONTAL => "sliders-horizontal.svg",
         SNOWFLAKE => "snowflake.svg",
         SQUARE => "square.svg",
         TRIANGLE_ALERT => "triangle-alert.svg",

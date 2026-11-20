@@ -178,20 +178,45 @@ pub(super) fn render(
         .child(
             div()
                 .flex()
-                .flex_col()
+                .items_start()
+                .justify_between()
+                .gap(px(scale.apply(tokens::spacing::GROUP)))
                 .child(
                     div()
-                        .text_size(px(scale.apply(tokens::typography::META.size)))
-                        .text_color(rgb(palette.text_muted))
-                        .child("Song"),
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(scale.apply(tokens::typography::META.size)))
+                                .text_color(rgb(palette.text_muted))
+                                .child("Song"),
+                        )
+                        .child(
+                            div()
+                                .debug_selector(|| "songs-detail-title".into())
+                                .text_size(px(scale.apply(tokens::typography::TITLE.size)))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(rgb(palette.text))
+                                .child(song.title().to_owned()),
+                        ),
                 )
+                // History reads archived Songs too.
                 .child(
-                    div()
-                        .debug_selector(|| "songs-detail-title".into())
-                        .text_size(px(scale.apply(tokens::typography::TITLE.size)))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(palette.text))
-                        .child(song.title().to_owned()),
+                    div().flex_none().child(
+                        Button::new("songs-detail-history", "History", environment)
+                            .track_focus(&workspace.history_focus)
+                            .icon(ui::assets::icon::ROTATE_CCW_CLOCK)
+                            .on_surface(palette.background)
+                            .on_activate({
+                                let weak = weak.clone();
+                                move |window, cx| {
+                                    let _ = weak.update(cx, |workspace, cx| {
+                                        workspace.open_song_history(id, window, cx);
+                                    });
+                                }
+                            }),
+                    ),
                 ),
         )
         .children(archived_notice)

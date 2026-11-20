@@ -80,6 +80,7 @@ const LUCIDE_ICON_DIR: &str = "crates/ui/assets/icons/lucide";
 const LUCIDE_ICONS: &[&str] = &[
     "activity.svg",
     "arrow-down.svg",
+    "arrow-left.svg",
     "arrow-up.svg",
     "calendar-days.svg",
     "check.svg",
@@ -112,6 +113,7 @@ const LUCIDE_ICONS: &[&str] = &[
     "repeat.svg",
     "rotate-ccw-clock.svg",
     "settings.svg",
+    "sliders-horizontal.svg",
     "snowflake.svg",
     "square.svg",
     "triangle-alert.svg",

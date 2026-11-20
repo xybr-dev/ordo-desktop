@@ -38,13 +38,15 @@ use crate::{
     commands::registry::{EDIT_SESSION_CONTEXT, Redo, Undo},
     diagnostics::{self, PerformanceState},
     edit_session::{NavigationGuard, SaveState},
+    history::{AfterRestore, HistoryTarget, open_history},
     output::{CongregationOutput, CursorLocator},
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     presenter::PresenterView,
     settings,
     songs::{
         ArrangementDetailsPanel, ChoirsWorkspace, LibraryStore, SongsWorkspace,
-        arrangement_details, lyrics::ArrangementEditor,
+        arrangement_details,
+        lyrics::{ArrangementEditor, TaskTab},
     },
 };
 use ui::{
@@ -53,7 +55,7 @@ use ui::{
     assets,
     environment::{EnvironmentChange, PreparationAppearance, UiEnvironment, UiPreferences},
     motion::Track,
-    overlay::{Overlay, OverlayHost},
+    overlay::{Overlay, OverlayHost, Toast},
     primitives::{
         Availability,
         button::{Button, Tone},
@@ -82,6 +84,9 @@ actions!(
 /// focused editor owns the screen, which is exactly what the `F6` cycle skips.
 const GLOBAL_NAVIGATION: &str = "Global navigation";
 const WORKSPACE_ACTIONS: &str = "Workspace actions";
+/// The toast that explains why History did not open after a failed save.
+const HISTORY_BLOCKED: &str =
+    "Couldn\u{2019}t save, so History didn\u{2019}t open. Retry save first.";
 const PRIMARY_LIST: &str = "Primary list";
 /// Under this logical workspace width a header's tabs take their own row
 /// (Decision 302).
@@ -183,6 +188,12 @@ pub struct ShellView {
     /// viewer's: the two are never on screen together, so one handle would hand
     /// the operator back a viewer scrolled to a position they never chose.
     editor_scroll: Scroll,
+    /// The header's History button, so closing History hands focus back to it.
+    history_focus: FocusHandle,
+    /// The header's Back button and Arrangement details button, so the tests
+    /// can walk the real Tab order from the editor's arrival focus.
+    back_focus: FocusHandle,
+    details_focus: FocusHandle,
     registry: RegionRegistry,
     /// Where the rail last laid its entries out, which its pill travels
     /// between (Decision 301).
@@ -309,6 +320,9 @@ impl ShellView {
             list_scroll: Scroll::new(),
             viewer_scroll: Scroll::new(),
             editor_scroll: Scroll::new(),
+            history_focus: cx.focus_handle(),
+            back_focus: cx.focus_handle(),
+            details_focus: cx.focus_handle(),
             registry: RegionRegistry::default(),
             rail_track: Track::default(),
             masses: masses::MassesIndex::new(window, cx),
@@ -543,6 +557,12 @@ impl ShellView {
 
     /// Opens an Arrangement's overview in the focused-editor frame.
     pub fn open_arrangement(&mut self, id: ArrangementId, cx: &mut Context<Self>) {
+        self.open_arrangement_on(id, TaskTab::Lyrics, cx);
+    }
+
+    /// [`Self::open_arrangement`] on a chosen task tab: a restore rebuilds the
+    /// editor where the operator was (Decision 8).
+    fn open_arrangement_on(&mut self, id: ArrangementId, tab: TaskTab, cx: &mut Context<Self>) {
         let title = self.arrangement_title(id, cx);
         self.editing = Some(title.into());
         self.editing_arrangement = Some(id);
@@ -554,6 +574,9 @@ impl ShellView {
         self._editor_observer = Some(cx.observe(&editor, |_, _, cx| cx.notify()));
         // An empty Arrangement puts focus on its Add first section action.
         let editor_takes_focus = editor.read(cx).wants_initial_focus();
+        if tab == TaskTab::Sequence {
+            editor.update(cx, |editor, cx| editor.show_sequence_tab(cx));
+        }
         self.arrangement_editor = Some(editor);
         if !editor_takes_focus {
             self.registry.focus_region(WORKSPACE_ACTIONS);
@@ -688,6 +711,105 @@ impl ShellView {
         // Pending lyric text is saved before the details open, so the
         // details save never races it (Decision 16).
         self.guarded_flush(Rc::new(Self::show_arrangement_details), window, cx);
+    }
+
+    /// The header's History button focus handle.
+    #[cfg(test)]
+    pub(crate) fn history_focus(&self) -> &FocusHandle {
+        &self.history_focus
+    }
+
+    /// The header's Back button focus handle.
+    #[cfg(test)]
+    pub(crate) fn back_focus(&self) -> &FocusHandle {
+        &self.back_focus
+    }
+
+    /// The header's Arrangement details button focus handle.
+    #[cfg(test)]
+    pub(crate) fn details_focus(&self) -> &FocusHandle {
+        &self.details_focus
+    }
+
+    /// Opens History for the open Arrangement as a slideover over its editor.
+    ///
+    /// Pending lyric text is flushed through the edit session first
+    /// (Decision 18). A flush that fails leaves the edit and the header's
+    /// **Retry save** as they are, says so in a toast and opens nothing.
+    pub fn open_arrangement_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(id), Some(editor)) = (self.editing_arrangement, self.arrangement_editor.clone())
+        else {
+            return;
+        };
+        if self.navigation.is_some()
+            || self.arrangement_details.is_some()
+            || self.overlays.depth(cx) > 0
+        {
+            return;
+        }
+        let flush = editor.update(cx, |editor, cx| editor.request_navigation(cx));
+        self.navigation = Some(cx.spawn_in(window, async move |shell, cx| {
+            let guard = flush.await;
+            let _ = shell.update_in(cx, |shell, window, cx| {
+                shell.navigation = None;
+                match guard {
+                    NavigationGuard::Proceed => shell.show_arrangement_history(id, window, cx),
+                    NavigationGuard::Blocked => {
+                        shell.overlays.notify(Toast::failure(HISTORY_BLOCKED), cx);
+                    }
+                }
+            });
+        }));
+    }
+
+    /// Mounts History over the editor. After a restore (or its Undo) the
+    /// editor is rebuilt on the same Arrangement and the same tab, with a
+    /// fresh edit session.
+    fn show_arrangement_history(
+        &mut self,
+        id: ArrangementId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.editing_arrangement != Some(id) || self.overlays.depth(cx) > 0 {
+            return;
+        }
+        let shell = cx.weak_entity();
+        let flush_shell = shell.clone();
+        let after = AfterRestore::new(move |target, _, cx| {
+            let HistoryTarget::Arrangement(restored) = target else {
+                return;
+            };
+            let _ = shell.update(cx, |shell, cx| {
+                if shell.editing_arrangement != Some(restored) {
+                    return;
+                }
+                let tab = shell
+                    .arrangement_editor
+                    .as_ref()
+                    .map_or(TaskTab::Lyrics, |editor| editor.read(cx).tab(cx));
+                shell.open_arrangement_on(restored, tab, cx);
+            });
+        })
+        // An Undo writes over the head, so what the operator typed since the
+        // restore is settled first and a failed save holds the Undo back.
+        .flushing(move |_, cx| {
+            let editor = flush_shell
+                .upgrade()
+                .and_then(|shell| shell.read(cx).arrangement_editor.clone());
+            match editor {
+                Some(editor) => editor.update(cx, |editor, cx| editor.request_navigation(cx)),
+                None => gpui::Task::ready(NavigationGuard::Proceed),
+            }
+        });
+        open_history(
+            HistoryTarget::Arrangement(id),
+            self.library_store.clone(),
+            self.overlays.clone(),
+            after,
+            window,
+            cx,
+        );
     }
 
     /// Like [`Self::guarded`], but the editor stays open afterwards.
@@ -1592,18 +1714,50 @@ impl ShellView {
         let save_state = editor
             .as_ref()
             .and_then(|editor| editor.read(cx).save_state(cx));
+        // Three panes fit when the sections list, a usable main editor and
+        // the Inspector each get their minimum, with a gutter on both sides
+        // of the two outer ones. Below that only the editor stays, and the
+        // header gives its words to the title (mockup `headBtn`).
+        let compact = f32::from(window.viewport_size().width)
+            < scale.apply(LIST_WIDTH + MAIN_EDITOR_MIN_WIDTH + INSPECTOR_WIDTH) + 4.0 * gutter;
+        let (back_focus, details_focus) = (self.back_focus.clone(), self.details_focus.clone());
         let details = self
             .editing_arrangement
             .is_some_and(|id| self.arrangement_editable(id, cx))
             .then(|| {
                 let shell = cx.entity().downgrade();
-                Button::new("arrangement-details", "Arrangement details", environment)
+                let button = Button::new("arrangement-details", "Arrangement details", environment)
+                    .track_focus(&details_focus)
+                    .icon(ui::assets::icon::SLIDERS_HORIZONTAL)
                     .on_surface(palette.background)
                     .on_activate(move |window, cx| {
                         let _ = shell
                             .update(cx, |shell, cx| shell.open_arrangement_details(window, cx));
-                    })
+                    });
+                if compact {
+                    button.icon_only().tooltip("Arrangement details")
+                } else {
+                    button
+                }
             });
+        // History reads archived Arrangements too.
+        let history_focus = self.history_focus.clone();
+        let history = self.editing_arrangement.map(|_| {
+            let shell = cx.entity().downgrade();
+            let button = Button::new("arrangement-history", "History", environment)
+                .track_focus(&history_focus)
+                .icon(ui::assets::icon::ROTATE_CCW_CLOCK)
+                .on_surface(palette.background)
+                .on_activate(move |window, cx| {
+                    let _ =
+                        shell.update(cx, |shell, cx| shell.open_arrangement_history(window, cx));
+                });
+            if compact {
+                button.icon_only().tooltip("History")
+            } else {
+                button
+            }
+        });
         let readiness = editor
             .as_ref()
             .and_then(|editor| editor.read(cx).readiness_label(environment, cx));
@@ -1682,6 +1836,7 @@ impl ShellView {
                     .py(px(scale.apply(tokens::spacing::GROUP)))
                     .child(
                         Button::new("back", format!("Back to {back}"), environment)
+                            .track_focus(&back_focus)
                             // An icon that describes its action leads the
                             // label, so it has to point the way the control
                             // goes.
@@ -1718,7 +1873,8 @@ impl ShellView {
                             .children(readiness)
                             .children(save_label)
                             .children(retry)
-                            .children(details),
+                            .children(details)
+                            .children(history),
                     ),
             )
             .children(archived)
@@ -1735,11 +1891,6 @@ impl ShellView {
             .region(WORKSPACE_ACTIONS, window, cx)
             .flex_none()
             .child(header);
-        // Three panes fit when the sections list, a usable main editor and
-        // the Inspector each get their minimum, with a gutter on both sides
-        // of the two outer ones.
-        let compact = f32::from(window.viewport_size().width)
-            < scale.apply(LIST_WIDTH + MAIN_EDITOR_MIN_WIDTH + INSPECTOR_WIDTH) + 4.0 * gutter;
         let panes = editor
             .as_ref()
             .map(|editor| editor.update(cx, |e, cx| e.panes(compact, environment, window, cx)));
