@@ -1,0 +1,62 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
+footer-absent
+pagination authored-body=2 header-lines=1 body-lines=2 footer-lines=0 content-height=208 available-height=862 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=153 height=58 text=Chorus
+glyph zone=header line=0 font=primary id=13 x=120 y=129 x-advance=32 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=147 x=152 y=129 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=175 x=179 y=129 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=187 x=206 y=129 x-advance=17 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=200 x=223 y=129 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=header line=0 font=primary id=190 x=250 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=5
+line zone=body index=0 authored=0 x=536 y=465 width=847 height=104 text=Aleluya, awit sa tanan
+glyph zone=body line=0 font=primary id=1 x=536 y=553 x-advance=56 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=164 x=592 y=553 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=133 x=615 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=164 x=663 y=553 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=200 x=686 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=216 x=734 y=553 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=112 x=773 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=235 x=820 y=553 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=112 x=863 y=553 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=210 x=909 y=553 x-advance=63 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=149 x=972 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=196 x=994 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=190 x=1048 y=553 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1090 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=196 x=1162 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1191 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=1238 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=112 x=1287 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=1334 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=1 authored=1 x=385 y=569 width=1149 height=104 text=Ginoó, among kalipay ug awit
+glyph zone=body line=1 font=primary id=32 x=385 y=657 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=447 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=170 x=469 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=175 x=518 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=176 x=567 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=235 x=615 y=657 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=112 x=658 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=169 x=705 y=657 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=175 x=781 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=170 x=830 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=143 x=879 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=162 x=954 y=657 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=997 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=1044 y=657 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=149 x=1068 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=184 x=1090 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=112 x=1140 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=216 x=1186 y=657 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=200 x=1251 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=143 x=1299 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=112 x=1374 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=210 x=1420 y=657 x-advance=63 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=149 x=1483 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=196 x=1505 y=657 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=3
+warnings 0

@@ -1,0 +1,60 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
+footer-absent
+pagination authored-body=2 header-lines=1 body-lines=2 footer-lines=0 content-height=208 available-height=862 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=161 height=58 text=Verse 2
+glyph zone=header line=0 font=primary id=96 x=120 y=129 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=148 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=174 y=129 x-advance=17 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=191 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=214 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=header line=0 font=primary id=367 x=254 y=129 x-advance=27 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=0 authored=0 x=419 y=465 width=1081 height=104 text=Sa kagabhion nagpabilin ka
+glyph zone=body line=0 font=primary id=77 x=419 y=553 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=472 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=162 x=544 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=587 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=634 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=112 x=684 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=123 x=731 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=147 x=781 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=149 x=830 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=175 x=852 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=170 x=901 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=170 x=975 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1024 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=143 x=1071 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=184 x=1121 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=112 x=1171 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=123 x=1218 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=149 x=1268 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=164 x=1290 y=553 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=0 font=primary id=149 x=1314 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=8
+glyph zone=body line=0 font=primary id=170 x=1336 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=9
+glyph zone=body line=0 font=primary id=162 x=1410 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1453 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+line zone=body index=1 authored=1 x=515 y=569 width=890 height=104 text=Ginoó, among kahayag
+glyph zone=body line=1 font=primary id=32 x=515 y=657 x-advance=62 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=577 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=170 x=599 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=175 x=648 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=176 x=697 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=235 x=745 y=657 x-advance=18 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=112 x=788 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=169 x=835 y=657 x-advance=76 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=175 x=911 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=170 x=960 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=143 x=1009 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=162 x=1084 y=657 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=1127 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=147 x=1174 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=1223 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=216 x=1269 y=657 x-advance=39 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=112 x=1308 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=143 x=1355 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=6
+warnings 0

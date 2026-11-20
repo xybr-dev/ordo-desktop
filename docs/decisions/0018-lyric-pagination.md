@@ -8,12 +8,14 @@ tags: [songs, rendering]
 supersedes: []
 superseded_by: null
 amends: []
-amended_by: [255]
+amended_by: [255, 315]
 sources: []
 ---
 
 # Lyric pagination
 
+> **Amended by proposed Decision [315](0315-lyric-pagination-approval-is-per-section.md):** approval is per section, a section's lyric change moves only that section to Needs Review, and Sequence order changes never change approval. This is awaiting owner confirmation.
+>
 > **Superseded in part by Decision [255](0255-use-fixed-semantic-congregation-slide-layouts.md).** Its canonical semantic layout and
 > authored-casing rules govern Lyrics; the pagination limits and safety rules
 > below remain in force. Exact projected type sizes are provisional pending the

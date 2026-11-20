@@ -1252,30 +1252,35 @@ canonical thumbnails with expected fixtures.
 **Goal:** Build sung order from reusable sections without duplicating chorus
 lyrics or weakening occurrence identity.
 
-**Changes:** `crates/ordo/src/songs/sequence/`,
-`crates/domain/src/song_library/sequence.rs`, `tests/song-library/sequence.*`,
-`tests/e2e/songs/sequence.*`
+**Changes:** `migrations/0007_section_pagination.sql`,
+`crates/storage/src/revisions/content.rs`,
+`crates/domain/src/song_library/sequence.rs`, `crates/ordo/src/songs/sequence/`,
+`crates/ordo/src/songs/lyrics/`, `tests/song-library/tests/sequence.rs`,
+`tests/storage/tests/sequence.rs`, `crates/ordo/src/songs/e2e.rs`,
+`tests/fixtures/rendering/lyrics-t2-8-*.txt` and `tests/golden-frames/`
+(`tests/e2e/songs/sequence.*` was not created: the E2E lives in
+`crates/ordo/src/songs/e2e.rs`)
 
 **Depends on:** T2.7.
 
 **AC**
 
-- [ ] `[UI-AUTO]` The Sequence workspace uses Available sections, ordered
+- [x] `[UI-AUTO]` The Sequence workspace uses Available sections, ordered
       expandable occurrences, and canonical Inspector panes.
-- [ ] `[AUTO]` Section creation never implicitly adds an occurrence; Add to
+- [x] `[AUTO]` Section creation never implicitly adds an occurrence; Add to
       Sequence inserts after selection or appends when none is selected.
-- [ ] `[AUTO]` Repeat occurrence creates another reference to the same section
+- [x] `[AUTO]` Repeat occurrence creates another reference to the same section
       immediately after selection without copying lyrics/slides.
-- [ ] `[AUTO]` Drag or Alt+Up/Down reorders whole occurrences atomically; every
+- [x] `[AUTO]` Drag or Alt+Up/Down reorders whole occurrences atomically; every
       generated child slide moves with its occurrence.
-- [ ] `[AUTO]` Delete acts only while an occurrence list row owns focus, removes
+- [x] `[AUTO]` Delete acts only while an occurrence list row owns focus, removes
       the occurrence but not its section, chooses next then previous, and Undo
       restores it.
-- [ ] `[UI-AUTO]` Empty Sequence is a saved Incomplete state with Add first
+- [x] `[UI-AUTO]` Empty Sequence is a saved Incomplete state with Add first
       occurrence; unused sections do not warn.
-- [ ] `[AUTO]` Readiness considers only referenced sections, deduplicates repeated
+- [x] `[AUTO]` Readiness considers only referenced sections, deduplicates repeated
       section findings, and reports affected occurrence count.
-- [ ] `[UI-AUTO]` Expand/collapse-all changes disclosure only; Inspector follows
+- [x] `[UI-AUTO]` Expand/collapse-all changes disclosure only; Inspector follows
       flattened occurrence/slide position.
 
 **E2E** `[UI-AUTO]` — Build `Verse 1 → Chorus → Verse 2 → Chorus`, edit Chorus

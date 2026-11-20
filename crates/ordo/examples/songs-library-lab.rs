@@ -306,6 +306,22 @@ fn main() -> Result<(), Failure> {
     );
     println!("    failed save offers Retry save, Keep editing or Leave without saving.");
     println!("  - Close and reopen the lab parish: sections, slides and thumbnails are unchanged.");
+    println!("Sequence path: with Verse 1 and Chorus written, open the Sequence tab:");
+    println!("  - Enter on Add first occurrence, then F6 to Available sections: Add Chorus, Add");
+    println!("    Verse 1, Add Chorus again. Each is placed after the selected row and selected.");
+    println!("  - Repeat on the Chorus row adds another occurrence of the same section; edit the");
+    println!("    Chorus in Lyrics and both occurrences show the new text, with no copied lyrics.");
+    println!("  - Expand all shows each occurrence's slides; Collapse all changes nothing else.");
+    println!("  - Focus a row, Alt+Down then Alt+Up: it moves with its slides and returns.");
+    println!("  - Manual drag check (no automated pointer test): drag a row by its grip onto the");
+    println!("    upper or lower half of another row and drop it; it moves once, with its slides.");
+    println!("  - Focus the last row and press Delete: the section stays in Lyrics, the previous");
+    println!("    row is selected and focused; Ctrl+Z brings it back selected and focused.");
+    println!("  - Delete does nothing while a text field, a dialog or a row action has focus.");
+    println!("  - Approve pagination: edit a section in Lyrics and the notice \"Pagination needs");
+    println!("    review\" shows for that section only; Approve pagination clears it, and Ctrl+Z");
+    println!("    returns it. Reordering the Sequence never changes any section's approval.");
+    println!("  - The header readiness reads Needs review until every used section is approved.");
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {

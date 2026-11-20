@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse 2
+body-lines:2
+Sa kagabhion nagpabilin ka
+Ginoó, among kahayag
+footer-absent
+image-absent
