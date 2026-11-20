@@ -386,6 +386,8 @@ typed_entity_ids! {
     ManagedAssetId,
     /// Identifies one Edit revision.
     RevisionId,
+    /// Groups the Edit revisions of one editing session.
+    HistorySessionId,
 }
 
 /// Parse one decimal field at a fixed position in canonical timestamp text.
