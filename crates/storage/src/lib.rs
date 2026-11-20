@@ -75,9 +75,13 @@ mod migrations;
 #[cfg(test)]
 mod parish_schema_tests;
 mod parish_store;
+mod revisions;
 mod worker;
 
-use domain::identity::{ArrangementId, EntityId, ManagedAssetId, SongId, ThemeId};
+use domain::identity::{
+    ArrangementId, EntityId, HistorySessionId, ManagedAssetId, RevisionId, SongId, ThemeId,
+};
+use domain::revisions::{RevisionEntity, RevisionKind};
 use migrations::Migration;
 use worker::{Core, Exit, Message, Sources};
 
@@ -86,6 +90,10 @@ pub use parish_store::{
     ArrangementRecord, AssetReport, AssetUpload, ChoirRecord, ManagedAssetRecord, NewArrangement,
     NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord, ParishRecord,
     SectionRecord, SongRecord, ThemeRecord,
+};
+pub use revisions::{
+    ArrangementContent, OccurrenceContent, RevisionContent, RevisionRecord, SectionContent,
+    SongContent,
 };
 
 /// Where the database, managed assets and disposable cache live, and how long
@@ -171,6 +179,8 @@ pub enum RecordKind {
     Theme,
     /// A managed binary asset.
     ManagedAsset,
+    /// An Edit revision.
+    Revision,
 }
 
 impl fmt::Display for RecordKind {
@@ -184,6 +194,7 @@ impl fmt::Display for RecordKind {
             Self::Occurrence => "occurrence",
             Self::Theme => "theme",
             Self::ManagedAsset => "managed asset",
+            Self::Revision => "revision",
         })
     }
 }
@@ -227,6 +238,10 @@ pub enum StorageError {
     AssetWrite(String),
     /// The stored bytes of an asset are missing or do not match its recorded hash.
     AssetIntegrity { id: ManagedAssetId },
+    /// A stored revision's content is damaged or unreadable.
+    RevisionIntegrity { id: RevisionId },
+    /// The edit was based on a revision that is no longer the entity's latest.
+    StaleRevision { entity_latest: RevisionId },
 }
 
 impl fmt::Display for StorageError {
@@ -266,6 +281,12 @@ impl fmt::Display for StorageError {
                     f,
                     "asset {id} is missing or does not match its recorded hash"
                 )
+            }
+            Self::RevisionIntegrity { .. } => {
+                write!(f, "stored revision content is damaged or unreadable")
+            }
+            Self::StaleRevision { .. } => {
+                write!(f, "the entity changed since this edit was based on it")
             }
         }
     }
@@ -368,6 +389,90 @@ impl Storage {
     ) -> impl Future<Output = Result<SongRecord, StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
             core.create_song(song)
+        })
+    }
+
+    /// Replaces a Song's content and appends a revision in one transaction.
+    /// `expected_parent` must be the Song's latest revision, else
+    /// `StaleRevision`. A Song with no revisions (a T2.1-era row) is refused
+    /// with `InvalidInput { field: "expected_parent" }`: call
+    /// [`Storage::latest_revision`] first, which backfills one. `Replacement`
+    /// is whole-Arrangement only and is refused here.
+    pub fn commit_song_edit(
+        &self,
+        song: SongId,
+        content: SongContent,
+        kind: RevisionKind,
+        session: Option<HistorySessionId>,
+        expected_parent: RevisionId,
+    ) -> impl Future<Output = Result<(SongRecord, RevisionRecord), StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_song_edit(song, content, kind, session, expected_parent)
+        })
+    }
+
+    /// Replaces an Arrangement's content and appends a revision in one
+    /// transaction. `expected_parent` must be its latest revision, else
+    /// `StaleRevision`. An Arrangement with no revisions is refused with
+    /// `InvalidInput { field: "expected_parent" }`: call
+    /// [`Storage::latest_revision`] first.
+    pub fn commit_arrangement_edit(
+        &self,
+        arrangement: ArrangementId,
+        content: ArrangementContent,
+        kind: RevisionKind,
+        session: Option<HistorySessionId>,
+        expected_parent: RevisionId,
+    ) -> impl Future<Output = Result<(ArrangementRecord, RevisionRecord), StorageError>> + use<>
+    {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_arrangement_edit(arrangement, content, kind, session, expected_parent)
+        })
+    }
+
+    /// Commits an earlier revision's content as a new `restoration` revision.
+    /// `expected_parent` must be the entity's latest revision, else
+    /// `StaleRevision`; an entity with no revisions is refused with
+    /// `InvalidInput { field: "expected_parent" }` (call
+    /// [`Storage::latest_revision`] first).
+    pub fn restore_revision(
+        &self,
+        revision: RevisionId,
+        expected_parent: RevisionId,
+    ) -> impl Future<Output = Result<(RevisionContent, RevisionRecord), StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.restore_revision(revision, expected_parent)
+        })
+    }
+
+    /// The entity's latest revision; a T2.1-era entity with no revision first
+    /// gets a backfilled `creation` revision of its current content.
+    pub fn latest_revision(
+        &self,
+        entity: RevisionEntity,
+    ) -> impl Future<Output = Result<RevisionId, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.latest_revision(entity)
+        })
+    }
+
+    /// An entity's revisions, oldest first; empty when it has none.
+    pub fn revisions(
+        &self,
+        entity: RevisionEntity,
+    ) -> impl Future<Output = Result<Vec<RevisionRecord>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.revisions(entity)
+        })
+    }
+
+    /// One revision's content, verified against its recorded hash.
+    pub fn revision_content(
+        &self,
+        revision: RevisionId,
+    ) -> impl Future<Output = Result<RevisionContent, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.revision_content(revision)
         })
     }
 
@@ -723,7 +828,7 @@ mod tests {
 
         let storage = Storage::spawn(StorageConfig::new(&db));
         let status = futures_lite::future::block_on(storage.ready());
-        assert_eq!(status.map(|s| s.version), Ok(3));
+        assert_eq!(status.map(|s| s.version), Ok(4));
         let set = futures_lite::future::block_on(storage.set_parish_name("St Mary".to_owned()));
         assert_eq!(set, Ok(()));
         let note = futures_lite::future::block_on(storage.add_parish_note("hi".to_owned()));

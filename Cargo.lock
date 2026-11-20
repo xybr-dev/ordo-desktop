@@ -5813,6 +5813,8 @@ dependencies = [
  "domain",
  "futures-lite",
  "rusqlite",
+ "serde",
+ "serde_json",
  "sha2",
  "uuid",
 ]
@@ -5824,6 +5826,7 @@ dependencies = [
  "domain",
  "futures-lite",
  "rusqlite",
+ "sha2",
  "storage",
 ]
 

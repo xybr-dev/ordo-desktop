@@ -441,8 +441,8 @@ fn missing_choir_or_song_rolls_back() {
 
 /// The write statements a create of `injected_input` performs:
 /// 1 arrangement + 1 language + 2 choir links + 1 occasion + 3 sections +
-/// 5 occurrences.
-const ARRANGEMENT_WRITE_STATEMENTS: usize = 1 + 1 + 2 + 1 + 3 + 5;
+/// 5 occurrences + 1 creation revision.
+const ARRANGEMENT_WRITE_STATEMENTS: usize = 1 + 1 + 2 + 1 + 3 + 5 + 1;
 
 #[test]
 fn injected_failure_mid_arrangement_preserves_prior_state() {
