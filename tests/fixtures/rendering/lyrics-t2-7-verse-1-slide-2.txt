@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Verse 1
+body-lines:2
+Paz ug kalipay sa tanan
+Vida nga walay kataposan
+footer-absent
+image-absent

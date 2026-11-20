@@ -7,7 +7,7 @@ use domain::{
     identity::{ArrangementId, ChoirId, SongId},
     song_library::{Evidence, SongLibrary},
 };
-use gpui::{AppContext as _, TestAppContext, VisualTestContext, point, px};
+use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext, point, px};
 use storage::{NewArrangement, NewChoir, NewSection, NewSong, Storage, StorageConfig};
 
 use super::{
@@ -592,6 +592,298 @@ fn t2_6_e2e_create_edit_cancel_duplicate_then_reload_with_independent_histories(
     for revision in &copy_history {
         assert!(source_history.iter().all(|other| other.id != revision.id));
     }
+    cx.foreground_executor()
+        .block_test(slot.shutdown())
+        .expect("shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The golden file of a T2.7 fixture, which is the frame plus its (empty)
+/// warnings, so the thumbnail's serialization must be a prefix of it.
+fn golden(name: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/golden-frames")
+        .join(format!("{name}.txt"));
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// Presses and releases `key`, as a focused button needs to activate.
+fn tap(vcx: &mut VisualTestContext, key: &str) {
+    let keystroke = gpui::Keystroke::parse(key).expect("key");
+    vcx.simulate_event(gpui::KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    vcx.simulate_event(gpui::KeyUpEvent { keystroke });
+}
+
+/// Waits for a structural edit to be written, without moving the clock (a
+/// toast would time out).
+fn written(editor: &Entity<super::lyrics::ArrangementEditor>, vcx: &mut VisualTestContext) {
+    use super::new_song::tests::settle;
+    crate::songs::choirs::tests::wait(vcx, |vcx| {
+        editor.read_with(vcx, |editor, cx| {
+            editor.save_state(cx) == Some(crate::edit_session::SaveState::Saved)
+        })
+    });
+    settle(vcx);
+}
+
+/// Types `lines` into the focused field, pressing Enter between them.
+fn type_lines(vcx: &mut VisualTestContext, lines: &[&str]) {
+    for (at, line) in lines.iter().enumerate() {
+        if at > 0 {
+            vcx.simulate_keystrokes("enter");
+        }
+        vcx.simulate_input(line);
+    }
+}
+
+/// T2.7: Verse 1 and Chorus are created by keyboard, the lyrics are split and
+/// joined by text and by button, the Chorus is moved with Alt+Up, removed
+/// through the confirmation and brought back by the toast's Undo and by
+/// Ctrl+Z. A reopen from disk shows the canonical thumbnails the goldens pin,
+/// the section order, and the Sequence untouched with its occurrence ids.
+#[gpui::test]
+fn t2_7_e2e_keyboard_sections_split_join_reorder_remove_undo_then_reload(cx: &mut TestAppContext) {
+    use super::lyrics::tests::{
+        area_value, dialog, entity, open_editor, parish_blank, saved, sections_of,
+        thumbnail_frames, toasts,
+    };
+    use super::new_song::tests::{click as press, settle, stop};
+    use domain::{
+        identity::{HistorySessionId, OccurrenceId, SectionId},
+        song_library::{ArrangementLyrics, OccurrenceDraft},
+    };
+
+    const VERSE: [&str; 4] = [
+        "Ginoó, among tabang sa buntag",
+        "Niño sa among kasingkasing",
+        "Paz ug kalipay sa tanan",
+        "Vida nga walay kataposan",
+    ];
+    const CHORUS: [&str; 2] = ["Aleluya, mga anak sa adlaw", "Ginoó, among kalipay ug awit"];
+    let two_groups = format!("{}\n{}\n\n{}\n{}", VERSE[0], VERSE[1], VERSE[2], VERSE[3]);
+    let one_group = VERSE.join("\n");
+
+    let (dir, slot, store, shell, id, vcx) = parish_blank(cx, "t27-e2e");
+    let stored = |vcx: &mut VisualTestContext| -> ArrangementLyrics {
+        store.read_with(vcx, |store, _| {
+            store.library().arrangement(id).expect("stored").lyrics()
+        })
+    };
+    let editor = open_editor(&shell, id, vcx);
+
+    // Verse 1 by keyboard: Enter on the focused Add first section, the
+    // prefilled name replaced, Enter again; the lyric editor has focus.
+    assert!(present(vcx, "button-Add first section"));
+    tap(vcx, "enter");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Add section"));
+    vcx.simulate_keystrokes("ctrl-a");
+    vcx.simulate_input("Verse 1");
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    assert!(vcx.update(|window, cx| area.focus_handle(cx).is_focused(window)));
+
+    // One slide of four lines, split by text with a blank line, joined by
+    // deleting it, split by its button, joined by its button.
+    type_lines(vcx, &VERSE);
+    settle(vcx);
+    assert_eq!(area_value(&editor, vcx), one_group);
+    vcx.simulate_keystrokes("up up end enter");
+    settle(vcx);
+    assert_eq!(area_value(&editor, vcx), two_groups, "split by text");
+    vcx.simulate_keystrokes("backspace");
+    settle(vcx);
+    assert_eq!(area_value(&editor, vcx), one_group, "joined by text");
+    press(vcx, "button-Split after line 2");
+    saved(&editor, vcx);
+    assert_eq!(area_value(&editor, vcx), two_groups, "split by button");
+    assert_eq!(stored(vcx).sections[0].lyrics, two_groups);
+    press(vcx, "thumb-1");
+    settle(vcx);
+    press(vcx, "button-Join slide 2 with slide 1");
+    saved(&editor, vcx);
+    assert_eq!(area_value(&editor, vcx), one_group, "joined by button");
+    assert_eq!(stored(vcx).sections[0].lyrics, one_group);
+    // The two slide groups that stay: split once more, by text.
+    press(vcx, "thumb-0");
+    settle(vcx);
+    vcx.simulate_keystrokes("ctrl-home down end enter");
+    settle(vcx);
+    assert_eq!(area_value(&editor, vcx), two_groups);
+    saved(&editor, vcx);
+    assert_eq!(stored(vcx).sections[0].lyrics, two_groups);
+
+    vcx.simulate_keystrokes("shift-f6");
+    settle(vcx);
+    tap(vcx, "enter");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Add section"));
+    vcx.simulate_keystrokes("ctrl-a");
+    vcx.simulate_input("Chorus");
+    vcx.simulate_keystrokes("enter");
+    settle(vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1", "Chorus"]);
+    type_lines(vcx, &CHORUS);
+    saved(&editor, vcx);
+    let chorus_text = CHORUS.join("\n");
+    let before_seed = stored(vcx);
+    assert_eq!(before_seed.sections[1].lyrics, chorus_text);
+    let verse_id: SectionId = before_seed.sections[0].id;
+    let chorus_id: SectionId = before_seed.sections[1].id;
+
+    // The Sequence has no editor yet (T2.8): leave, seed one Verse 1 and one
+    // Chorus occurrence through the store, and come back to a new visit.
+    press(vcx, "button-Back to Songs");
+    crate::songs::choirs::tests::wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing().is_none())
+    });
+    settle(vcx);
+    let occurrence =
+        |n: u8, section| OccurrenceDraft::new(OccurrenceId::from_entity(entity(n)), section);
+    let (verse_use, chorus_use) = (entity(91), entity(90));
+    let mut seeded_lyrics = stored(vcx);
+    seeded_lyrics.sequence = vec![occurrence(91, verse_id), occurrence(90, chorus_id)];
+    let pagination = seeded_lyrics.pagination;
+    super::arrangement_details::tests::write(&store, vcx, |store, cx| {
+        store.save_arrangement_lyrics(
+            id,
+            seeded_lyrics,
+            HistorySessionId::from_entity(entity(8)),
+            cx,
+        )
+    });
+    let sequence_ids = |vcx: &mut VisualTestContext| -> Vec<OccurrenceId> {
+        stored(vcx).sequence.iter().map(|o| o.id).collect()
+    };
+    let expected_sequence = [
+        OccurrenceId::from_entity(verse_use),
+        OccurrenceId::from_entity(chorus_use),
+    ];
+    assert_eq!(sequence_ids(vcx), expected_sequence);
+    let editor = open_editor(&shell, id, vcx);
+
+    // Alt+Up on the Chorus row: authoring order only.
+    press(vcx, "arrangement-section-1");
+    settle(vcx);
+    assert_eq!(
+        super::lyrics::tests::focused_row(&editor, vcx),
+        Some(chorus_id),
+        "the Chorus row has focus"
+    );
+    vcx.simulate_keystrokes("alt-up");
+    written(&editor, vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Chorus", "Verse 1"]);
+    assert_eq!(
+        sequence_ids(vcx),
+        expected_sequence,
+        "the Sequence did not move"
+    );
+
+    // Remove the Chorus through the confirmation; the toast's Undo restores it.
+    let reordered = stored(vcx);
+    press(vcx, "button-Remove section");
+    settle(vcx);
+    assert_eq!(dialog(&shell, vcx).as_deref(), Some("Remove Chorus?"));
+    press(vcx, "button-Remove section");
+    written(&editor, vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
+    assert_eq!(
+        sequence_ids(vcx),
+        [expected_sequence[0]],
+        "its occurrence went with it"
+    );
+    assert_eq!(toasts(&shell, vcx), ["Removed Chorus."]);
+    press(vcx, "button-Undo");
+    written(&editor, vcx);
+    assert_eq!(
+        stored(vcx),
+        reordered,
+        "Undo restored lyrics, positions and approval"
+    );
+    assert_eq!(stored(vcx).pagination, pagination);
+
+    // And once more, undone with Ctrl+Z from the sections list.
+    press(vcx, "arrangement-section-0");
+    settle(vcx);
+    press(vcx, "button-Remove section");
+    settle(vcx);
+    press(vcx, "button-Remove section");
+    written(&editor, vcx);
+    assert_eq!(sections_of(&editor, vcx), ["Verse 1"]);
+    press(vcx, "arrangement-section-0");
+    settle(vcx);
+    assert!(super::lyrics::tests::focused_row(&editor, vcx).is_some());
+    vcx.simulate_keystrokes("ctrl-z");
+    written(&editor, vcx);
+    assert_eq!(stored(vcx), reordered, "Ctrl+Z restored it as well");
+
+    // Reopen the parish from disk.
+    press(vcx, "button-Back to Songs");
+    crate::songs::choirs::tests::wait(vcx, |vcx| {
+        shell.read_with(vcx, |shell, _| shell.editing().is_none())
+    });
+    settle(vcx);
+    stop(vcx, &slot);
+    let (slot, store) = open_parish(cx, &dir);
+    let (shell, vcx) = open_store(cx, store.clone());
+    let reloaded = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("persisted").lyrics()
+    });
+    let names: Vec<_> = reloaded
+        .sections
+        .iter()
+        .map(|section| (section.id, section.label.clone().unwrap_or_default()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (chorus_id, "Chorus".to_owned()),
+            (verse_id, "Verse 1".to_owned())
+        ]
+    );
+    let occurrences: Vec<_> = reloaded
+        .sequence
+        .iter()
+        .map(|o| (o.id, o.section))
+        .collect();
+    assert_eq!(
+        occurrences,
+        [
+            (OccurrenceId::from_entity(verse_use), verse_id),
+            (OccurrenceId::from_entity(chorus_use), chorus_id),
+        ],
+        "Sequence order and occurrence ids are the seeded ones"
+    );
+    assert_eq!(reloaded.pagination, pagination);
+    let editor = open_editor(&shell, id, vcx);
+    let pinned = |name: &str, frame: &str| {
+        assert_eq!(
+            golden(name),
+            format!("{frame}warnings 0\n"),
+            "{name}: the thumbnail is the golden frame"
+        );
+    };
+    press(vcx, "arrangement-section-0");
+    settle(vcx);
+    let chorus_frames = thumbnail_frames(&editor, vcx);
+    assert_eq!(chorus_frames.len(), 1);
+    pinned("lyrics-t2-7-chorus-slide-1", &chorus_frames[0]);
+    press(vcx, "arrangement-section-1");
+    settle(vcx);
+    let verse_frames = thumbnail_frames(&editor, vcx);
+    assert_eq!(verse_frames.len(), 2);
+    pinned("lyrics-t2-7-verse-1-slide-1", &verse_frames[0]);
+    pinned("lyrics-t2-7-verse-1-slide-2", &verse_frames[1]);
+    assert_eq!(area_value(&editor, vcx), two_groups);
+
     cx.foreground_executor()
         .block_test(slot.shutdown())
         .expect("shutdown");

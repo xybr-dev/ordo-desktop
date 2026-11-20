@@ -1,0 +1,8 @@
+ordo-fixture/1
+kind:Lyrics
+header:Chorus
+body-lines:2
+Aleluya, mga anak sa adlaw
+Ginoó, among kalipay ug awit
+footer-absent
+image-absent

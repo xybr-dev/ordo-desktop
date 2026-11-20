@@ -288,6 +288,24 @@ fn main() -> Result<(), Failure> {
     println!("  - Arrangement details on a shared Arrangement shows the shared notice;");
     println!("    Save details stores the edit, Cancel (or Escape) discards it.");
     println!("  - Duplicate Arrangement copies the stored Arrangement and opens the copy.");
+    println!("Lyrics path: open a new Arrangement (no sections yet), then by keyboard only:");
+    println!("  - Enter on Add first section, type Verse 1 over the suggestion, Enter: the lyric");
+    println!("    editor has focus. Type four lines, press Enter twice after line 2 for a new");
+    println!(
+        "    slide, Backspace to join it again; thumbnails and the Inspector follow the caret."
+    );
+    println!("  - Split after line 2 and Join slide 2 with slide 1 do the same with the mouse.");
+    println!("  - F6 to the sections pane, Add section, type Chorus, Enter, type its lines.");
+    println!(
+        "  - Focus the Chorus row and press Alt+Up: it moves first; the Sequence is unchanged."
+    );
+    println!("  - Remove section asks first only when the Sequence uses it; Undo in the toast");
+    println!("    (or Ctrl+Z on the section list) brings back the lyrics, slides and occurrences.");
+    println!(
+        "  - Leave through Back, the rail or Quit with unsaved text: it is saved first, and a"
+    );
+    println!("    failed save offers Retry save, Keep editing or Leave without saving.");
+    println!("  - Close and reopen the lab parish: sections, slides and thumbnails are unchanged.");
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {

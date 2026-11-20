@@ -18,7 +18,7 @@ pub mod port;
 pub mod section_actions;
 pub mod sections;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod view;
 
 pub use editor::{ArrangementEditor, TaskTab};

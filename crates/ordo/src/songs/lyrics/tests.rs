@@ -27,11 +27,11 @@ use crate::{
 
 const SAVE_DIALOG: &str = "Couldn\u{2019}t save";
 
-fn entity(n: u8) -> EntityId {
+pub(crate) fn entity(n: u8) -> EntityId {
     EntityId::from_random_bytes([n; 16])
 }
 
-fn at() -> Timestamp {
+pub(crate) fn at() -> Timestamp {
     Timestamp::from_millis(1_760_000_000_000)
 }
 
@@ -130,7 +130,10 @@ fn in_memory_empty(
     (shell, editor, vcx)
 }
 
-fn sections_of(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn sections_of(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> Vec<String> {
     editor.read_with(vcx, |editor, cx| {
         editor
             .content(cx)
@@ -142,7 +145,7 @@ fn sections_of(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) 
     })
 }
 
-fn open_editor(
+pub(crate) fn open_editor(
     shell: &Entity<ShellView>,
     id: ArrangementId,
     vcx: &mut VisualTestContext,
@@ -169,7 +172,7 @@ fn type_lyrics(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualT
     vcx.run_until_parked();
 }
 
-fn save_state(
+pub(crate) fn save_state(
     editor: &Entity<ArrangementEditor>,
     vcx: &mut VisualTestContext,
 ) -> Option<SaveState> {
@@ -193,7 +196,7 @@ fn stored_lyrics(
     })
 }
 
-fn dialog(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Option<String> {
+pub(crate) fn dialog(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Option<String> {
     shell.read_with(vcx, |shell, cx| {
         shell.overlays().top(cx).map(|title| title.to_string())
     })
@@ -294,6 +297,114 @@ fn parish_with<'a>(
         store.save_arrangement_lyrics(id, lyrics, session, cx)
     });
     (dir, slot, store, shell, id, vcx)
+}
+
+/// An Arrangement with no sections at all, written through the real store,
+/// and the shell over it: the start of the E2E.
+pub(crate) fn parish_blank<'a>(
+    cx: &'a mut TestAppContext,
+    tag: &str,
+) -> (
+    std::path::PathBuf,
+    crate::songs::StorageSlot,
+    Entity<LibraryStore>,
+    Entity<ShellView>,
+    ArrangementId,
+    &'a mut VisualTestContext,
+) {
+    let (dir, slot, store, seeded) = parish(cx, tag);
+    let (shell, vcx) = open_store(cx, store.clone());
+    let id = store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangements_for_song(seeded.exact)
+            .expect("song")[0]
+            .id()
+    });
+    let mut lyrics = store.read_with(vcx, |store, _| {
+        store.library().arrangement(id).expect("stored").lyrics()
+    });
+    if !lyrics.sections.is_empty() || !lyrics.sequence.is_empty() {
+        lyrics.sections.clear();
+        lyrics.sequence.clear();
+        let session = HistorySessionId::from_entity(entity(9));
+        write(&store, vcx, |store, cx| {
+            store.save_arrangement_lyrics(id, lyrics, session, cx)
+        });
+    }
+    (dir, slot, store, shell, id, vcx)
+}
+
+/// The section whose list row has keyboard focus, if any.
+pub(crate) fn focused_row(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> Option<SectionId> {
+    let rows: Vec<_> = editor.read_with(vcx, |editor, _| {
+        editor
+            .lyrics
+            .rows
+            .iter()
+            .map(|(id, row)| (*id, row.clone()))
+            .collect()
+    });
+    vcx.update(|window, _| {
+        rows.iter()
+            .find(|(_, row)| row.is_focused(window))
+            .map(|(id, _)| *id)
+    })
+}
+
+/// The serialized frame of every thumbnail of the selected section, once each
+/// is composed: what the operator sees in the navigator.
+pub(crate) fn thumbnail_frames(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> Vec<String> {
+    let text = area_value(editor, vcx);
+    let label = editor.read_with(vcx, |editor, cx| {
+        let content = editor.content(cx)?;
+        let chosen = editor.selected_section()?;
+        content
+            .sections
+            .iter()
+            .find(|section| section.id == chosen)
+            .and_then(|section| section.label.clone())
+    });
+    let bodies: Vec<String> = domain::pagination::slides(&text)
+        .iter()
+        .map(|slide| domain::pagination::slide_body(&text, slide))
+        .collect();
+    wait(vcx, |vcx| {
+        settle(vcx);
+        editor.read_with(vcx, |editor, _| {
+            bodies.iter().all(|body| {
+                editor
+                    .lyrics
+                    .frames
+                    .peek(&(label.clone(), body.clone()))
+                    .is_some()
+            })
+        })
+    });
+    editor.read_with(vcx, |editor, _| {
+        bodies
+            .iter()
+            .map(|body| {
+                match editor
+                    .lyrics
+                    .frames
+                    .peek(&(label.clone(), body.clone()))
+                    .expect("composed")
+                {
+                    rendering::FrameEntry::Ready(frame) => frame.serialize(),
+                    rendering::FrameEntry::Unavailable(reason) => {
+                        panic!("a thumbnail could not be composed: {reason}")
+                    }
+                }
+            })
+            .collect()
+    })
 }
 
 #[gpui::test]
@@ -723,7 +834,10 @@ fn ac3_suggestions_are_editable_chips(cx: &mut TestAppContext) {
     assert_eq!(vcx.update(|_, cx| field.value(cx).to_string()), "Refrain");
 }
 
-fn area_value(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> String {
+pub(crate) fn area_value(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> String {
     let area = editor
         .read_with(vcx, |editor, _| editor.lyric_area())
         .expect("the lyric editor exists");
@@ -934,7 +1048,11 @@ fn thumbnail_size(vcx: &mut VisualTestContext, selector: &'static str) -> (f32, 
     (bounds.size.width.into(), bounds.size.height.into())
 }
 
-fn wait_for_frames(editor: &Entity<ArrangementEditor>, count: usize, vcx: &mut VisualTestContext) {
+pub(crate) fn wait_for_frames(
+    editor: &Entity<ArrangementEditor>,
+    count: usize,
+    vcx: &mut VisualTestContext,
+) {
     wait(vcx, |vcx| {
         settle(vcx);
         editor.read_with(vcx, |editor, _| editor.lyrics.frames.len()) >= count
@@ -1053,7 +1171,7 @@ fn below_the_pane_minima_only_the_inspector_moves_to_a_slideover(cx: &mut TestAp
     finish(vcx, &slot, &dir);
 }
 
-fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String> {
     shell.read_with(vcx, |shell, cx| {
         shell
             .overlays()
@@ -1064,7 +1182,10 @@ fn toasts(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> Vec<String>
     })
 }
 
-fn sequence_len(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> usize {
+pub(crate) fn sequence_len(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> usize {
     editor.read_with(vcx, |editor, cx| {
         editor.content(cx).expect("content").sequence.len()
     })
@@ -1498,7 +1619,7 @@ fn ctrl_z_in_a_text_field_is_the_fields_own_and_outside_it_is_the_editors(cx: &m
     finish(vcx, &slot, &dir);
 }
 
-fn stored_pagination(
+pub(crate) fn stored_pagination(
     store: &Entity<LibraryStore>,
     id: ArrangementId,
     vcx: &mut VisualTestContext,
@@ -1514,7 +1635,7 @@ fn stored_pagination(
 }
 
 /// Lets a debounced text edit come due, then waits for the write.
-fn saved(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
+pub(crate) fn saved(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
     vcx.executor()
         .advance_clock(std::time::Duration::from_secs(10));
     wait(vcx, |vcx| save_state(editor, vcx) == Some(SaveState::Saved));

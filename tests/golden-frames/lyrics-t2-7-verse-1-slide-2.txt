@@ -1,0 +1,59 @@
+ordo-canonical-frame/2
+logical 1920 1080
+safe-area 120 80 1680 920
+header-rect 120 80 1680 58
+body-rect 120 138 1680 862
+footer-absent
+pagination authored-body=2 header-lines=1 body-lines=2 footer-lines=0 content-height=208 available-height=862 fit=fits hard-split=false first-hard-split=none
+image-absent
+background theme
+line zone=header index=0 authored=0 x=120 y=80 width=154 height=58 text=Verse 1
+glyph zone=header line=0 font=primary id=96 x=120 y=129 x-advance=28 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=header line=0 font=primary id=133 x=148 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=header line=0 font=primary id=187 x=174 y=129 x-advance=17 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=header line=0 font=primary id=190 x=191 y=129 x-advance=23 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=header line=0 font=primary id=133 x=214 y=129 x-advance=26 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=header line=0 font=primary id=366 x=254 y=129 x-advance=20 y-advance=0 x-offset=0 y-offset=0 cluster=0
+line zone=body index=0 authored=0 x=499 y=465 width=921 height=104 text=Paz ug kalipay sa tanan
+glyph zone=body line=0 font=primary id=71 x=499 y=553 x-advance=53 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=552 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=221 x=599 y=553 x-advance=41 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=200 x=665 y=553 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=143 x=713 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=162 x=788 y=553 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=831 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=164 x=878 y=553 x-advance=24 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=149 x=902 y=553 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=184 x=924 y=553 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=0 font=primary id=112 x=974 y=553 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=0 font=primary id=216 x=1020 y=553 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=0 font=primary id=190 x=1085 y=553 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1127 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=196 x=1199 y=553 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=0 font=primary id=112 x=1228 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=0 font=primary id=170 x=1275 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=0 font=primary id=112 x=1324 y=553 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=0 font=primary id=170 x=1371 y=553 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=4
+line zone=body index=1 authored=1 x=452 y=569 width=1015 height=104 text=Vida nga walay kataposan
+glyph zone=body line=1 font=primary id=96 x=452 y=657 x-advance=55 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=149 x=507 y=657 x-advance=22 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=129 x=529 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=579 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=170 x=651 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=143 x=700 y=657 x-advance=50 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=112 x=750 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=210 x=822 y=657 x-advance=60 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=882 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=164 x=929 y=657 x-advance=25 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=954 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=216 x=1000 y=657 x-advance=40 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=162 x=1065 y=657 x-advance=43 y-advance=0 x-offset=0 y-offset=0 cluster=0
+glyph zone=body line=1 font=primary id=112 x=1108 y=657 x-advance=46 y-advance=0 x-offset=0 y-offset=0 cluster=1
+glyph zone=body line=1 font=primary id=196 x=1154 y=657 x-advance=29 y-advance=0 x-offset=0 y-offset=0 cluster=2
+glyph zone=body line=1 font=primary id=112 x=1183 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=3
+glyph zone=body line=1 font=primary id=184 x=1230 y=657 x-advance=51 y-advance=0 x-offset=0 y-offset=0 cluster=4
+glyph zone=body line=1 font=primary id=175 x=1281 y=657 x-advance=48 y-advance=0 x-offset=0 y-offset=0 cluster=5
+glyph zone=body line=1 font=primary id=190 x=1329 y=657 x-advance=42 y-advance=0 x-offset=0 y-offset=0 cluster=6
+glyph zone=body line=1 font=primary id=112 x=1371 y=657 x-advance=47 y-advance=0 x-offset=0 y-offset=0 cluster=7
+glyph zone=body line=1 font=primary id=170 x=1418 y=657 x-advance=49 y-advance=0 x-offset=0 y-offset=0 cluster=8
+warnings 0

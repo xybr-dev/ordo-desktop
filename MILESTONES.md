@@ -1206,30 +1206,40 @@ edit, duplicate it, and assert independent identities and revision histories.
 **Goal:** Encode reusable lyrics once while making presentation splitting fast,
 visible, and reversible.
 
-**Changes:** `crates/ordo/src/songs/lyrics/`, `crates/domain/src/song_library/sections.rs`,
-`crates/domain/src/pagination/manual_boundaries.rs`, `tests/e2e/songs/lyrics.*`
+**Changes:** `crates/ordo/src/songs/lyrics/`, `crates/ordo/src/songs/e2e.rs`,
+`crates/ordo/src/songs/store.rs`, `crates/ordo/src/shell.rs`,
+`crates/ordo/src/commands/registry.rs`, `crates/ordo/src/edit_session/`,
+`crates/domain/src/song_library/sections.rs`,
+`crates/domain/src/pagination/manual_boundaries.rs`,
+`crates/storage/src/revisions/write.rs` (lyrics commit), `crates/ui/src/primitives/text_area.rs`,
+`crates/ui/src/overlay.rs`, `docs/qualification/GPUI-BASE-T2.7.md`,
+`tests/song-library/tests/lyrics.rs`, `tests/storage/tests/lyrics.rs`,
+`tests/fixtures/rendering/lyrics-t2-7-*.txt` and `tests/golden-frames/`
+(`tests/e2e/songs/lyrics.*` was not created: the E2E lives in
+`crates/ordo/src/songs/e2e.rs`; `crates/ordo/src/songs/library/arrangement.rs`
+was removed, its page replaced by the Arrangement editor)
 
 **Depends on:** T0.4, T2.2, T2.6.
 
 **AC**
 
-- [ ] `[UI-AUTO]` Lyrics and Sequence are the only primary Arrangement task
+- [x] `[UI-AUTO]` Lyrics and Sequence are the only primary Arrangement task
       tabs; metadata remains in Arrangement details.
-- [ ] `[UI-AUTO]` An Arrangement may persist with no sections and offers Add
+- [x] `[UI-AUTO]` An Arrangement may persist with no sections and offers Add
       first section without fabricating Verse 1.
-- [ ] `[UI-AUTO]` Section creation requires one free-form unique nonblank name,
+- [x] `[UI-AUTO]` Section creation requires one free-form unique nonblank name,
       offers editable naming suggestions, then focuses its lyric editor.
-- [ ] `[UI-AUTO]` Normal newline continues a slide; one blank source line starts
+- [x] `[UI-AUTO]` Normal newline continues a slide; one blank source line starts
       the next slide; removing it joins slide groups through ordinary editing.
-- [ ] `[UI-AUTO]` Adjacent mouse controls show exact targets such as Split after
+- [x] `[UI-AUTO]` Adjacent mouse controls show exact targets such as Split after
       line 2 and Join slide 2 with slide 1; Join is disabled for the first slide.
-- [ ] `[AUTO]` One section may generate multiple slides without creating another
+- [x] `[AUTO]` One section may generate multiple slides without creating another
       section or Sequence occurrence.
-- [ ] `[UI-AUTO]` Generated previews use fixed-size 16:9 thumbnails that wrap
+- [x] `[UI-AUTO]` Generated previews use fixed-size 16:9 thumbnails that wrap
       without stretching sparse rows; selection drives one canonical Inspector.
-- [ ] `[AUTO]` Reordering the Lyrics section list changes authoring order only,
+- [x] `[AUTO]` Reordering the Lyrics section list changes authoring order only,
       supports Alt+Up/Down and Undo, and never changes Sequence order.
-- [ ] `[AUTO]` Removing a referenced section confirms and atomically removes all
+- [x] `[AUTO]` Removing a referenced section confirms and atomically removes all
       occurrences; Undo restores lyrics, boundaries, approval, and positions.
 
 **E2E** `[UI-AUTO]` — Create Verse 1 and Chorus entirely by keyboard, enter
