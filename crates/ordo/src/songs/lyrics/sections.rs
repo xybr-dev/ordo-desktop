@@ -23,6 +23,7 @@ use super::{
     add_section::{ADD_SECTION, open_add_section},
     editor::ArrangementEditor,
     panes::section_name,
+    review::{row_status, status_line},
     view::Anchor,
 };
 
@@ -193,14 +194,10 @@ pub(super) fn sections_pane(
                             .text_color(rgb(palette.text_muted))
                             .child(row_meta(content, id, &section.lyrics)),
                     )
-                    .when(section.lyrics.trim().is_empty(), |row| {
-                        row.child(
-                            div()
-                                .text_size(px(scale.apply(tokens::typography::META.size)))
-                                .text_color(rgb(palette.text_muted))
-                                .child("Empty"),
-                        )
-                    }),
+                    .children(
+                        row_status(&section.lyrics, section.pagination)
+                            .map(|status| status_line(status, at, environment)),
+                    ),
             )
             .when(current && !read_only, |row| {
                 row.child(move_buttons(weak, at, last, environment))

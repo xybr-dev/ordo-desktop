@@ -22,6 +22,7 @@ use crate::{
         arrangement_details::tests::write,
         choirs::tests::{click as click_now, open_store, present, wait},
         new_song::tests::{click, finish, parish, settle},
+        sequence::SequenceSelection,
     },
 };
 
@@ -99,7 +100,7 @@ fn build(archived: bool, empty: bool) -> (SongLibrary, ArrangementId) {
 }
 
 /// The shell over the in-memory library with the editor open.
-fn in_memory(
+pub(crate) fn in_memory(
     cx: &mut TestAppContext,
     archived: bool,
 ) -> (
@@ -216,7 +217,7 @@ fn wait_for_dialog(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) {
 
 /// An Arrangement with one section, written through the real store, and the
 /// shell over it.
-fn parish_editor<'a>(
+pub(crate) fn parish_editor<'a>(
     cx: &'a mut TestAppContext,
     tag: &str,
 ) -> (
@@ -233,7 +234,7 @@ fn parish_editor<'a>(
 /// The same Arrangement as [`library`]: Verse 1 and Chorus, a Sequence of
 /// Verse, Chorus, Verse and Approved pagination, written through the real
 /// store.
-fn parish_full<'a>(
+pub(crate) fn parish_full<'a>(
     cx: &'a mut TestAppContext,
     tag: &str,
 ) -> (
@@ -438,7 +439,6 @@ fn ac1_lyrics_and_sequence_are_the_only_task_tabs(cx: &mut TestAppContext) {
         ][at];
         assert!(present(vcx, selector), "{selector}");
     }
-    assert!(present(vcx, "arrangement-sequence-note"));
     assert!(!present(vcx, "arrangement-sections"));
     click(vcx, "tab-0");
     assert_eq!(
@@ -848,7 +848,11 @@ pub(crate) fn area_value(
 
 /// Gives the lyric editor focus and replaces its text with `text` as typing
 /// would (reports `Changed`).
-fn type_into_area(editor: &Entity<ArrangementEditor>, text: &str, vcx: &mut VisualTestContext) {
+pub(crate) fn type_into_area(
+    editor: &Entity<ArrangementEditor>,
+    text: &str,
+    vcx: &mut VisualTestContext,
+) {
     let area = editor
         .read_with(vcx, |editor, _| editor.lyric_area())
         .expect("the lyric editor exists");
@@ -1377,7 +1381,7 @@ fn undo_after_a_structural_section_edit_restores_the_list_and_selection_stays_va
     finish(vcx, &slot, &dir);
 }
 
-fn region_now(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> String {
+pub(crate) fn region_now(shell: &Entity<ShellView>, vcx: &mut VisualTestContext) -> String {
     vcx.update(|window, cx| {
         shell
             .read(cx)
@@ -1476,7 +1480,7 @@ fn a_failed_flush_blocks_rail_navigation(cx: &mut TestAppContext) {
 }
 
 /// Fails the save, so the session is in `CouldntSave`.
-fn fail_the_save(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
+pub(crate) fn fail_the_save(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) {
     type_lyrics(editor, "Unsaved words", vcx);
     editor.update(vcx, |editor, cx| editor.request_navigation(cx).detach());
     vcx.run_until_parked();
@@ -1870,5 +1874,296 @@ fn entering_presenter_mode_flushes_pending_lyrics(cx: &mut TestAppContext) {
     wait(vcx, |vcx| {
         stored_lyrics(&store, id, vcx) == "Typed before going live"
     });
+    finish(vcx, &slot, &dir);
+}
+
+/// The shown occurrences' ids in sung order.
+fn sequence_ids(
+    editor: &Entity<ArrangementEditor>,
+    vcx: &mut VisualTestContext,
+) -> Vec<OccurrenceId> {
+    editor.read_with(vcx, |editor, cx| {
+        editor
+            .content(cx)
+            .expect("content")
+            .sequence
+            .iter()
+            .map(|occurrence| occurrence.id)
+            .collect()
+    })
+}
+
+/// The section names in sung order.
+fn sung_names(editor: &Entity<ArrangementEditor>, vcx: &mut VisualTestContext) -> Vec<String> {
+    editor.read_with(vcx, |editor, cx| {
+        let content = editor.content(cx).expect("content");
+        content
+            .sequence
+            .iter()
+            .filter_map(|occurrence| {
+                content
+                    .sections
+                    .iter()
+                    .find(|section| section.id == occurrence.section)
+                    .and_then(|section| section.label.clone())
+            })
+            .collect()
+    })
+}
+
+fn stored_sequence_ids(
+    store: &Entity<LibraryStore>,
+    id: ArrangementId,
+    vcx: &mut VisualTestContext,
+) -> Vec<OccurrenceId> {
+    store.read_with(vcx, |store, _| {
+        store
+            .library()
+            .arrangement(id)
+            .expect("stored")
+            .lyrics()
+            .sequence
+            .iter()
+            .map(|occurrence| occurrence.id)
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn ac2_add_to_sequence_from_lyrics_uses_the_same_insertion_rule_and_opens_sequence(
+    cx: &mut TestAppContext,
+) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-lyrics-add");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    assert!(
+        !present(vcx, "arrangement-add-to-sequence"),
+        "Verse 1 is sung, so it offers no Add to Sequence"
+    );
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    assert_eq!(
+        sequence_len(&editor, vcx),
+        3,
+        "adding a section adds no occurrence"
+    );
+    // The shared rule: after the selected occurrence.
+    editor.update(vcx, |editor, _| {
+        editor.sequence_selection = Some(SequenceSelection::occurrence(OccurrenceId::from_entity(
+            entity(81),
+        )));
+    });
+    settle(vcx);
+    click(vcx, "arrangement-add-to-sequence");
+    settle(vcx);
+    assert_eq!(
+        sung_names(&editor, vcx),
+        ["Verse 1", "Bridge", "Chorus", "Verse 1"]
+    );
+    let ids = sequence_ids(&editor, vcx);
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        TaskTab::Sequence,
+        "the Sequence tab opens"
+    );
+    assert_eq!(
+        editor.read_with(vcx, |editor, _| editor.sequence_selection),
+        Some(SequenceSelection::occurrence(ids[1])),
+        "the new occurrence is selected"
+    );
+    assert_eq!(toasts(&shell, vcx), ["Added Bridge at 02 in the Sequence."]);
+    saved(&editor, vcx);
+    assert_eq!(stored_sequence_ids(&store, id, vcx), ids);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn ac2_add_to_sequence_from_lyrics_appends_when_nothing_is_selected(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-lyrics-append");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    click(vcx, "arrangement-add-to-sequence");
+    settle(vcx);
+    assert_eq!(
+        sung_names(&editor, vcx),
+        ["Verse 1", "Chorus", "Verse 1", "Bridge"]
+    );
+    assert_eq!(toasts(&shell, vcx), ["Added Bridge at 04 in the Sequence."]);
+    saved(&editor, vcx);
+    assert_eq!(
+        stored_sequence_ids(&store, id, vcx),
+        sequence_ids(&editor, vcx)
+    );
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn adding_a_section_shows_no_add_to_sequence_side_effect(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-add-section-pure");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    let before = sequence_ids(&editor, vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    settle(vcx);
+    assert_eq!(sequence_ids(&editor, vcx), before, "no occurrence appeared");
+    assert_eq!(
+        editor.read_with(vcx, |editor, cx| editor.tab(cx)),
+        TaskTab::Lyrics
+    );
+    assert!(
+        present(vcx, "arrangement-add-to-sequence"),
+        "the new section offers Add to Sequence and nothing more"
+    );
+    assert!(
+        toasts(&shell, vcx)
+            .iter()
+            .all(|toast| !toast.starts_with("Added")),
+        "{:?}",
+        toasts(&shell, vcx)
+    );
+    assert_eq!(stored_sequence_ids(&store, id, vcx), before);
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn editing_an_approved_section_shows_needs_review_on_that_section_only(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-review-status");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    assert!(!present(vcx, "arrangement-section-status-0"));
+    assert!(!present(vcx, "arrangement-section-status-1"));
+    assert!(!present(vcx, "arrangement-review-notice"));
+    type_into_area(&editor, "Ave Maria, gratia plena", vcx);
+    saved(&editor, vcx);
+    settle(vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        vec![PaginationState::NeedsReview, PaginationState::Approved]
+    );
+    assert!(
+        present(vcx, "arrangement-section-status-0"),
+        "the edited row"
+    );
+    assert!(
+        !present(vcx, "arrangement-section-status-1"),
+        "the other row"
+    );
+    assert!(present(vcx, "arrangement-review-notice"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn approve_pagination_clears_the_notice_and_undo_brings_it_back(cx: &mut TestAppContext) {
+    let (dir, slot, store, shell, id, vcx) = parish_full(cx, "t28-approve");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    type_into_area(&editor, "Ave Maria, gratia plena", vcx);
+    saved(&editor, vcx);
+    settle(vcx);
+    assert!(present(vcx, "arrangement-review-notice"));
+    click(vcx, "button-Approve pagination");
+    settle(vcx);
+    assert_eq!(toasts(&shell, vcx), ["Approved Verse 1 pagination."]);
+    assert!(!present(vcx, "arrangement-review-notice"));
+    assert!(!present(vcx, "arrangement-section-status-0"));
+    saved(&editor, vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        vec![PaginationState::Approved, PaginationState::Approved]
+    );
+    assert_eq!(stored_lyrics(&store, id, vcx), "Ave Maria, gratia plena");
+    // Focus outside a text field: Undo is the editor's own.
+    click(vcx, "arrangement-section-0");
+    vcx.simulate_keystrokes("ctrl-z");
+    settle(vcx);
+    saved(&editor, vcx);
+    settle(vcx);
+    assert_eq!(
+        stored_pagination(&store, id, vcx),
+        vec![PaginationState::NeedsReview, PaginationState::Approved]
+    );
+    assert_eq!(stored_lyrics(&store, id, vcx), "Ave Maria, gratia plena");
+    assert!(present(vcx, "arrangement-review-notice"));
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn approve_writes_one_revision_and_the_notice_words_are_the_plan(cx: &mut TestAppContext) {
+    assert_eq!(super::review::DRAFT_LEAD, "Pagination not approved yet.");
+    assert_eq!(
+        super::review::DRAFT_BODY,
+        "Check each slide in the Inspector, then approve."
+    );
+    assert_eq!(super::review::REVIEW_LEAD, "Pagination needs review.");
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-approve-revision");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    type_into_area(&editor, "Ave Maria, gratia plena", vcx);
+    saved(&editor, vcx);
+    settle(vcx);
+    assert!(present(vcx, "arrangement-review-notice"));
+    let count = |vcx: &mut VisualTestContext| {
+        let future = slot
+            .with(|storage| storage.revisions(domain::revisions::RevisionEntity::Arrangement(id)))
+            .expect("storage is open");
+        vcx.foreground_executor()
+            .block_test(future)
+            .expect("revisions")
+            .len()
+    };
+    let before = count(vcx);
+    click(vcx, "button-Approve pagination");
+    saved(&editor, vcx);
+    assert_eq!(count(vcx), before + 1, "one Approve is one revision");
+    // Focus returns to the lyric area, not to the vanished button.
+    let area = editor
+        .read_with(vcx, |editor, _| editor.lyric_area())
+        .expect("area");
+    let focused = vcx.update(|window, cx| area.focus_handle(cx).is_focused(window));
+    assert!(focused, "the lyric area has focus after Approve");
+    finish(vcx, &slot, &dir);
+}
+
+#[gpui::test]
+fn an_archived_arrangement_shows_no_review_notice(cx: &mut TestAppContext) {
+    let (_shell, _editor, _id, vcx) = in_memory(cx, false);
+    assert!(
+        present(vcx, "arrangement-review-notice"),
+        "editable shows it"
+    );
+    let (_shell, _editor, _id, vcx) = in_memory(cx, true);
+    assert!(
+        !present(vcx, "arrangement-review-notice"),
+        "an archived Arrangement cannot approve"
+    );
+}
+
+#[gpui::test]
+fn add_to_sequence_from_lyrics_lands_focus_on_the_new_row(cx: &mut TestAppContext) {
+    let (dir, slot, _store, shell, id, vcx) = parish_full(cx, "t28-lyrics-add-focus");
+    let editor = open_editor(&shell, id, vcx);
+    settle(vcx);
+    editor
+        .update(vcx, |editor, cx| editor.add_section("Bridge", cx))
+        .expect("added");
+    saved(&editor, vcx);
+    click(vcx, "arrangement-add-to-sequence");
+    settle(vcx);
+    let ids = sequence_ids(&editor, vcx);
+    let new = *ids.last().expect("new occurrence");
+    let handle = editor
+        .read_with(vcx, |editor, _| editor.sequence.rows.get(&new).cloned())
+        .expect("row handle");
+    assert!(vcx.update(|window, _| handle.is_focused(window)));
+    saved(&editor, vcx);
     finish(vcx, &slot, &dir);
 }

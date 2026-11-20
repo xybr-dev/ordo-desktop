@@ -1604,6 +1604,9 @@ impl ShellView {
                             .update(cx, |shell, cx| shell.open_arrangement_details(window, cx));
                     })
             });
+        let readiness = editor
+            .as_ref()
+            .and_then(|editor| editor.read(cx).readiness_label(environment, cx));
         let save_label = save_state.map(|state| {
             div()
                 .debug_selector(|| "editor-save-state".into())
@@ -1626,11 +1629,17 @@ impl ShellView {
                     .on_surface(palette.background)
                     .on_activate(move |_, cx| editor.update(cx, |editor, cx| editor.retry_save(cx)))
             });
+        if let Some(editor) = editor.as_ref() {
+            editor.update(cx, |editor, cx| editor.sync_tab_marker(window, cx));
+        }
         let tabs = editor.as_ref().map(|editor| {
             let shell = cx.entity().downgrade();
             div()
                 .debug_selector(|| "editor-tabs-row".into())
                 .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
                 .px(px(gutter))
                 .child(editor.read(cx).tabs(palette.background, environment, {
                     move |_, cx| {
@@ -1706,6 +1715,7 @@ impl ShellView {
                             .flex()
                             .items_center()
                             .gap(px(scale.apply(tokens::spacing::GROUP)))
+                            .children(readiness)
                             .children(save_label)
                             .children(retry)
                             .children(details),

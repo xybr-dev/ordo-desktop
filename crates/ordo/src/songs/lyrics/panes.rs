@@ -24,9 +24,6 @@ use super::{
     sections::{anchored, sections_pane},
 };
 
-/// The Sequence tab's note.
-pub const SEQUENCE_NOTE: &str = "Editing the Sequence isn't available yet";
-
 /// The three slots of the editor body. A slot that is `None` is not shown
 /// (the Sequence tab has a single pane, and a narrow window keeps only the
 /// main one).
@@ -58,8 +55,11 @@ pub fn build(
         };
     };
     let weak = cx.weak_entity();
+    editor.refresh_unrenderable(&content);
     match tab {
         TaskTab::Lyrics => {
+            editor.sequence.shown = false;
+            editor.sequence.last_focus = None;
             editor.lyrics.resolve_selection(&content);
             ensure_area(editor, &weak, &content, window, cx);
             request_frames(editor, &content, cx);
@@ -88,11 +88,16 @@ pub fn build(
                 inspector: (!compact).then(|| inspector_pane(editor, &content, environment, cx)),
             }
         }
-        TaskTab::Sequence => Panes {
-            sections: None,
-            main: sequence_pane(&content, environment),
-            inspector: None,
-        },
+        TaskTab::Sequence => crate::songs::sequence::panes(
+            editor,
+            &weak,
+            &content,
+            compact,
+            read_only,
+            environment,
+            window,
+            cx,
+        ),
     }
 }
 
@@ -126,7 +131,7 @@ fn missing(environment: UiEnvironment) -> AnyElement {
         .into_any_element()
 }
 
-pub(super) fn head(text: &'static str, environment: UiEnvironment) -> Div {
+pub(crate) fn head(text: &'static str, environment: UiEnvironment) -> Div {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
     div()
@@ -136,7 +141,7 @@ pub(super) fn head(text: &'static str, environment: UiEnvironment) -> Div {
         .child(text)
 }
 
-pub(super) fn column(environment: UiEnvironment) -> Div {
+pub(crate) fn column(environment: UiEnvironment) -> Div {
     let scale = environment.preferences().scale;
     div()
         .flex()
@@ -201,51 +206,4 @@ fn lyrics_pane(
             .into_any_element();
     }
     main_pane(editor, weak, content, read_only, compact, environment, cx)
-}
-
-fn sequence_pane(content: &ArrangementLyrics, environment: UiEnvironment) -> AnyElement {
-    let palette = tokens::palette(environment.appearance());
-    let scale = environment.preferences().scale;
-    let rows = content.sequence.iter().enumerate().map(|(at, occurrence)| {
-        let index = content
-            .sections
-            .iter()
-            .position(|section| section.id == occurrence.section)
-            .unwrap_or(0);
-        div()
-            .debug_selector(move || format!("arrangement-sequence-{at}"))
-            .flex()
-            .gap(px(scale.apply(tokens::spacing::RELATED)))
-            .text_color(rgb(palette.text))
-            .child(
-                div()
-                    .text_color(rgb(palette.text_muted))
-                    .child(format!("{:02}", at + 1)),
-            )
-            .child(section_name(&content.sections, index))
-    });
-    column(environment)
-        .child(head("Sequence", environment))
-        .child(
-            div()
-                .debug_selector(|| "arrangement-sequence-note".into())
-                .text_color(rgb(palette.text_muted))
-                .child(SEQUENCE_NOTE),
-        )
-        .when(content.sequence.is_empty(), |pane| {
-            pane.child(
-                div()
-                    .text_color(rgb(palette.text))
-                    .child("No performance sequence yet"),
-            )
-        })
-        .child(
-            div()
-                .debug_selector(|| "arrangement-sequence".into())
-                .flex()
-                .flex_col()
-                .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
-                .children(rows),
-        )
-        .into_any_element()
 }

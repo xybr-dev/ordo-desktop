@@ -3,7 +3,11 @@
 //! the next render applies. Nothing here is content: the words, names and
 //! order live in the edit session.
 
-use std::{cell::Cell, collections::HashMap, rc::Rc};
+use std::{
+    cell::Cell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use domain::{identity::SectionId, song_library::ArrangementLyrics};
 use gpui::{App, Bounds, FocusHandle, Pixels, Subscription, Task};
@@ -23,6 +27,12 @@ pub(super) struct AddSection {
 /// can anchor to it.
 #[derive(Clone, Default)]
 pub(super) struct Anchor(pub Rc<Cell<Bounds<Pixels>>>);
+
+/// How many composed frames the editor keeps for one visit. Every slide of a
+/// long Sequence can be on screen at once (Expand all), so the cache must hold
+/// what one render asks for or compose would evict its own results and ask
+/// again forever. These are logical frames, not rasters.
+pub const EDITOR_FRAME_CAPACITY: usize = 512;
 
 /// State of the Lyrics task for one visit.
 pub(super) struct LyricsView {
@@ -59,6 +69,9 @@ pub(super) struct LyricsView {
     pub subscriptions: Vec<Subscription>,
     /// Composed slide frames, by (section name, slide body).
     pub frames: FrameCache<super::navigator::FrameKey>,
+    /// Slides whose composition failed. Kept apart from the cache so a failure
+    /// is not forgotten when its entry is evicted.
+    pub failed: HashSet<super::navigator::FrameKey>,
     /// Compositions in flight; dropping one cancels it.
     pub pending: HashMap<super::navigator::FrameKey, Task<()>>,
     /// The rename field of the selected section.
@@ -89,7 +102,8 @@ impl LyricsView {
             slide: 0,
             reload_slide: None,
             subscriptions: Vec::new(),
-            frames: FrameCache::new(rendering::FRAME_CAPACITY),
+            frames: FrameCache::new(EDITOR_FRAME_CAPACITY),
+            failed: HashSet::new(),
             pending: HashMap::new(),
             rename: None,
             focus_row: None,

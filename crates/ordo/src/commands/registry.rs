@@ -45,10 +45,12 @@ actions!(
         Undo,
         /// Editor-level Redo in an edit session (`Ctrl+Y`).
         Redo,
-        /// Moves the selected section one place up (`Alt+Up`).
+        /// Moves the focused section or occurrence one place up (`Alt+Up`).
         MoveUp,
-        /// Moves the selected section one place down (`Alt+Down`).
+        /// Moves the focused section or occurrence one place down (`Alt+Down`).
         MoveDown,
+        /// Removes the focused occurrence from the Sequence (`Delete`).
+        RemoveOccurrence,
     ]
 );
 
@@ -60,11 +62,29 @@ pub const EDIT_SESSION_CONTEXT: &str = "EditSession";
 /// here so they move a section only while the list has focus.
 pub const LYRICS_SECTIONS_CONTEXT: &str = "LyricsSections";
 
-/// The key context an Editing entry binds under.
-pub fn editing_context(id: CommandId) -> &'static str {
+/// The key context the Sequence's occurrence list declares; `Alt+Up`,
+/// `Alt+Down` and `Delete` bind here so they act on an occurrence only while
+/// the list has focus.
+pub const SEQUENCE_OCCURRENCES_CONTEXT: &str = "SequenceOccurrences";
+
+/// The binding predicate of an Editing entry: its list or session context and,
+/// for the list keys, the same text-entry and modal guard the Presenter keys
+/// carry (`Delete` must never reach a text field or a dialog).
+pub fn editing_predicate(id: CommandId) -> String {
+    let guard = |context: &str| {
+        let mut predicate = context.to_owned();
+        for excluded in TEXT_ENTRY_CONTEXTS.iter().chain(MODAL_CONTEXTS) {
+            predicate.push_str(" && !");
+            predicate.push_str(excluded);
+        }
+        predicate
+    };
     match id {
-        CommandId::MoveUp | CommandId::MoveDown => LYRICS_SECTIONS_CONTEXT,
-        _ => EDIT_SESSION_CONTEXT,
+        CommandId::MoveUp | CommandId::MoveDown => guard(&format!(
+            "({LYRICS_SECTIONS_CONTEXT} || {SEQUENCE_OCCURRENCES_CONTEXT})"
+        )),
+        CommandId::RemoveOccurrence => guard(SEQUENCE_OCCURRENCES_CONTEXT),
+        _ => EDIT_SESSION_CONTEXT.to_owned(),
     }
 }
 
@@ -142,10 +162,12 @@ pub enum CommandId {
     Undo,
     /// `Ctrl+Y`: editor Redo in an edit session.
     Redo,
-    /// `Alt+Up`: moves the selected section up (the editor handles it).
+    /// `Alt+Up`: moves the focused section or occurrence up (the list handles it).
     MoveUp,
-    /// `Alt+Down`: moves the selected section down (the editor handles it).
+    /// `Alt+Down`: moves the focused section or occurrence down (the list handles it).
     MoveDown,
+    /// `Delete`: removes the focused occurrence from the Sequence.
+    RemoveOccurrence,
 }
 
 /// The reference group an entry is listed under. Editing and the other
@@ -198,6 +220,11 @@ pub enum FocusContext {
     Dock,
     Rail,
     ShortcutReference,
+    /// The Sequence's occurrence list in an open editor: only the Editing
+    /// keys act there, through their GPUI context, never the Engine. It is a
+    /// marker for the policy table; the view's key context does the routing,
+    /// so no code resolves focus to this value yet.
+    SequenceOccurrences,
     /// A text field or emergency editor.
     TextEntry,
     /// A true modal dialog.
@@ -216,6 +243,8 @@ pub struct Entry {
     /// The keycap text shown to the operator.
     pub keycaps: &'static str,
     pub label: &'static str,
+    /// A second line for the reference, or empty when the label says it all.
+    pub description: &'static str,
     pub group: Group,
     pub scope: Scope,
 }
@@ -232,6 +261,7 @@ const fn entry(
         keys,
         keycaps,
         label,
+        description: "",
         group: Group::Presenter,
         scope,
     }
@@ -258,6 +288,19 @@ const fn editing(
     Entry {
         group: Group::Editing,
         ..entry(id, keys, keycaps, label, Scope::Editing)
+    }
+}
+
+const fn described(
+    id: CommandId,
+    keys: &'static [&'static str],
+    keycaps: &'static str,
+    label: &'static str,
+    description: &'static str,
+) -> Entry {
+    Entry {
+        description,
+        ..editing(id, keys, keycaps, label)
     }
 }
 
@@ -395,12 +438,26 @@ pub static ENTRIES: &[Entry] = &[
         "Ctrl+Y",
         "Redo (outside text fields)",
     ),
-    editing(CommandId::MoveUp, &["alt-up"], "Alt+Up", "Move section up"),
-    editing(
+    described(
+        CommandId::MoveUp,
+        &["alt-up"],
+        "Alt+Up",
+        "Move up",
+        "Move the focused section or occurrence",
+    ),
+    described(
         CommandId::MoveDown,
         &["alt-down"],
         "Alt+Down",
-        "Move section down",
+        "Move down",
+        "Move the focused section or occurrence",
+    ),
+    described(
+        CommandId::RemoveOccurrence,
+        &["delete"],
+        "Delete",
+        "Remove from Sequence",
+        "Remove the focused occurrence from the Sequence",
     ),
 ];
 
@@ -421,6 +478,9 @@ pub fn allows(scope: Scope, context: FocusContext) -> bool {
             Timeline | Dock | Rail | ShortcutReference | Elsewhere
         ),
         Scope::Operating => matches!(context, Timeline | Dock),
+        // The Editing keys bind through their GPUI contexts (the lists and the
+        // edit session), so no Presenter focus context lets them act,
+        // `SequenceOccurrences` included.
         Scope::Surface | Scope::Editing => false,
     }
 }
@@ -450,7 +510,8 @@ pub fn command_for(id: CommandId) -> Option<Command> {
         | CommandId::Undo
         | CommandId::Redo
         | CommandId::MoveUp
-        | CommandId::MoveDown => None,
+        | CommandId::MoveDown
+        | CommandId::RemoveOccurrence => None,
     }
 }
 
@@ -489,6 +550,7 @@ fn action_for(id: CommandId) -> Option<Box<dyn Action>> {
                 CommandId::Redo => Some(Box::new(Redo) as Box<dyn Action>),
                 CommandId::MoveUp => Some(Box::new(MoveUp) as Box<dyn Action>),
                 CommandId::MoveDown => Some(Box::new(MoveDown) as Box<dyn Action>),
+                CommandId::RemoveOccurrence => Some(Box::new(RemoveOccurrence) as Box<dyn Action>),
                 CommandId::CloseSurface
                 | CommandId::CycleRegion
                 | CommandId::FocusNext
@@ -544,7 +606,7 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         };
         let predicate = match entry.scope {
             Scope::Surface => reference.clone(),
-            Scope::Editing => parse(editing_context(entry.id)),
+            Scope::Editing => parse(&editing_predicate(entry.id)),
             Scope::Output | Scope::Operating => single_key.clone(),
         };
         for keys in entry.keys {
@@ -569,15 +631,24 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    const ALL_CONTEXTS: [FocusContext; 7] = [
+    const ALL_CONTEXTS: [FocusContext; 8] = [
         FocusContext::Timeline,
         FocusContext::Dock,
         FocusContext::Rail,
         FocusContext::ShortcutReference,
+        FocusContext::SequenceOccurrences,
         FocusContext::TextEntry,
         FocusContext::Modal,
         FocusContext::Elsewhere,
     ];
+
+    /// A predicate as GPUI prints it back, so differently written but equal
+    /// predicates compare equal.
+    fn normalized(predicate: &str) -> String {
+        gpui::KeyBindingContextPredicate::parse(predicate)
+            .expect("the predicate parses")
+            .to_string()
+    }
 
     #[test]
     fn every_keystroke_parses() {
@@ -655,7 +726,7 @@ mod tests {
             assert_eq!(
                 predicate,
                 if let Some(entry) = editing {
-                    editing_context(entry.id).to_owned()
+                    normalized(&editing_predicate(entry.id))
                 } else if keystroke == "ctrl-/" {
                     reference_predicate()
                 } else {
@@ -799,7 +870,10 @@ mod tests {
             assert!(!allows(Scope::Surface, context), "{context:?}");
             assert!(!allows(Scope::Editing, context), "{context:?}");
         }
-        for context in [TextEntry, Modal] {
+        for scope in [Scope::Output, Scope::Operating] {
+            assert!(!allows(scope, SequenceOccurrences), "{scope:?}");
+        }
+        for context in [TextEntry, Modal, SequenceOccurrences] {
             for scope in [
                 Scope::Output,
                 Scope::Operating,
@@ -832,6 +906,7 @@ mod tests {
             (CommandId::Redo, "ctrl-y", "Ctrl+Y"),
             (CommandId::MoveUp, "alt-up", "Alt+Up"),
             (CommandId::MoveDown, "alt-down", "Alt+Down"),
+            (CommandId::RemoveOccurrence, "delete", "Delete"),
         ] {
             let row = entry_for(id);
             assert_eq!(row.group, Group::Editing, "{id:?}");
@@ -844,12 +919,12 @@ mod tests {
                 .unwrap_or_else(|| panic!("{key} is bound"));
             assert_eq!(
                 binding.predicate().unwrap().to_string(),
-                editing_context(id),
+                normalized(&editing_predicate(id)),
                 "{key} must not reach the Presenter"
             );
         }
         assert_eq!(Group::Editing.title(), "Editing");
-        assert_eq!(editing_key_bindings().len(), 4);
+        assert_eq!(editing_key_bindings().len(), 5);
     }
 
     #[test]

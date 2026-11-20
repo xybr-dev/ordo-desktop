@@ -6,9 +6,14 @@
 //! Arrangement or Song gets no session at all: the frame is read-only and
 //! nothing can be written.
 
-use std::rc::Rc;
+use std::{collections::BTreeSet, rc::Rc};
 
-use domain::{identity::ArrangementId, revisions::RevisionEntity, song_library::ArrangementLyrics};
+use domain::{
+    identity::{ArrangementId, OccurrenceId, SectionId},
+    pagination::{slide_body, slides},
+    revisions::RevisionEntity,
+    song_library::{ArrangementLyrics, ArrangementReadiness, readiness, selection_after_replace},
+};
 use gpui::{App, AppContext, Context, Entity, Subscription, Task, Window};
 use ui::{
     environment::UiEnvironment,
@@ -23,7 +28,10 @@ use super::{
 };
 use crate::{
     edit_session::{EditSession, EditSessionEvent, NavigationGuard, RevisionPort, SaveState},
-    songs::LibraryStore,
+    songs::{
+        LibraryStore,
+        sequence::{Item, SequenceSelection, SequenceView},
+    },
 };
 
 /// The Arrangement editor's task tabs. Metadata is not a task: it lives in
@@ -32,7 +40,7 @@ use crate::{
 pub enum TaskTab {
     /// Writing the sections (the default).
     Lyrics,
-    /// The performance order, read-only until a later task.
+    /// The performance order.
     Sequence,
 }
 
@@ -58,6 +66,18 @@ pub struct ArrangementEditor {
     tabs: SelectionState,
     /// Selection, popover and focus requests of the Lyrics task.
     pub(super) lyrics: LyricsView,
+    /// The selected occurrence and slide, shared by both tabs for the visit.
+    /// Opening the Sequence the first time selects nothing, so an add appends.
+    pub(crate) sequence_selection: Option<SequenceSelection>,
+    /// The occurrences shown expanded this visit; never saved.
+    pub(crate) expanded: BTreeSet<OccurrenceId>,
+    /// Sections whose slides failed to compose, fed from `lyrics.frames`.
+    pub(crate) unrenderable: BTreeSet<SectionId>,
+    /// Focus handles and focus requests of the Sequence task.
+    pub(crate) sequence: SequenceView,
+    /// The content as of the last session event or render, so a replacement
+    /// can say what it replaced.
+    replaced_from: Option<ArrangementLyrics>,
     /// Redraw on every session event; dropped with the editor.
     _session_events: Option<Subscription>,
 }
@@ -94,13 +114,21 @@ impl ArrangementEditor {
             })
         });
         let events = session.as_ref().map(|session| {
-            cx.subscribe(session, |editor, _, event: &EditSessionEvent, cx| {
+            cx.subscribe(session, |editor, session, event: &EditSessionEvent, cx| {
+                let now = session.read(cx).content().clone();
                 if matches!(event, EditSessionEvent::ContentReplaced) {
                     editor.lyrics.content_replaced();
+                    if let Some(before) = editor.replaced_from.take() {
+                        editor.reselect_after_replace(&before, &now);
+                    }
                 }
+                editor.replaced_from = Some(now);
                 cx.notify();
             })
         });
+        let replaced_from = session
+            .as_ref()
+            .map(|session| session.read(cx).content().clone());
         let empty = committed_is_empty(&store, arrangement, cx);
         let mut lyrics = LyricsView::new(cx);
         lyrics.focus_add_first = session.is_some() && empty;
@@ -110,6 +138,11 @@ impl ArrangementEditor {
             session,
             tabs,
             lyrics,
+            sequence_selection: None,
+            expanded: BTreeSet::new(),
+            unrenderable: BTreeSet::new(),
+            sequence: SequenceView::new(cx),
+            replaced_from,
             _session_events: events,
         }
     }
@@ -157,6 +190,12 @@ impl ArrangementEditor {
         }
     }
 
+    /// Switches to the Sequence tab, as choosing it would.
+    pub(crate) fn show_sequence_tab(&mut self, cx: &mut Context<Self>) {
+        self.tabs.select(1, cx);
+        cx.notify();
+    }
+
     /// The task tabs element; the caller supplies the surface it sits on and
     /// the redraw seam for what the tab shows.
     pub fn tabs(
@@ -183,6 +222,147 @@ impl ArrangementEditor {
                 .ok()
                 .map(|arrangement| arrangement.lyrics()),
         }
+    }
+
+    /// Moves the Sequence selection to what a content replacement (Undo,
+    /// Redo, leaving) leaves selectable, and forgets expanded occurrences that
+    /// no longer exist.
+    fn reselect_after_replace(&mut self, before: &ArrangementLyrics, after: &ArrangementLyrics) {
+        let selected = self
+            .sequence_selection
+            .map(|selection| selection.occurrence);
+        let next = selection_after_replace(before, after, selected);
+        self.sequence_selection = match (next, self.sequence_selection) {
+            (Some(next), Some(current)) if next == current.occurrence => Some(current),
+            (Some(next), _) => Some(SequenceSelection::occurrence(next)),
+            (None, _) => None,
+        };
+        self.expanded
+            .retain(|id| after.occurrence_index(*id).is_some());
+        // A Sequence stop that had focus keeps it on what is now selected:
+        // the row that came back, the next one, or Add first occurrence.
+        if self.sequence.shown
+            && let Some(held) = self.sequence.last_focus
+        {
+            let (Item::Row(held) | Item::Child(held, _)) = held;
+            let kept = next == Some(held) && after.occurrence_index(held).is_some();
+            match next {
+                Some(next) if !kept => {
+                    self.sequence.focus_item = Some(Item::Row(next));
+                }
+                None if after.sequence.is_empty() => self.sequence.focus_add_first = true,
+                _ => {}
+            }
+        }
+    }
+
+    /// Records a failed compose of the key, as the compose task does.
+    #[cfg(test)]
+    pub(crate) fn fail_frame(
+        &mut self,
+        key: super::navigator::FrameKey,
+        content: &ArrangementLyrics,
+    ) {
+        self.lyrics.failed.insert(key.clone());
+        self.lyrics
+            .frames
+            .insert(key, Err(rendering::UnavailableReason::DecodeFailed));
+        self.refresh_unrenderable(content);
+    }
+
+    /// Whether a compose of this key failed and has not succeeded since.
+    #[cfg(test)]
+    pub(crate) fn is_failed(&self, key: &super::navigator::FrameKey) -> bool {
+        self.lyrics.failed.contains(key)
+    }
+
+    /// Whether any compose is in flight or has failed.
+    #[cfg(test)]
+    pub(crate) fn composing_or_failed(&self) -> (bool, bool) {
+        (
+            !self.lyrics.pending.is_empty(),
+            !self.lyrics.failed.is_empty(),
+        )
+    }
+
+    /// The composed frame of this key, when it is held and composed.
+    #[cfg(test)]
+    pub(crate) fn frame_of(
+        &mut self,
+        key: &super::navigator::FrameKey,
+    ) -> Option<std::sync::Arc<rendering::Frame>> {
+        match self.lyrics.frames.peek(key) {
+            Some(rendering::FrameEntry::Ready(frame)) => Some(frame.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether the slide with this key has been composed (successfully or not).
+    #[cfg(test)]
+    pub(crate) fn has_frame(&mut self, key: &super::navigator::FrameKey) -> bool {
+        self.lyrics.frames.peek(key).is_some()
+    }
+
+    /// Re-reads which sections' slides failed to compose. A failure is
+    /// remembered until the same slide composes again, even after its cache
+    /// entry was evicted. Sections never composed are not listed: nothing is
+    /// known about them yet.
+    pub(crate) fn refresh_unrenderable(&mut self, content: &ArrangementLyrics) {
+        self.unrenderable = content
+            .sections
+            .iter()
+            .filter(|section| {
+                slides(&section.lyrics).iter().any(|source| {
+                    let key = (section.label.clone(), slide_body(&section.lyrics, source));
+                    self.lyrics.failed.contains(&key)
+                })
+            })
+            .map(|section| section.id)
+            .collect();
+    }
+
+    /// What the header says about readiness: the domain's verdict on the
+    /// working content. `None` when the Arrangement is gone.
+    pub fn readiness(&self, cx: &App) -> Option<ArrangementReadiness> {
+        self.content(cx)
+            .map(|content| readiness(&content, &self.unrenderable))
+    }
+
+    /// The header's readiness label, with its reason as tooltip and accessible
+    /// description.
+    pub fn readiness_label(
+        &self,
+        environment: UiEnvironment,
+        cx: &App,
+    ) -> Option<gpui::AnyElement> {
+        let content = self.content(cx)?;
+        let verdict = readiness(&content, &self.unrenderable);
+        Some(crate::songs::sequence::readiness::header_label(
+            &content,
+            &verdict,
+            environment,
+        ))
+    }
+
+    /// Marks the Sequence tab while sections exist and the Sequence is empty,
+    /// and clears the mark otherwise. The marker sits inside the tab and its
+    /// reason is the tab's accessible description.
+    pub fn sync_tab_marker(&self, window: &mut Window, cx: &mut App) {
+        let marked = self
+            .content(cx)
+            .is_some_and(|content| !content.sections.is_empty() && content.sequence.is_empty());
+        let choices = TaskTab::ALL
+            .iter()
+            .map(|tab| {
+                let choice = Choice::new(tab.label());
+                if marked && *tab == TaskTab::Sequence {
+                    choice.marker(crate::songs::sequence::readiness::EMPTY_SEQUENCE)
+                } else {
+                    choice
+                }
+            })
+            .collect();
+        self.tabs.set_choices(choices, window, cx);
     }
 
     /// Lets the editor open popovers, dialogs and toasts on the shell's one

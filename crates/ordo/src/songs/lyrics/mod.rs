@@ -15,6 +15,7 @@ pub mod editor_pane;
 pub mod navigator;
 pub mod panes;
 pub mod port;
+pub mod review;
 pub mod section_actions;
 pub mod sections;
 #[cfg(test)]
