@@ -504,7 +504,7 @@ fn migration_is_checksummed_and_versioned() {
     let conn = migrated();
     let status = migrations::status(&conn).expect("read status");
 
-    assert_eq!(status.version, 5);
+    assert_eq!(status.version, 6);
     let names: Vec<String> = status
         .applied
         .into_iter()
@@ -518,6 +518,7 @@ fn migration_is_checksummed_and_versioned() {
             "0003_parish_foundation".to_owned(),
             "0004_edit_revisions".to_owned(),
             "0005_library_details".to_owned(),
+            "0006_arrangement_details".to_owned(),
         ]
     );
 }

@@ -74,9 +74,10 @@ pub(crate) fn memory() -> Memory {
                 song,
                 at(),
                 ArrangementDraft {
-                    title: title.to_owned(),
+                    title: Some(title.to_owned()),
                     languages: vec![language.to_owned()],
                     rendition_attribution: None,
+                    notes: None,
                     occasions: Vec::new(),
                     sections: vec![SectionDraft::labeled(section, "Verse 1", "Lyric line")],
                     sequence: vec![domain::song_library::OccurrenceDraft::new(
@@ -232,7 +233,8 @@ pub(crate) async fn seed_choirs(storage: &Storage) -> Seeded {
     storage
         .create_arrangement(NewArrangement {
             song,
-            title: "Cebuano".to_owned(),
+            title: Some("Cebuano".to_owned()),
+            notes: None,
             languages: vec!["Cebuano".to_owned()],
             choirs: vec![koro, youth],
             rendition_attribution: None,

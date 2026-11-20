@@ -60,9 +60,10 @@ fn add_arrangement(
             song,
             at(),
             ArrangementDraft {
-                title: title.to_owned(),
+                title: Some(title.to_owned()),
                 languages: vec![language.to_owned()],
                 rendition_attribution: None,
+                notes: None,
                 occasions: Vec::new(),
                 sections: vec![
                     SectionDraft::labeled(verse, "Verse 1", lyrics),

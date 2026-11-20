@@ -54,7 +54,7 @@ fn songs(hits: &[SongHit]) -> Vec<SongId> {
 /// at `base`.
 fn draft(title: &str, language: Option<&str>, lyrics: &[&str], base: u32) -> ArrangementDraft {
     let mut draft = ArrangementDraft::titled(title);
-    draft.languages = language.map(str::to_owned).into_iter().collect();
+    draft.languages = vec![language.unwrap_or("Latin").to_owned()];
     draft.sections = lyrics
         .iter()
         .zip(base..)
@@ -244,41 +244,60 @@ fn ac4_lyric_evidence_is_per_line_capped_at_three_per_song() {
 /// Arrangement (11); Song 2 has one Cebuano/Adult Arrangement (20); Song 3
 /// has no Arrangement; Song 4 has one Arrangement with no language, no Choir.
 fn filter_library() -> SongLibrary {
-    let mut library = SongLibrary::new();
-    library
-        .create_choir(choir_id(900), at(0), ChoirDraft::named("Youth"))
-        .unwrap();
-    library
-        .create_choir(choir_id(901), at(0), ChoirDraft::named("Adult"))
-        .unwrap();
-    for (n, title) in [(1, "One"), (2, "Two"), (3, "Three"), (4, "Four")] {
-        add_song(&mut library, n, title);
-    }
-    add_arrangement(
-        &mut library,
-        10,
-        1,
-        draft("Cebuano", Some("ceb"), &["x"], 100),
-        vec![choir_id(900)],
-    );
-    let mut english = draft("English", Some("en"), &["y"], 110);
+    use domain::song_library::{
+        ArchiveState, HydrateArrangement, HydrateChoir, HydrateSong, PaginationState,
+    };
+    let choirs = [(900, "Youth"), (901, "Adult")]
+        .into_iter()
+        .map(|(n, name)| HydrateChoir {
+            id: choir_id(n),
+            created_at: at(0),
+            draft: ChoirDraft::named(name),
+            archive_state: ArchiveState::Active,
+        })
+        .collect();
+    let songs = [(1, "One"), (2, "Two"), (3, "Three"), (4, "Four")]
+        .into_iter()
+        .map(|(n, title)| HydrateSong {
+            id: song_id(n),
+            created_at: at(0),
+            draft: SongDraft::titled(title),
+            archive_state: ArchiveState::Active,
+        })
+        .collect();
+    let stored =
+        |n: u32, song: u32, draft: ArrangementDraft, choirs: Vec<ChoirId>| HydrateArrangement {
+            id: arrangement_id(n),
+            song: song_id(song),
+            created_at: at(i64::from(n)),
+            draft,
+            choirs,
+            pagination_state: PaginationState::Draft,
+            archive_state: ArchiveState::Active,
+        };
+    let mut english = draft("English", Some("English"), &["y"], 110);
     english.occasions = vec!["Advent".to_owned()];
-    add_arrangement(&mut library, 11, 1, english, vec![choir_id(901)]);
-    add_arrangement(
-        &mut library,
-        20,
-        2,
-        draft("Cebuano", Some("ceb"), &["z"], 120),
-        vec![choir_id(901)],
-    );
-    add_arrangement(
-        &mut library,
-        40,
-        4,
-        draft("Bare", None, &["w"], 130),
-        Vec::new(),
-    );
-    library
+    // Song 4's Arrangement is a legacy record from before a language was
+    // required, so it is hydrated rather than created.
+    let mut bare = draft("Bare", None, &["w"], 130);
+    bare.languages = Vec::new();
+    let arrangements = vec![
+        stored(
+            10,
+            1,
+            draft("Cebuano", Some("Cebuano"), &["x"], 100),
+            vec![choir_id(900)],
+        ),
+        stored(11, 1, english, vec![choir_id(901)]),
+        stored(
+            20,
+            2,
+            draft("Cebuano", Some("Cebuano"), &["z"], 120),
+            vec![choir_id(901)],
+        ),
+        stored(40, 4, bare, Vec::new()),
+    ];
+    SongLibrary::hydrate(songs, arrangements, choirs, Vec::new()).expect("filter library loads")
 }
 
 fn filtered(
@@ -312,7 +331,7 @@ fn ac5_attributes_of_separate_arrangements_are_never_combined() {
         &library,
         &filtered(
             &[FilterValue::Is(choir_id(901))],
-            &[FilterValue::Is("ceb")],
+            &[FilterValue::Is("Cebuano")],
             &[],
         ),
     );
@@ -324,7 +343,7 @@ fn ac5_attributes_of_separate_arrangements_are_never_combined() {
         &library,
         &filtered(
             &[FilterValue::Is(choir_id(900))],
-            &[FilterValue::Is("CEB")],
+            &[FilterValue::Is("CEBUANO")],
             &[],
         ),
     );
@@ -361,7 +380,8 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
     let hits = search(&library, &filtered(&[FilterValue::Unspecified], &[], &[]));
     assert_eq!(songs(&hits), vec![song_id(4)]);
 
-    // No language: Song 4 again; Unspecified is not a wildcard.
+    // No language: Song 4's hydrated legacy Arrangement again; Unspecified is
+    // not a wildcard.
     let hits = search(&library, &filtered(&[], &[FilterValue::Unspecified], &[]));
     assert_eq!(songs(&hits), vec![song_id(4)]);
 
@@ -375,7 +395,11 @@ fn ac5_unspecified_matches_only_an_arrangement_with_none_of_that_kind() {
     // Unspecified OR a value inside one kind.
     let hits = search(
         &library,
-        &filtered(&[], &[FilterValue::Unspecified, FilterValue::Is("en")], &[]),
+        &filtered(
+            &[],
+            &[FilterValue::Unspecified, FilterValue::Is("English")],
+            &[],
+        ),
     );
     assert_eq!(songs(&hits), vec![song_id(4), song_id(1)]);
 
@@ -448,7 +472,7 @@ fn ac6_alias_and_lyric_evidence_with_matching_and_total_counts() {
         &mut library,
         10,
         1,
-        draft("Latin", Some("la"), &["Kyrie eleison"], 100),
+        draft("Latin", Some("Latin"), &["Kyrie eleison"], 100),
         Vec::new(),
     );
     add_arrangement(
@@ -457,7 +481,7 @@ fn ac6_alias_and_lyric_evidence_with_matching_and_total_counts() {
         1,
         draft(
             "English",
-            Some("en"),
+            Some("English"),
             &["Lord, have mercy\nChrist, have mercy"],
             110,
         ),
@@ -551,7 +575,7 @@ fn ac9_archived_songs_and_arrangements_are_excluded_unless_included() {
 
     // An Arrangement-level filter cannot reach the archived Arrangement.
     let mut only_archived = query("");
-    only_archived.languages.insert(FilterValue::Unspecified);
+    only_archived.occasions.insert(FilterValue::Unspecified);
     assert_eq!(search(&library, &only_archived).len(), 2);
 
     // Included: everything is counted and matched.
@@ -626,7 +650,7 @@ fn performance_smoke_two_thousand_songs_lyric_query_under_50ms() {
                     arrangement_id(base),
                     song_id(song),
                     at(i64::from(a)),
-                    draft(&format!("Arr {a}"), Some("en"), &refs, base * 10),
+                    draft(&format!("Arr {a}"), Some("English"), &refs, base * 10),
                     Vec::new(),
                 )
                 .unwrap();

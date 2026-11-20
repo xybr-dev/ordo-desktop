@@ -135,11 +135,12 @@ impl StoragePort {
             });
         }
         ArrangementContent {
-            title: content.title.clone(),
+            title: (!content.title.is_empty()).then(|| content.title.clone()),
             languages: self.base.languages.clone(),
             choirs: self.base.choirs.clone(),
             rendition_attribution: (!content.notes.is_empty()).then(|| content.notes.clone()),
             occasions: self.base.occasions.clone(),
+            notes: self.base.notes.clone(),
             sections,
             sequence,
         }
@@ -164,7 +165,7 @@ fn content_of(record: &ArrangementRecord) -> HarnessContent {
         })
         .collect();
     HarnessContent {
-        title: record.title.clone(),
+        title: record.title.clone().unwrap_or_default(),
         notes: record.rendition_attribution.clone().unwrap_or_default(),
         items,
     }

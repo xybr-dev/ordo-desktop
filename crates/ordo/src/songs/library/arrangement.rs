@@ -38,8 +38,8 @@ impl ArrangementOverview {
     /// Arrangement's own title, or a plain fallback when it is gone.
     pub fn title(&self, library: &SongLibrary) -> String {
         library
-            .arrangement(self.arrangement)
-            .map_or_else(|_| "Arrangement".to_owned(), |item| item.title().to_owned())
+            .arrangement_label(self.arrangement)
+            .unwrap_or_else(|_| "Arrangement".to_owned())
     }
 
     /// The body: the content of the Arrangement, to sit in the frame's scroll
@@ -185,7 +185,11 @@ fn body(library: &SongLibrary, arrangement: &Arrangement, environment: UiEnviron
                 .text_size(px(scale.apply(tokens::typography::TITLE.size)))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(palette.text))
-                .child(arrangement.title().to_owned()),
+                .child(
+                    library
+                        .arrangement_label(arrangement.id())
+                        .unwrap_or_default(),
+                ),
         )
         .when(arrangement.is_archived() || song_archived, |view| {
             view.child(

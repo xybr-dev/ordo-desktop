@@ -315,24 +315,32 @@ pub(crate) fn read_arrangement(
 ) -> Result<Option<ArrangementRecord>, StorageError> {
     let row = tx
         .query_row(
-            "SELECT song_id, title, rendition_attribution, created_at, archived_at, \
+            "SELECT song_id, title, notes, rendition_attribution, created_at, archived_at, \
              pagination_state FROM arrangement WHERE id = ?1",
             params![id.to_string()],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
                 ))
             },
         )
         .optional()
         .map_err(map_error)?;
-    let Some((song_id, title, rendition_attribution, created_at, archived_at, pagination_text)) =
-        row
+    let Some((
+        song_id,
+        title,
+        notes,
+        rendition_attribution,
+        created_at,
+        archived_at,
+        pagination_text,
+    )) = row
     else {
         return Ok(None);
     };
@@ -425,6 +433,7 @@ pub(crate) fn read_arrangement(
         choirs,
         rendition_attribution,
         occasions,
+        notes,
         sections,
         sequence,
         pagination: pagination(&pagination_text)?,

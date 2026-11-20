@@ -476,10 +476,10 @@ fn arrangement_text(
             text: text.to_owned(),
         });
     }
-    if contains(arrangement.title(), needle) {
+    if let Some(title) = arrangement.title().filter(|t| contains(t, needle)) {
         evidence.push(Evidence::ArrangementTitle {
             arrangement: id,
-            text: arrangement.title().to_owned(),
+            text: title.to_owned(),
         });
     }
     for &choir in arrangement.choirs() {

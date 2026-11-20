@@ -223,12 +223,14 @@ pub(crate) fn validate_song_fields(
 
 /// Validates the Arrangement before any statement runs.
 fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError> {
+    require_language(&arrangement.languages)?;
     validate_arrangement_fields(
-        &arrangement.title,
+        arrangement.title.as_deref(),
         &arrangement.languages,
         &arrangement.choirs,
         arrangement.rendition_attribution.as_deref(),
         &arrangement.occasions,
+        arrangement.notes.as_deref(),
         arrangement
             .sections
             .iter()
@@ -247,16 +249,31 @@ fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError
     Ok(())
 }
 
+/// A new or edited Arrangement needs at least one language. Content that is
+/// restored, imported or replaced may predate the rule and skips this check.
+pub(crate) fn require_language(languages: &[String]) -> Result<(), StorageError> {
+    if languages.is_empty() {
+        return Err(StorageError::InvalidInput {
+            field: "language",
+            reason: "required",
+        });
+    }
+    Ok(())
+}
+
 /// The Arrangement field rules shared by create and by revision commits.
 pub(crate) fn validate_arrangement_fields<'a>(
-    title: &str,
+    title: Option<&str>,
     languages: &[String],
     choirs: &[ChoirId],
     rendition_attribution: Option<&str>,
     occasions: &[String],
+    notes: Option<&str>,
     labels: impl Iterator<Item = Option<&'a str>>,
 ) -> Result<(), StorageError> {
-    require_present("title", title)?;
+    if let Some(value) = title {
+        require_present("title", value)?;
+    }
     for language in languages {
         require_present("language", language)?;
     }
@@ -269,6 +286,9 @@ pub(crate) fn validate_arrangement_fields<'a>(
         require_present("occasion", occasion)?;
     }
     require_distinct("occasion", occasions)?;
+    if let Some(value) = notes {
+        require_present("notes", value)?;
+    }
     for label in labels.flatten() {
         require_present("label", label)?;
     }
@@ -684,12 +704,13 @@ fn insert_arrangement(
         write(
             &tx,
             steps,
-            "INSERT INTO arrangement (id, song_id, title, rendition_attribution, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO arrangement (id, song_id, title, notes, rendition_attribution, \
+             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 id.to_string(),
                 arrangement.song.to_string(),
-                arrangement.title,
+                arrangement.title.as_deref(),
+                arrangement.notes.as_deref(),
                 arrangement.rendition_attribution.as_deref(),
                 created
             ],
@@ -776,6 +797,7 @@ fn insert_arrangement(
             choirs: arrangement.choirs.clone(),
             rendition_attribution: arrangement.rendition_attribution.clone(),
             occasions: arrangement.occasions.clone(),
+            notes: arrangement.notes.clone(),
             sections: arrangement
                 .sections
                 .iter()
@@ -833,6 +855,7 @@ fn insert_arrangement(
         choirs,
         rendition_attribution: arrangement.rendition_attribution,
         occasions,
+        notes: arrangement.notes,
         sections,
         sequence,
         pagination: PaginationState::Draft,

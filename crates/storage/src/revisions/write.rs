@@ -15,7 +15,7 @@ use domain::song_library::PaginationState;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::parish_store::write::{
-    WriteSteps, insert_entity, pagination_text, require_distinct, timestamp_text,
+    WriteSteps, insert_entity, pagination_text, require_distinct, require_language, timestamp_text,
     validate_arrangement_fields, validate_song_fields, write,
 };
 use crate::parish_store::{ArrangementRecord, SongRecord, read_arrangement, read_song};
@@ -23,7 +23,7 @@ use crate::worker::{Core, Sources};
 use crate::{RecordKind, StorageError, map_error};
 
 use super::RevisionRecord;
-use super::content::{self, ArrangementContent, RevisionContent, SongContent};
+use super::content::{self, ArrangementContent, ArrangementMetadata, RevisionContent, SongContent};
 use super::read::{latest_in, load_content};
 
 /// How a new revision links to the chain.
@@ -194,13 +194,23 @@ fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
     )
 }
 
-fn validate_arrangement_content(arrangement: &ArrangementContent) -> Result<(), StorageError> {
+/// `require_language` is true for commits that author new content (an Edit).
+/// A Restoration, Import or Replacement keeps the rules that held when its
+/// content was written, and rows from before a language was required exist.
+fn validate_arrangement_content(
+    arrangement: &ArrangementContent,
+    require_language_now: bool,
+) -> Result<(), StorageError> {
+    if require_language_now {
+        require_language(&arrangement.languages)?;
+    }
     validate_arrangement_fields(
-        &arrangement.title,
+        arrangement.title.as_deref(),
         &arrangement.languages,
         &arrangement.choirs,
         arrangement.rendition_attribution.as_deref(),
         &arrangement.occasions,
+        arrangement.notes.as_deref(),
         arrangement
             .sections
             .iter()
@@ -407,10 +417,12 @@ fn commit_arrangement_in(
     write(
         tx,
         steps,
-        "UPDATE arrangement SET title = ?2, rendition_attribution = ?3 WHERE id = ?1",
+        "UPDATE arrangement SET title = ?2, notes = ?3, rendition_attribution = ?4 \
+         WHERE id = ?1",
         params![
             key,
-            revision.title,
+            revision.title.as_deref(),
+            revision.notes.as_deref(),
             revision.rendition_attribution.as_deref()
         ],
     )?;
@@ -530,6 +542,41 @@ fn commit_arrangement_in(
     Ok((stored, record))
 }
 
+/// Appends a `creation` revision of the entity's current content, for a row
+/// written before revisions existed.
+fn backfill_creation(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    at: Timestamp,
+    entity: RevisionEntity,
+) -> Result<RevisionRecord, StorageError> {
+    let current = match entity {
+        RevisionEntity::Song(id) => {
+            read_song(tx, id)?.map(|record| RevisionContent::Song(SongContent::of(&record)))
+        }
+        RevisionEntity::Arrangement(id) => read_arrangement(tx, id)?
+            .map(|record| RevisionContent::Arrangement(ArrangementContent::of(&record))),
+    };
+    let current = current.ok_or(StorageError::NotFound {
+        kind: match entity {
+            RevisionEntity::Song(_) => RecordKind::Song,
+            RevisionEntity::Arrangement(_) => RecordKind::Arrangement,
+        },
+        id: match entity {
+            RevisionEntity::Song(id) => id.entity(),
+            RevisionEntity::Arrangement(id) => id.entity(),
+        },
+    })?;
+    let link = Link {
+        parent: None,
+        kind: RevisionKind::Creation,
+        session: None,
+        restored_from: None,
+    };
+    append_revision(tx, ids, steps, at, entity, &link, &current)
+}
+
 impl Core {
     /// Replaces a Song's content and appends the revision in one transaction.
     pub(crate) fn commit_song_edit(
@@ -574,7 +621,7 @@ impl Core {
         expected_parent: RevisionId,
     ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
         validate_link(kind, session, true)?;
-        validate_arrangement_content(&revision)?;
+        validate_arrangement_content(&revision, kind == RevisionKind::Edit)?;
         let at = self.timestamp();
         timestamp_text(at)?;
         let (conn, ids, fault) = self.write_parts()?;
@@ -604,6 +651,72 @@ impl Core {
         Ok(done)
     }
 
+    /// Replaces only an Arrangement's metadata and appends one Edit revision,
+    /// reading the head revision, sections, Sequence and pagination state in
+    /// the same immediate transaction. A row with no history first gets its
+    /// `creation` revision in that transaction.
+    pub(crate) fn commit_arrangement_metadata(
+        &mut self,
+        arrangement: ArrangementId,
+        metadata: ArrangementMetadata,
+        session: HistorySessionId,
+    ) -> Result<(ArrangementRecord, RevisionRecord), StorageError> {
+        // Fail before opening the transaction; the whole content is checked
+        // again once the stored sections are read.
+        require_language(&metadata.languages)?;
+        validate_arrangement_fields(
+            metadata.title.as_deref(),
+            &metadata.languages,
+            &metadata.choirs,
+            metadata.rendition_attribution.as_deref(),
+            &metadata.occasions,
+            metadata.notes.as_deref(),
+            std::iter::empty(),
+        )?;
+        let at = self.timestamp();
+        timestamp_text(at)?;
+        let (conn, ids, fault) = self.write_parts()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_error)?;
+        let mut steps = WriteSteps::new(fault);
+        let entity = RevisionEntity::Arrangement(arrangement);
+        require_entity(&tx, entity)?;
+        let head = match latest_in(&tx, entity)? {
+            Some(head) => head,
+            None => backfill_creation(&tx, ids, &mut steps, at, entity)?.id,
+        };
+        let stored = read_arrangement(&tx, arrangement)?.ok_or(StorageError::NotFound {
+            kind: RecordKind::Arrangement,
+            id: arrangement.entity(),
+        })?;
+        let mut content = ArrangementContent::of(&stored);
+        content.title = metadata.title;
+        content.languages = metadata.languages;
+        content.choirs = metadata.choirs;
+        content.rendition_attribution = metadata.rendition_attribution;
+        content.occasions = metadata.occasions;
+        content.notes = metadata.notes;
+        validate_arrangement_content(&content, true)?;
+        let link = Link {
+            parent: Some(head),
+            kind: RevisionKind::Edit,
+            session: Some(session),
+            restored_from: None,
+        };
+        let done = commit_arrangement_in(
+            &tx,
+            ids,
+            &mut steps,
+            at,
+            arrangement,
+            (&content, stored.pagination),
+            &link,
+        )?;
+        tx.commit().map_err(map_error)?;
+        Ok(done)
+    }
+
     /// Commits an earlier revision's content as a new `restoration` revision.
     pub(crate) fn restore_revision(
         &mut self,
@@ -616,14 +729,15 @@ impl Core {
             let tx = conn.transaction().map_err(map_error)?;
             load_content(&tx, revision)?
         };
-        // This content passed validation when it was committed, so a failure
+        // This content passed the rules in force when it was committed (a
+        // legacy Arrangement without a language is allowed back), so a failure
         // now means the stored document was altered, not that the caller
         // supplied bad input.
         let damaged = |_| StorageError::RevisionIntegrity { id: revision };
         match &restored {
             RevisionContent::Song(song) => validate_song_content(song).map_err(damaged)?,
             RevisionContent::Arrangement(arrangement) => {
-                validate_arrangement_content(arrangement).map_err(damaged)?;
+                validate_arrangement_content(arrangement, false).map_err(damaged)?;
             }
         }
         let at = self.timestamp();
@@ -682,30 +796,7 @@ impl Core {
             return Ok(latest);
         }
         let mut steps = WriteSteps::new(fault);
-        let current = match entity {
-            RevisionEntity::Song(id) => {
-                read_song(&tx, id)?.map(|record| RevisionContent::Song(SongContent::of(&record)))
-            }
-            RevisionEntity::Arrangement(id) => read_arrangement(&tx, id)?
-                .map(|record| RevisionContent::Arrangement(ArrangementContent::of(&record))),
-        };
-        let current = current.ok_or(StorageError::NotFound {
-            kind: match entity {
-                RevisionEntity::Song(_) => RecordKind::Song,
-                RevisionEntity::Arrangement(_) => RecordKind::Arrangement,
-            },
-            id: match entity {
-                RevisionEntity::Song(id) => id.entity(),
-                RevisionEntity::Arrangement(id) => id.entity(),
-            },
-        })?;
-        let link = Link {
-            parent: None,
-            kind: RevisionKind::Creation,
-            session: None,
-            restored_from: None,
-        };
-        let record = append_revision(&tx, ids, &mut steps, at, entity, &link, &current)?;
+        let record = backfill_creation(&tx, ids, &mut steps, at, entity)?;
         tx.commit().map_err(map_error)?;
         Ok(record.id)
     }

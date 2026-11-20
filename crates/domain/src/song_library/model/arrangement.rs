@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 
 use crate::identity::{ArrangementId, ChoirId, OccurrenceId, SectionId, SongId, Timestamp};
 use crate::song_library::interface::{Field, SongLibraryError};
+use crate::song_library::languages;
 
 use super::ArchiveState;
 use super::text;
@@ -132,15 +133,20 @@ impl Occurrence {
 /// review state, and archive state are owned by [`Arrangement`] itself.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ArrangementDraft {
-    /// The title exactly as authored; required.
-    pub title: String,
-    /// Languages in authored order; duplicates are invalid.
+    /// The display title exactly as authored; `None` when there is none, in
+    /// which case the label is derived. When present, must not be blank.
+    pub title: Option<String>,
+    /// Languages in authored order; duplicates are invalid. Creation and edits
+    /// need at least one, from the built-in list.
     pub languages: Vec<String>,
     /// Who this rendition is attributed to, exactly as authored; when present,
     /// must not be blank.
     pub rendition_attribution: Option<String>,
     /// Occasion applicability tags, advisory rather than restrictive.
     pub occasions: Vec<String>,
+    /// Source and rights notes exactly as authored; when present, must not be
+    /// blank.
+    pub notes: Option<String>,
     /// Reusable sections in authored order.
     pub sections: Vec<SectionDraft>,
     /// Section placements in performance order; a section may repeat.
@@ -148,13 +154,47 @@ pub struct ArrangementDraft {
 }
 
 impl ArrangementDraft {
-    /// A draft whose only content is the required title.
+    /// A draft whose only content is the display title.
     pub fn titled(title: impl Into<String>) -> Self {
         Self {
-            title: title.into(),
+            title: Some(title.into()),
             ..Self::default()
         }
     }
+
+    /// A draft with no title whose only content is one language.
+    pub fn in_language(language: impl Into<String>) -> Self {
+        Self {
+            languages: vec![language.into()],
+            ..Self::default()
+        }
+    }
+}
+
+/// The metadata of an Arrangement: everything a details edit replaces.
+///
+/// A details edit replaces these values and the Choir associations as one
+/// unit and leaves sections, the Sequence, and the pagination review state
+/// untouched. Callers get the current value from [`Arrangement::details`],
+/// change it, and hand it to
+/// [`crate::song_library::SongLibrary::edit_arrangement_details`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ArrangementDetails {
+    /// The display title exactly as authored; `None` derives the label. When
+    /// present, must not be blank.
+    pub title: Option<String>,
+    /// Languages in authored order; at least one, each from the built-in
+    /// list, without repeats.
+    pub languages: Vec<String>,
+    /// The Choirs that perform this exact rendition; active Choirs only
+    /// unless already associated, without repeats.
+    pub choirs: Vec<ChoirId>,
+    /// Who this rendition is attributed to; when present, must not be blank.
+    pub rendition_attribution: Option<String>,
+    /// Occasion applicability tags, advisory rather than restrictive.
+    pub occasions: Vec<String>,
+    /// Source and rights notes; when present, must not be blank.
+    pub notes: Option<String>,
 }
 
 /// One Arrangement and the content it owns.
@@ -225,6 +265,45 @@ impl Arrangement {
         Ok(())
     }
 
+    /// Replaces the authored content, the Choir associations and the pagination
+    /// state with values that storage already holds, applying no review rule.
+    /// Nothing changes on refusal.
+    pub(crate) fn refresh(
+        &mut self,
+        draft: ArrangementDraft,
+        choirs: Vec<ChoirId>,
+        pagination_state: PaginationState,
+    ) -> Result<(), SongLibraryError> {
+        let next = ArrangementContent::validate(self.id, draft)?;
+        self.content = next;
+        self.choirs = choirs.into_iter().collect();
+        self.pagination_state = pagination_state;
+        Ok(())
+    }
+
+    /// Replaces the metadata and keeps sections, Sequence, pagination state,
+    /// Choir associations, and archive state; Choirs are the caller's concern.
+    ///
+    /// Languages must already be canonical. Nothing changes on refusal.
+    pub(crate) fn replace_metadata(
+        &mut self,
+        details: ArrangementDetails,
+    ) -> Result<(), SongLibraryError> {
+        let metadata = Metadata::validate(
+            details.title,
+            details.languages,
+            details.rendition_attribution,
+            details.occasions,
+            details.notes,
+        )?;
+        self.content.title = metadata.title;
+        self.content.languages = metadata.languages;
+        self.content.rendition_attribution = metadata.rendition_attribution;
+        self.content.occasions = metadata.occasions;
+        self.content.notes = metadata.notes;
+        Ok(())
+    }
+
     /// Replaces the Choir associations.
     pub(crate) fn replace_choirs(&mut self, choirs: Vec<ChoirId>) {
         self.choirs = choirs.into_iter().collect();
@@ -266,9 +345,32 @@ impl Arrangement {
         self.song
     }
 
-    /// The title exactly as authored.
-    pub fn title(&self) -> &str {
-        &self.content.title
+    /// The display title exactly as authored, when it has one.
+    ///
+    /// Use [`crate::song_library::SongLibrary::arrangement_label`] for a name
+    /// to show: it falls back to a label derived from languages and Choirs.
+    pub fn title(&self) -> Option<&str> {
+        self.content.title.as_deref()
+    }
+
+    /// Source and rights notes exactly as authored.
+    pub fn notes(&self) -> Option<&str> {
+        self.content.notes.as_deref()
+    }
+
+    /// The current metadata, ready to edit and hand back to
+    /// [`crate::song_library::SongLibrary::edit_arrangement_details`].
+    ///
+    /// Choirs are in identity order and occasions in sorted byte order.
+    pub fn details(&self) -> ArrangementDetails {
+        ArrangementDetails {
+            title: self.content.title.clone(),
+            languages: self.content.languages.clone(),
+            choirs: self.choirs.iter().copied().collect(),
+            rendition_attribution: self.content.rendition_attribution.clone(),
+            occasions: self.content.occasions.iter().cloned().collect(),
+            notes: self.content.notes.clone(),
+        }
     }
 
     /// Languages in authored order.
@@ -322,13 +424,86 @@ impl Arrangement {
     }
 }
 
-/// Validated authored Arrangement content.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ArrangementContent {
-    title: String,
+/// Validated Arrangement metadata.
+struct Metadata {
+    title: Option<String>,
     languages: Vec<String>,
     rendition_attribution: Option<String>,
     occasions: BTreeSet<String>,
+    notes: Option<String>,
+}
+
+impl Metadata {
+    /// Checks the field rules shared by creation, content edits, details edits
+    /// and hydration. It does not require a language: that rule belongs to
+    /// [`require_listed_languages`], so stored records without one still load.
+    fn validate(
+        title: Option<String>,
+        languages: Vec<String>,
+        rendition_attribution: Option<String>,
+        occasions: Vec<String>,
+        notes: Option<String>,
+    ) -> Result<Self, SongLibraryError> {
+        text::require_present_when_given(Field::ArrangementTitle, title.as_deref())?;
+        for language in &languages {
+            text::require_present(Field::Language, language)?;
+        }
+        text::require_distinct(Field::Language, &languages)?;
+        text::require_present_when_given(
+            Field::RenditionAttribution,
+            rendition_attribution.as_deref(),
+        )?;
+        for occasion in &occasions {
+            text::require_present(Field::Occasion, occasion)?;
+        }
+        text::require_distinct(Field::Occasion, &occasions)?;
+        text::require_present_when_given(Field::ArrangementNotes, notes.as_deref())?;
+        Ok(Self {
+            title,
+            languages,
+            rendition_attribution,
+            occasions: occasions.into_iter().collect(),
+            notes,
+        })
+    }
+}
+
+/// The rule for languages a caller supplies on creation or an edit: at least
+/// one, each the display name of a built-in language (matched ignoring case
+/// and diacritics) and stored under that display name. A language the
+/// Arrangement already holds (`current`, matched exactly) may be kept even when
+/// it is not built in; only a language being added must be listed.
+///
+/// Hydration does not call this, so stored records keep whatever they hold.
+pub(crate) fn require_listed_languages(
+    languages: Vec<String>,
+    current: &[String],
+) -> Result<Vec<String>, SongLibraryError> {
+    if languages.is_empty() {
+        return Err(SongLibraryError::BlankField(Field::Language));
+    }
+    languages
+        .into_iter()
+        .map(|language| {
+            text::require_present(Field::Language, &language)?;
+            if current.contains(&language) {
+                return Ok(language);
+            }
+            languages::canonical(&language)
+                .map(|listed| listed.name().to_owned())
+                .ok_or(SongLibraryError::UnlistedLanguage(language))
+        })
+        .collect()
+}
+
+/// Validated authored Arrangement content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ArrangementContent {
+    title: Option<String>,
+    languages: Vec<String>,
+    rendition_attribution: Option<String>,
+    occasions: BTreeSet<String>,
+    notes: Option<String>,
     sections: Vec<Section>,
     sequence: Vec<Occurrence>,
 }
@@ -339,19 +514,13 @@ impl ArrangementContent {
         arrangement: ArrangementId,
         draft: ArrangementDraft,
     ) -> Result<Self, SongLibraryError> {
-        text::require_present(Field::ArrangementTitle, &draft.title)?;
-        for language in &draft.languages {
-            text::require_present(Field::Language, language)?;
-        }
-        text::require_distinct(Field::Language, &draft.languages)?;
-        text::require_present_when_given(
-            Field::RenditionAttribution,
-            draft.rendition_attribution.as_deref(),
+        let metadata = Metadata::validate(
+            draft.title,
+            draft.languages,
+            draft.rendition_attribution,
+            draft.occasions,
+            draft.notes,
         )?;
-        for occasion in &draft.occasions {
-            text::require_present(Field::Occasion, occasion)?;
-        }
-        text::require_distinct(Field::Occasion, &draft.occasions)?;
         for section in &draft.sections {
             text::require_present_when_given(Field::SectionLabel, section.label.as_deref())?;
         }
@@ -376,10 +545,11 @@ impl ArrangementContent {
         }
 
         Ok(Self {
-            title: draft.title,
-            languages: draft.languages,
-            rendition_attribution: draft.rendition_attribution,
-            occasions: draft.occasions.into_iter().collect(),
+            title: metadata.title,
+            languages: metadata.languages,
+            rendition_attribution: metadata.rendition_attribution,
+            occasions: metadata.occasions,
+            notes: metadata.notes,
             sections: draft
                 .sections
                 .into_iter()

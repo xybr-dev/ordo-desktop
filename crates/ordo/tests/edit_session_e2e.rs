@@ -171,7 +171,7 @@ fn arrangement_content(content: &RevisionContent) -> &storage::ArrangementConten
 fn harness_of(content: &RevisionContent) -> HarnessContent {
     let content = arrangement_content(content);
     HarnessContent {
-        title: content.title.clone(),
+        title: content.title.clone().unwrap_or_default(),
         notes: content.rendition_attribution.clone().unwrap_or_default(),
         items: content
             .sequence
@@ -352,7 +352,8 @@ fn edit_session_over_real_storage(cx: &mut TestAppContext) {
         storage.with(|s| {
             s.create_arrangement(NewArrangement {
                 song: song.id,
-                title: "SATB".to_owned(),
+                title: Some("SATB".to_owned()),
+                notes: None,
                 languages: vec!["en".to_owned()],
                 choirs: Vec::new(),
                 rendition_attribution: None,

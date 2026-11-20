@@ -238,7 +238,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arrangement = block_on(
         storage.create_arrangement(NewArrangement {
             song: song.id,
-            title: "SATB".to_owned(),
+            title: Some("SATB".to_owned()),
+            notes: None,
             languages: vec!["en".to_owned()],
             choirs: Vec::new(),
             rendition_attribution: None,

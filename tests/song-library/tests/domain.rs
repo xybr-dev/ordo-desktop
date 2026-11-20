@@ -47,9 +47,10 @@ fn draft(title: &str, language: &str, base: u8) -> ArrangementDraft {
     let first = section_id(base);
     let second = section_id(base + 1);
     ArrangementDraft {
-        title: title.to_owned(),
+        title: Some(title.to_owned()),
         languages: vec![language.to_owned()],
         rendition_attribution: None,
+        notes: None,
         occasions: Vec::new(),
         sections: vec![
             SectionDraft::labeled(first, "Verse 1", "Unang bersikulo"),
@@ -127,7 +128,7 @@ fn small_library() -> SongLibrary {
             arrangement_id(10),
             song_id(1),
             at(1),
-            draft("Cebuano", "ceb", 100),
+            draft("Cebuano", "Cebuano", 100),
             vec![choir_id(20)],
         )
         .unwrap();
@@ -173,7 +174,7 @@ fn ac1_song_work_owns_its_content_and_needs_only_a_title() {
 #[test]
 fn ac2_arrangement_belongs_to_one_song_and_independently_owns_its_content() {
     let mut library = small_library();
-    let mut english = draft("English", "en", 110);
+    let mut english = draft("English", "English", 110);
     english.rendition_attribution = Some("Fr. Cruz".to_owned());
     english.occasions = vec!["Christmas".to_owned()];
     library
@@ -190,8 +191,8 @@ fn ac2_arrangement_belongs_to_one_song_and_independently_owns_its_content() {
     let english = library.arrangement(arrangement_id(11)).unwrap();
     assert_eq!(cebuano.song(), song_id(1));
     assert_eq!(english.song(), song_id(1));
-    assert_eq!(cebuano.languages(), ["ceb".to_owned()]);
-    assert_eq!(english.languages(), ["en".to_owned()]);
+    assert_eq!(cebuano.languages(), ["Cebuano".to_owned()]);
+    assert_eq!(english.languages(), ["English".to_owned()]);
     assert_eq!(english.rendition_attribution(), Some("Fr. Cruz"));
     assert_eq!(cebuano.rendition_attribution(), None);
     assert!(english.occasions().contains("Christmas"));
@@ -222,7 +223,7 @@ fn ac2_arrangement_belongs_to_one_song_and_independently_owns_its_content() {
                 arrangement_id(12),
                 song_id(99),
                 at(4),
-                draft("Orphan", "en", 120),
+                draft("Orphan", "English", 120),
                 Vec::new(),
             )
             .unwrap_err(),
@@ -251,7 +252,7 @@ fn ac3_numbered_settings_are_separate_songs_and_translations_are_arrangements() 
             arrangement_id(10),
             song_id(1),
             at(2),
-            draft("Cebuano", "ceb", 100),
+            draft("Cebuano", "Cebuano", 100),
             Vec::new(),
         )
         .unwrap();
@@ -260,7 +261,7 @@ fn ac3_numbered_settings_are_separate_songs_and_translations_are_arrangements() 
             arrangement_id(11),
             song_id(1),
             at(3),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             Vec::new(),
         )
         .unwrap();
@@ -296,7 +297,7 @@ fn ac4_choirs_share_one_arrangement_and_songs_are_valid_without_a_choir() {
             arrangement_id(10),
             song_id(1),
             at(1),
-            draft("Cebuano", "ceb", 100),
+            draft("Cebuano", "Cebuano", 100),
             vec![choir_id(20), choir_id(21)],
         )
         .unwrap();
@@ -305,7 +306,7 @@ fn ac4_choirs_share_one_arrangement_and_songs_are_valid_without_a_choir() {
             arrangement_id(11),
             song_id(1),
             at(2),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             Vec::new(),
         )
         .unwrap();
@@ -444,7 +445,7 @@ fn ac6_archival_is_non_cascading_and_reversible() {
             arrangement_id(11),
             song_id(1),
             at(2),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             vec![choir_id(20)],
         )
         .unwrap();
@@ -580,7 +581,7 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
     assert_refused!(
         library,
         SongLibraryError::Archived(song),
-        library.edit_arrangement(arrangement_id(10), draft("Changed", "en", 100))
+        library.edit_arrangement(arrangement_id(10), draft("Changed", "English", 100))
     );
     assert_refused!(
         library,
@@ -609,7 +610,7 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
             arrangement_id(11),
             song_id(1),
             at(6),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             Vec::new(),
         )
     );
@@ -629,7 +630,7 @@ fn ac6_archived_entities_are_inspect_only_until_restored() {
     assert_refused!(
         library,
         SongLibraryError::Archived(arrangement),
-        library.edit_arrangement(arrangement_id(10), draft("Changed", "en", 100))
+        library.edit_arrangement(arrangement_id(10), draft("Changed", "English", 100))
     );
     assert_refused!(
         library,
@@ -685,7 +686,7 @@ fn ac6_archived_choir_is_inspect_only_and_cannot_be_newly_associated() {
             arrangement_id(11),
             song_id(1),
             at(6),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             vec![choir_id(21)],
         )
     );
@@ -854,7 +855,7 @@ fn ac6_deleted_arrangement_section_and_occurrence_ids_stay_reserved() {
                 arrangement_id(11),
                 song_id(1),
                 at(6),
-                draft("Reuse", "en", 100),
+                draft("Reuse", "English", 100),
                 Vec::new(),
             )
             .unwrap_err(),
@@ -865,7 +866,7 @@ fn ac6_deleted_arrangement_section_and_occurrence_ids_stay_reserved() {
             arrangement_id(11),
             song_id(1),
             at(6),
-            draft("Fresh", "en", 130),
+            draft("Fresh", "English", 130),
             Vec::new(),
         )
         .unwrap();
@@ -893,7 +894,7 @@ fn ac6_dropped_section_and_occurrence_ids_stay_reserved_to_their_arrangement() {
     // Arrangement 10 owns sections 100/101 and occurrences 100/101. Drop the
     // second of each by editing.
     let first = section_id(100);
-    let mut shrunk = draft("Cebuano", "ceb", 100);
+    let mut shrunk = draft("Cebuano", "Cebuano", 100);
     shrunk.sections.truncate(1);
     shrunk.sequence = vec![OccurrenceDraft::new(occurrence_id(100), first)];
     library
@@ -908,11 +909,11 @@ fn ac6_dropped_section_and_occurrence_ids_stay_reserved_to_their_arrangement() {
             arrangement_id(11),
             song_id(1),
             at(6),
-            draft("Other", "en", 100 + 1),
+            draft("Other", "English", 100 + 1),
             Vec::new(),
         )
     );
-    let mut stolen = draft("Other", "en", 110);
+    let mut stolen = draft("Other", "English", 110);
     stolen.sequence[0].id = occurrence_id(101);
     assert_refused!(
         library,
@@ -924,11 +925,11 @@ fn ac6_dropped_section_and_occurrence_ids_stay_reserved_to_their_arrangement() {
             arrangement_id(11),
             song_id(1),
             at(6),
-            draft("Other", "en", 110),
+            draft("Other", "English", 110),
             Vec::new(),
         )
         .unwrap();
-    let mut stolen = draft("Other", "en", 110);
+    let mut stolen = draft("Other", "English", 110);
     stolen.sections[0].id = section_id(101);
     stolen.sequence[0].section = section_id(101);
     assert_refused!(
@@ -939,7 +940,7 @@ fn ac6_dropped_section_and_occurrence_ids_stay_reserved_to_their_arrangement() {
 
     // The same Arrangement may bring them back (restoration of a revision).
     library
-        .edit_arrangement(arrangement_id(10), draft("Cebuano", "ceb", 100))
+        .edit_arrangement(arrangement_id(10), draft("Cebuano", "Cebuano", 100))
         .unwrap();
     assert_eq!(
         library
@@ -998,7 +999,7 @@ fn t2_3_e2e_numbered_kyries_translated_arrangements_archive_and_restore() {
             cebuano,
             song_id(3),
             at(4),
-            draft("Cebuano", "ceb", 100),
+            draft("Cebuano", "Cebuano", 100),
             vec![youth, adult],
         )
         .unwrap();
@@ -1007,17 +1008,17 @@ fn t2_3_e2e_numbered_kyries_translated_arrangements_archive_and_restore() {
             english,
             song_id(3),
             at(5),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             vec![adult, children],
         )
         .unwrap();
     assert_eq!(
         library.arrangement(cebuano).unwrap().languages(),
-        ["ceb".to_owned()]
+        ["Cebuano".to_owned()]
     );
     assert_eq!(
         library.arrangement(english).unwrap().languages(),
-        ["en".to_owned()]
+        ["English".to_owned()]
     );
     let ids = |arrangements: Vec<&domain::song_library::Arrangement>| -> Vec<ArrangementId> {
         arrangements.iter().map(|a| a.id()).collect()
@@ -1139,7 +1140,7 @@ fn rich_library() -> SongLibrary {
             ChoirDraft {
                 name: "Youth".to_owned(),
                 short_label: Some("YC".to_owned()),
-                languages: vec!["ceb".to_owned(), "en".to_owned()],
+                languages: vec!["Cebuano".to_owned(), "English".to_owned()],
                 notes: Some("Rehearse Thursdays".to_owned()),
             },
         )
@@ -1158,7 +1159,7 @@ fn rich_library() -> SongLibrary {
             arrangement_id(10),
             song_id(1),
             at(4),
-            draft("Cebuano", "ceb", 100),
+            draft("Cebuano", "Cebuano", 100),
             vec![choir_id(20), choir_id(21)],
         )
         .unwrap();
@@ -1167,7 +1168,7 @@ fn rich_library() -> SongLibrary {
             arrangement_id(11),
             song_id(1),
             at(5),
-            draft("English", "en", 110),
+            draft("English", "English", 110),
             Vec::new(),
         )
         .unwrap();
@@ -1208,10 +1209,11 @@ fn export(library: &SongLibrary) -> Exported {
             song: arrangement.song(),
             created_at: arrangement.created_at(),
             draft: ArrangementDraft {
-                title: arrangement.title().to_owned(),
+                title: arrangement.title().map(str::to_owned),
                 languages: arrangement.languages().to_vec(),
                 rendition_attribution: arrangement.rendition_attribution().map(str::to_owned),
                 occasions: arrangement.occasions().iter().cloned().collect(),
+                notes: arrangement.notes().map(str::to_owned),
                 sections: arrangement
                     .sections()
                     .iter()
@@ -1375,7 +1377,7 @@ fn t24_hydrate_refuses_broken_text_rules() {
         ))
     );
     assert_eq!(
-        hydrate_broken(|s| s.1[0].draft.title = String::new()),
+        hydrate_broken(|s| s.1[0].draft.title = Some(String::new())),
         Err(breach(
             RecordRef::Arrangement(arrangement_id(10)),
             SongLibraryError::BlankField(Field::ArrangementTitle)
@@ -1475,14 +1477,14 @@ fn t24_hydrate_restores_reserved_identities_per_owner() {
     )
     .unwrap();
 
-    let mut other = draft("Other", "en", 160);
+    let mut other = draft("Other", "English", 160);
     other.sections[0].id = section_id(150);
     other.sequence[0].section = section_id(150);
     assert_eq!(
         library.create_arrangement(arrangement_id(12), song_id(1), at(20), other, Vec::new()),
         Err(SongLibraryError::DuplicateSection(section_id(150)))
     );
-    let mut other = draft("Other", "en", 160);
+    let mut other = draft("Other", "English", 160);
     other.sequence[0].id = occurrence_id(150);
     assert_eq!(
         library.create_arrangement(arrangement_id(12), song_id(1), at(20), other, Vec::new()),
@@ -1490,7 +1492,7 @@ fn t24_hydrate_restores_reserved_identities_per_owner() {
     );
 
     // The owner may bring both back.
-    let mut back = draft("Cebuano", "ceb", 100);
+    let mut back = draft("Cebuano", "Cebuano", 100);
     back.sections[0].id = section_id(150);
     back.sequence[0].section = section_id(150);
     back.sequence[0].id = occurrence_id(150);

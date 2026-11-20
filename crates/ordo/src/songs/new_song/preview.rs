@@ -178,7 +178,12 @@ impl Facts {
                 } else {
                     format!("{languages} \u{b7} {choirs}")
                 };
-                (arrangement.title().to_owned(), summary)
+                (
+                    library
+                        .arrangement_label(arrangement.id())
+                        .unwrap_or_default(),
+                    summary,
+                )
             })
             .collect();
         Some(Self {
