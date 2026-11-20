@@ -48,6 +48,7 @@ stays independent of all of them.
 | # | Exception | Owner | Requalifying proof | Domain independence | Source |
 |---|---|---|---|---|---|
 | 11 | Linux packaged and rendering evidence is retired. Windows is the only MVP platform for development and native evidence. | Qualification process (`MILESTONES.md`, T0.4b and the Phase 0 gate) | Windows native jobs and the Windows 10 22H2 sheet in `WINDOWS-10-SIGNOFF.md`. Linux packaged sign-off moves to T6.2 | Not applicable to domain | `MILESTONES.md` T0.4b; `MVP-PLAN.md` section 1 and section 3 notes (Decision 268); `docs/qualification/T0.4-MANUAL-GATE.md` script B (retired) |
+| 28 | T0.4's E2E does not capture compositor pixels. GPUI's `TestAppContext` has no headless renderer, so `render_to_image` fails and no pixel readback exists. The E2E asserts that all five surfaces draw the same image source (id and backing bytes) from one rasterization, with only outer bounds differing. | `ordo` canonical views (`crates/ordo/src/canonical_views.rs`) | `milestone_e2e_one_fixture_feeds_four_viewports_and_congregation`; the `windows-canonical-invariance` CI job (packaged canonical bytes across scales and densities); the owner-approved gallery in `T0.4-MANUAL-GATE.md` script C. Close when the pinned GPUI offers a test renderer with readback | Domain has no GPUI dependency | `MILESTONES.md` T0.4 E2E; Phase 1 gate audit (8 Nov 2026) |
 
 ### `.ordo` container and PowerPoint spikes (T0.8, T0.9)
 
@@ -85,14 +86,15 @@ is accepted.
 
 ## Open items in this ledger
 
-- Rows 1 to 7, row 10, and row 27 close only when the pinned GPUI, `gpui-base`,
+- Rows 1 to 7, row 10, row 27, and row 28 close only when the pinned GPUI, `gpui-base`,
   or wgpu revision changes the gap. Re-check them at every GPUI supply change,
   as `GPUI-BASE-T0.4a.md` does.
 - Rows 21, 23, and 27 requalified on sign-off attempt 2 (bundle
   `20261031T213536Z-4e8ea3d`), except the display-loss check that row 21's lab
   also stands in for. That check and row 22 failed on attempt 2 (loss needed
-  `F8`) and requalify on attempt 3 (issue #50), which also rechecks row 27's
-  hot-plug row because Decision 308 changes the handler it exercises.
+  `F8`) and requalified on attempt 3 (bundle `20261107T130138Z-0495934`,
+  issue #50), which also rechecked row 27's hot-plug row because Decision 308
+  changes the handler it exercises. Both passed.
 - Row 25 stays open until T6 packaging lands, when the packaged checks rerun
   against the installed package.
 - Row 24 closes when a Preparation workspace backs the benchmark.

@@ -137,9 +137,10 @@ Notes on the table:
   worker, because the runtime does not open SQLite in Milestone 0.
 - T0.4b is a rescope, not a separate proof. It is recorded in `MILESTONES.md`
   and reflected in the T0.4 row.
-- T0.5 has no gate file in this folder even though its manual boxes are ticked.
-  Its manual evidence should be found and linked before this row is treated as
-  fully recorded.
+- T0.5 has no gate file in this folder. Its manual evidence is the "Manual
+  gate result" section of `docs/plans/T0.5-implementation-plan.md` (owner-judged
+  on 2026-10-09). Pointer hiding (Decision 313) came later; its recheck is in
+  `docs/qualification/PHASE1-MANUAL-GATE.md`.
 - T0.5's display path had a latent hot-plug defect, found and fixed during this
   work: after a display change the operator window's display id could read
   stale, so a projector connected after launch could not be enabled. It is
@@ -147,6 +148,13 @@ Notes on the table:
   hot-plug row in `WINDOWS-10-SIGNOFF.md` (`MILESTONES.md`, T0.5 hot-plug
   note). Attempt 3 rechecked it and it passed, because the vendored GPUI
   patch (Decision 308) changes the display-change handler that row exercises.
+- Sign-off attempt 1 (11 Oct 2026, bundle `20261011T105721Z-b03f8fc`) could
+  not run hand checks 2-6: `ordo.exe` had no output or Presenter controls
+  before Phase 1. The checks moved to the `walking-skeleton-lab` example
+  (`docs/plans/T0.10-implementation-plan.md`, "Church-PC finding 2").
+- Completed sheets stay beside their bundles, not in source control
+  (`WINDOWS-10-SIGNOFF.md`); these bullets are the committed record of each
+  attempt.
 - Sign-off attempt 2 (1 Nov 2026, bundle `20261031T213536Z-4e8ea3d`) passed every row but display loss, which needed `F8`.
   The sheet's rule is that a rerun gets a new attempt row naming the attempt
   it reruns, so those passes stand: attempt 3 reruns display loss (and

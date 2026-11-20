@@ -15,7 +15,6 @@ rendering.workspace = true
 ui.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-storage.workspace = true
 uuid.workspace = true
 # Local close time of an interrupted session (T1.7d): the journal stores UTC,
 # the operator reads local. `time` was already locked; `local-offset` adds
@@ -43,7 +42,9 @@ image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # The live-control-lab example writes a synthetic 500-Cue snapshot.
 presentation = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
-# Fault hooks (injected panic) for the supervision tests only.
+# Fault hooks (injected panic) for the supervision tests only. `storage` is a
+# dev-dependency only: the Phase 1 Presenter runtime ships without SQLite
+# (`cargo xtask architecture` enforces it until Phase 2 opens the Library).
 storage = { workspace = true, features = ["fault-injection"] }
 
 [lints]
