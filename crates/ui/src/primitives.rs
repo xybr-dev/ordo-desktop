@@ -10,6 +10,7 @@ pub mod disclosure;
 pub mod field;
 pub mod list;
 pub mod nav;
+pub mod radio;
 pub mod record;
 pub mod selection;
 pub mod text_area;

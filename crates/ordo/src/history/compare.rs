@@ -75,10 +75,36 @@ pub enum Sides {
 /// The tabs of an Arrangement comparison.
 const TABS: [&str; 4] = ["Overview", "Lyrics", "Sequence", "Slides"];
 
+/// The headings of the two columns.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColumnTitles {
+    /// The left column: what is in hand (the History head, or the import).
+    pub left: String,
+    /// The right column: what it is compared with.
+    pub right: String,
+}
+
+impl ColumnTitles {
+    /// History's headings: **Current** and **Revision to restore**.
+    pub fn history() -> Self {
+        Self {
+            left: "Current".to_owned(),
+            right: "Revision to restore".to_owned(),
+        }
+    }
+}
+
+/// What the right column says when nothing is there to compare with.
+const NO_MATCH: &str = "No match.";
+
 /// The comparison body.
 pub struct CompareView {
     sides: Sides,
     choirs: HashMap<ChoirId, String>,
+    titles: ColumnTitles,
+    /// Set when the right column has nothing to show (an import with no
+    /// local candidate); the left column is then not marked.
+    no_match: bool,
     current_time: String,
     revision_time: String,
     tabs: SelectionState,
@@ -98,6 +124,7 @@ impl CompareView {
     pub fn new(
         sides: Sides,
         choirs: HashMap<ChoirId, String>,
+        titles: ColumnTitles,
         times: (String, String),
         frames: Entity<SlideFrames>,
         cx: &mut App,
@@ -139,11 +166,81 @@ impl CompareView {
             song_fields,
             sides,
             choirs,
+            titles,
+            no_match: false,
             current_time: times.0,
             revision_time: times.1,
             tabs,
             frames,
         })
+    }
+
+    /// Swaps the right column for another Arrangement (or, with `None`, for
+    /// "No match."), and the left column for `left` (an import's section ids
+    /// are aligned to the right column's), re-marks both against each other
+    /// and asks for their frames. The tab and the frames cache stay.
+    pub fn replace_sides(
+        &mut self,
+        left: ArrangementSide,
+        right: Option<ArrangementSide>,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Sides::Arrangement { current, revision } = &mut self.sides else {
+            return;
+        };
+        *current = left;
+        self.no_match = right.is_none();
+        *revision = right.unwrap_or_else(|| ArrangementSide {
+            details: ArrangementDetails::default(),
+            lyrics: ArrangementLyrics {
+                sections: Vec::new(),
+                sequence: Vec::new(),
+            },
+            recorded: true,
+        });
+        self.titles.right = title;
+        let (mine, theirs) = (sung_slides(&current.lyrics), sung_slides(&revision.lyrics));
+        let wanted: Vec<_> = mine
+            .iter()
+            .chain(&theirs)
+            .map(|slide| slide.key.clone())
+            .collect();
+        self.frames
+            .update(cx, |frames, cx| frames.request(wanted, cx));
+        self.marks = Some(if self.no_match {
+            (
+                compare_arrangements(&current.state(), &current.state()),
+                compare_arrangements(&revision.state(), &revision.state()),
+            )
+        } else {
+            (
+                compare_arrangements(&current.state(), &revision.state()),
+                compare_arrangements(&revision.state(), &current.state()),
+            )
+        });
+        self.slides = Some((mine, theirs));
+        cx.notify();
+    }
+
+    /// Replaces the Choir names the columns resolve ids against.
+    pub fn set_choirs(&mut self, choirs: HashMap<ChoirId, String>) {
+        self.choirs = choirs;
+    }
+
+    /// The two column headings as they stand.
+    pub fn titles(&self) -> &ColumnTitles {
+        &self.titles
+    }
+
+    /// Whether the right column is showing "No match.".
+    pub fn no_match(&self) -> bool {
+        self.no_match
+    }
+
+    /// The Slides frames this comparison asked for.
+    pub fn frames(&self) -> &Entity<SlideFrames> {
+        &self.frames
     }
 
     /// The tab showing, by name.
@@ -198,14 +295,14 @@ impl CompareView {
                 vec![
                     self.column(
                         "current",
-                        "Current",
+                        &self.titles.left,
                         &self.current_time,
                         song_rows("current", current, fields, environment),
                         environment,
                     ),
                     self.column(
                         "revision",
-                        "Revision to restore",
+                        &self.titles.right,
                         &self.revision_time,
                         song_rows("revision", revision, fields, environment),
                         environment,
@@ -221,24 +318,34 @@ impl CompareView {
                 vec![
                     self.column(
                         "current",
-                        "Current",
+                        &self.titles.left,
                         &self.current_time,
                         self.tab_rows(tab, "current", current, mine, mine_slides, environment, cx),
                         environment,
                     ),
                     self.column(
                         "revision",
-                        "Revision to restore",
+                        &self.titles.right,
                         &self.revision_time,
-                        self.tab_rows(
-                            tab,
-                            "revision",
-                            revision,
-                            theirs,
-                            their_slides,
-                            environment,
-                            cx,
-                        ),
+                        if self.no_match {
+                            vec![
+                                div()
+                                    .text_size(px(scale.apply(tokens::typography::META.size)))
+                                    .text_color(rgb(palette.text_muted))
+                                    .child(NO_MATCH)
+                                    .into_any_element(),
+                            ]
+                        } else {
+                            self.tab_rows(
+                                tab,
+                                "revision",
+                                revision,
+                                theirs,
+                                their_slides,
+                                environment,
+                                cx,
+                            )
+                        },
                         environment,
                     ),
                 ]
@@ -266,7 +373,7 @@ impl CompareView {
     fn column(
         &self,
         side: &'static str,
-        label: &'static str,
+        label: &str,
         time: &str,
         body: Vec<AnyElement>,
         environment: UiEnvironment,
@@ -302,13 +409,17 @@ impl CompareView {
                     .p(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
                     .rounded(px(scale.apply(tokens::radius::CONTROL)))
                     .bg(rgb(tint))
-                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(label))
                     .child(
+                        div()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(label.to_owned()),
+                    )
+                    .children((!time.is_empty()).then(|| {
                         div()
                             .text_size(px(scale.apply(tokens::typography::META.size)))
                             .text_color(rgb(palette.text_muted))
-                            .child(time.to_owned()),
-                    ),
+                            .child(time.to_owned())
+                    })),
             )
             .children(body)
             .into_any_element()

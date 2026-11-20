@@ -38,8 +38,23 @@ use super::{
 
 /// The refusal for an import the Library moved away from while it was
 /// reviewed (Decision 14).
-pub(super) const STALE_IMPORT: &str =
+pub(crate) const STALE_IMPORT: &str =
     "Something in the Library changed while you reviewed. Review the import again.";
+/// The most bytes a Markdown or text song may have: 1 MiB.
+pub const MARKDOWN_LIMIT: u64 = 1024 * 1024;
+
+/// A Markdown or text file as read once: its name, its bytes and the draft
+/// they parse to.
+#[derive(Debug)]
+pub struct MarkdownFile {
+    /// The file's name, as the draft shows it.
+    pub name: String,
+    /// The bytes as read, for the editable text.
+    pub bytes: Vec<u8>,
+    /// What the bytes parse to.
+    pub draft: MarkdownDraft,
+}
+
 /// The refusal for any other failure of the commit.
 pub(super) const COULDNT_IMPORT: &str = "Couldn't import. Nothing was changed.";
 /// The refusal for a commit while a decision is still open. No copy exists
@@ -403,26 +418,34 @@ impl LibraryStore {
         )
     }
 
-    /// Reads one Markdown or text file off the GPUI thread and parses it into
-    /// a draft with fresh Song and Arrangement identities. Nothing is saved.
+    /// Reads one Markdown or text file off the GPUI thread, once, and parses
+    /// it into a draft with fresh Song and Arrangement identities. A file over
+    /// [`MARKDOWN_LIMIT`] bytes is refused as unreadable: no song is that
+    /// long, and the text is shown whole. Nothing is saved.
     pub fn read_markdown(
         &self,
         path: PathBuf,
         cx: &mut Context<Self>,
-    ) -> Task<Result<MarkdownDraft, SharedString>> {
+    ) -> Task<Result<MarkdownFile, SharedString>> {
         cx.background_spawn(async move {
-            let bytes = std::fs::read(&path).map_err(|_| {
-                let name = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |name| name.to_string_lossy().into_owned(),
-                );
-                SharedString::from(format!("Couldn't read {name}."))
-            })?;
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            let unreadable = || SharedString::from(format!("Couldn't read {name}."));
+            let file = std::fs::File::open(&path).map_err(|_| unreadable())?;
+            let mut bytes = Vec::new();
+            let mut taken = std::io::Read::take(file, MARKDOWN_LIMIT + 1);
+            std::io::Read::read_to_end(&mut taken, &mut bytes).map_err(|_| unreadable())?;
+            if bytes.len() as u64 > MARKDOWN_LIMIT {
+                return Err(unreadable());
+            }
             let ids = (
                 SongId::from_entity(fresh_entity()),
                 ArrangementId::from_entity(fresh_entity()),
             );
-            Ok(markdown::parse(&bytes, ids))
+            let draft = markdown::parse(&bytes, ids);
+            Ok(MarkdownFile { name, bytes, draft })
         })
     }
 

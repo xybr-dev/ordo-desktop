@@ -47,8 +47,11 @@ use crate::{
     presenter::PresenterView,
     settings,
     songs::{
-        ArrangementDetailsPanel, ChoirsWorkspace, LibraryStore, SongsWorkspace,
+        ArrangementDetailsPanel, ChoirsWorkspace, LibraryStore, SongsEvent, SongsWorkspace,
         arrangement_details,
+        import_review::{
+            FilePicker, ImportReview, ImportReviewEvent, MarkdownDraftEvent, MarkdownDraftView,
+        },
         lifecycle::{
             self, AfterLifecycle, LifecycleOutcome, LifecycleTarget, confirm_archive, restore,
             review_deletion,
@@ -95,6 +98,8 @@ const WORKSPACE_ACTIONS: &str = "Workspace actions";
 const HISTORY_BLOCKED: &str =
     "Couldn\u{2019}t save, so History didn\u{2019}t open. Retry save first.";
 const PRIMARY_LIST: &str = "Primary list";
+/// The toast after an approved import (Decision 26).
+const IMPORTED_TOAST: &str = "Imported the approved changes in one update.";
 /// Under this logical workspace width a header's tabs take their own row
 /// (Decision 302).
 const NARROW_WORKSPACE: f32 = 1000.0;
@@ -152,6 +157,15 @@ impl StartupCheck {
     }
 }
 
+/// A full-workspace frame over the screen the operator left: no rail and no
+/// header, rising from the bottom like a Theme opened for editing (DESIGN 731).
+enum Focused {
+    /// Review Song import over a staged batch.
+    ImportReview(Entity<ImportReview>),
+    /// A Markdown or text song opened as an unsaved draft.
+    MarkdownDraft(Entity<MarkdownDraftView>),
+}
+
 /// The Preparation shell: the rail, the current destination's local views, its
 /// list and viewer, and the one overlay layer.
 pub struct ShellView {
@@ -186,6 +200,18 @@ pub struct ShellView {
     /// they outlive the screen that draws them.
     songs: Entity<SongsWorkspace>,
     _songs_observer: Subscription,
+    /// Opens the frames the Songs workspace asks for.
+    _songs_events: Subscription,
+    /// The frame that covers the workspace, while one is open.
+    focused: Option<Focused>,
+    /// What closes the frame: its events and its redraws.
+    _focused_subscriptions: Vec<Subscription>,
+    /// Counts frames opened, so each one rises on its own.
+    frame_generation: u64,
+    /// Set until the frame's first draw has started its rise.
+    frame_fresh: bool,
+    /// The picker a test installed, kept so a store swap carries it over.
+    picker: Option<Rc<dyn FilePicker>>,
     /// Selection, archived toggle and scroll of Library → Choirs.
     choirs: Entity<ChoirsWorkspace>,
     _choirs_observer: Subscription,
@@ -305,6 +331,7 @@ impl ShellView {
         let songs = cx.new(|cx| SongsWorkspace::new(library_store.clone(), window, cx));
         songs.update(cx, |songs, _| songs.set_overlays(overlays.clone()));
         let songs_observer = cx.observe(&songs, |_, _, cx| cx.notify());
+        let songs_events = cx.subscribe_in(&songs, window, Self::songs_asked);
         let choirs = cx.new(|cx| ChoirsWorkspace::new(library_store.clone(), window, cx));
         let choirs_observer = cx.observe(&choirs, |_, _, cx| cx.notify());
         Self {
@@ -322,6 +349,12 @@ impl ShellView {
             library_store,
             songs,
             _songs_observer: songs_observer,
+            _songs_events: songs_events,
+            focused: None,
+            _focused_subscriptions: Vec::new(),
+            frame_generation: 0,
+            frame_fresh: false,
+            picker: None,
             choirs,
             _choirs_observer: choirs_observer,
             list_scroll: Scroll::new(),
@@ -541,10 +574,227 @@ impl ShellView {
         self.songs
             .update(cx, |songs, _| songs.set_overlays(overlays));
         self._songs_observer = cx.observe(&self.songs, |_, _, cx| cx.notify());
+        self._songs_events = cx.subscribe_in(&self.songs, window, Self::songs_asked);
+        if let Some(picker) = self.picker.clone() {
+            self.songs.update(cx, |songs, _| songs.set_picker(picker));
+        }
         self.choirs = cx.new(|cx| ChoirsWorkspace::new(store.clone(), window, cx));
         self._choirs_observer = cx.observe(&self.choirs, |_, _, cx| cx.notify());
         self.library_store = store;
         cx.notify();
+    }
+
+    /// Replaces how files are picked for Import, for a test. A store swap
+    /// keeps it.
+    #[cfg(test)]
+    pub(crate) fn set_picker(&mut self, picker: Rc<dyn FilePicker>, cx: &mut Context<Self>) {
+        self.songs
+            .update(cx, |songs, _| songs.set_picker(picker.clone()));
+        self.picker = Some(picker);
+    }
+
+    /// The frame that covers the workspace, for tests: the review, if that is
+    /// what is open.
+    #[cfg(test)]
+    pub(crate) fn import_review(&self) -> Option<&Entity<ImportReview>> {
+        match &self.focused {
+            Some(Focused::ImportReview(review)) => Some(review),
+            _ => None,
+        }
+    }
+
+    /// The Markdown draft, if that is what covers the workspace, for tests.
+    #[cfg(test)]
+    pub(crate) fn markdown_draft(&self) -> Option<&Entity<MarkdownDraftView>> {
+        match &self.focused {
+            Some(Focused::MarkdownDraft(draft)) => Some(draft),
+            _ => None,
+        }
+    }
+
+    /// Whether a full-workspace import frame covers the screen.
+    pub fn has_frame(&self) -> bool {
+        self.focused.is_some()
+    }
+
+    /// The Songs workspace asked for a frame: opens it, unless one is open.
+    fn songs_asked(
+        &mut self,
+        _: &Entity<SongsWorkspace>,
+        event: &SongsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.focused.is_some() {
+            return;
+        }
+        match event {
+            SongsEvent::OpenReview(staging) => {
+                let store = self.library_store.clone();
+                let picker = self.songs.read(cx).picker();
+                let overlays = self.overlays.clone();
+                let review = cx.new(|cx| {
+                    let mut review = ImportReview::new(staging.clone(), store, picker, window, cx);
+                    // Compare contents opens over the review.
+                    review.set_overlays(overlays);
+                    review
+                });
+                let events = cx.subscribe_in(&review, window, Self::review_answered);
+                let observer = cx.observe(&review, |_, _, cx| cx.notify());
+                self.open_frame(Focused::ImportReview(review), vec![events, observer], cx);
+            }
+            SongsEvent::OpenDraft { file, bytes, draft } => {
+                let store = self.library_store.clone();
+                let overlays = self.overlays.clone();
+                let draft = cx.new(|cx| {
+                    let mut view = MarkdownDraftView::new(
+                        file.clone(),
+                        bytes.clone(),
+                        (**draft).clone(),
+                        store,
+                        window,
+                        cx,
+                    );
+                    view.set_overlays(overlays);
+                    view
+                });
+                let events = cx.subscribe_in(&draft, window, Self::draft_answered);
+                let observer = cx.observe(&draft, |_, _, cx| cx.notify());
+                self.open_frame(Focused::MarkdownDraft(draft), vec![events, observer], cx);
+            }
+        }
+    }
+
+    /// Puts `frame` over the workspace; it rises on its first draw.
+    fn open_frame(
+        &mut self,
+        frame: Focused,
+        subscriptions: Vec<Subscription>,
+        cx: &mut Context<Self>,
+    ) {
+        self.focused = Some(frame);
+        self._focused_subscriptions = subscriptions;
+        self.frame_generation += 1;
+        self.frame_fresh = true;
+        cx.notify();
+    }
+
+    /// Drops the frame; what it held is discarded.
+    fn close_frame(&mut self) {
+        self.focused = None;
+        self._focused_subscriptions.clear();
+    }
+
+    /// What the review decided: **Cancel import** returns to Import, and an
+    /// approved import returns to Songs with the first Song it created or
+    /// updated selected and its row focused (Decision 26).
+    fn review_answered(
+        &mut self,
+        _: &Entity<ImportReview>,
+        event: &ImportReviewEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ImportReviewEvent::Cancelled => {
+                self.close_frame();
+                self.songs.update(cx, |songs, cx| songs.focus_import(cx));
+            }
+            ImportReviewEvent::Committed(outcome) => {
+                let library = self.library_store.read(cx).library();
+                let song = outcome.songs.first().copied().or_else(|| {
+                    outcome
+                        .arrangements
+                        .iter()
+                        .chain(&outcome.replaced)
+                        .find_map(|id| library.arrangement(*id).ok().map(|a| a.song()))
+                });
+                self.close_frame();
+                match song {
+                    Some(song) => self
+                        .songs
+                        .update(cx, |songs, cx| songs.show_imported(song, window, cx)),
+                    None => self.songs.update(cx, |songs, cx| songs.focus_import(cx)),
+                }
+                self.overlays
+                    .notify(Toast::confirmation(IMPORTED_TOAST), cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// What the draft decided: **Discard draft** returns to Import, and a
+    /// saved draft is replaced by the ordinary editor on its Arrangement.
+    fn draft_answered(
+        &mut self,
+        draft: &Entity<MarkdownDraftView>,
+        event: &MarkdownDraftEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            MarkdownDraftEvent::Discarded => {
+                self.close_frame();
+                self.songs.update(cx, |songs, cx| songs.focus_import(cx));
+            }
+            MarkdownDraftEvent::Saved(id) => {
+                let title = draft
+                    .read(cx)
+                    .parsed()
+                    .document
+                    .song
+                    .title
+                    .trim()
+                    .to_owned();
+                self.close_frame();
+                self.open_arrangement(*id, cx);
+                self.overlays
+                    .notify(Toast::confirmation(format!("Saved {title}.")), cx);
+            }
+        }
+    }
+
+    /// Draws the frame that covers the workspace, rising from the bottom over
+    /// the slideover timing (fading under reduced motion).
+    fn import_frame(
+        &mut self,
+        frame: Focused,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let environment = self.environment;
+        let body = match frame {
+            Focused::ImportReview(review) => review.update(cx, |review, cx| {
+                review.render_frame(environment, window, cx)
+            }),
+            Focused::MarkdownDraft(draft) => {
+                draft.update(cx, |draft, cx| draft.render_frame(environment, window, cx))
+            }
+        };
+        let distance = f32::from(window.viewport_size().height);
+        if std::mem::take(&mut self.frame_fresh) {
+            // The state under this id may have outlived the last frame or be
+            // new; either way this frame starts from the beginning.
+            let _ = ui::motion::entrance("focused-frame", 0, distance, window, cx);
+        }
+        let entrance =
+            ui::motion::entrance("focused-frame", self.frame_generation, distance, window, cx);
+        div()
+            .id("focused-frame")
+            .debug_selector(|| "focused-frame".into())
+            .flex_1()
+            .min_h_0()
+            .overflow_hidden()
+            .child(
+                div()
+                    .debug_selector(|| "focused-frame-page".into())
+                    .relative()
+                    .size_full()
+                    .top(px(entrance.offset))
+                    .opacity(entrance.opacity)
+                    .child(body),
+            )
+            .into_any_element()
     }
 
     /// Whether the list and viewer are Library → Songs.
@@ -2185,9 +2435,19 @@ impl Render for ShellView {
         let content: Vec<AnyElement> = match self.presenter.clone() {
             Some(presenter) => vec![div().size_full().child(presenter).into_any_element()],
             None => {
-                let screen = match self.editing.clone() {
-                    Some(entity) => self.focused_editor(entity, window, cx),
-                    None => self.workspace(window, cx),
+                let frame = match &self.focused {
+                    Some(Focused::ImportReview(review)) => {
+                        Some(Focused::ImportReview(review.clone()))
+                    }
+                    Some(Focused::MarkdownDraft(draft)) => {
+                        Some(Focused::MarkdownDraft(draft.clone()))
+                    }
+                    None => None,
+                };
+                let screen = match (frame, self.editing.clone()) {
+                    (Some(frame), _) => self.import_frame(frame, window, cx),
+                    (None, Some(entity)) => self.focused_editor(entity, window, cx),
+                    (None, None) => self.workspace(window, cx),
                 };
                 self.preparation_chrome(screen, gutter, window, cx)
             }

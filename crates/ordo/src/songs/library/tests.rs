@@ -241,8 +241,11 @@ fn ac2_ac3_empty_library_keeps_two_panes_and_creates_through_the_new_song_panel(
     assert!(present(cx, "songs-new"));
     assert!(present(cx, "songs-detail-steps"));
     assert!(!present(cx, "songs-search"));
-    // Import stays unavailable and does nothing when clicked.
-    click(cx, "songs-import");
+    // Import is available and opens no panel of its own. A real picker is a
+    // native dialog, so the picking itself is covered, with a scripted one, by
+    // `ac1_import_ordo_is_available_in_the_empty_state_and_the_songs_header`
+    // in the import review's tests.
+    assert!(present(cx, "songs-import-header"));
     assert!(!present(cx, "new-song-form"));
     // Create song and New song both open the New song panel.
     click(cx, "songs-create");
@@ -519,4 +522,52 @@ fn storage_backed_store_lists_seeded_songs(cx: &mut TestAppContext) {
     assert_eq!(outcome, Some(storage::ShutdownOutcome::Clean));
     assert!(!slot.is_open());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[gpui::test]
+fn the_reading_indicator_is_a_named_progress_indicator(cx: &mut TestAppContext) {
+    use gpui::{
+        Element as _, IntoElement as _,
+        accesskit::{Node, Role},
+    };
+    use ui::environment::{ResolvedAppearance, UiEnvironment, UiPreferences};
+    let _ = cx;
+    let environment = UiEnvironment::new(UiPreferences::default(), ResolvedAppearance::Light);
+    let element = list::reading(environment).into_element();
+    let mut node = Node::new(element.a11y_role().expect("the indicator is exposed"));
+    element.write_a11y_info(&mut node);
+    assert_eq!(node.role(), Role::ProgressIndicator);
+    assert_eq!(node.label(), Some("Reading files\u{2026}"));
+}
+
+#[gpui::test]
+fn at_200_percent_the_header_keeps_songs_first_and_its_buttons_inside_it(cx: &mut TestAppContext) {
+    use ui::environment::{EnvironmentChange, InterfaceScale};
+    let (shell, cx) = open(cx, SongLibrary::new());
+    shell.update(cx, |shell, cx| {
+        shell.change_from_settings(EnvironmentChange::SetScale(InterfaceScale::Percent200), cx);
+    });
+    cx.run_until_parked();
+    let title = cx.debug_bounds("songs-title").expect("the title");
+    let import = cx
+        .debug_bounds("songs-import-header")
+        .expect("Import .ordo");
+    let new = cx.debug_bounds("songs-new").expect("New song");
+    assert!(
+        title.origin.y < import.origin.y || title.origin.x < import.origin.x,
+        "Songs comes first"
+    );
+    let header = cx.debug_bounds("songs-header").expect("the header");
+    for (name, button) in [("Import .ordo", import), ("New song", new)] {
+        assert!(
+            button.origin.x + button.size.width <= header.origin.x + header.size.width
+                && button.origin.y + button.size.height <= header.origin.y + header.size.height,
+            "{name} is not clipped: header {header:?}, button {button:?}"
+        );
+    }
+    assert!(
+        import.origin.y + import.size.height <= new.origin.y
+            || import.origin.x + import.size.width <= new.origin.x,
+        "the buttons do not overlap"
+    );
 }

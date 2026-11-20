@@ -4,8 +4,8 @@
 
 use domain::song_library::{Evidence, SongHit, SongLibrary};
 use gpui::{
-    AnyElement, Context, Div, IntoElement, ParentElement, SharedString, Styled, Window, div,
-    prelude::*, px, rgb,
+    AnyElement, Context, Div, InteractiveElement as _, IntoElement, ParentElement, SharedString,
+    Styled, Window, accesskit::Role, div, prelude::*, px, rgb,
 };
 use ui::{
     assets::icon,
@@ -18,13 +18,11 @@ use ui::{
     tokens,
 };
 
-use super::{SongsWorkspace, filters};
+use super::{READING_FILES, SongsWorkspace, filters};
 use crate::songs::store::LibraryState;
 
 /// Why Song creation is unavailable until the library is readable.
 pub(super) const CREATE_REASON: &str = "The parish library is not open yet";
-/// Why `.ordo` import is unavailable in this build.
-pub(super) const IMPORT_REASON: &str = "Import arrives in a later build";
 
 /// A short state block: a title, a line or more of explanation, and actions.
 pub(super) fn notice(
@@ -115,6 +113,50 @@ fn new_song_button(
     }
 }
 
+/// The button that picks files to import (Decision 21); unavailable until the
+/// library is readable, because there is nothing to classify them against.
+fn import_button(
+    id: &'static str,
+    ready: bool,
+    focus: Option<&gpui::FocusHandle>,
+    environment: UiEnvironment,
+    cx: &Context<SongsWorkspace>,
+) -> Button {
+    let button = Button::new(id, "Import .ordo", environment)
+        .icon(icon::FILE_DOWN)
+        .on_activate(SongsWorkspace::act(cx, |workspace, window, cx| {
+            workspace.import(window, cx);
+        }));
+    let button = match focus {
+        Some(handle) => button.track_focus(handle),
+        None => button,
+    };
+    if ready {
+        button
+    } else {
+        button.availability(Availability::unavailable(CREATE_REASON))
+    }
+}
+
+/// The named progress indicator shown while picked files are read.
+pub(super) fn reading(environment: UiEnvironment) -> gpui::Stateful<gpui::Div> {
+    let palette = tokens::palette(environment.appearance());
+    let scale = environment.preferences().scale;
+    div()
+        .id("songs-reading")
+        .debug_selector(|| "songs-reading".into())
+        .role(Role::ProgressIndicator)
+        .aria_label(READING_FILES)
+        .flex_none()
+        .px(px(scale.apply(tokens::spacing::CONTROL_INSET)))
+        .py(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
+        .border_b(px(tokens::border::SEPARATOR))
+        .border_color(rgb(palette.border))
+        .text_size(px(scale.apply(tokens::typography::META.size)))
+        .text_color(rgb(palette.text_muted))
+        .child(READING_FILES)
+}
+
 /// The pane the shell hosts in its list region.
 pub(super) fn render(
     workspace: &mut SongsWorkspace,
@@ -131,6 +173,7 @@ pub(super) fn render(
         .debug_selector(|| "songs-header".into())
         .flex_none()
         .flex()
+        .flex_wrap()
         .items_center()
         .justify_between()
         .gap(px(scale.apply(tokens::spacing::RELATED)))
@@ -141,24 +184,45 @@ pub(super) fn render(
         .border_color(rgb(palette.border))
         .child(
             div()
+                .debug_selector(|| "songs-title".into())
                 .text_size(px(scale.apply(tokens::typography::HEADING.size)))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(palette.text))
                 .child("Songs"),
         )
         .child(
-            div().debug_selector(|| "songs-new".into()).child(
-                new_song_button(
-                    "songs-new-button",
-                    "New song",
-                    matches!(state, LibraryState::Ready),
-                    None,
-                    environment,
-                    cx,
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(scale.apply(tokens::spacing::RELATED)))
+                .child(
+                    div().debug_selector(|| "songs-import-header".into()).child(
+                        import_button(
+                            "songs-import-header-button",
+                            matches!(state, LibraryState::Ready),
+                            Some(&workspace.import_focus),
+                            environment,
+                            cx,
+                        )
+                        .on_surface(palette.surface),
+                    ),
                 )
-                .on_surface(palette.surface),
-            ),
+                .child(
+                    div().debug_selector(|| "songs-new".into()).child(
+                        new_song_button(
+                            "songs-new-button",
+                            "New song",
+                            matches!(state, LibraryState::Ready),
+                            None,
+                            environment,
+                            cx,
+                        )
+                        .on_surface(palette.surface),
+                    ),
+                ),
         );
+    let progress = workspace.reading.then(|| reading(environment));
 
     let body: AnyElement = match state {
         LibraryState::Loading => notice(
@@ -186,6 +250,7 @@ pub(super) fn render(
         .flex()
         .flex_col()
         .child(header)
+        .children(progress)
         .child(body)
         .into_any_element()
 }
@@ -282,10 +347,13 @@ fn empty_library(
                 .into_any_element(),
             div()
                 .debug_selector(|| "songs-import".into())
-                .child(
-                    Button::new("songs-import-button", "Import .ordo", environment)
-                        .availability(Availability::unavailable(IMPORT_REASON)),
-                )
+                .child(import_button(
+                    "songs-import-button",
+                    true,
+                    None,
+                    environment,
+                    cx,
+                ))
                 .into_any_element(),
         ],
         environment,

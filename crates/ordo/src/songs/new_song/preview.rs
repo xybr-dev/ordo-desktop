@@ -2,12 +2,15 @@
 //! summary only. No lyrics and nothing to edit.
 
 use domain::identity::SongId;
+use gpui::Window;
 use gpui::{
-    AnyElement, Context, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, App, Context, Entity, FontWeight, IntoElement, ParentElement, Styled, div,
+    prelude::*, px, rgb,
 };
 use ui::{environment::UiEnvironment, overlay::Overlay, tokens};
 
 use super::{NewSongPanel, Outcome};
+use crate::songs::store::LibraryStore;
 
 pub(super) const DESCRIPTION: &str = "Existing Song \u{b7} preview only";
 
@@ -18,49 +21,77 @@ pub(super) fn overlay(
     song: SongId,
     cx: &mut Context<NewSongPanel>,
 ) -> Option<Overlay> {
-    let title = panel
-        .store
-        .read(cx)
-        .library()
-        .song(song)
-        .ok()?
-        .title()
-        .to_owned();
-    let body = cx.entity();
     let close = cx.entity();
     let report = panel.report.clone();
-    let gone = panel.store.clone();
-    Some(
-        Overlay::slideover(title)
-            .description(DESCRIPTION)
-            .body(move |environment, _, cx| {
-                body.update(cx, |panel, cx| render(panel, song, environment, cx))
-            })
-            .primary("Use this existing Song", move |window, cx| {
-                let present = gone.read(cx).library().song(song).is_ok();
-                if present {
-                    report(Outcome::UseExisting(song), window, cx);
-                }
-            })
-            .secondary("Back", |_, _| {})
-            .on_close(move |_, cx| {
-                close.update(cx, |panel, cx| {
-                    panel.previewed = None;
-                    cx.notify();
-                });
-            }),
+    song_overlay(
+        panel.store.clone(),
+        song,
+        true,
+        move |window, cx| report(Outcome::UseExisting(song), window, cx),
+        move |_, cx| {
+            close.update(cx, |panel, cx| {
+                panel.previewed = None;
+                cx.notify();
+            });
+        },
+        cx,
     )
 }
 
+/// The nested preview of an existing Song, shared by every flow that offers
+/// one (New Song, the Markdown draft): identity and an Arrangement summary,
+/// **Back**, and **Use this existing Song** running `use_existing`. When
+/// `attach_to_archived` is false an archived Song cannot take an Arrangement,
+/// so its preview offers Back only.
+/// `on_close` runs once the surface has gone, however it was dismissed. `None`
+/// when the Library no longer has the Song.
+pub(crate) fn song_overlay(
+    store: Entity<LibraryStore>,
+    song: SongId,
+    attach_to_archived: bool,
+    use_existing: impl Fn(&mut Window, &mut App) + 'static,
+    on_close: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> Option<Overlay> {
+    let (title, archived) = {
+        let library = store.read(cx).library();
+        let work = library.song(song).ok()?;
+        (
+            work.title().to_owned(),
+            work.is_archived() && !attach_to_archived,
+        )
+    };
+    let body = store.clone();
+    let gone = store;
+    let overlay = Overlay::slideover(title.clone())
+        .description(if archived {
+            format!("{title} is archived. Restore it to attach to it.")
+        } else {
+            DESCRIPTION.to_owned()
+        })
+        .body(move |environment, _, cx| render(&body, song, environment, cx))
+        .secondary("Back", |_, _| {})
+        .on_close(move |window, cx| on_close(window, cx));
+    Some(if archived {
+        overlay
+    } else {
+        overlay.primary("Use this existing Song", move |window, cx| {
+            if gone.read(cx).library().song(song).is_ok() {
+                use_existing(window, cx);
+            }
+        })
+    })
+}
+
 fn render(
-    panel: &NewSongPanel,
+    store: &Entity<LibraryStore>,
     song: SongId,
     environment: UiEnvironment,
-    cx: &mut Context<NewSongPanel>,
+    cx: &mut App,
 ) -> AnyElement {
     let palette = tokens::palette(environment.appearance());
     let scale = environment.preferences().scale;
-    let Some(facts) = Facts::of(panel.store.read(cx).library(), song) else {
+    let Some(facts) = Facts::of(store.read(cx).library(), song) else {
         return div().into_any_element();
     };
     let gap = px(scale.apply(tokens::spacing::RELATED_TIGHT));

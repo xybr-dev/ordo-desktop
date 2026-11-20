@@ -22,6 +22,7 @@ use crate::{
         disclosure::{Disclosure, DisclosureState},
         field::{Field, FieldState},
         list::{Badge, ListRow},
+        radio::{RadioGroup, RadioOption},
         selection::{Choice, Combobox, Menu, Select, SelectionState, Tabs},
         text_area::{TextArea, TextAreaState},
     },
@@ -159,6 +160,10 @@ static SCENARIOS: &[Scenario] = &[
         render: render_tabs,
     },
     Scenario {
+        name: "radio-group",
+        render: render_radio_group,
+    },
+    Scenario {
         name: "disclosure",
         render: render_disclosure,
     },
@@ -242,6 +247,57 @@ fn render_combobox_new(
         .child(
             Combobox::new("presider", "Presider", &state, environment)
                 .on_surface(tokens::palette(environment.appearance()).surface),
+        )
+        .into_any_element()
+}
+/// None selected at first, a Recommended badge, and a disabled option the
+/// arrows skip.
+fn render_radio_group(environment: UiEnvironment, window: &mut Window, cx: &mut App) -> AnyElement {
+    let options = vec![
+        RadioOption {
+            label: "Add as new Arrangement".into(),
+            description: Some("Keeps both renditions side by side.".into()),
+            badge: Some("Recommended".into()),
+        },
+        RadioOption {
+            label: "Update existing Arrangement".into(),
+            description: Some("Replaces the existing Arrangement as a new revision.".into()),
+            badge: None,
+        },
+        RadioOption {
+            label: "Not available here".into(),
+            description: Some("A disabled option is skipped by the arrows.".into()),
+            badge: None,
+        },
+        RadioOption {
+            label: "Skip document".into(),
+            description: Some("Leaves the Library as it is.".into()),
+            badge: None,
+        },
+    ];
+    let state = SelectionState::keyed(
+        "lab-radio",
+        options
+            .iter()
+            .enumerate()
+            .map(|(i, option)| {
+                Choice::new(option.label.clone()).availability(if i == 2 {
+                    Availability::Disabled
+                } else {
+                    Availability::Available
+                })
+            })
+            .collect(),
+        None,
+        window,
+        cx,
+    );
+    row("scenario-radio-group", environment)
+        .child(
+            div().w(px(480.0)).child(
+                RadioGroup::new("outcome", "Outcome", options, &state, environment)
+                    .on_surface(tokens::palette(environment.appearance()).surface),
+            ),
         )
         .into_any_element()
 }
@@ -1042,6 +1098,7 @@ mod tests {
                         "combobox",
                         "combobox-new",
                         "tabs",
+                        "radio-group",
                         "disclosure",
                         "list",
                         "regions",
@@ -1064,6 +1121,7 @@ mod tests {
                             "combobox" => "scenario-combobox",
                             "combobox-new" => "scenario-combobox-new",
                             "tabs" => "scenario-tabs",
+                            "radio-group" => "scenario-radio-group",
                             "regions" => "scenario-regions",
                             "list" => "scenario-list",
                             _ => "scenario-disclosure",
