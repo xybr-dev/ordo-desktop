@@ -5,8 +5,12 @@
 //! parish data folder off the GPUI thread and holds the hydrated Song Library;
 //! [`library`] is the Songs master-detail workspace over it.
 
+pub mod choirs;
+#[cfg(test)]
+mod e2e;
 pub mod library;
 pub mod store;
 
+pub use choirs::ChoirsWorkspace;
 pub use library::{ArrangementOverview, SongsWorkspace};
 pub use store::{LibraryEvent, LibraryState, LibraryStore, StorageSlot};

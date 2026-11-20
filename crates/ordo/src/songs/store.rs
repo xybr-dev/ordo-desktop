@@ -7,11 +7,16 @@
 //! [`LibraryState::Unavailable`] with a message the Library screen shows; the
 //! rest of the app keeps working. The store never opens for Presenter Mode.
 
-use std::{cell::RefCell, future::Future, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::VecDeque, future::Future, path::PathBuf, pin::Pin, rc::Rc};
 
-use domain::song_library::SongLibrary;
-use gpui::{App, AppContext as _, Context, EventEmitter, SharedString};
-use storage::{ShutdownOutcome, Storage, StorageConfig};
+use domain::{
+    identity::{ChoirId, EntityId, Timestamp},
+    song_library::{ChoirDraft, RecordRef, SongLibrary, SongLibraryError, match_key},
+};
+use gpui::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
+use storage::{
+    ChoirDetails, ChoirRecord, NewChoir, ShutdownOutcome, Storage, StorageConfig, StorageError,
+};
 
 /// Where the parish library is in its life.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,7 +55,13 @@ impl StorageSlot {
         self.0.borrow().is_some()
     }
 
-    fn put(&self, storage: Storage) {
+    /// Runs `f` over the held storage handle, or returns `None` when the slot
+    /// is empty (never opened, or already shut down).
+    pub fn with<R>(&self, f: impl FnOnce(&Storage) -> R) -> Option<R> {
+        self.0.borrow().as_ref().map(f)
+    }
+
+    pub(crate) fn put(&self, storage: Storage) {
         *self.0.borrow_mut() = Some(storage);
     }
 
@@ -88,9 +99,57 @@ impl StorageSlot {
 pub struct LibraryStore {
     state: LibraryState,
     library: SongLibrary,
-    /// The app-level owner of the database handle, kept for later writes. The
-    /// slot, not this entity, shuts the worker down.
-    _storage: StorageSlot,
+    /// The app-level owner of the database handle. The slot, not this entity,
+    /// shuts the worker down.
+    storage: StorageSlot,
+    /// Choir writes waiting for the one in flight to finish.
+    queue: VecDeque<(ChoirWrite, Reply)>,
+    /// Whether a write is currently in flight.
+    writing: bool,
+}
+
+type Reply = async_channel::Sender<Result<ChoirId, SharedString>>;
+
+/// One Choir change the store can make.
+enum ChoirWrite {
+    Create(ChoirDraft),
+    Edit(ChoirId, ChoirDraft),
+    Archive(ChoirId),
+    Restore(ChoirId),
+}
+
+/// The text shown when a write cannot reach the parish store.
+const NOT_OPEN: &str = "The parish store is not open.";
+
+/// A boxed storage future, so the four operations share one type.
+type StoredChoir = Pin<Box<dyn Future<Output = Result<ChoirRecord, StorageError>> + Send>>;
+
+fn boxed(
+    future: impl Future<Output = Result<ChoirRecord, StorageError>> + Send + 'static,
+) -> StoredChoir {
+    Box::pin(future)
+}
+
+fn refusal(error: SongLibraryError) -> SharedString {
+    error.to_string().into()
+}
+
+/// Checks a draft against the domain's own rules without touching the library.
+fn check_draft(draft: &ChoirDraft) -> Result<(), SharedString> {
+    let probe = ChoirId::from_entity(EntityId::from_random_bytes([1; 16]));
+    SongLibrary::new()
+        .create_choir(probe, Timestamp::from_millis(0), draft.clone())
+        .map(|_| ())
+        .map_err(refusal)
+}
+
+fn draft_of(record: &ChoirRecord) -> ChoirDraft {
+    ChoirDraft {
+        name: record.name.clone(),
+        short_label: record.short_label.clone(),
+        languages: record.languages.clone(),
+        notes: record.notes.clone(),
+    }
 }
 
 impl EventEmitter<LibraryEvent> for LibraryStore {}
@@ -147,7 +206,9 @@ impl LibraryStore {
         Self {
             state: LibraryState::Loading,
             library: SongLibrary::new(),
-            _storage: slot,
+            storage: slot,
+            queue: VecDeque::new(),
+            writing: false,
         }
     }
 
@@ -157,7 +218,9 @@ impl LibraryStore {
         Self {
             state: LibraryState::Loading,
             library: SongLibrary::new(),
-            _storage: StorageSlot::new(),
+            storage: StorageSlot::new(),
+            queue: VecDeque::new(),
+            writing: false,
         }
     }
 
@@ -167,7 +230,9 @@ impl LibraryStore {
         Self {
             state: LibraryState::Ready,
             library,
-            _storage: StorageSlot::new(),
+            storage: StorageSlot::new(),
+            queue: VecDeque::new(),
+            writing: false,
         }
     }
 
@@ -177,7 +242,9 @@ impl LibraryStore {
         Self {
             state: LibraryState::Unavailable(message.into()),
             library: SongLibrary::new(),
-            _storage: StorageSlot::new(),
+            storage: StorageSlot::new(),
+            queue: VecDeque::new(),
+            writing: false,
         }
     }
 
@@ -191,9 +258,209 @@ impl LibraryStore {
         &self.library
     }
 
-    /// Replaces the library and tells observers. Test and lab seam: no write
-    /// path exists in T2.4.
-    pub fn replace_library(&mut self, library: SongLibrary, cx: &mut Context<Self>) {
+    /// Creates a Choir. The domain checks the draft first (a refusal does no
+    /// I/O), the write runs off the GPUI thread, and only then does the
+    /// returned record enter the in-memory library. The new id is the one
+    /// storage generated.
+    pub fn create_choir(
+        &mut self,
+        draft: ChoirDraft,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChoirId, SharedString>> {
+        self.submit(ChoirWrite::Create(draft), cx)
+    }
+
+    /// Replaces a Choir's details; an archived Choir is refused.
+    pub fn edit_choir(
+        &mut self,
+        id: ChoirId,
+        draft: ChoirDraft,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChoirId, SharedString>> {
+        self.submit(ChoirWrite::Edit(id, draft), cx)
+    }
+
+    /// Archives a Choir.
+    pub fn archive_choir(
+        &mut self,
+        id: ChoirId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChoirId, SharedString>> {
+        self.submit(ChoirWrite::Archive(id), cx)
+    }
+
+    /// Restores an archived Choir.
+    pub fn restore_choir(
+        &mut self,
+        id: ChoirId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChoirId, SharedString>> {
+        self.submit(ChoirWrite::Restore(id), cx)
+    }
+
+    fn submit(
+        &mut self,
+        write: ChoirWrite,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChoirId, SharedString>> {
+        let (reply, result) = async_channel::bounded(1);
+        self.queue.push_back((write, reply));
+        self.pump(cx);
+        cx.spawn(async move |_, _| {
+            let outcome = result.recv().await;
+            outcome.unwrap_or_else(|_| Err(SharedString::from("The change was abandoned.")))
+        })
+    }
+
+    /// Starts the next queued write when none is in flight.
+    fn pump(&mut self, cx: &mut Context<Self>) {
+        while !self.writing {
+            let Some((write, reply)) = self.queue.pop_front() else {
+                return;
+            };
+            if self.state != LibraryState::Ready {
+                let _ = reply.try_send(Err(NOT_OPEN.into()));
+                continue;
+            }
+            if let Err(message) = self.validate(&write) {
+                let _ = reply.try_send(Err(message));
+                continue;
+            }
+            let started = self.storage.with(|storage| match &write {
+                ChoirWrite::Create(draft) => boxed(storage.create_choir(NewChoir {
+                    name: draft.name.clone(),
+                    short_label: draft.short_label.clone(),
+                    languages: draft.languages.clone(),
+                    notes: draft.notes.clone(),
+                })),
+                ChoirWrite::Edit(id, draft) => boxed(storage.edit_choir(
+                    *id,
+                    ChoirDetails {
+                        name: draft.name.clone(),
+                        short_label: draft.short_label.clone(),
+                        languages: draft.languages.clone(),
+                        notes: draft.notes.clone(),
+                    },
+                )),
+                ChoirWrite::Archive(id) => boxed(storage.archive_choir(*id)),
+                ChoirWrite::Restore(id) => boxed(storage.restore_choir(*id)),
+            });
+            let Some(future) = started else {
+                let _ = reply.try_send(Err(NOT_OPEN.into()));
+                continue;
+            };
+            self.writing = true;
+            cx.spawn(async move |this, cx| {
+                let stored = cx
+                    .background_spawn(
+                        async move { future.await.map_err(|error| error.to_string()) },
+                    )
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    let outcome = match stored {
+                        Ok(record) => this.apply(&write, &record),
+                        Err(message) => Err(SharedString::from(message)),
+                    };
+                    this.writing = false;
+                    if outcome.is_ok() {
+                        cx.emit(LibraryEvent::Changed);
+                        cx.notify();
+                    }
+                    let _ = reply.try_send(outcome);
+                    this.pump(cx);
+                });
+            })
+            .detach();
+        }
+    }
+
+    /// The domain's verdict on a write, before any I/O.
+    fn validate(&self, write: &ChoirWrite) -> Result<(), SharedString> {
+        match write {
+            ChoirWrite::Create(draft) => {
+                check_draft(draft)?;
+                // One Choir per name, however it is cased or spaced, archived
+                // Choirs included: the Module refuses a duplicate itself.
+                let key = match_key(&draft.name);
+                match self
+                    .library
+                    .choirs()
+                    .find(|choir| match_key(choir.name()) == key)
+                {
+                    Some(existing) => Err(SharedString::from(format!(
+                        "A Choir named '{}' already exists{}.",
+                        existing.name(),
+                        if existing.is_archived() {
+                            " (archived)"
+                        } else {
+                            ""
+                        }
+                    ))),
+                    None => Ok(()),
+                }
+            }
+            ChoirWrite::Edit(id, draft) => {
+                if self.library.choir(*id).map_err(refusal)?.is_archived() {
+                    return Err(refusal(SongLibraryError::Archived(RecordRef::Choir(*id))));
+                }
+                check_draft(draft)
+            }
+            ChoirWrite::Archive(id) => {
+                if self.library.choir(*id).map_err(refusal)?.is_archived() {
+                    return Err(refusal(SongLibraryError::AlreadyArchived(
+                        RecordRef::Choir(*id),
+                    )));
+                }
+                Ok(())
+            }
+            ChoirWrite::Restore(id) => {
+                if self.library.choir(*id).map_err(refusal)?.is_archived() {
+                    Ok(())
+                } else {
+                    Err(refusal(SongLibraryError::NotArchived(RecordRef::Choir(
+                        *id,
+                    ))))
+                }
+            }
+        }
+    }
+
+    /// Applies the record storage returned to the in-memory library. Rarely,
+    /// storage has already succeeded and the library refuses the record (for
+    /// example an archive stamp is missing): the operator sees the failure
+    /// while the database is ahead of memory until the next open re-hydrates
+    /// it.
+    fn apply(&mut self, write: &ChoirWrite, record: &ChoirRecord) -> Result<ChoirId, SharedString> {
+        match write {
+            ChoirWrite::Create(_) => {
+                self.library
+                    .create_choir(record.id, record.created_at, draft_of(record))
+                    .map_err(refusal)?;
+            }
+            ChoirWrite::Edit(id, _) => {
+                self.library
+                    .edit_choir(*id, draft_of(record))
+                    .map_err(refusal)?;
+            }
+            ChoirWrite::Archive(id) => {
+                // Storage always stamps an archived record; one without a stamp
+                // is a storage fault, not something to paper over.
+                let at = record.archived_at.ok_or_else(|| {
+                    SharedString::from(
+                        "The parish store returned an archived Choir without a date.",
+                    )
+                })?;
+                self.library.archive_choir(*id, at).map_err(refusal)?;
+            }
+            ChoirWrite::Restore(id) => self.library.restore_choir(*id).map_err(refusal)?,
+        }
+        Ok(record.id)
+    }
+
+    /// Replaces the library and tells observers. A test-only seam: production
+    /// changes go through the Choir write methods, which write to storage first.
+    #[cfg(test)]
+    pub(crate) fn replace_library(&mut self, library: SongLibrary, cx: &mut Context<Self>) {
         self.library = library;
         self.state = LibraryState::Ready;
         cx.emit(LibraryEvent::Changed);

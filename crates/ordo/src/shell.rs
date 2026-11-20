@@ -40,7 +40,7 @@ use crate::{
     performance::{BenchConfig, ProcessSampler, run_presenter_bench},
     presenter::PresenterView,
     settings,
-    songs::{ArrangementOverview, LibraryStore, SongsWorkspace},
+    songs::{ArrangementOverview, ChoirsWorkspace, LibraryStore, SongsWorkspace},
 };
 use ui::{
     DecreaseInterfaceScale, IncreaseInterfaceScale, ResetInterfaceScale,
@@ -98,7 +98,9 @@ const MAIN_EDITOR: &str = "Main editor";
 
 /// The list column's own logical width, `DESIGN.md`'s minimum for a primary
 /// list plus the inset its rows carry.
-const LIST_WIDTH: f32 = 280.0;
+pub(crate) const LIST_WIDTH: f32 = 280.0;
+/// The Library view that lists Choirs; its name is the one `rail` lists.
+const CHOIRS_VIEW: &str = "Choirs";
 
 /// Whether the startup journal check is still running (T1.7d). Present waits
 /// for it so a recovery found a moment late can never race a manual entry.
@@ -142,6 +144,9 @@ pub struct ShellView {
     /// they outlive the screen that draws them.
     songs: Entity<SongsWorkspace>,
     _songs_observer: Subscription,
+    /// Selection, archived toggle and scroll of Library → Choirs.
+    choirs: Entity<ChoirsWorkspace>,
+    _choirs_observer: Subscription,
     list_scroll: Scroll,
     viewer_scroll: Scroll,
     /// The focused editor's body keeps its own scroll rather than sharing the
@@ -250,6 +255,8 @@ impl ShellView {
         let library_store = cx.new(|cx| LibraryStore::with_library(SongLibrary::new(), cx));
         let songs = cx.new(|cx| SongsWorkspace::new(library_store.clone(), window, cx));
         let songs_observer = cx.observe(&songs, |_, _, cx| cx.notify());
+        let choirs = cx.new(|cx| ChoirsWorkspace::new(library_store.clone(), window, cx));
+        let choirs_observer = cx.observe(&choirs, |_, _, cx| cx.notify());
         Self {
             build_identity,
             destination: Destination::default(),
@@ -261,6 +268,8 @@ impl ShellView {
             library_store,
             songs,
             _songs_observer: songs_observer,
+            choirs,
+            _choirs_observer: choirs_observer,
             list_scroll: Scroll::new(),
             viewer_scroll: Scroll::new(),
             editor_scroll: Scroll::new(),
@@ -448,6 +457,8 @@ impl ShellView {
     ) {
         self.songs = cx.new(|cx| SongsWorkspace::new(store.clone(), window, cx));
         self._songs_observer = cx.observe(&self.songs, |_, _, cx| cx.notify());
+        self.choirs = cx.new(|cx| ChoirsWorkspace::new(store.clone(), window, cx));
+        self._choirs_observer = cx.observe(&self.choirs, |_, _, cx| cx.notify());
         self.library_store = store;
         cx.notify();
     }
@@ -455,6 +466,16 @@ impl ShellView {
     /// Whether the list and viewer are Library → Songs.
     fn showing_songs(&self, cx: &App) -> bool {
         self.destination == Destination::Library && self.local_view(cx) == Some(rail::SONGS_VIEW)
+    }
+
+    /// Whether the list and viewer are Library → Choirs.
+    fn showing_choirs(&self, cx: &App) -> bool {
+        self.destination == Destination::Library && self.local_view(cx) == Some(CHOIRS_VIEW)
+    }
+
+    /// The Choirs workspace entity.
+    pub fn choirs(&self) -> &Entity<ChoirsWorkspace> {
+        &self.choirs
     }
 
     /// Opens an Arrangement's overview in the focused-editor frame.
@@ -840,6 +861,11 @@ impl ShellView {
                 .songs
                 .update(cx, |songs, cx| songs.render_list(environment, window, cx));
         }
+        if self.showing_choirs(cx) {
+            return self
+                .choirs
+                .update(cx, |choirs, cx| choirs.render_list(environment, window, cx));
+        }
         let selected = self.selected_row;
         let scroll = self.list_scroll.clone();
         let rows = rows(self.context(cx))
@@ -933,6 +959,15 @@ impl ShellView {
             });
             return self.songs.update(cx, |songs, cx| {
                 songs.render_detail(environment, open, window, cx)
+            });
+        }
+        if self.showing_choirs(cx) {
+            let shell = cx.entity().downgrade();
+            let open: crate::songs::library::OpenArrangement = Rc::new(move |id, _, cx| {
+                let _ = shell.update(cx, |shell, cx| shell.open_arrangement(id, cx));
+            });
+            return self.choirs.update(cx, |choirs, cx| {
+                choirs.render_detail(environment, open, window, cx)
             });
         }
         let view = cx.entity().downgrade();
@@ -1055,7 +1090,7 @@ impl ShellView {
         // of what it holds, with nothing saying so, is the one thing worse
         // than a scrollbar.
         let scroll = self.viewer_scroll.clone();
-        let own_scroll = self.showing_songs(cx);
+        let own_scroll = self.showing_songs(cx) || self.showing_choirs(cx);
         let viewer_region = self
             .registry
             .region(MAIN_EDITOR, window, cx)
@@ -2305,8 +2340,8 @@ mod tests {
         assert!(row.is_some(), "clicking a rail row focuses it");
         // Off the rail without leaving the destination, so the marker is still
         // over the row about to be clicked again.
-        click(cx, "tab-3");
-        click(cx, "row-Choirs \u{b7} entry 1");
+        click(cx, "tab-2");
+        click(cx, "row-General Presentations \u{b7} entry 1");
         assert_ne!(
             cx.update(|window, cx| window.focused(cx)),
             row,
@@ -2458,11 +2493,11 @@ mod tests {
 
         // The same list primitives as the lab, by keyboard: arrows move focus
         // between rows without changing the selection.
-        click(cx, "tab-3");
+        click(cx, "tab-2");
         shell.read_with(cx, |shell, cx| {
-            assert_eq!(shell.local_view(cx), Some("Choirs"))
+            assert_eq!(shell.local_view(cx), Some("General Presentations"))
         });
-        click(cx, "row-Choirs \u{b7} entry 1");
+        click(cx, "row-General Presentations \u{b7} entry 1");
         let first = cx.update(|window, cx| window.focused(cx));
         assert!(first.is_some(), "clicking a row focuses it");
         shell.read_with(cx, |shell, _| assert_eq!(shell.selected_row(), Some(0)));
