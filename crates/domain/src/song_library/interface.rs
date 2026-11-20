@@ -636,27 +636,41 @@ impl SongLibrary {
         if let Some(title) = arrangement.title() {
             return Ok(title.to_owned());
         }
-        let mut choirs: Vec<(String, ChoirId, &str)> = arrangement
-            .choirs()
+        let label = self.derived_label(
+            arrangement.languages(),
+            &arrangement.choirs().iter().copied().collect::<Vec<_>>(),
+        );
+        Ok(if label.is_empty() {
+            "Untitled".to_owned()
+        } else {
+            label
+        })
+    }
+
+    /// The label derived from `languages` and `choirs` alone, as
+    /// [`Self::arrangement_label`] derives it when there is no display title:
+    /// the languages joined with " + ", then " · " and the first Choir (by
+    /// match key of its name, then identity) and " +n" for the other n.
+    /// Unknown Choirs are skipped. Empty when there is neither a language nor
+    /// a Choir. Lets a form preview the label of details not yet stored.
+    pub fn derived_label(&self, languages: &[String], choirs: &[ChoirId]) -> String {
+        let mut named: Vec<(String, ChoirId, &str)> = choirs
             .iter()
             .filter_map(|choir| self.choirs.get(choir))
             .map(|choir| (match_key(choir.name()), choir.id(), choir.name()))
             .collect();
-        choirs.sort();
-        let mut label = arrangement.languages().join(" + ");
-        if let Some((_, _, first)) = choirs.first() {
+        named.sort();
+        let mut label = languages.join(" + ");
+        if let Some((_, _, first)) = named.first() {
             if !label.is_empty() {
                 label.push_str(" · ");
             }
             label.push_str(first);
-            if choirs.len() > 1 {
-                label.push_str(&format!(" +{}", choirs.len() - 1));
+            if named.len() > 1 {
+                label.push_str(&format!(" +{}", named.len() - 1));
             }
         }
-        if label.is_empty() {
-            label.push_str("Untitled");
-        }
-        Ok(label)
+        label
     }
 
     /// Branches one Arrangement into an independent copy under the same Song.

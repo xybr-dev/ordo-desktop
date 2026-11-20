@@ -205,6 +205,10 @@ pub(crate) fn note(
         .gap(px(scale.apply(tokens::spacing::RELATED_TIGHT)))
         .text_color(rgb(color))
         .text_size(px(scale.apply(tokens::typography::LABEL.size)))
+        // `min_w_0` on the row and the text lets a long reason wrap inside a
+        // narrow slot (a slideover footer) instead of widening it past the
+        // surface's edge; a bare text flex item never shrinks below its line.
+        .min_w_0()
         .child(
             svg()
                 .flex_none()
@@ -212,7 +216,7 @@ pub(crate) fn note(
                 .text_color(rgb(color))
                 .data(icon.as_bytes()),
         )
-        .child(text)
+        .child(div().min_w_0().child(text))
 }
 
 #[cfg(test)]

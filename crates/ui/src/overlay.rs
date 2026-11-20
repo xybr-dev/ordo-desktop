@@ -104,6 +104,9 @@ pub struct Overlay {
     /// sign that taking it does not close the surface.
     gate: Option<Gate>,
     secondary: Option<(SharedString, Activate)>,
+    /// Set by [`Overlay::leading_gated`]: a quiet action at the start of the
+    /// footer, with its own availability.
+    leading: Option<(SharedString, Gate, Activate)>,
     on_close: Option<Activate>,
     primary_focus: Option<FocusHandle>,
 }
@@ -128,6 +131,7 @@ impl Overlay {
             primary: None,
             gate: None,
             secondary: None,
+            leading: None,
             on_close: None,
             primary_focus: None,
         }
@@ -187,6 +191,20 @@ impl Overlay {
         self
     }
 
+    /// A quiet action at the start of the footer, away from the decision pair,
+    /// for a related action that is not the decision itself (branching a copy
+    /// of what the surface edits). Like a gated primary it does not close the
+    /// surface when taken: the caller closes it once the action stood.
+    pub fn leading_gated(
+        mut self,
+        label: impl Into<SharedString>,
+        gate: impl Fn(&App) -> Availability + 'static,
+        activate: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.leading = Some((label.into(), Rc::new(gate), Rc::new(activate)));
+        self
+    }
+
     /// Opens with focus on the primary action instead of on the surface, for a
     /// decision whose safe answer is the primary one (a confirmation that
     /// defaults to staying put). The handle is the caller's, so it can also
@@ -202,6 +220,22 @@ impl Overlay {
         self.on_close = Some(Rc::new(on_close));
         self
     }
+}
+
+/// Lets content inside a surface take Escape before the surface does, for a
+/// popup the content opens and owns (a picker under a form field). `handler`
+/// runs first when Escape is pressed anywhere inside `element`; returning
+/// `true` means it closed something of its own, and the surface stays. The
+/// surface closes on Escape only when every such handler declines.
+pub fn escape_first<E: gpui::InteractiveElement>(
+    element: E,
+    handler: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> E {
+    element.capture_action(move |_: &gpui_base::actions::Cancel, window, cx| {
+        if handler(window, cx) {
+            cx.stop_propagation();
+        }
+    })
 }
 
 /// An operator-only bottom-center message.
@@ -266,9 +300,9 @@ struct Entry {
     /// Whatever had focus when this opened, which is what closing gives it
     /// back to — the invoker for a first surface, the parent for a nested one.
     invoker: Option<FocusHandle>,
-    /// The footer's action buttons, in visual order (secondary, primary), so
-    /// the arrow keys can move between them.
-    actions: [FocusHandle; 2],
+    /// The footer's action buttons: secondary, primary, then the leading
+    /// action. The arrow keys walk them in visual order (leading first).
+    actions: [FocusHandle; 3],
     scroll: Scroll,
     /// Already closed as far as a caller is concerned, and kept mounted only
     /// while it plays its exit. Its pending removal takes this entry alone, so
@@ -409,6 +443,7 @@ impl OverlayHost {
             initial
                 .clone()
                 .unwrap_or_else(|| cx.focus_handle().tab_stop(true)),
+            cx.focus_handle().tab_stop(true),
         ];
         self.0.update(cx, |host, cx| {
             let id = host.next;
@@ -1001,11 +1036,11 @@ impl OverlayHost {
         &self,
         overlay: &Overlay,
         id: usize,
-        actions: &[FocusHandle; 2],
+        actions: &[FocusHandle; 3],
         environment: UiEnvironment,
         cx: &App,
     ) -> Option<impl IntoElement + use<>> {
-        if overlay.primary.is_none() && overlay.secondary.is_none() {
+        if overlay.primary.is_none() && overlay.secondary.is_none() && overlay.leading.is_none() {
             return None;
         }
         let palette = tokens::palette(environment.appearance());
@@ -1045,6 +1080,7 @@ impl OverlayHost {
             })
         };
         let present: Vec<FocusHandle> = [
+            overlay.leading.is_some().then(|| actions[2].clone()),
             overlay.secondary.is_some().then(|| actions[0].clone()),
             overlay.primary.is_some().then(|| actions[1].clone()),
         ]
@@ -1071,11 +1107,34 @@ impl OverlayHost {
                 })
                 .flex_none()
                 .flex()
+                // A leading action takes a row of its own, where its
+                // Unavailable reason can wrap; the other actions wrap below it,
+                // still at the trailing end. The three never fit one row of a
+                // slideover side by side.
+                .flex_wrap()
                 .justify_end()
                 .gap(px(scale.apply(tokens::spacing::RELATED)))
                 .p(px(scale.apply(tokens::spacing::GROUP)))
                 .border_t(px(tokens::border::SEPARATOR))
                 .border_color(rgb(palette.border))
+                .when_some(
+                    overlay.leading.clone(),
+                    |footer, (label, gate, activate)| {
+                        let availability = gate(cx);
+                        let take = self.guarded(id, gate, activate);
+                        let leading_focus = actions[2].clone();
+                        footer.child(
+                            div().w_full().flex().flex_col().items_start().child(
+                                Button::new(("overlay-leading", id), label, environment)
+                                    .quiet()
+                                    .availability(availability)
+                                    .track_focus(&leading_focus)
+                                    .on_surface(palette.surface)
+                                    .on_activate(move |window, cx| take(window, cx)),
+                            ),
+                        )
+                    },
+                )
                 .children(action(overlay.secondary.clone(), true))
                 .children(action(overlay.primary.clone(), false)),
         )
@@ -2430,5 +2489,146 @@ mod tests {
             assert!(OVERLAY_PRIORITY < TOAST_PRIORITY);
             assert!(TOAST_PRIORITY < gpui_base::POPUP_PRIORITY);
         }
+    }
+
+    /// A slideover with a gated leading action, the decision pair, and the
+    /// number of times the leading action ran.
+    fn open_with_leading(
+        view: &Entity<Harness>,
+        cx: &mut gpui::VisualTestContext,
+        available: Rc<Cell<bool>>,
+        ran: Rc<Cell<usize>>,
+    ) -> OverlayHost {
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Details")
+                    .primary_gated("Save", |_| Availability::Available, |_, _| {})
+                    .secondary("Cancel", |_, _| {})
+                    .leading_gated(
+                        "Copy",
+                        move |_| {
+                            if available.get() {
+                                Availability::Available
+                            } else {
+                                Availability::unavailable("Not yet")
+                            }
+                        },
+                        move |_, _| ran.set(ran.get() + 1),
+                    ),
+                window,
+                cx,
+            )
+        });
+        settle(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        host
+    }
+
+    #[gpui::test]
+    fn a_leading_action_is_inert_while_unavailable_and_never_closes_the_surface(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = open(cx);
+        let (available, ran) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(0)));
+        let host = open_with_leading(&view, cx, available.clone(), ran.clone());
+        let copy = cx
+            .debug_bounds("button-Copy")
+            .expect("the leading action renders");
+        cx.simulate_click(copy.center(), Modifiers::default());
+        settle(cx);
+        assert_eq!(ran.get(), 0, "an unavailable leading action does nothing");
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 1);
+        available.set(true);
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let copy = cx
+            .debug_bounds("button-Copy")
+            .expect("the leading action renders");
+        cx.simulate_click(copy.center(), Modifiers::default());
+        settle(cx);
+        assert_eq!(ran.get(), 1);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            1,
+            "taking the leading action leaves the close to its caller"
+        );
+    }
+
+    #[gpui::test]
+    fn the_arrow_keys_walk_the_leading_action_then_the_decision_pair(cx: &mut TestAppContext) {
+        let (view, cx) = open(cx);
+        let host = open_with_leading(&view, cx, Rc::new(Cell::new(true)), Rc::new(Cell::new(0)));
+        let [cancel, save, copy] = view.read_with(cx, |view, cx| {
+            let entries = &view.host.0.read(cx).entries;
+            let actions = &entries.last().unwrap().actions;
+            [actions[0].clone(), actions[1].clone(), actions[2].clone()]
+        });
+        assert_eq!(cx.update(|_, cx| host.depth(cx)), 1);
+        cx.update(|window, cx| copy.focus(window, cx));
+        // Visual order is Copy, Cancel, Save, and the walk wraps.
+        for (key, expect) in [
+            ("right", &cancel),
+            ("right", &save),
+            ("right", &copy),
+            ("left", &save),
+            ("left", &cancel),
+            ("left", &copy),
+        ] {
+            cx.simulate_keystrokes(key);
+            cx.update(|window, _| assert!(expect.is_focused(window), "after {key}"));
+        }
+    }
+
+    #[gpui::test]
+    fn escape_first_keeps_the_surface_only_while_its_handler_claims_the_key(
+        cx: &mut TestAppContext,
+    ) {
+        let (view, cx) = open(cx);
+        let host = view.read_with(cx, |view, _| view.host.clone());
+        let claim = Rc::new(Cell::new(true));
+        let inside = cx.update(|_, cx| cx.focus_handle().tab_stop(true));
+        let body_claim = claim.clone();
+        let body_focus = inside.clone();
+        cx.update(|window, cx| {
+            host.open(
+                Overlay::slideover("Picker").body(move |_, _, _| {
+                    let claim = body_claim.clone();
+                    escape_first(div().track_focus(&body_focus), move |_, _| {
+                        let claimed = claim.get();
+                        claim.set(false);
+                        claimed
+                    })
+                    .child("inside")
+                    .into_any_element()
+                }),
+                window,
+                cx,
+            )
+        });
+        settle(cx);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            inside.focus(window, cx);
+        });
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            1,
+            "the handler claimed Escape"
+        );
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            inside.focus(window, cx);
+        });
+        cx.simulate_keystrokes("escape");
+        settle(cx);
+        assert_eq!(
+            cx.update(|_, cx| host.depth(cx)),
+            0,
+            "declined, so it closes"
+        );
     }
 }

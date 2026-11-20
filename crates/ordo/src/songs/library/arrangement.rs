@@ -13,9 +13,16 @@ use domain::{
 use gpui::{
     AnyElement, Div, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
 };
-use ui::{environment::UiEnvironment, tokens};
+use ui::{
+    environment::UiEnvironment,
+    primitives::{Availability, button::Button},
+    tokens,
+};
 
 use super::list;
+
+/// Why sections cannot be added yet, in the operator's words.
+const ADD_SECTION_REASON: &str = "Writing lyrics isn't available yet";
 
 /// The overview of one Arrangement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -226,6 +233,35 @@ fn body(library: &SongLibrary, arrangement: &Arrangement, environment: UiEnviron
                 })),
         )
         .child(heading("Sections"))
+        .when(arrangement.sections().is_empty(), |view| {
+            view.child(
+                div()
+                    .debug_selector(|| "arrangement-no-sections".into())
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(scale.apply(tokens::spacing::RELATED)))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(palette.text))
+                            .child("No sections yet"),
+                    )
+                    .child(
+                        div()
+                            .debug_selector(|| "arrangement-add-section".into())
+                            .child(
+                                Button::new(
+                                    "arrangement-add-section-button",
+                                    "Add first section",
+                                    environment,
+                                )
+                                .on_surface(palette.background)
+                                .availability(Availability::unavailable(ADD_SECTION_REASON)),
+                            ),
+                    ),
+            )
+        })
         .child(
             div()
                 .debug_selector(|| "arrangement-sections".into())

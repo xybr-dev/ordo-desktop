@@ -335,18 +335,6 @@ fn copy_of(library: &SongLibrary, source: &Arrangement) -> NewArrangement {
     }
 }
 
-/// Whether two sets of details are the same, ignoring the order of Choirs and
-/// occasions (the Arrangement keeps both as sets).
-fn same_details(a: &ArrangementDetails, b: &ArrangementDetails) -> bool {
-    let sorted = |details: &ArrangementDetails| {
-        let mut details = details.clone();
-        details.choirs.sort_unstable();
-        details.occasions.sort_unstable();
-        details
-    };
-    sorted(a) == sorted(b)
-}
-
 /// A fresh History-session id from OS randomness: each details Save is its own
 /// session.
 fn fresh_session() -> HistorySessionId {
@@ -694,7 +682,7 @@ impl LibraryStore {
             LibraryWrite::SaveArrangementDetails(id, details) => {
                 let arrangement = self.library.arrangement(*id).map_err(refusal)?;
                 self.check_arrangement_target(arrangement.song(), Some(arrangement), details)?;
-                if same_details(details, &arrangement.details()) {
+                if details.same_as(&arrangement.details()) {
                     return Ok(Verdict::Unchanged(id.entity()));
                 }
                 Prepared::SaveMetadata(
@@ -940,4 +928,4 @@ impl LibraryStore {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

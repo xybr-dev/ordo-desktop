@@ -282,6 +282,12 @@ fn main() -> Result<(), Failure> {
         "  - Back returns to the form exactly as typed; Use this existing Song selects it instead."
     );
     println!("  - Create song adds the Song; its detail shows No Arrangements yet.");
+    println!("Arrangement path: select a Song > Add Arrangement (or Add first Arrangement):");
+    println!("  - Pick two languages and two Choirs, leave the title blank: the label preview");
+    println!("    follows the languages, then the first Choir. Create Arrangement opens it.");
+    println!("  - Arrangement details on a shared Arrangement shows the shared notice;");
+    println!("    Save details stores the edit, Cancel (or Escape) discards it.");
+    println!("  - Duplicate Arrangement copies the stored Arrangement and opens the copy.");
 
     let preferences = dir.join("preferences");
     application().run(move |cx: &mut App| {

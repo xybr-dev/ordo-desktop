@@ -359,6 +359,23 @@ fn t2_4_e2e_archived_only_keeps_evidence_scroll_and_selection_across_a_round_tri
     assert!(present(vcx, "songs-detail"));
 }
 
+/// Wheels the Arrangement details body to its end, as an operator would, so
+/// Notes is clear of the two-row footer before it is clicked.
+fn scroll_details_to_end(vcx: &mut VisualTestContext) {
+    let card = vcx
+        .debug_bounds("overlay-Arrangement details")
+        .expect("the panel is open");
+    let at = card.center();
+    vcx.simulate_mouse_move(at, None, gpui::Modifiers::default());
+    vcx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), -card.size.height)),
+        modifiers: gpui::Modifiers::default(),
+        touch_phase: gpui::TouchPhase::Moved,
+    });
+    vcx.run_until_parked();
+}
+
 /// T2.5: a near-duplicate title is inspected against two candidates and backed
 /// out of twice with the form untouched; then Create commits one Song with no
 /// Arrangements, and a reopen from disk finds it and leaves the candidates as
@@ -454,6 +471,127 @@ fn t2_5_e2e_near_duplicate_inspect_two_candidates_then_create_and_reload(cx: &mu
             assert_eq!(library.song(song).unwrap(), before.song(song).unwrap());
         }
     });
+    cx.foreground_executor()
+        .block_test(slot.shutdown())
+        .expect("shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// T2.6: a blank-title two-language Arrangement shared by two Choirs gets its
+/// derived label; an edit goes through the shared notice, a second edit is
+/// cancelled, and a duplicate is independent. A reopen from disk finds both
+/// with their own identities and revision histories.
+#[gpui::test]
+fn t2_6_e2e_create_edit_cancel_duplicate_then_reload_with_independent_histories(
+    cx: &mut TestAppContext,
+) {
+    use super::arrangement_details::tests::{
+        arrangement_count, choir_named, label_of, open_edit, open_new, write,
+    };
+    use super::new_song::tests::{
+        click as press, parish, settle, settle_depth, songs_of, stop, type_into,
+    };
+    use domain::{
+        revisions::{RevisionEntity, RevisionKind},
+        song_library::ChoirDraft,
+    };
+
+    let (dir, slot, store, seeded) = parish(cx, "t26-e2e");
+    let (shell, vcx) = open_store(cx, store.clone());
+    let koro = choir_named(&store, "Koro Sto. Ni\u{f1}o", vcx).expect("koro");
+    let youth = write(&store, vcx, |store, cx| {
+        store.create_choir(ChoirDraft::named("Youth Choir"), cx)
+    });
+    let before = arrangement_count(&store, vcx);
+
+    // Create: two languages, two Choirs, no title.
+    open_new(&shell, seeded.near, vcx);
+    press(vcx, "button-Cebuano");
+    press(vcx, "button-English");
+    press(vcx, "button-Koro Sto. Ni\u{f1}o");
+    press(vcx, "button-Youth Choir");
+    press(vcx, "button-Create Arrangement");
+    crate::songs::choirs::tests::wait(vcx, |vcx| arrangement_count(&store, vcx) == before + 1);
+    settle(vcx);
+    let original = shell.read_with(vcx, |shell, _| {
+        shell.editing_arrangement().expect("focused")
+    });
+    let label = label_of(&store, original, vcx);
+    assert!(
+        label.contains("Cebuano") && label.contains("English"),
+        "{label}"
+    );
+    store.read_with(vcx, |store, _| {
+        let arrangement = store.library().arrangement(original).unwrap();
+        assert_eq!(arrangement.title(), None);
+        assert_eq!(arrangement.choirs().len(), 2);
+        assert!(arrangement.choirs().contains(&koro) && arrangement.choirs().contains(&youth));
+    });
+
+    // Edit through the shared notice.
+    open_edit(&shell, original, vcx);
+    assert!(present(vcx, "ad-shared-notice"));
+    scroll_details_to_end(vcx);
+    type_into(vcx, "ad-notes", "Revised once");
+    press(vcx, "button-Save details");
+    crate::songs::choirs::tests::wait(vcx, |vcx| {
+        store.read_with(vcx, |store, _| {
+            store.library().arrangement(original).unwrap().notes() == Some("Revised once")
+        })
+    });
+    settle(vcx);
+
+    // A cancelled edit stores nothing.
+    open_edit(&shell, original, vcx);
+    scroll_details_to_end(vcx);
+    type_into(vcx, "ad-notes", " and discarded");
+    press(vcx, "button-Cancel");
+    settle_depth(&songs_of(&shell, vcx), vcx, 0);
+    store.read_with(vcx, |store, _| {
+        assert_eq!(
+            store.library().arrangement(original).unwrap().notes(),
+            Some("Revised once")
+        );
+    });
+
+    // Duplicate.
+    open_edit(&shell, original, vcx);
+    press(vcx, "button-Duplicate Arrangement");
+    crate::songs::choirs::tests::wait(vcx, |vcx| arrangement_count(&store, vcx) == before + 2);
+    settle(vcx);
+    let copy = shell.read_with(vcx, |shell, _| {
+        shell.editing_arrangement().expect("focused")
+    });
+    assert_ne!(copy, original);
+    stop(vcx, &slot);
+
+    // Reopen from disk.
+    let (slot, store) = open_parish(cx, &dir);
+    let history = |cx: &mut TestAppContext, id: ArrangementId| {
+        let future = slot
+            .with(|storage| storage.revisions(RevisionEntity::Arrangement(id)))
+            .expect("storage is open");
+        cx.foreground_executor()
+            .block_test(future)
+            .expect("revisions")
+    };
+    store.read_with(cx, |store, _| {
+        let library = store.library();
+        let source = library.arrangement(original).expect("source persisted");
+        let duplicate = library.arrangement(copy).expect("copy persisted");
+        assert_eq!(source.notes(), Some("Revised once"));
+        assert_eq!(duplicate.languages(), source.languages());
+        assert_eq!(duplicate.choirs(), source.choirs());
+        assert_eq!(library.arrangements().count(), before + 2);
+    });
+    let source_history = history(cx, original);
+    let copy_history = history(cx, copy);
+    assert_eq!(source_history.len(), 2, "creation and one edit");
+    assert_eq!(source_history[0].kind, RevisionKind::Creation);
+    assert_eq!(copy_history.len(), 1, "the copy starts its own chain");
+    for revision in &copy_history {
+        assert!(source_history.iter().all(|other| other.id != revision.id));
+    }
     cx.foreground_executor()
         .block_test(slot.shutdown())
         .expect("shutdown");
