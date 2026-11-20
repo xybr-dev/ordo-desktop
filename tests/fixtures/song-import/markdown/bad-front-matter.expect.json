@@ -1,0 +1,26 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": false,
+  "composer": null,
+  "issues": [
+    {
+      "blocking": true,
+      "kind": "BadFrontMatter(\"A list isn't closed with ].\")",
+      "line": 3
+    }
+  ],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [],
+  "sequence": [],
+  "source": null,
+  "title": ""
+}

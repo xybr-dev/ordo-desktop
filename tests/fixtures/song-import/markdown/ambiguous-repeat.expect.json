@@ -1,0 +1,49 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "English"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": true,
+  "composer": null,
+  "issues": [
+    {
+      "blocking": false,
+      "kind": "AmbiguousRepeat { label: \"verse\", sections: 2 }",
+      "line": 9
+    }
+  ],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": "Verse",
+      "slides": [
+        [
+          "One"
+        ]
+      ]
+    },
+    {
+      "label": "Verse",
+      "slides": [
+        [
+          "Two"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0,
+    1,
+    "unresolved \"verse\" line 9 candidates 2"
+  ],
+  "source": null,
+  "title": "Ambiguous"
+}

@@ -1,0 +1,39 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "English"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": false,
+  "composer": "Someone",
+  "issues": [
+    {
+      "blocking": true,
+      "kind": "MissingTitle",
+      "line": 1
+    }
+  ],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": "Koro",
+      "slides": [
+        [
+          "Words"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0
+  ],
+  "source": null,
+  "title": ""
+}

@@ -23,6 +23,7 @@ use super::reference_safety::{DeletionBlocker, DeletionVerdict, DurableReference
 use super::sections::{ArrangementLyrics, require_present_labels};
 
 mod hydrate;
+mod import;
 
 pub use hydrate::{HydrateArrangement, HydrateChoir, HydrateReserved, HydrateSong, HydrationError};
 

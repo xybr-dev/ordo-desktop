@@ -1,0 +1,47 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "English"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": true,
+  "composer": null,
+  "issues": [],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": "Verse 1",
+      "slides": [
+        [
+          "First line"
+        ],
+        [
+          "second slide of verse"
+        ]
+      ]
+    },
+    {
+      "label": "Chorus",
+      "slides": [
+        [
+          "Sing it out"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0,
+    1,
+    1,
+    0
+  ],
+  "source": null,
+  "title": "Repeats"
+}

@@ -71,6 +71,7 @@ use std::time::Duration;
 mod assets;
 #[cfg(test)]
 mod erd;
+pub mod exchange;
 mod lifecycle;
 mod migrations;
 #[cfg(test)]
@@ -91,9 +92,10 @@ use worker::{Core, Exit, Message, Sources};
 pub use domain::presentation::ContentHash;
 pub use lifecycle::{Deleted, DeletionFacts};
 pub use parish_store::{
-    ArrangementRecord, AssetReport, AssetUpload, ChoirDetails, ChoirRecord, LibraryRecords,
-    ManagedAssetRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme,
-    OccurrenceRecord, ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
+    ArrangementRecord, ArrangementReplacement, AssetReport, AssetUpload, ChoirDetails, ChoirRecord,
+    ImportBatch, ImportCommittedRecords, ImportedArrangement, LibraryRecords, ManagedAssetRecord,
+    NewArrangement, NewChoir, NewParish, NewSection, NewSong, NewTheme, OccurrenceRecord,
+    ParishRecord, ReservedIds, SectionRecord, SongRecord, ThemeRecord,
 };
 pub use revisions::{
     ArrangementContent, ArrangementMetadata, HistoryRevision, OccurrenceContent, RevisionContent,
@@ -259,6 +261,9 @@ pub enum StorageError {
         /// Arrangements the Song still owns.
         children: Vec<ArrangementId>,
     },
+    /// An import named an identity that already exists; the batch was refused
+    /// whole and nothing was written.
+    IdentityCollision { kind: RecordKind, id: EntityId },
 }
 
 impl fmt::Display for StorageError {
@@ -306,6 +311,9 @@ impl fmt::Display for StorageError {
             }
             Self::StaleRevision { .. } => {
                 write!(f, "the entity changed since this edit was based on it")
+            }
+            Self::IdentityCollision { kind, .. } => {
+                write!(f, "an imported {kind} identity already exists")
             }
             Self::DeletionBlocked {
                 references,
@@ -552,6 +560,25 @@ impl Storage {
     {
         worker::submit(self.tx.as_ref(), move |core: &mut Core| {
             core.commit_arrangement_edit(arrangement, content, kind, session, expected_parent)
+        })
+    }
+
+    /// Writes every mutation of an approved import batch (new Choirs, Songs and
+    /// Arrangements with the identities the batch gives, and whole-Arrangement
+    /// replacements) in one immediate transaction, or none of it.
+    ///
+    /// Identities are never regenerated: one that is already taken refuses the
+    /// batch with `IdentityCollision`. Inside the transaction the target Songs
+    /// and Arrangements are checked present and not archived, Choirs present and
+    /// not archived,
+    /// and each replacement's `expected_parent` must still be the head
+    /// (`StaleRevision`). The returned records are what was written.
+    pub fn commit_import(
+        &self,
+        batch: ImportBatch,
+    ) -> impl Future<Output = Result<ImportCommittedRecords, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.commit_import(batch)
         })
     }
 

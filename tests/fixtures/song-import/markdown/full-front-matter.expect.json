@@ -1,0 +1,51 @@
+{
+  "aliases": [
+    "Thanksgiving Hymn",
+    "Salamat Ginoo"
+  ],
+  "arrangement": {
+    "choirs": [
+      "Adult Choir",
+      "Youth Choir"
+    ],
+    "languages": [
+      "Cebuano"
+    ],
+    "notes": "From the binder",
+    "occasions": [
+      "Easter",
+      "Ordinary Time"
+    ],
+    "rendition_attribution": "Maria Santos; Jose Cruz",
+    "title": "Tagalog - Adult Choir"
+  },
+  "can_save": true,
+  "composer": "Sample Composer",
+  "issues": [
+    {
+      "blocking": false,
+      "kind": "UnknownKey(\"colour\")",
+      "line": 17
+    }
+  ],
+  "liturgical_moments": [
+    "Offertory"
+  ],
+  "rights": "Used with permission",
+  "sections": [
+    {
+      "label": "Koro",
+      "slides": [
+        [
+          "Salamat, Ginoo,",
+          "sa imong gugma"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0
+  ],
+  "source": "Parish binder 2019",
+  "title": "Salamat, Ginoo"
+}

@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ordo.invalid/contracts/song-import/v2.schema.json",
+  "title": "Song import document v2",
+  "description": "One Song work with its Arrangements, carried as the song-import kind of an .ordo file. Arrangements carry reusable sections (each a list of slides, each a list of lines) and a Sequence of section ids. Arrangement content_sha256 is the SHA-256 of every line in section order, then slide order within a section, each line followed by LF. Every sequence entry names a section of the same Arrangement. Optional members are omitted, never null. Ids must be unique within the document (not expressible in JSON Schema; the Rust validator reports a duplicate as a schema finding).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "arrangements",
+    "id",
+    "schema_version",
+    "title"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Payload contract version; 2 in v2."
+    },
+    "id": {
+      "$ref": "#/$defs/uuid",
+      "description": "Stable UUIDv4 of the Song work. Importing the same id again addresses the same Song."
+    },
+    "title": {
+      "$ref": "#/$defs/text",
+      "description": "Primary title of the Song work."
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      },
+      "description": "Alternative titles for the Song work."
+    },
+    "composer": {
+      "$ref": "#/$defs/text",
+      "description": "Who the Song work is originally attributed to."
+    },
+    "source": {
+      "$ref": "#/$defs/text",
+      "description": "Where the Song work came from (provenance)."
+    },
+    "rights": {
+      "$ref": "#/$defs/text",
+      "description": "Rights notes for the Song work."
+    },
+    "liturgical_moments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      },
+      "description": "Liturgical moments the Song work belongs to, such as Entrance."
+    },
+    "occasions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      },
+      "description": "Occasion tags for the Song work."
+    },
+    "arrangements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/arrangement"
+      },
+      "description": "Arrangements of the Song work; at least one."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Lowercase hyphenated UUIDv4."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Text with at least one non-whitespace character."
+    },
+    "line": {
+      "type": "string",
+      "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$",
+      "description": "One lyric line: no line break, at least one non-whitespace character."
+    },
+    "arrangement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content_sha256",
+        "id",
+        "languages",
+        "sections",
+        "sequence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "Stable UUIDv4 of the Arrangement."
+        },
+        "title": {
+          "$ref": "#/$defs/text",
+          "description": "Arrangement title; omit to let Ordo label it from languages and Choirs."
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "description": "At least one language, by the display name or another name of one of Ordo's built-in languages (docs/contracts/README.md section 13)."
+        },
+        "choirs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "description": "Choir names that use this Arrangement; matched to existing Choirs, created when missing."
+        },
+        "translator": {
+          "$ref": "#/$defs/text",
+          "description": "Translator; stored as the rendition attribution."
+        },
+        "adapter": {
+          "$ref": "#/$defs/text",
+          "description": "Adapter; stored with the translator as the rendition attribution."
+        },
+        "occasions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "description": "Occasion tags for this Arrangement."
+        },
+        "notes": {
+          "$ref": "#/$defs/text",
+          "description": "Notes about this Arrangement."
+        },
+        "extraction_warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "description": "Doubts the extracting tool wants the reviewer to see. Shown during review, never stored."
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of every line in section order then slide order, each followed by LF."
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/section"
+          },
+          "description": "Reusable sections in authored order."
+        },
+        "sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Performance order as section ids; a section may repeat."
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "slides"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "UUIDv4 of the section, unique in the document. Ordo mints its own local section ids."
+        },
+        "label": {
+          "$ref": "#/$defs/text",
+          "description": "Section name such as Koro; omit for an unlabeled section."
+        },
+        "slides": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/slide"
+          },
+          "description": "Slides of the section; a slide is one projected screen of lines."
+        }
+      }
+    },
+    "slide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lines"
+      ],
+      "properties": {
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        }
+      }
+    }
+  }
+}

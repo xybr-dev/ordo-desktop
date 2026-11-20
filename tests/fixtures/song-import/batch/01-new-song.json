@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000300",
+  "title": "Awit ng Pasasalamat",
+  "composer": "Sample Composer",
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000301",
+      "languages": [
+        "Tagalog"
+      ],
+      "choirs": [
+        "Adult Choir"
+      ],
+      "content_sha256": "33bc31a1efea338dbcd9f1ade753108edaaa5beefbaa614072ae7a3988e264c5",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000310",
+          "label": "Koro",
+          "slides": [
+            {
+              "lines": [
+                "Salamat po, Panginoon"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000311",
+          "label": "Bersikulo",
+          "slides": [
+            {
+              "lines": [
+                "Sa bawat umaga",
+                "ikaw ang aming awit"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000310",
+        "00000000-0000-4000-8000-000000000311",
+        "00000000-0000-4000-8000-000000000310"
+      ]
+    }
+  ]
+}

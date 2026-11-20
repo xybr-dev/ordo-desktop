@@ -5759,6 +5759,7 @@ name = "song-library-tests"
 version = "0.1.0"
 dependencies = [
  "domain",
+ "serde_json",
 ]
 
 [[package]]
@@ -5818,12 +5819,14 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "domain",
+ "flate2",
  "futures-lite",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -5832,7 +5835,9 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "futures-lite",
+ "jsonschema",
  "rusqlite",
+ "serde_json",
  "sha2",
  "storage",
 ]

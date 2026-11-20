@@ -106,6 +106,27 @@ pub(crate) fn append_creation(
     append_revision(tx, ids, steps, at, entity, &link, revision).map(|_| ())
 }
 
+/// Appends the first revision of an entity the caller has just written
+/// (no parent) and returns it. It is always a `Creation`: the schema CHECK
+/// `(kind = 'creation') = (parent_id IS NULL)` allows no other parentless
+/// kind, so an imported entity's history begins as an ordinary creation.
+pub(crate) fn append_first(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    at: Timestamp,
+    entity: RevisionEntity,
+    revision: &RevisionContent,
+) -> Result<RevisionRecord, StorageError> {
+    let link = Link {
+        parent: None,
+        kind: RevisionKind::Creation,
+        session: None,
+        restored_from: None,
+    };
+    append_revision(tx, ids, steps, at, entity, &link, revision)
+}
+
 fn exists(tx: &Transaction<'_>, entity: RevisionEntity) -> Result<bool, StorageError> {
     let (sql, key) = match entity {
         RevisionEntity::Song(id) => ("SELECT 1 FROM song WHERE id = ?1", id.to_string()),
@@ -152,7 +173,7 @@ fn require_current(
 /// The kind and session rules, checked before any transaction opens.
 /// `Replacement` replaces a whole Arrangement (Decision 140), so a Song
 /// commit refuses it.
-fn validate_link(
+pub(crate) fn validate_link(
     kind: RevisionKind,
     session: Option<HistorySessionId>,
     allow_replacement: bool,
@@ -185,7 +206,7 @@ fn validate_link(
     }
 }
 
-fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
+pub(crate) fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
     validate_song_fields(
         &song.title,
         &song.aliases,
@@ -200,7 +221,7 @@ fn validate_song_content(song: &SongContent) -> Result<(), StorageError> {
 /// `require_language` is true for commits that author new content (an Edit).
 /// A Restoration, Import or Replacement keeps the rules that held when its
 /// content was written, and rows from before a language was required exist.
-fn validate_arrangement_content(
+pub(crate) fn validate_arrangement_content(
     arrangement: &ArrangementContent,
     require_language_now: bool,
 ) -> Result<(), StorageError> {
@@ -571,6 +592,54 @@ fn backfill_creation(
         restored_from: None,
     };
     append_revision(tx, ids, steps, at, entity, &link, &current)
+}
+
+/// Replaces an existing Arrangement's whole content with a `Replacement`
+/// revision inside the caller's transaction (the import commit).
+///
+/// `expected_parent` is the head the caller reviewed. `None` means the caller
+/// saw an Arrangement with no history (written before revisions existed), so
+/// a `creation` revision of its stored content is appended first; if a head
+/// exists by now the base is stale.
+pub(crate) fn replace_arrangement_in(
+    tx: &Transaction<'_>,
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    at: Timestamp,
+    arrangement: ArrangementId,
+    revision: &ArrangementContent,
+    expected_parent: Option<RevisionId>,
+) -> Result<(ArrangementRecord, Vec<RevisionRecord>), StorageError> {
+    let entity = RevisionEntity::Arrangement(arrangement);
+    require_entity(tx, entity)?;
+    let mut written = Vec::new();
+    let parent = match (expected_parent, latest_in(tx, entity)?) {
+        (Some(expected), _) => {
+            require_current(tx, entity, expected)?;
+            expected
+        }
+        (None, None) => {
+            let backfilled = backfill_creation(tx, ids, steps, at, entity)?;
+            let id = backfilled.id;
+            written.push(backfilled);
+            id
+        }
+        (None, Some(latest)) => {
+            return Err(StorageError::StaleRevision {
+                entity_latest: latest,
+            });
+        }
+    };
+    let link = Link {
+        parent: Some(parent),
+        kind: RevisionKind::Replacement,
+        session: None,
+        restored_from: None,
+    };
+    let (record, revision) =
+        commit_arrangement_in(tx, ids, steps, at, arrangement, revision, &link)?;
+    written.push(revision);
+    Ok((record, written))
 }
 
 impl Core {

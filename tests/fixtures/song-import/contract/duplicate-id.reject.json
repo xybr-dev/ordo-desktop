@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000010",
+  "title": "Salamat, Ginoo",
+  "aliases": [
+    "Thanksgiving Hymn",
+    "Salamat Ginoo"
+  ],
+  "composer": "Sample Composer",
+  "source": "Parish binder 2019, p. 14",
+  "rights": "Used with permission.",
+  "liturgical_moments": [
+    "Offertory",
+    "Thanksgiving"
+  ],
+  "occasions": [
+    "Easter"
+  ],
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "title": "Tagalog - Adult Choir",
+      "languages": [
+        "Tagalog"
+      ],
+      "choirs": [
+        "Adult Choir"
+      ],
+      "occasions": [
+        "Easter",
+        "Ordinary Time"
+      ],
+      "notes": "From the parish binder.",
+      "extraction_warnings": [
+        "Verse 2 was blurry in the scan."
+      ],
+      "content_sha256": "f9246d4d49f320754b5b693dbf835965f3efe6179ba0d18e7189e7f3b4a001ef",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000020",
+          "label": "Verse 1",
+          "slides": [
+            {
+              "lines": [
+                "Salamat po, Panginoon",
+                "sa dakila mong biyaya"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000020",
+          "label": "Refrain",
+          "slides": [
+            {
+              "lines": [
+                "Salamat, salamat,",
+                "Ginoo kong mahal"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000020",
+        "00000000-0000-4000-8000-000000000020"
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "title": "Cebuano - Youth Choir",
+      "languages": [
+        "Cebuano",
+        "English"
+      ],
+      "choirs": [
+        "Youth Choir"
+      ],
+      "translator": "Maria Santos",
+      "adapter": "Jose Cruz",
+      "content_sha256": "ce3e9c538652b6ef0d4a74c0b4c306ea8b11bcb07e31d00562cb45c236334869",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000022",
+          "label": "Koro",
+          "slides": [
+            {
+              "lines": [
+                "Salamat, Ginoo,",
+                "sa imong gugma"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000023",
+          "slides": [
+            {
+              "lines": [
+                "Bersikulo usa"
+              ]
+            },
+            {
+              "lines": [
+                "Bersikulo duha",
+                "ikaduha nga linya"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000022",
+        "00000000-0000-4000-8000-000000000023",
+        "00000000-0000-4000-8000-000000000022"
+      ]
+    }
+  ]
+}

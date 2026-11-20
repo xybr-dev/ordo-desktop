@@ -1,0 +1,40 @@
+{
+  "aliases": [],
+  "arrangement": {
+    "choirs": [],
+    "languages": [
+      "English"
+    ],
+    "notes": null,
+    "occasions": [],
+    "rendition_attribution": null,
+    "title": null
+  },
+  "can_save": true,
+  "composer": null,
+  "issues": [
+    {
+      "blocking": false,
+      "kind": "UnresolvedRepeat(\"Bridge\")",
+      "line": 7
+    }
+  ],
+  "liturgical_moments": [],
+  "rights": null,
+  "sections": [
+    {
+      "label": "Verse",
+      "slides": [
+        [
+          "Words"
+        ]
+      ]
+    }
+  ],
+  "sequence": [
+    0,
+    "unresolved \"Bridge\" line 7 candidates 0"
+  ],
+  "source": null,
+  "title": "Unresolved"
+}

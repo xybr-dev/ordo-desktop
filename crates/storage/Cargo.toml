@@ -14,6 +14,11 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.10.9"
 uuid.workspace = true
+zip.workspace = true
+# zip's `deflate-flate2` selects no flate2 backend; naming the miniz_oxide one
+# here lets `cargo test -p storage` build on its own (the workspace graph
+# already resolves this exact flate2).
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 futures-lite = "=2.6.1"

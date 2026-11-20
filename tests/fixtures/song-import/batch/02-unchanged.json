@@ -1,0 +1,64 @@
+{
+  "schema_version": 2,
+  "id": "00000000-0000-4000-8000-000000000100",
+  "title": "Salamat, Ginoo",
+  "composer": "Sample Composer",
+  "arrangements": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "title": "Koro San Roque",
+      "languages": [
+        "Cebuano"
+      ],
+      "choirs": [
+        "Koro San Roque"
+      ],
+      "content_sha256": "5985ca01f38d5e447e633e1d78d6eccaaa078eca00b6f62c30dffda8e7b14d2e",
+      "sections": [
+        {
+          "id": "00000000-0000-4000-8000-000000000120",
+          "label": "Koro",
+          "slides": [
+            {
+              "lines": [
+                "Salamat, Ginoo,",
+                "sa imong gugma"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000121",
+          "label": "Bersikulo 1",
+          "slides": [
+            {
+              "lines": [
+                "Sa kabuntagon ako moawit",
+                "sa imong dakong gugma"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000122",
+          "label": "Bersikulo 2",
+          "slides": [
+            {
+              "lines": [
+                "Sa kagabhion ako mosalig",
+                "sa imong kamatuoran"
+              ]
+            }
+          ]
+        }
+      ],
+      "sequence": [
+        "00000000-0000-4000-8000-000000000120",
+        "00000000-0000-4000-8000-000000000121",
+        "00000000-0000-4000-8000-000000000120",
+        "00000000-0000-4000-8000-000000000122",
+        "00000000-0000-4000-8000-000000000120"
+      ]
+    }
+  ]
+}

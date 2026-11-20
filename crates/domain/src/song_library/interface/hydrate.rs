@@ -176,7 +176,10 @@ impl SongLibrary {
     }
 
     /// Rebuilds one stored Arrangement into the library.
-    fn hydrate_arrangement(&mut self, stored: HydrateArrangement) -> Result<(), HydrationError> {
+    pub(super) fn hydrate_arrangement(
+        &mut self,
+        stored: HydrateArrangement,
+    ) -> Result<(), HydrationError> {
         let id = stored.id;
         let record = RecordRef::Arrangement(id);
         let breach = |cause| HydrationError { record, cause };
