@@ -48,6 +48,11 @@
 //! let _transaction = storage.transaction();
 //! ```
 //!
+//! The parish store creates and reads the Parish, Choirs, Songs and
+//! Arrangements. The worker generates every id and creation time, and every
+//! multi-row create is one immediate transaction that rolls back in full on
+//! any failure.
+//!
 //! The committed `ERD.md` is rendered from the bundled migrations and checked
 //! for drift by the test suite.
 
@@ -62,10 +67,17 @@ mod erd;
 mod migrations;
 #[cfg(test)]
 mod parish_schema_tests;
+mod parish_store;
 mod worker;
 
+use domain::identity::{ArrangementId, EntityId, SongId};
 use migrations::Migration;
-use worker::{Core, Exit, Message};
+use worker::{Core, Exit, Message, Sources};
+
+pub use parish_store::{
+    ArrangementRecord, ChoirRecord, NewArrangement, NewChoir, NewParish, NewSection, NewSong,
+    OccurrenceRecord, ParishRecord, SectionRecord, SongRecord,
+};
 
 /// Where the database lives and how long a request waits on a locked file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +121,42 @@ pub enum ShutdownOutcome {
     AlreadyStopped,
 }
 
+/// The kind of record a [`StorageError`] names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecordKind {
+    /// The single Parish.
+    Parish,
+    /// A Choir.
+    Choir,
+    /// A Song work.
+    Song,
+    /// An Arrangement of a Song.
+    Arrangement,
+    /// A section of an Arrangement.
+    Section,
+    /// A Sequence occurrence of a section.
+    Occurrence,
+    /// A visual Theme.
+    Theme,
+    /// A managed binary asset.
+    ManagedAsset,
+}
+
+impl fmt::Display for RecordKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Parish => "parish",
+            Self::Choir => "choir",
+            Self::Song => "song",
+            Self::Arrangement => "arrangement",
+            Self::Section => "section",
+            Self::Occurrence => "occurrence",
+            Self::Theme => "theme",
+            Self::ManagedAsset => "managed asset",
+        })
+    }
+}
+
 /// Structured failure from the Storage Module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
@@ -131,6 +179,19 @@ pub enum StorageError {
     Busy,
     /// Any other driver error, carried as a message only.
     Sqlite(String),
+    /// A record the operation needs does not exist.
+    NotFound { kind: RecordKind, id: EntityId },
+    /// The input names a record that does not exist (a song or choir).
+    MissingReference { kind: RecordKind, id: EntityId },
+    /// The input breaks a rule the store checks before writing.
+    InvalidInput {
+        field: &'static str,
+        reason: &'static str,
+    },
+    /// `create_parish` was called when the database already has its Parish.
+    ParishExists,
+    /// The id source produced colliding ids too many times in a row.
+    IdentityExhausted { kind: RecordKind },
 }
 
 impl fmt::Display for StorageError {
@@ -155,6 +216,15 @@ impl fmt::Display for StorageError {
             Self::WorkerUnavailable => write!(f, "storage worker is unavailable"),
             Self::Busy => write!(f, "database is busy"),
             Self::Sqlite(message) => write!(f, "sqlite error: {message}"),
+            Self::NotFound { kind, id } => write!(f, "{kind} {id} was not found"),
+            Self::MissingReference { kind, id } => {
+                write!(f, "referenced {kind} {id} does not exist")
+            }
+            Self::InvalidInput { field, reason } => write!(f, "invalid {field}: {reason}"),
+            Self::ParishExists => write!(f, "the parish already exists"),
+            Self::IdentityExhausted { kind } => {
+                write!(f, "could not generate a unique {kind} id")
+            }
         }
     }
 }
@@ -174,7 +244,7 @@ impl Storage {
     /// Spawns the `ordo-storage` thread and returns immediately. Open and
     /// migrate run on the worker; the result arrives through [`Storage::ready`].
     pub fn spawn(config: StorageConfig) -> Storage {
-        spawn_with(config, migrations::bundled())
+        spawn_with(config, migrations::bundled(), Sources::system())
     }
 
     /// Resolves once the open sequence has finished, with the schema status or
@@ -215,6 +285,92 @@ impl Storage {
 
     pub fn parish_note_count(&self) -> impl Future<Output = Result<u64, StorageError>> + use<> {
         worker::submit(self.tx.as_ref(), |core: &mut Core| core.parish_note_count())
+    }
+
+    /// Creates the Parish. Refused with `ParishExists` when one is stored.
+    pub fn create_parish(
+        &self,
+        parish: NewParish,
+    ) -> impl Future<Output = Result<ParishRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.create_parish(parish)
+        })
+    }
+
+    /// Reads the Parish, or `None` before it is created.
+    pub fn parish(
+        &self,
+    ) -> impl Future<Output = Result<Option<ParishRecord>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.parish())
+    }
+
+    /// Creates a Choir.
+    pub fn create_choir(
+        &self,
+        choir: NewChoir,
+    ) -> impl Future<Output = Result<ChoirRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.create_choir(choir)
+        })
+    }
+
+    /// Reads every Choir ordered by creation time and identity.
+    pub fn choirs(&self) -> impl Future<Output = Result<Vec<ChoirRecord>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.choirs())
+    }
+
+    /// Creates a Song with its aliases, liturgical moments and occasions.
+    pub fn create_song(
+        &self,
+        song: NewSong,
+    ) -> impl Future<Output = Result<SongRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.create_song(song)
+        })
+    }
+
+    /// Reads one Song, or `NotFound`.
+    pub fn song(
+        &self,
+        id: SongId,
+    ) -> impl Future<Output = Result<SongRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| core.song(id))
+    }
+
+    /// Reads every Song ordered by creation time and identity.
+    pub fn songs(&self) -> impl Future<Output = Result<Vec<SongRecord>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), |core: &mut Core| core.songs())
+    }
+
+    /// Creates an Arrangement with its sections, Sequence and Choir links.
+    pub fn create_arrangement(
+        &self,
+        arrangement: NewArrangement,
+    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.create_arrangement(arrangement)
+        })
+    }
+
+    /// Reads one Arrangement, or `NotFound`.
+    pub fn arrangement(
+        &self,
+        id: ArrangementId,
+    ) -> impl Future<Output = Result<ArrangementRecord, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.arrangement(id)
+        })
+    }
+
+    /// Reads a Song's Arrangements ordered by creation time and identity;
+    /// `NotFound` when the Song is absent.
+    pub fn arrangements_for_song(
+        &self,
+        song: SongId,
+    ) -> impl Future<Output = Result<Vec<ArrangementRecord>, StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.arrangements_for_song(song)
+        })
     }
 
     /// Checkpoints the WAL (TRUNCATE), closes the connection, and reports how
@@ -259,7 +415,7 @@ impl Drop for Storage {
     }
 }
 
-fn spawn_with(config: StorageConfig, migrations: Vec<Migration>) -> Storage {
+fn spawn_with(config: StorageConfig, migrations: Vec<Migration>, sources: Sources) -> Storage {
     let (tx, rx) = async_channel::unbounded();
     let (exit_tx, exit_rx) = async_channel::bounded(1);
     let spawned = std::thread::Builder::new()
@@ -267,8 +423,9 @@ fn spawn_with(config: StorageConfig, migrations: Vec<Migration>) -> Storage {
         .spawn(move || {
             // Any unwind that escapes `worker::run` is still recorded, so the
             // outcome channel always delivers WorkerPanicked for a panic.
-            let exit = match catch_unwind(AssertUnwindSafe(|| worker::run(config, migrations, rx)))
-            {
+            let exit = match catch_unwind(AssertUnwindSafe(|| {
+                worker::run(config, migrations, sources, rx)
+            })) {
                 Ok(exit) => exit,
                 Err(payload) => Exit::Panicked(worker::panic_message(payload.as_ref())),
             };
@@ -299,7 +456,30 @@ impl Storage {
     ) -> Storage {
         let mut migrations = migrations::bundled();
         migrations.push(Migration { id, name, sql });
-        spawn_with(config, migrations)
+        spawn_with(config, migrations, Sources::system())
+    }
+
+    /// Spawns with scripted id bytes (used in order, then OS randomness) and a fixed clock.
+    pub fn spawn_with_sources(
+        config: StorageConfig,
+        ids: Vec<[u8; 16]>,
+        now: domain::identity::Timestamp,
+    ) -> Storage {
+        spawn_with(config, migrations::bundled(), Sources::scripted(ids, now))
+    }
+
+    /// The next write transaction fails at its `step`-th write statement
+    /// (1-based) with `StorageError::Sqlite("injected write failure")`, then
+    /// the hook clears. A create that fails validation never opens a write
+    /// transaction and leaves the hook armed.
+    pub fn inject_write_failure(
+        &self,
+        step: usize,
+    ) -> impl Future<Output = Result<(), StorageError>> + use<> {
+        worker::submit(self.tx.as_ref(), move |core: &mut Core| {
+            core.inject_write_failure(step);
+            Ok::<(), StorageError>(())
+        })
     }
 
     pub fn inject_panic(&self) -> impl Future<Output = Result<(), StorageError>> + use<> {

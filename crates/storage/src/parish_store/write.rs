@@ -1,0 +1,538 @@
+//! Validation and atomic writes for parish records.
+//!
+//! Every create validates its whole input before it opens a transaction, then
+//! runs one immediate transaction and commits only after every row has been
+//! written. Any error returns before the commit, so the dropped transaction
+//! rolls the whole create back. Identities come from the worker's id source and
+//! every row in one create shares the operation's single creation time.
+
+use domain::identity::{
+    ArrangementId, ChoirId, EntityId, OccurrenceId, ParishId, SectionId, SongId, Timestamp,
+};
+use rusqlite::{Connection, OptionalExtension, Params, Transaction, TransactionBehavior, params};
+
+use crate::worker::{Core, Sources};
+use crate::{RecordKind, StorageError, map_error};
+
+use super::records::{
+    ArrangementRecord, ChoirRecord, NewArrangement, NewChoir, NewParish, NewSong, OccurrenceRecord,
+    ParishRecord, SectionRecord, SongRecord,
+};
+
+/// How many identities one entity insert may try before giving up.
+const MAX_ID_ATTEMPTS: usize = 8;
+
+/// A failed insert that may be retried with a different identity.
+fn is_identity_collision(error: &rusqlite::Error) -> bool {
+    matches!(error.sqlite_extended_error_code(), Some(1555))
+}
+
+/// Bookkeeping for one write transaction.
+///
+/// `served` counts write statements so the fault hook can fail exactly its
+/// requested step; `collision` records whether the last statement failed with
+/// a primary-key constraint, the only failure a fresh identity may resolve.
+/// The scripted failure is taken from the worker when the transaction opens, so
+/// only a create that reached its write transaction consumes it.
+pub(crate) struct WriteSteps {
+    fault: Option<usize>,
+    served: usize,
+    collision: bool,
+}
+
+impl WriteSteps {
+    /// Starts counting at zero for one transaction.
+    pub(crate) fn new(fault: &mut Option<usize>) -> Self {
+        Self {
+            fault: fault.take(),
+            served: 0,
+            collision: false,
+        }
+    }
+
+    /// Reports and clears whether the last statement was an identity
+    /// collision.
+    fn take_collision(&mut self) -> bool {
+        std::mem::take(&mut self.collision)
+    }
+}
+
+/// Runs one write statement, after the optional scripted failure at this step.
+pub(crate) fn write(
+    tx: &Transaction<'_>,
+    step: &mut WriteSteps,
+    sql: &'static str,
+    params: impl Params,
+) -> Result<usize, StorageError> {
+    step.served += 1;
+    step.collision = false;
+    if step.fault == Some(step.served) {
+        step.fault = None;
+        return Err(StorageError::Sqlite("injected write failure".to_owned()));
+    }
+    tx.execute(sql, params).map_err(|error| {
+        step.collision = is_identity_collision(&error);
+        map_error(error)
+    })
+}
+
+/// Inserts one entity row, regenerating its identity after a collision.
+///
+/// A failed statement does not end a SQLite transaction, so a retry stays
+/// inside the same transaction. Child rows with identities use this too.
+fn insert_entity(
+    ids: &mut Sources,
+    steps: &mut WriteSteps,
+    kind: RecordKind,
+    mut insert: impl FnMut(EntityId, &mut WriteSteps) -> Result<usize, StorageError>,
+) -> Result<EntityId, StorageError> {
+    for _ in 0..MAX_ID_ATTEMPTS {
+        let id = EntityId::from_random_bytes(ids.next_bytes());
+        match insert(id, steps) {
+            Ok(_) => return Ok(id),
+            Err(error) => {
+                if steps.take_collision() {
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    }
+    Err(StorageError::IdentityExhausted { kind })
+}
+
+/// The one canonical text form of the operation's creation time.
+fn timestamp_text(at: Timestamp) -> Result<String, StorageError> {
+    at.canonical_text().ok_or(StorageError::InvalidInput {
+        field: "clock",
+        reason: "out of range",
+    })
+}
+
+/// Rejects text that is blank after trimming.
+fn require_present(field: &'static str, value: &str) -> Result<(), StorageError> {
+    if value.trim().is_empty() {
+        Err(StorageError::InvalidInput {
+            field,
+            reason: "blank",
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Rejects a repeated value in a set-shaped input.
+fn require_distinct<T: PartialEq>(field: &'static str, values: &[T]) -> Result<(), StorageError> {
+    for (index, value) in values.iter().enumerate() {
+        if values[..index].contains(value) {
+            return Err(StorageError::InvalidInput {
+                field,
+                reason: "duplicate",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Validates the Song before any statement runs.
+fn validate_song(song: &NewSong) -> Result<(), StorageError> {
+    require_present("title", &song.title)?;
+    for alias in &song.aliases {
+        require_present("alias", alias)?;
+    }
+    for moment in &song.liturgical_moments {
+        require_present("liturgical_moment", moment)?;
+    }
+    require_distinct("liturgical_moment", &song.liturgical_moments)?;
+    for occasion in &song.occasions {
+        require_present("occasion", occasion)?;
+    }
+    require_distinct("occasion", &song.occasions)?;
+    Ok(())
+}
+
+/// Validates the Arrangement before any statement runs.
+fn validate_arrangement(arrangement: &NewArrangement) -> Result<(), StorageError> {
+    require_present("title", &arrangement.title)?;
+    for language in &arrangement.languages {
+        require_present("language", language)?;
+    }
+    require_distinct("language", &arrangement.languages)?;
+    require_distinct("choir", &arrangement.choirs)?;
+    for occasion in &arrangement.occasions {
+        require_present("occasion", occasion)?;
+    }
+    require_distinct("occasion", &arrangement.occasions)?;
+    for section in &arrangement.sections {
+        if let Some(label) = &section.label {
+            require_present("label", label)?;
+        }
+    }
+    if arrangement
+        .sequence
+        .iter()
+        .any(|index| *index >= arrangement.sections.len())
+    {
+        return Err(StorageError::InvalidInput {
+            field: "sequence",
+            reason: "unknown section",
+        });
+    }
+    Ok(())
+}
+
+fn insert_parish(
+    conn: &mut Connection,
+    ids: &mut Sources,
+    at: Timestamp,
+    fault: &mut Option<usize>,
+    parish: NewParish,
+) -> Result<ParishRecord, StorageError> {
+    require_present("name", &parish.name)?;
+    let created = timestamp_text(at)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+
+    let exists = tx
+        .query_row("SELECT 1 FROM parish LIMIT 1", [], |_row| Ok(()))
+        .optional()
+        .map_err(map_error)?
+        .is_some();
+    if exists {
+        return Err(StorageError::ParishExists);
+    }
+
+    let id = insert_entity(ids, &mut steps, RecordKind::Parish, |id, steps| {
+        write(
+            &tx,
+            steps,
+            "INSERT INTO parish (id, name, created_at) VALUES (?1, ?2, ?3)",
+            params![id.to_string(), parish.name, created],
+        )
+    })?;
+    tx.commit().map_err(map_error)?;
+    Ok(ParishRecord {
+        id: ParishId::from_entity(id),
+        name: parish.name,
+        created_at: at,
+    })
+}
+
+fn insert_choir(
+    conn: &mut Connection,
+    ids: &mut Sources,
+    at: Timestamp,
+    fault: &mut Option<usize>,
+    choir: NewChoir,
+) -> Result<ChoirRecord, StorageError> {
+    require_present("name", &choir.name)?;
+    let created = timestamp_text(at)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+
+    let id = insert_entity(ids, &mut steps, RecordKind::Choir, |id, steps| {
+        write(
+            &tx,
+            steps,
+            "INSERT INTO choir (id, name, created_at) VALUES (?1, ?2, ?3)",
+            params![id.to_string(), choir.name, created],
+        )
+    })?;
+    tx.commit().map_err(map_error)?;
+    Ok(ChoirRecord {
+        id: ChoirId::from_entity(id),
+        name: choir.name,
+        created_at: at,
+        archived_at: None,
+    })
+}
+
+fn insert_song(
+    conn: &mut Connection,
+    ids: &mut Sources,
+    at: Timestamp,
+    fault: &mut Option<usize>,
+    song: NewSong,
+) -> Result<SongRecord, StorageError> {
+    validate_song(&song)?;
+    let created = timestamp_text(at)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+
+    let id = insert_entity(ids, &mut steps, RecordKind::Song, |id, steps| {
+        write(
+            &tx,
+            steps,
+            "INSERT INTO song (id, title, original_attribution, provenance, rights_notes, \
+             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id.to_string(),
+                song.title,
+                song.original_attribution.as_deref(),
+                song.provenance.as_deref(),
+                song.rights_notes.as_deref(),
+                created
+            ],
+        )
+    })?;
+    let song_text = id.to_string();
+
+    for (position, alias) in song.aliases.iter().enumerate() {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO song_alias (song_id, position, alias) VALUES (?1, ?2, ?3)",
+            params![song_text, position as i64, alias],
+        )?;
+    }
+    for moment in &song.liturgical_moments {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO song_liturgical_moment (song_id, moment) VALUES (?1, ?2)",
+            params![song_text, moment],
+        )?;
+    }
+    for occasion in &song.occasions {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO song_occasion (song_id, occasion) VALUES (?1, ?2)",
+            params![song_text, occasion],
+        )?;
+    }
+    tx.commit().map_err(map_error)?;
+
+    let mut liturgical_moments = song.liturgical_moments;
+    liturgical_moments.sort_unstable();
+    let mut occasions = song.occasions;
+    occasions.sort_unstable();
+    Ok(SongRecord {
+        id: SongId::from_entity(id),
+        title: song.title,
+        aliases: song.aliases,
+        original_attribution: song.original_attribution,
+        provenance: song.provenance,
+        rights_notes: song.rights_notes,
+        liturgical_moments,
+        occasions,
+        created_at: at,
+        archived_at: None,
+    })
+}
+
+fn insert_arrangement(
+    conn: &mut Connection,
+    ids: &mut Sources,
+    at: Timestamp,
+    fault: &mut Option<usize>,
+    arrangement: NewArrangement,
+) -> Result<ArrangementRecord, StorageError> {
+    validate_arrangement(&arrangement)?;
+    let created = timestamp_text(at)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let mut steps = WriteSteps::new(fault);
+
+    let song_found = tx
+        .query_row(
+            "SELECT 1 FROM song WHERE id = ?1",
+            params![arrangement.song.to_string()],
+            |_row| Ok(()),
+        )
+        .optional()
+        .map_err(map_error)?
+        .is_some();
+    if !song_found {
+        return Err(StorageError::MissingReference {
+            kind: RecordKind::Song,
+            id: arrangement.song.entity(),
+        });
+    }
+    for choir in &arrangement.choirs {
+        let choir_found = tx
+            .query_row(
+                "SELECT 1 FROM choir WHERE id = ?1",
+                params![choir.to_string()],
+                |_row| Ok(()),
+            )
+            .optional()
+            .map_err(map_error)?
+            .is_some();
+        if !choir_found {
+            return Err(StorageError::MissingReference {
+                kind: RecordKind::Choir,
+                id: choir.entity(),
+            });
+        }
+    }
+
+    let id = insert_entity(ids, &mut steps, RecordKind::Arrangement, |id, steps| {
+        write(
+            &tx,
+            steps,
+            "INSERT INTO arrangement (id, song_id, title, rendition_attribution, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id.to_string(),
+                arrangement.song.to_string(),
+                arrangement.title,
+                arrangement.rendition_attribution.as_deref(),
+                created
+            ],
+        )
+    })?;
+    let arrangement_text = id.to_string();
+
+    for (position, language) in arrangement.languages.iter().enumerate() {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO arrangement_language (arrangement_id, position, language) \
+             VALUES (?1, ?2, ?3)",
+            params![arrangement_text, position as i64, language],
+        )?;
+    }
+    for choir in &arrangement.choirs {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO arrangement_choir (arrangement_id, choir_id) VALUES (?1, ?2)",
+            params![arrangement_text, choir.to_string()],
+        )?;
+    }
+    for occasion in &arrangement.occasions {
+        write(
+            &tx,
+            &mut steps,
+            "INSERT INTO arrangement_occasion (arrangement_id, occasion) VALUES (?1, ?2)",
+            params![arrangement_text, occasion],
+        )?;
+    }
+
+    let mut section_ids = Vec::with_capacity(arrangement.sections.len());
+    for (position, section) in arrangement.sections.iter().enumerate() {
+        let section_id = insert_entity(ids, &mut steps, RecordKind::Section, |id, steps| {
+            write(
+                &tx,
+                steps,
+                "INSERT INTO arrangement_section (id, arrangement_id, position, label, lyrics, \
+                 created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id.to_string(),
+                    arrangement_text,
+                    position as i64,
+                    section.label.as_deref(),
+                    section.lyrics,
+                    created
+                ],
+            )
+        })?;
+        section_ids.push(SectionId::from_entity(section_id));
+    }
+
+    let mut occurrence_ids = Vec::with_capacity(arrangement.sequence.len());
+    for (position, section_index) in arrangement.sequence.iter().enumerate() {
+        let section_id = section_ids[*section_index];
+        let occurrence_id = insert_entity(ids, &mut steps, RecordKind::Occurrence, |id, steps| {
+            write(
+                &tx,
+                steps,
+                "INSERT INTO section_occurrence (id, arrangement_id, section_id, position, \
+                 created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    id.to_string(),
+                    arrangement_text,
+                    section_id.to_string(),
+                    position as i64,
+                    created
+                ],
+            )
+        })?;
+        occurrence_ids.push(occurrence_id);
+    }
+    tx.commit().map_err(map_error)?;
+
+    let sequence: Vec<OccurrenceRecord> = arrangement
+        .sequence
+        .iter()
+        .zip(occurrence_ids)
+        .map(|(&section_index, id)| OccurrenceRecord {
+            id: OccurrenceId::from_entity(id),
+            section: section_ids[section_index],
+            created_at: at,
+        })
+        .collect();
+    let sections: Vec<SectionRecord> = arrangement
+        .sections
+        .into_iter()
+        .zip(section_ids)
+        .map(|(section, id)| SectionRecord {
+            id,
+            label: section.label,
+            lyrics: section.lyrics,
+            created_at: at,
+        })
+        .collect();
+    let mut choirs = arrangement.choirs;
+    choirs.sort_unstable();
+    let mut occasions = arrangement.occasions;
+    occasions.sort_unstable();
+
+    Ok(ArrangementRecord {
+        id: ArrangementId::from_entity(id),
+        song: arrangement.song,
+        title: arrangement.title,
+        languages: arrangement.languages,
+        choirs,
+        rendition_attribution: arrangement.rendition_attribution,
+        occasions,
+        sections,
+        sequence,
+        created_at: at,
+        archived_at: None,
+    })
+}
+
+impl Core {
+    /// Creates the Parish and its identity.
+    pub(crate) fn create_parish(
+        &mut self,
+        parish: NewParish,
+    ) -> Result<ParishRecord, StorageError> {
+        let at = self.timestamp();
+        let (conn, ids, fault) = self.write_parts()?;
+        insert_parish(conn, ids, at, fault, parish)
+    }
+
+    /// Creates one Choir and its identity.
+    pub(crate) fn create_choir(&mut self, choir: NewChoir) -> Result<ChoirRecord, StorageError> {
+        let at = self.timestamp();
+        let (conn, ids, fault) = self.write_parts()?;
+        insert_choir(conn, ids, at, fault, choir)
+    }
+
+    /// Creates one Song with its aliases, moments, and occasions.
+    pub(crate) fn create_song(&mut self, song: NewSong) -> Result<SongRecord, StorageError> {
+        let at = self.timestamp();
+        let (conn, ids, fault) = self.write_parts()?;
+        insert_song(conn, ids, at, fault, song)
+    }
+
+    /// Creates one Arrangement with its sections, Sequence, and links.
+    pub(crate) fn create_arrangement(
+        &mut self,
+        arrangement: NewArrangement,
+    ) -> Result<ArrangementRecord, StorageError> {
+        let at = self.timestamp();
+        let (conn, ids, fault) = self.write_parts()?;
+        insert_arrangement(conn, ids, at, fault, arrangement)
+    }
+}

@@ -10,6 +10,7 @@ publish.workspace = true
 # so the xtask dependency contract allows this package no internal dependencies
 # at all. `fault-injection` is enabled only here, never in a normal build.
 [dev-dependencies]
+domain.workspace = true
 storage = { workspace = true, features = ["fault-injection"] }
 futures-lite = "=2.6.1"
 rusqlite = { workspace = true }
